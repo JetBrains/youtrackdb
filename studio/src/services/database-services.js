@@ -217,7 +217,7 @@ database.factory("Database", [
         var classes = metadata["classes"];
         var fields = new Array();
         for (var entry in classes) {
-          var defaultCluster = classes[entry]["defaultCluster"];
+          var defaultCollection = classes[entry]["defaultCollection"];
           if (clazz.toUpperCase() == classes[entry].name.toUpperCase()) {
             var props = classes[entry]["properties"];
             for (var f in props) {
@@ -233,7 +233,7 @@ database.factory("Database", [
         var classes = metadata["classes"];
         var fields = new Array();
         for (var entry in classes) {
-          var defaultCluster = classes[entry]["properties"];
+          var defaultCollection = classes[entry]["properties"];
           if (clazz.toUpperCase() == classes[entry].name.toUpperCase()) {
             var props = classes[entry]["properties"];
             for (var f in props) {
@@ -266,7 +266,7 @@ database.factory("Database", [
         var classes = metadata["classes"];
         var fields = new Array();
         for (var entry in classes) {
-          var defaultCluster = classes[entry]["indexes"];
+          var defaultCollection = classes[entry]["indexes"];
           if (clazz.toUpperCase() == classes[entry].name.toUpperCase()) {
             var props = classes[entry]["indexes"];
             for (var f in props) {
@@ -323,13 +323,13 @@ database.factory("Database", [
 
         return fields;
       },
-      classFromCluster: function(cluster) {
+      classFromCollection: function(collection) {
         var metadata = this.getMetadata();
         var classes = metadata["classes"];
         var clazz;
         for (var entry in classes) {
-          var defaultCluster = classes[entry]["defaultCluster"];
-          if (cluster == defaultCluster) {
+          var defaultCollection = classes[entry]["defaultCollection"];
+          if (collection == defaultCollection) {
             clazz = classes[entry].name;
             break;
           }
@@ -499,8 +499,8 @@ database.factory("Database", [
         });
         return strictSql;
       },
-      getClusterSelection: () => {
-        return current.metadata.server.clusterSelectionStrategies || ["round-robin", "default", "balanced", "local"];
+      getCollectionSelection: () => {
+        return current.metadata.server.collectionSelectionStrategies || ["round-robin", "default", "balanced", "local"];
       }
     };
   }
@@ -1247,7 +1247,7 @@ database.factory("PropertyAlterApi", [
     return resource;
   }
 ]);
-database.factory("ClusterAlterApi", [
+database.factory("CollectionAlterApi", [
   "$http",
   "$resource",
   "$q",
@@ -1261,7 +1261,7 @@ database.factory("ClusterAlterApi", [
         "command/" +
         database +
         "/sql/-/-1?format=rid,type,version,class,graph";
-      var query = 'alter cluster {{cluster}} {{name}} "{{value}}"';
+      var query = 'alter collection {{collection}} {{name}} "{{value}}"';
       var queryText = S(query).template(props).s;
       $http
         .post(text, queryText)

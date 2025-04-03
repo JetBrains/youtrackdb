@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * CONTAINS KEY operator.
@@ -68,6 +69,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
@@ -137,11 +139,13 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

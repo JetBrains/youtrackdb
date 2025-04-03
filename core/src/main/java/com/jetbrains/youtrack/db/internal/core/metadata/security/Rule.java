@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import javax.annotation.Nullable;
 
 /**
  * @since 08/11/14
@@ -30,8 +31,8 @@ public class Rule implements Serializable {
     public static final ResourceGeneric CLASS =
         new ResourceGeneric("CLASS", DatabaseSecurityResources.CLASS) {
         };
-    public static final ResourceGeneric CLUSTER =
-        new ResourceGeneric("CLUSTER", DatabaseSecurityResources.CLUSTER) {
+    public static final ResourceGeneric COLLECTION =
+        new ResourceGeneric("COLLECTION", DatabaseSecurityResources.COLLECTION) {
         };
     public static final ResourceGeneric BYPASS_RESTRICTED =
         new ResourceGeneric("BYPASS_RESTRICTED", DatabaseSecurityResources.BYPASS_RESTRICTED) {
@@ -54,8 +55,8 @@ public class Rule implements Serializable {
         new ResourceGeneric("RECORD_HOOK", DatabaseSecurityResources.RECORD_HOOK) {
         };
 
-    public static final ResourceGeneric SYSTEM_CLUSTERS =
-        new ResourceGeneric("SYSTEM_CLUSTER", DatabaseSecurityResources.SYSTEMCLUSTERS) {
+    public static final ResourceGeneric SYSTEM_COLLECTIONS =
+        new ResourceGeneric("SYSTEM_COLLECTION", DatabaseSecurityResources.SYSTEMCOLLECTIONS) {
         };
 
     public static final ResourceGeneric SERVER =
@@ -154,6 +155,7 @@ public class Rule implements Serializable {
     this.access = access;
   }
 
+  @Nullable
   public static ResourceGeneric mapLegacyResourceToGenericResource(final String resource) {
     final var found =
         ResourceGeneric.legacyToGenericMap.floorEntry(resource.toLowerCase(Locale.ENGLISH));
@@ -176,6 +178,7 @@ public class Rule implements Serializable {
     return ResourceGeneric.genericToLegacyMap.get(resourceGeneric);
   }
 
+  @Nullable
   public static String mapLegacyResourceToSpecificResource(final String resource) {
     var found =
         ResourceGeneric.legacyToGenericMap.floorEntry(resource.toLowerCase(Locale.ENGLISH));
@@ -277,6 +280,7 @@ public class Rule implements Serializable {
     return allowed;
   }
 
+  @Nullable
   private Boolean allowed(final byte operation, final Byte ac) {
     if (ac == null) {
       return null;

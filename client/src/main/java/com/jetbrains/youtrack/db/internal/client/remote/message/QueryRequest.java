@@ -34,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
@@ -181,6 +182,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     return params;
   }
 
+  @Nullable
   public Object[] getPositionalParameters() {
     var params = this.params;
     if (params == null) {

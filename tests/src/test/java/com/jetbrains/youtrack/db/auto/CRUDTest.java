@@ -2827,7 +2827,7 @@ public class CRUDTest extends BaseDBTest {
   public void testSaveMultiCircular() {
     session = createSessionInstance();
     try {
-      startRecordNumber = session.countClusterElements("Profile");
+      startRecordNumber = session.countCollectionElements("Profile");
       session.begin();
       var bObama = session.newInstance("Profile");
       bObama.setProperty("nick", "TheUSPresident");

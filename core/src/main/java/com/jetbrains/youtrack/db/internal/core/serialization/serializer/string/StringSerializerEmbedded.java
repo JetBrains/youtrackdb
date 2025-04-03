@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import javax.annotation.Nullable;
 
 public class StringSerializerEmbedded implements StringSerializer {
 
@@ -41,6 +42,7 @@ public class StringSerializerEmbedded implements StringSerializer {
    * Re-Create any object if the class has a public constructor that accepts a String as unique
    * parameter.
    */
+  @Nullable
   public Object fromStream(DatabaseSessionInternal session, final String iStream) {
     if (iStream == null || iStream.isEmpty())
     // NULL VALUE

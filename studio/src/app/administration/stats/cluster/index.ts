@@ -1,2 +1,2 @@
-export * from "./clustermanagement.component";
+export * from "./collectionmanagement.component";
 export * from "./overview";

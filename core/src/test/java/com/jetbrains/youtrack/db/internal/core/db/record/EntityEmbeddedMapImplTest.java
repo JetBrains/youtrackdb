@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -218,8 +220,8 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
 
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-    final var trackedMap = new EntityEmbeddedMapImpl<String>(doc);
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedMap = new EntityEmbeddedMapImpl<String>(
+        doc);
 
     trackedMap.put("key1", "value1");
     trackedMap.put("key2", "value2");
@@ -302,5 +304,81 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
             (List) trackedMap.getTimeLine().getMultiValueChangeEvents()),
         original);
     session.rollback();
+  }
+
+  @Test
+  public void updateMapElementViaSql() {
+    final var classWithSchema = session.createClass("EntityWithSchema");
+    classWithSchema.createProperty("oneLevelMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    classWithSchema.createProperty("nestedMap", PropertyType.EMBEDDEDMAP, PropertyType.EMBEDDEDMAP);
+
+    final var classWithoutSchema = session.createClass("EntityWithoutSchema");
+
+    final var classes = List.of(classWithSchema, classWithoutSchema);
+
+    session.begin();
+
+    final List<RID> entities = new ArrayList<>();
+    for (var clazz : classes) {
+      for (var init : List.of(true, false)) {
+
+        final var entity = session.newEntity(clazz);
+        entity.setProperty("desc", clazz.getName() + " - " + (init ? "init" : "no init"));
+        entities.add(entity.getIdentity());
+
+        final var oneLevelMap = entity.getOrCreateEmbeddedMap("oneLevelMap");
+        final var nestedMap = entity.getOrCreateEmbeddedMap("nestedMap");
+
+        // Unfortunately nested map update doesn't work if the keys are not initialized at the start
+        nestedMap.put("key1", session.newEmbeddedMap());
+        nestedMap.put("key2", session.newEmbeddedMap());
+
+        if (init) {
+          oneLevelMap.put("key1", "value1");
+          nestedMap.put("key1", session.newEmbeddedMap(Map.of("subkey1", "subvalue1")));
+        }
+
+      }
+    }
+
+    session.commit();
+
+    var tx = session.begin();
+    for (var c : classes) {
+
+      tx.command(
+          "UPDATE " + c.getName() + " SET " +
+              "oneLevelMap['key1'] = 'newvalue1', " +
+              "oneLevelMap['key2'] = 'newvalue2', " +
+              "nestedMap['key1']['subkey1'] = 'newvalue3', " +
+              "nestedMap['key1']['subkey2'] = 'newvalue4', " +
+              "nestedMap['key2']['subkey3'] = 'newvalue5'"
+      );
+    }
+
+    session.commit();
+    tx = session.begin();
+
+    for (var eid : entities) {
+      final var entity = tx.loadEntity(eid);
+      Assert.assertEquals(
+          "embeddedMap is different for " + entity.getString("desc"),
+          Map.of(
+              "key1", "newvalue1",
+              "key2", "newvalue2"
+          ),
+          entity.getEmbeddedMap("oneLevelMap")
+      );
+
+      Assert.assertEquals(
+          "nestedMap is different for " + entity.getString("desc"),
+          Map.of(
+              "key1", Map.of("subkey1", "newvalue3", "subkey2", "newvalue4"),
+              "key2", Map.of("subkey3", "newvalue5")
+          ),
+          entity.getEmbeddedMap("nestedMap")
+      );
+    }
+    session.commit();
   }
 }

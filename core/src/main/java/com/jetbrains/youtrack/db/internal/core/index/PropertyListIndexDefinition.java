@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property that presents
@@ -66,6 +67,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     return values;
   }
 
+  @Nullable
   @Override
   public Object createValue(DatabaseSessionInternal session, final Object... params) {
     var param = params[0];

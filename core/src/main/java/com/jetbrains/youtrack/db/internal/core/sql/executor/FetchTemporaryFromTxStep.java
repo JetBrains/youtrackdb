@@ -17,7 +17,7 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * <p>Fetches temporary records (cluster id -1) from current transaction
+ * <p>Fetches temporary records (collection id -1) from current transaction
  */
 public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
@@ -55,32 +55,32 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
     if (iterable != null) {
       for (var op : iterable) {
         DBRecord record = op.record;
-        if (matchesClass(db, record, className) && !hasCluster(record)) {
+        if (matchesClass(db, record, className) && !hasCollection(record)) {
           records.add(record);
         }
       }
     }
-    if (order == FetchFromClusterExecutionStep.ORDER_ASC) {
+    if (order == FetchFromCollectionExecutionStep.ORDER_ASC) {
       records.sort(
           (o1, o2) -> {
-            var p1 = o1.getIdentity().getClusterPosition();
-            var p2 = o2.getIdentity().getClusterPosition();
+            var p1 = o1.getIdentity().getCollectionPosition();
+            var p2 = o2.getIdentity().getCollectionPosition();
             return Long.compare(p1, p2);
           });
     } else {
       records.sort(
           (o1, o2) -> {
-            var p1 = o1.getIdentity().getClusterPosition();
-            var p2 = o2.getIdentity().getClusterPosition();
+            var p1 = o1.getIdentity().getCollectionPosition();
+            var p2 = o2.getIdentity().getCollectionPosition();
             return Long.compare(p2, p1);
           });
     }
     return records.iterator();
   }
 
-  private static boolean hasCluster(DBRecord record) {
+  private static boolean hasCollection(DBRecord record) {
     var rid = record.getIdentity();
-    return rid.getClusterId() >= 0;
+    return rid.getCollectionId() >= 0;
   }
 
   private static boolean matchesClass(DatabaseSessionInternal session, DBRecord record,

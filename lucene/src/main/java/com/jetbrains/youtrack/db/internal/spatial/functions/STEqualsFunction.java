@@ -18,6 +18,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -45,6 +46,7 @@ public class STEqualsFunction extends SQLFunctionAbstract {
     return factory.operation().isEquals(shape, shape1);
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

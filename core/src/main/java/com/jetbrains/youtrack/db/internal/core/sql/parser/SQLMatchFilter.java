@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLMatchFilter extends SimpleNode {
 
@@ -22,6 +23,7 @@ public class SQLMatchFilter extends SimpleNode {
     super(p, id);
   }
 
+  @Nullable
   public String getAlias() {
     for (var item : items) {
       if (item.alias != null) {
@@ -47,6 +49,7 @@ public class SQLMatchFilter extends SimpleNode {
     }
   }
 
+  @Nullable
   public SQLWhereClause getFilter() {
     for (var item : items) {
       if (item.filter != null) {
@@ -72,6 +75,7 @@ public class SQLMatchFilter extends SimpleNode {
     }
   }
 
+  @Nullable
   public SQLWhereClause getWhileCondition() {
     for (var item : items) {
       if (item.whileCondition != null) {
@@ -81,6 +85,7 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public String getClassName(CommandContext context) {
     for (var item : items) {
       if (item.className != null) {
@@ -102,21 +107,23 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
-  public String getClusterName(CommandContext context) {
+  @Nullable
+  public String getCollectionName(CommandContext context) {
     for (var item : items) {
-      if (item.clusterName != null) {
-        return item.clusterName.getStringValue();
-      } else if (item.clusterId != null) {
-        var cid = item.clusterId.value.intValue();
-        var clusterName = context.getDatabaseSession().getClusterNameById(cid);
-        if (clusterName != null) {
-          return clusterName;
+      if (item.collectionName != null) {
+        return item.collectionName.getStringValue();
+      } else if (item.collectionId != null) {
+        var cid = item.collectionId.value.intValue();
+        var collectionName = context.getDatabaseSession().getCollectionNameById(cid);
+        if (collectionName != null) {
+          return collectionName;
         }
       }
     }
     return null;
   }
 
+  @Nullable
   public SQLRid getRid(CommandContext context) {
     for (var item : items) {
       if (item.rid != null) {
@@ -126,6 +133,7 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Integer getMaxDepth() {
     for (var item : items) {
       if (item.maxDepth != null) {
@@ -144,6 +152,7 @@ public class SQLMatchFilter extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public String getDepthAlias() {
     for (var item : items) {
       if (item.depthAlias != null) {
@@ -153,6 +162,7 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public String getPathAlias() {
     for (var item : items) {
       if (item.pathAlias != null) {

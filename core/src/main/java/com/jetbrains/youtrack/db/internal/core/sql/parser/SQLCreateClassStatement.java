@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -29,14 +30,14 @@ public class SQLCreateClassStatement extends DDLStatement {
   protected List<SQLIdentifier> superclasses;
 
   /**
-   * Cluster IDs for this class
+   * Collection IDs for this class
    */
-  protected List<SQLInteger> clusters;
+  protected List<SQLInteger> collections;
 
   /**
-   * Total number clusters for this class
+   * Total number collections for this class
    */
-  protected SQLInteger totalClusterNo;
+  protected SQLInteger totalCollectionNo;
 
   protected boolean abstractClass = false;
 
@@ -51,7 +52,7 @@ public class SQLCreateClassStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    Schema schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     if (schema.existsClass(name.getStringValue())) {
       if (ifNotExists) {
         return ExecutionStream.empty();
@@ -65,24 +66,22 @@ public class SQLCreateClassStatement extends DDLStatement {
     result.setProperty("operation", "create class");
     result.setProperty("className", name.getStringValue());
 
-    SchemaClass clazz = null;
     var superclasses = getSuperClasses(schema);
     if (abstractClass) {
-      clazz = schema.createAbstractClass(name.getStringValue(), superclasses);
+      schema.createAbstractClass(name.getStringValue(), superclasses);
       result.setProperty("abstract", abstractClass);
-    } else if (totalClusterNo != null) {
-      clazz =
-          schema.createClass(
-              name.getStringValue(), totalClusterNo.getValue().intValue(), superclasses);
-    } else if (clusters != null) {
-      clusters.stream().map(x -> x.getValue().intValue()).toList();
-      var clusterIds = new int[clusters.size()];
-      for (var i = 0; i < clusters.size(); i++) {
-        clusterIds[i] = clusters.get(i).getValue().intValue();
+    } else if (totalCollectionNo != null) {
+      schema.createClass(
+          name.getStringValue(), totalCollectionNo.getValue().intValue(), superclasses);
+    } else if (collections != null) {
+      collections.stream().map(x -> x.getValue().intValue()).toList();
+      var collectionIds = new int[collections.size()];
+      for (var i = 0; i < collections.size(); i++) {
+        collectionIds[i] = collections.get(i).getValue().intValue();
       }
-      clazz = schema.createClass(name.getStringValue(), clusterIds, superclasses);
+      schema.createClass(name.getStringValue(), collectionIds, superclasses);
     } else {
-      clazz = schema.createClass(name.getStringValue(), superclasses);
+      schema.createClass(name.getStringValue(), superclasses);
     }
 
     return ExecutionStream.singleton(result);
@@ -128,20 +127,20 @@ public class SQLCreateClassStatement extends DDLStatement {
         first = false;
       }
     }
-    if (clusters != null && clusters.size() > 0) {
-      builder.append(" CLUSTER ");
+    if (collections != null && collections.size() > 0) {
+      builder.append(" COLLECTION ");
       var first = true;
-      for (var cluster : clusters) {
+      for (var collection : collections) {
         if (!first) {
           builder.append(",");
         }
-        cluster.toString(params, builder);
+        collection.toString(params, builder);
         first = false;
       }
     }
-    if (totalClusterNo != null) {
-      builder.append(" CLUSTERS ");
-      totalClusterNo.toString(params, builder);
+    if (totalCollectionNo != null) {
+      builder.append(" COLLECTIONS ");
+      totalCollectionNo.toString(params, builder);
     }
     if (abstractClass) {
       builder.append(" ABSTRACT");
@@ -166,20 +165,20 @@ public class SQLCreateClassStatement extends DDLStatement {
         first = false;
       }
     }
-    if (clusters != null && clusters.size() > 0) {
-      builder.append(" CLUSTER ");
+    if (collections != null && collections.size() > 0) {
+      builder.append(" COLLECTION ");
       var first = true;
-      for (var cluster : clusters) {
+      for (var collection : collections) {
         if (!first) {
           builder.append(",");
         }
-        cluster.toGenericStatement(builder);
+        collection.toGenericStatement(builder);
         first = false;
       }
     }
-    if (totalClusterNo != null) {
-      builder.append(" CLUSTERS ");
-      totalClusterNo.toGenericStatement(builder);
+    if (totalCollectionNo != null) {
+      builder.append(" COLLECTIONS ");
+      totalCollectionNo.toGenericStatement(builder);
     }
     if (abstractClass) {
       builder.append(" ABSTRACT");
@@ -194,9 +193,10 @@ public class SQLCreateClassStatement extends DDLStatement {
         superclasses == null
             ? null
             : superclasses.stream().map(x -> x.copy()).collect(Collectors.toList());
-    result.clusters =
-        clusters == null ? null : clusters.stream().map(x -> x.copy()).collect(Collectors.toList());
-    result.totalClusterNo = totalClusterNo == null ? null : totalClusterNo.copy();
+    result.collections =
+        collections == null ? null
+            : collections.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.totalCollectionNo = totalCollectionNo == null ? null : totalCollectionNo.copy();
     result.abstractClass = abstractClass;
     result.ifNotExists = ifNotExists;
     return result;
@@ -222,10 +222,10 @@ public class SQLCreateClassStatement extends DDLStatement {
     if (!Objects.equals(superclasses, that.superclasses)) {
       return false;
     }
-    if (!Objects.equals(clusters, that.clusters)) {
+    if (!Objects.equals(collections, that.collections)) {
       return false;
     }
-    if (!Objects.equals(totalClusterNo, that.totalClusterNo)) {
+    if (!Objects.equals(totalCollectionNo, that.totalCollectionNo)) {
       return false;
     }
     return ifNotExists == that.ifNotExists;
@@ -235,8 +235,8 @@ public class SQLCreateClassStatement extends DDLStatement {
   public int hashCode() {
     var result = name != null ? name.hashCode() : 0;
     result = 31 * result + (superclasses != null ? superclasses.hashCode() : 0);
-    result = 31 * result + (clusters != null ? clusters.hashCode() : 0);
-    result = 31 * result + (totalClusterNo != null ? totalClusterNo.hashCode() : 0);
+    result = 31 * result + (collections != null ? collections.hashCode() : 0);
+    result = 31 * result + (totalCollectionNo != null ? totalCollectionNo.hashCode() : 0);
     result = 31 * result + (abstractClass ? 1 : 0);
     return result;
   }
@@ -252,11 +252,11 @@ public class SQLCreateClassStatement extends DDLStatement {
     this.superclasses.add(identifier);
   }
 
-  public void addCluster(SQLInteger id) {
-    if (clusters == null) {
-      this.clusters = new ArrayList<>();
+  public void addCollection(SQLInteger id) {
+    if (collections == null) {
+      this.collections = new ArrayList<>();
     }
-    this.clusters.add(id);
+    this.collections.add(id);
   }
 }
 /* JavaCC - OriginalChecksum=4043013624f55fdf0ea8fee6d4f211b0 (do not edit this line) */

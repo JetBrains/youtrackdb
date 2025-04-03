@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Represents an object field as value in the query condition.
@@ -192,6 +193,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     return operationsChain != null;
   }
 
+  @Nullable
   public Pair<SQLMethodRuntime, Object[]> getLastChainOperator() {
     if (operationsChain != null) {
       return operationsChain.get(operationsChain.size() - 1);
@@ -203,6 +205,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
   protected abstract void setRoot(DatabaseSessionInternal session, BaseParser iQueryToParse,
       final String iRoot);
 
+  @Nullable
   protected static Collate getCollateForField(DatabaseSessionInternal session,
       final SchemaClass iClass,
       final String iFieldName) {

@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -92,12 +93,14 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
     }
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse execute(DatabaseSessionInternal session, RemotePushHandler remote) {
     remote.executeLiveQueryPush(this);
     return null;
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

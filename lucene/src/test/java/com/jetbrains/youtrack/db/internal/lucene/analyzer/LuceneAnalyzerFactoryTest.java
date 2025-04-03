@@ -8,8 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.io.File;
 import java.io.IOException;
@@ -40,7 +39,7 @@ public class LuceneAnalyzerFactoryTest extends LuceneBaseTest {
 
     var metajson =
         IOUtils.readFileAsString(new File("./src/test/resources/index_metadata_new.json"));
-    metadata = RecordSerializerJackson.mapFromJson(metajson);
+    metadata = JSONSerializerJackson.mapFromJson(metajson);
 
     indexDef = Mockito.mock(IndexDefinition.class);
     when(indexDef.getFields())

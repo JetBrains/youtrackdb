@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import javax.annotation.Nullable;
 
 /**
  * takes a result set made of OUpdatableRecord instances and transforms it in another result set
@@ -26,6 +27,7 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
     return resultSet.filter(ConvertToResultInternalStep::filterMap);
   }
 
+  @Nullable
   private static Result filterMap(Result result, CommandContext ctx) {
     if (result instanceof UpdatableResult) {
       if (result.isEntity()) {

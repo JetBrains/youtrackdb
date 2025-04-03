@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 public class SQLFilter extends SQLPredicate implements CommandPredicate {
 
   public SQLFilter(
-      final String iText, @Nonnull final CommandContext iContext, final String iFilterKeyword) {
+      final String iText, @Nonnull final CommandContext iContext) {
     super(iContext);
 
     if (iText == null) {
@@ -76,15 +76,15 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
     this.rootCondition = resetOperatorPrecedence(rootCondition);
   }
 
-  private SQLFilterCondition resetOperatorPrecedence(SQLFilterCondition iCondition) {
+  private static SQLFilterCondition resetOperatorPrecedence(SQLFilterCondition iCondition) {
     if (iCondition == null) {
       return iCondition;
     }
-    if (iCondition.left != null && iCondition.left instanceof SQLFilterCondition) {
+    if (iCondition.left instanceof SQLFilterCondition) {
       iCondition.left = resetOperatorPrecedence((SQLFilterCondition) iCondition.left);
     }
 
-    if (iCondition.right != null && iCondition.right instanceof SQLFilterCondition right) {
+    if (iCondition.right instanceof SQLFilterCondition right) {
       iCondition.right = resetOperatorPrecedence(right);
       if (iCondition.operator != null) {
         if (!right.inBraces
@@ -110,17 +110,5 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
     }
 
     return rootCondition.evaluate(iRecord, iCurrentResult, iContext);
-  }
-
-  public SQLFilterCondition getRootCondition() {
-    return rootCondition;
-  }
-
-  @Override
-  public String toString() {
-    if (rootCondition != null) {
-      return "Parsed: " + rootCondition;
-    }
-    return "Unparsed: " + parserText;
   }
 }

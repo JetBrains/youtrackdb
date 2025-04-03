@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * BETWEEN operator.
@@ -132,6 +133,7 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
@@ -209,6 +211,7 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
       final Object iRight) {
@@ -231,6 +234,7 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, final Object iLeft, final Object iRight) {
     validate(iRight);

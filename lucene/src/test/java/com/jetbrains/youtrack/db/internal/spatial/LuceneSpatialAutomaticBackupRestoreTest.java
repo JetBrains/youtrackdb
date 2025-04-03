@@ -20,15 +20,17 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup;
+import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup.AutomaticBackupListener;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
@@ -42,15 +44,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.zip.GZIPInputStream;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 
-/**
- *
- */
 public class LuceneSpatialAutomaticBackupRestoreTest {
 
   private static final String DBNAME = "OLuceneAutomaticBackupRestoreTest";
@@ -69,8 +67,6 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
   @Before
   public void setUp() throws Exception {
-    Assume.assumeFalse(IOUtils.isOsWindows());
-
     final var buildDirectory = System.getProperty("buildDirectory", "target");
     final var buildDirectoryFile = new File(buildDirectory);
 
@@ -117,28 +113,29 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     db.execute("create property City.location EMBEDDED OPOINT").close();
 
     db.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
-
-    var rome = newCity("Rome", 12.5, 41.9);
-
     db.begin();
+    newCity("Rome", 12.5, 41.9);
     db.commit();
   }
 
-  protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {
-    var city =
-        ((EntityImpl) db.newEntity("City"))
-            .setPropertyInChain("name", name)
-            .setPropertyInChain(
-                "location",
-                ((EntityImpl) db.newEntity("OPoint"))
-                    .setPropertyInChain(
-                        "coordinates",
-                        new ArrayList<Double>() {
-                          {
-                            add(longitude);
-                            add(latitude);
-                          }
-                        }));
+  protected Entity newCity(String name, final Double longitude, final Double latitude) {
+    var point = db.newEmbeddedEntity("OPoint");
+
+    point.newEmbeddedList(
+        "coordinates",
+        new ArrayList<Double>() {
+          {
+            add(longitude);
+            add(latitude);
+          }
+        });
+    var city = db.newEntity("City");
+
+    city.setEmbeddedEntity("location", point);
+
+    city.setString("name", name);
+    city.setDouble("longitude", longitude);
+
     return city;
   }
 
@@ -164,28 +161,29 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
         "select * from City where  ST_WITHIN(location,'POLYGON ((12.314015 41.8262816, 12.314015"
             + " 41.963125, 12.6605063 41.963125, 12.6605063 41.8262816, 12.314015 41.8262816))') ="
             + " true";
-    var docs = db.query(query);
+    var tx = db.begin();
+    var docs = tx.query(query);
     Assert.assertEquals(docs.stream().count(), 1);
+    tx.commit();
 
     var jsonConfig =
         IOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
-    var doc =
-        ((EntityImpl) db.newEntity());
-    doc.updateFromJSON(jsonConfig);
-    doc.setPropertyInChain("enabled", true)
-        .setPropertyInChain("targetFileName", "${DBNAME}.json")
-        .setPropertyInChain("targetDirectory", BACKUPDIR)
-        .setPropertyInChain("mode", "EXPORT")
-        .setPropertyInChain("dbInclude", new String[]{DBNAME})
-        .setPropertyInChain(
-            "firstTime",
-            new SimpleDateFormat("HH:mm:ss")
-                .format(new Date(System.currentTimeMillis() + 2000)));
+    var map = JSONSerializerJackson.mapFromJson(jsonConfig);
+    map.put("enabled", true);
+    map.put("targetFileName", "${DBNAME}.json");
+    map.put("targetDirectory", BACKUPDIR);
+    map.put("mode", "EXPORT");
+    map.put("dbInclude", new String[]{DBNAME});
+    map.put(
+        "firstTime",
+        new SimpleDateFormat("HH:mm:ss")
+            .format(new Date(System.currentTimeMillis() + 2000)));
 
     IOUtils.writeFile(
-        new File(tempFolder.getAbsolutePath() + "/config/automatic-backup.json"), doc.toJSON());
+        new File(tempFolder.getAbsolutePath() + "/config/automatic-backup.json"),
+        JSONSerializerJackson.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();
 
@@ -195,7 +193,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     final var latch = new CountDownLatch(1);
 
     aBackup.registerListener(
-        new AutomaticBackup.OAutomaticBackupListener() {
+        new AutomaticBackupListener() {
           @Override
           public void onBackupCompleted(String database) {
             latch.countDown();

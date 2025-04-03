@@ -19,30 +19,24 @@
  */
 package com.jetbrains.youtrack.db.internal.core.iterator;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Arrays;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
 /**
- * Iterator class to browse forward and backward the records of a cluster. Once browsed in a
+ * Iterator class to browse forward and backward the records of a collection. Once browsed in a
  * direction, the iterator cannot change it. This iterator with "live updates" set is able to catch
- * updates to the cluster sizes while browsing. This is the case when concurrent clients/threads
- * insert and remove item in any cluster the iterator is browsing. If the cluster are hot removed by
- * from the database the iterator could be invalid and throw exception of cluster not found.
+ * updates to the collection sizes while browsing. This is the case when concurrent clients/threads
+ * insert and remove item in any collection the iterator is browsing. If the collection are hot removed by
+ * from the database the iterator could be invalid and throw exception of collection not found.
  */
 public class RecordIteratorClass implements Iterator<EntityImpl> {
 
   @Nonnull
-  private final RecordIteratorClusters<EntityImpl> iterator;
+  private final RecordIteratorCollections<EntityImpl> iterator;
 
   public RecordIteratorClass(
       @Nonnull final DatabaseSessionInternal session,
@@ -54,12 +48,12 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
   public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
       @Nonnull final SchemaClassInternal targetClass,
       final boolean polymorphic, boolean forwardDirection) {
-    var clusterIds = polymorphic ? targetClass.getPolymorphicClusterIds()
-        : targetClass.getClusterIds();
-    clusterIds = SchemaClassImpl.readableClusters(session, clusterIds,
+    var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
+        : targetClass.getCollectionIds();
+    collectionIds = SchemaClassImpl.readableCollections(session, collectionIds,
         targetClass.getName());
 
-    iterator = new RecordIteratorClusters<>(session, clusterIds, forwardDirection);
+    iterator = new RecordIteratorCollections<>(session, collectionIds, forwardDirection);
   }
 
   @Override

@@ -53,6 +53,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -79,8 +80,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var streams = init(desc, orderAsc, ctx);
+    var session = ctx.getDatabaseSession();
+    var tx = session.getTransactionInternal();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
 
+    var streams = init(desc, orderAsc, ctx);
     var res =
         new ExecutionStreamProducer() {
           private final Iterator<Stream<RawPair<Object, RID>>> iter = streams.iterator();
@@ -90,19 +94,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             var s = iter.next();
             return ExecutionStream.resultIterator(
                 s.map((nextEntry) -> {
-                  var session = ctx.getDatabaseSession();
-                  var tx = session.getTransactionInternal();
-
-                  if (tx instanceof FrontendTransactionImpl frontendTransactionOptimistic) {
-                    frontendTransactionOptimistic.preProcessRecordsAndExecuteCallCallbacks();
-                  }
-
+                  tx.preProcessRecordsAndExecuteCallCallbacks();
                   return readResult(ctx, nextEntry);
                 }).iterator());
           }
 
           @Override
           public boolean hasNext(CommandContext ctx) {
+            tx.preProcessRecordsAndExecuteCallCallbacks();
             return iter.hasNext();
           }
 
@@ -294,6 +293,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
+  @Nullable
   private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionInternal session,
       Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
@@ -526,6 +526,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return new SQLValueExpression(value);
   }
 
+  @Nullable
   private static Object convertToIndexDefinitionTypes(
       DatabaseSessionInternal session, SQLBooleanExpression condition, Object val,
       PropertyTypeInternal[] types) {

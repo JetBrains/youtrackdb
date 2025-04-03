@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPagina
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import javax.annotation.Nullable;
 
 /**
  * @since 11/26/13
@@ -67,6 +68,7 @@ public class RecordSerializationContext {
     return context;
   }
 
+  @Nullable
   public static RecordSerializationContext getContext() {
     final var stack = SERIALIZATION_CONTEXT_STACK.get();
     if (stack.isEmpty()) {

@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This class is an LRU cache for already prepared SQL execution plans. It stores itself in the
@@ -72,6 +73,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    * @param db        the current DB instance
    * @return a statement executor from the cache
    */
+  @Nullable
   public static ExecutionPlan get(
       String statement, CommandContext ctx, DatabaseSessionInternal db) {
     if (db == null) {
@@ -123,6 +125,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    * @param ctx
    * @return the corresponding executor, taking it from the internal cache, if it exists
    */
+  @Nullable
   public ExecutionPlan getInternal(
       String statement, CommandContext ctx, DatabaseSessionInternal db) {
     InternalExecutionPlan result;

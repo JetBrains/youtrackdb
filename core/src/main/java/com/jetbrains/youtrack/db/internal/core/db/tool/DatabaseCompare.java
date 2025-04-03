@@ -51,7 +51,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
   private final Set<String> excludeIndexes = new HashSet<>();
 
-  private int clusterDifference = 0;
+  private int collectionDifference = 0;
 
   public DatabaseCompare(
       DatabaseSessionInternal sessionOne,
@@ -75,15 +75,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     this.sessionTwo = sessionTwo;
 
-    // exclude automatically generated clusters
+    // exclude automatically generated collections
     excludeIndexes.add(DatabaseImport.EXPORT_IMPORT_INDEX_NAME);
 
     final Schema schemaTwo = sessionTwo.getMetadata().getSchema();
     final var cls = schemaTwo.getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME);
 
     if (cls != null) {
-      final var clusterIds = cls.getClusterIds();
-      clusterDifference = clusterIds.length;
+      final var collectionIds = cls.getCollectionIds();
+      collectionDifference = collectionIds.length;
     }
   }
 
@@ -106,10 +106,12 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           ridMapper =
               rid -> {
                 if (rid == null) {
+                  //noinspection ReturnOfNull
                   return null;
                 }
 
                 if (!rid.isPersistent()) {
+                  //noinspection ReturnOfNull
                   return null;
                 }
 
@@ -122,6 +124,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   if (resultSet.hasNext()) {
                     return new RecordId(resultSet.next().<String>getProperty("value"));
                   }
+                  //noinspection ReturnOfNull
                   return null;
                 }
               };
@@ -130,7 +133,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      compareClusters();
+      compareCollections();
       compareRecords(ridMapper);
 
       compareSchema();
@@ -200,11 +203,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         ok = false;
       }
 
-      if (!Arrays.equals(clazz.getClusterIds(), clazz2.getClusterIds())) {
+      if (!Arrays.equals(clazz.getCollectionIds(), clazz2.getCollectionIds())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
                 + clazz.getName()
-                + " in DB1 is not equals in clusters in DB2.");
+                + " in DB1 is not equals in collections in DB2.");
         ok = false;
       }
       if (!clazz.getCustomKeys().equals(clazz2.getCustomKeys())) {
@@ -392,12 +395,12 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      if (!indexOne.getClusters().equals(indexTwo.getClusters())) {
+      if (!indexOne.getCollections().equals(indexTwo.getCollections())) {
         ok = false;
         listener.onMessage(
-            "\n- ERR: Clusters to index for index " + indexOne.getName() + " are different.");
-        listener.onMessage("\n--- DB1: " + indexOne.getClusters());
-        listener.onMessage("\n--- DB2: " + indexTwo.getClusters());
+            "\n- ERR: Collections to index for index " + indexOne.getName() + " are different.");
+        listener.onMessage("\n--- DB1: " + indexOne.getCollections());
+        listener.onMessage("\n--- DB2: " + indexTwo.getCollections());
         listener.onMessage("\n");
         ++differences;
         continue;
@@ -575,68 +578,68 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   @SuppressWarnings("ObjectAllocationInLoop")
-  private void compareClusters() {
-    listener.onMessage("\nStarting shallow comparison of clusters:");
+  private void compareCollections() {
+    listener.onMessage("\nStarting shallow comparison of collections:");
 
-    listener.onMessage("\nChecking the number of clusters...");
+    listener.onMessage("\nChecking the number of collections...");
 
-    var clusterNames1 = sessionOne.getClusterNames();
-    var clusterNames2 = sessionTwo.getClusterNames();
+    var collectionNames1 = sessionOne.getCollectionNames();
+    var collectionNames2 = sessionTwo.getCollectionNames();
 
-    if (clusterNames1.size() != clusterNames2.size() - clusterDifference) {
+    if (collectionNames1.size() != collectionNames2.size() - collectionDifference) {
       listener.onMessage(
-          "ERR: cluster sizes are different: "
-              + clusterNames1.size()
+          "ERR: collection sizes are different: "
+              + collectionNames1.size()
               + " <-> "
-              + clusterNames2.size());
+              + collectionNames2.size());
       ++differences;
     }
 
     boolean ok;
 
-    for (final var clusterName : clusterNames1) {
-      // CHECK IF THE CLUSTER IS INCLUDED
+    for (final var collectionName : collectionNames1) {
+      // CHECK IF THE COLLECTION IS INCLUDED
       ok = true;
-      final var cluster1Id = sessionTwo.getClusterIdByName(clusterName);
+      final var collection1Id = sessionTwo.getCollectionIdByName(collectionName);
       listener.onMessage(
-          "\n- Checking cluster " + String.format("%-25s: ", "'" + clusterName + "'"));
+          "\n- Checking collection " + String.format("%-25s: ", "'" + collectionName + "'"));
 
-      if (cluster1Id == -1) {
+      if (collection1Id == -1) {
         listener.onMessage(
-            "ERR: cluster name '"
-                + clusterName
+            "ERR: collection name '"
+                + collectionName
                 + "' was not found on database "
                 + sessionTwo.getDatabaseName());
         ++differences;
         ok = false;
       }
 
-      final var cluster2Id = sessionOne.getClusterIdByName(clusterName);
-      if (cluster1Id != cluster2Id) {
+      final var collection2Id = sessionOne.getCollectionIdByName(collectionName);
+      if (collection1Id != collection2Id) {
         listener.onMessage(
-            "ERR: cluster id is different for cluster "
-                + clusterName
+            "ERR: collection id is different for collection "
+                + collectionName
                 + ": "
-                + cluster2Id
+                + collection2Id
                 + " <-> "
-                + cluster1Id);
+                + collection1Id);
         ++differences;
         ok = false;
       }
 
-      var countCluster1 = sessionOne.countClusterElements(cluster1Id);
-      var countCluster2 = sessionTwo.countClusterElements(cluster2Id);
+      var countCollection1 = sessionOne.countCollectionElements(collection1Id);
+      var countCollection2 = sessionTwo.countCollectionElements(collection2Id);
 
-      if (countCluster1 != countCluster2) {
+      if (countCollection1 != countCollection2) {
         listener.onMessage(
-            "ERR: number of records different in cluster '"
-                + clusterName
+            "ERR: number of records different in collection '"
+                + collectionName
                 + "' (id="
-                + cluster1Id
+                + collection1Id
                 + "): "
-                + countCluster1
+                + countCollection1
                 + " <-> "
-                + countCluster2);
+                + countCollection2);
         ++differences;
         ok = false;
       }
@@ -654,15 +657,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     listener.onMessage(
         "\nStarting deep comparison record by record. This may take a few minutes. Wait please...");
 
-    var clusterNames1 = sessionOne.getClusterNames();
+    var collectionNames1 = sessionOne.getCollectionNames();
 
-    for (final var clusterName : clusterNames1) {
-      // CHECK IF THE CLUSTER IS INCLUDED
-      final var clusterId1 = sessionOne.getClusterIdByName(clusterName);
-      final var rid1 = new RecordId(clusterId1);
+    for (final var collectionName : collectionNames1) {
+      // CHECK IF THE COLLECTION IS INCLUDED
+      final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
+      final var rid1 = new RecordId(collectionId1);
 
       var physicalPositions = sessionOne.getStorage()
-          .ceilingPhysicalPositions(sessionOne, clusterId1, new PhysicalPosition(0),
+          .ceilingPhysicalPositions(sessionOne, collectionId1, new PhysicalPosition(0),
               Integer.MAX_VALUE);
 
       var configuration1 = sessionOne.getStorageInfo().getConfiguration();
@@ -680,8 +683,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             final var entity1 = new EntityImpl(sessionOne);
             final var entity2 = new EntityImpl(sessionTwo);
 
-            final var position = physicalPosition.clusterPosition;
-            rid1.setClusterPosition(position);
+            final var position = physicalPosition.collectionPosition;
+            rid1.setCollectionPosition(position);
 
             final RecordId rid2;
             if (ridMapper == null) {
@@ -710,7 +713,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             if (buffer1.recordType != buffer2.recordType) {
               listener.onMessage(
                   "\n- ERR: RID="
-                      + clusterId1
+                      + collectionId1
                       + ":"
                       + position
                       + " recordType is different: "
@@ -727,7 +730,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               if (buffer1.buffer == null) {
                 listener.onMessage(
                     "\n- ERR: RID="
-                        + clusterId1
+                        + collectionId1
                         + ":"
                         + position
                         + " content is different: null <-> "
@@ -738,7 +741,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 if (buffer2.buffer == null) {
                   listener.onMessage(
                       "\n- ERR: RID="
-                          + clusterId1
+                          + collectionId1
                           + ":"
                           + position
                           + " content is different: "
@@ -770,7 +773,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                         entity1, sessionOne, entity2, sessionTwo, ridMapper)) {
                       listener.onMessage(
                           "\n- ERR: RID="
-                              + clusterId1
+                              + collectionId1
                               + ":"
                               + position
                               + " entity content is different");
@@ -790,7 +793,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                       if (rec1.length() != rec2.length()) {
                         listener.onMessage(
                             "\n- ERR: RID="
-                                + clusterId1
+                                + collectionId1
                                 + ":"
                                 + position
                                 + " content length is different: "
@@ -812,7 +815,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                         if (buffer1.buffer[b] != buffer2.buffer[b]) {
                           listener.onMessage(
                               "\n- ERR: RID="
-                                  + clusterId1
+                                  + collectionId1
                                   + ":"
                                   + position
                                   + " content is different at byte #"
@@ -841,23 +844,23 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
         final var curPosition = physicalPositions;
         physicalPositions = sessionOne.getStorage()
-            .higherPhysicalPositions(sessionOne, clusterId1,
+            .higherPhysicalPositions(sessionOne, collectionId1,
                 curPosition[curPosition.length - 1], Integer.MAX_VALUE);
         if (recordsCounter % 10000 == 0) {
           listener.onMessage(
               "\n"
                   + recordsCounter
-                  + " records were processed for cluster "
-                  + clusterName
+                  + " records were processed for collection "
+                  + collectionName
                   + " ...");
         }
       }
 
       listener.onMessage(
-          "\nCluster comparison was finished, "
+          "\nCollection comparison was finished, "
               + recordsCounter
-              + " records were processed for cluster "
-              + clusterName
+              + " records were processed for collection "
+              + collectionName
               + " ...");
     }
   }
@@ -877,8 +880,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         || rid2.equals(new RecordId(configuration2.getSchemaRecordId()))) {
       return true;
     }
-    if ((rid1.getClusterId() == 0 && rid1.getClusterPosition() == 0)
-        || (rid2.getClusterId() == 0 && rid2.getClusterPosition() == 0)) {
+    if ((rid1.getCollectionId() == 0 && rid1.getCollectionPosition() == 0)
+        || (rid2.getCollectionId() == 0 && rid2.getCollectionPosition() == 0)) {
       // Skip the compare of raw structure if the storage type are different, due the fact
       // that are different by definition.
       return !storageType1.equals(storageType2);

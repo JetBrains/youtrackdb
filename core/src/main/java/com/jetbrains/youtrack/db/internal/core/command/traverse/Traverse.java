@@ -30,6 +30,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Base class for traversing.
@@ -97,6 +98,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
     return lastTraversed != null;
   }
 
+  @Nullable
   public Identifiable next() {
     if (Thread.interrupted()) {
       throw new CommandExecutionException(context.getDatabaseSession().getDatabaseName(),

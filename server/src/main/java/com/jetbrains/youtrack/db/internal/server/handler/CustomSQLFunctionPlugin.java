@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * Server Plugin to register custom SQL functions.
@@ -65,6 +66,7 @@ public class CustomSQLFunctionPlugin extends ServerPluginAbstract {
     }
   }
 
+  @Nullable
   private static String removeComments(String configurationContent) {
     if (configurationContent == null) {
       return null;

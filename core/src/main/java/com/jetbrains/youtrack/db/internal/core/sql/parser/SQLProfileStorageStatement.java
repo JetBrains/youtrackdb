@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLProfileStorageStatement extends SQLSimpleExecStatement {
 
@@ -30,6 +31,7 @@ public class SQLProfileStorageStatement extends SQLSimpleExecStatement {
     return ExecutionStream.singleton(result);
   }
 
+  @Nullable
   protected static Object getResult(Object request) {
     return null;
   }

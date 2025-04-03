@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Converts a document in JSON string.
@@ -38,6 +39,7 @@ public class SQLMethodFromJSON extends AbstractSQLMethod {
     return "fromJSON([<options>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

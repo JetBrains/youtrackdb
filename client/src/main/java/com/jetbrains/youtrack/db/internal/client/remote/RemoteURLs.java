@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Hashtable;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.naming.NamingException;
 import javax.naming.directory.DirContext;
 import javax.naming.directory.InitialDirContext;
@@ -42,6 +43,7 @@ public class RemoteURLs {
     return Collections.unmodifiableList(serverURLs);
   }
 
+  @Nullable
   public synchronized String removeAndGet(String url) {
     remove(url);
     LogManager.instance().debug(this, "Updated server list: %s...", serverURLs);

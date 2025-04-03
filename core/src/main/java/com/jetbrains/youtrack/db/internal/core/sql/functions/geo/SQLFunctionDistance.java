@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Haversine formula to compute the distance between 2 gro points.
@@ -38,6 +39,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     super(NAME, 4, 5);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

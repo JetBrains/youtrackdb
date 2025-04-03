@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineFactory;
 
@@ -54,6 +55,7 @@ public class SQLScriptEngineFactory implements ScriptEngineFactory {
     return EXTENSIONS;
   }
 
+  @Nullable
   @Override
   public List<String> getMimeTypes() {
     return null;
@@ -74,16 +76,19 @@ public class SQLScriptEngineFactory implements ScriptEngineFactory {
     return YouTrackDBConstants.getVersion();
   }
 
+  @Nullable
   @Override
   public Object getParameter(String key) {
     return null;
   }
 
+  @Nullable
   @Override
   public String getMethodCallSyntax(String obj, String m, String... args) {
     return null;
   }
 
+  @Nullable
   @Override
   public String getOutputStatement(String toDisplay) {
     return null;

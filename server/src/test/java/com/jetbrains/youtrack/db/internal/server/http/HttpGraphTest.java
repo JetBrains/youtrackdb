@@ -2,8 +2,7 @@ package com.jetbrains.youtrack.db.internal.server.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
 import java.util.HashMap;
 import org.junit.Assert;
@@ -114,7 +113,7 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     final var payload = new HashMap<String, String>();
     payload.put("command", "select from E");
     payload.put("mode", "graph");
-    var json = RecordSerializerJackson.mapToJson(payload);
+    var json = JSONSerializerJackson.mapToJson(payload);
 
     response =
         post("command/" + getDatabaseName() + "/sql/").payload(json, CONTENT.JSON).getResponse();

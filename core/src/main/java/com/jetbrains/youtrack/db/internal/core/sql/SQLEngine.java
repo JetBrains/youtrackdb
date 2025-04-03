@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import static com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -36,11 +35,9 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.method.SQLMethod;
@@ -62,7 +59,6 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -564,67 +560,8 @@ public class SQLEngine {
   }
 
   public static SQLFilter parseCondition(
-      final String iText, @Nonnull final CommandContext iContext, final String iFilterKeyword) {
-    return new SQLFilter(iText, iContext, iFilterKeyword);
+      final String iText, @Nonnull final CommandContext iContext) {
+    return new SQLFilter(iText, iContext);
   }
 
-  public static SQLTarget parseTarget(final String iText, final CommandContext iContext) {
-    return new SQLTarget(iText, iContext);
-  }
-
-  public static Set<Identifiable> parseRIDTarget(
-      final DatabaseSession database,
-      String iTarget,
-      final CommandContext iContext,
-      Map<Object, Object> iArgs) {
-    final Set<Identifiable> ids;
-    if (!iTarget.isEmpty() && iTarget.charAt(0) == '(') {
-      // SUB-QUERY
-
-      final var result = ((DatabaseSessionInternal) database).query(
-          iTarget.substring(1, iTarget.length() - 1),
-          iArgs).toList();
-      if (result == null || result.isEmpty()) {
-        ids = java.util.Collections.emptySet();
-      } else {
-        ids = new HashSet<>((int) (result.size() * 1.3));
-        for (var aResult : result) {
-          ids.add(aResult.getIdentity());
-        }
-      }
-    } else if (!iTarget.isEmpty() && iTarget.charAt(0) == '[') {
-      // COLLECTION OF RIDS
-      final var idsAsStrings = iTarget.substring(1, iTarget.length() - 1).split(",");
-      ids = new HashSet<>((int) (idsAsStrings.length * 1.3));
-      for (var idsAsString : idsAsStrings) {
-        if (!idsAsString.isEmpty() && idsAsString.charAt(0) == '$') {
-          var r = iContext.getVariable(idsAsString);
-          if (r instanceof Identifiable) {
-            ids.add((Identifiable) r);
-          } else {
-            MultiValue.add(ids, r);
-          }
-        } else {
-          ids.add(new RecordId(idsAsString));
-        }
-      }
-    } else {
-      // SINGLE RID
-      if (!iTarget.isEmpty() && iTarget.charAt(0) == '$') {
-        var r = iContext.getVariable(iTarget);
-        if (r instanceof Identifiable) {
-          ids = java.util.Collections.singleton((Identifiable) r);
-        } else {
-          //noinspection unchecked
-          ids =
-              (Set<Identifiable>)
-                  MultiValue.add(new HashSet<Identifiable>(MultiValue.getSize(r)), r);
-        }
-
-      } else {
-        ids = java.util.Collections.singleton(new RecordId(iTarget));
-      }
-    }
-    return ids;
-  }
 }

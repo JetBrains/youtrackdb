@@ -40,6 +40,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPOutputStream;
+import javax.annotation.Nullable;
 
 public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbstract {
 
@@ -222,6 +223,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     return url;
   }
 
+  @Nullable
   protected StaticContent getVirtualFolderContent(final HttpRequest iRequest) {
     if (iRequest.getUrl() != null) {
       final var beginPos = iRequest.getUrl().startsWith("/") ? 1 : 0;

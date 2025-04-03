@@ -64,7 +64,7 @@ public class IndexManagerTest extends BaseDBTest {
             "propertyone",
             SchemaClass.INDEX_TYPE.UNIQUE.toString(),
             new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-            new int[]{session.getClusterIdByName(CLASS_NAME)},
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
             null,
             null);
 
@@ -94,7 +94,7 @@ public class IndexManagerTest extends BaseDBTest {
                 Arrays.asList(
                     new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
                     new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
-            new int[]{session.getClusterIdByName(CLASS_NAME)},
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
             null,
             null);
 
@@ -145,7 +145,7 @@ public class IndexManagerTest extends BaseDBTest {
                     new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
                     new PropertyIndexDefinition(CLASS_NAME, "fThree",
                         PropertyTypeInternal.BOOLEAN))),
-            new int[]{session.getClusterIdByName(CLASS_NAME)},
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
             progressListener,
             null);
 
@@ -613,7 +613,7 @@ public class IndexManagerTest extends BaseDBTest {
         className + "_indexOne_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
-        oClass.getClusterIds(),
+        oClass.getCollectionIds(),
         null,
         null);
 
@@ -626,7 +626,7 @@ public class IndexManagerTest extends BaseDBTest {
             Arrays.asList(
                 new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
                 new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING))),
-        oClass.getClusterIds(),
+        oClass.getCollectionIds(),
         null,
         null);
 
@@ -640,7 +640,7 @@ public class IndexManagerTest extends BaseDBTest {
                 new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
                 new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING),
                 new PropertyIndexDefinition(className, "three", PropertyTypeInternal.STRING))),
-        oClass.getClusterIds(),
+        oClass.getCollectionIds(),
         null,
         null);
 
@@ -761,7 +761,7 @@ public class IndexManagerTest extends BaseDBTest {
         "anotherproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-        new int[]{session.getClusterIdByName(CLASS_NAME)},
+        new int[]{session.getCollectionIdByName(CLASS_NAME)},
         null,
         null);
 
@@ -788,7 +788,7 @@ public class IndexManagerTest extends BaseDBTest {
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
             PropertyTypeInternal.INTEGER),
-        new int[]{session.getClusterIdByName("indexManagerTestClassTwo")},
+        new int[]{session.getCollectionIdByName("indexManagerTestClassTwo")},
         null,
         null);
 

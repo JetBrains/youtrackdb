@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImp
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -227,7 +227,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
 
     if (metadata != null) {
-      queryBuilder.append(" metadata ").append(RecordSerializerJackson.mapToJson(metadata));
+      queryBuilder.append(" metadata ").append(JSONSerializerJackson.mapToJson(metadata));
     }
 
     session.execute(queryBuilder.toString()).close();
@@ -358,7 +358,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
       }
 
       if (subclasses.remove(baseClass)) {
-        removePolymorphicClusterIds(session, baseClass);
+        removePolymorphicCollectionIds(session, baseClass);
       }
 
     } finally {
@@ -395,6 +395,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
     superClasses.addAll(newSuperClasses);
   }
 
-  protected void addClusterIdToIndexes(DatabaseSessionInternal session, int iId) {
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
   }
 }

@@ -50,7 +50,7 @@ public class DbListenerTest extends BaseDBTest {
 
     public DocumentChangeListener(final DatabaseSession db) {
       db.registerHook(
-          new EntityHookAbstract(db) {
+          new EntityHookAbstract() {
 
             @Override
             public void onBeforeEntityUpdate(Entity entity) {

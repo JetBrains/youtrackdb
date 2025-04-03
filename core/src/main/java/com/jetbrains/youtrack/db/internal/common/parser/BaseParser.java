@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.common.parser;
 
 import java.util.Arrays;
+import javax.annotation.Nullable;
 
 /**
  * Abstract generic command to parse.
@@ -213,6 +214,7 @@ public abstract class BaseParser {
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed if any, otherwise null
    */
+  @Nullable
   protected String parserOptionalWord(final boolean iUpperCase) {
     parserPreviousPos = parserCurrentPos;
 
@@ -232,6 +234,7 @@ public abstract class BaseParser {
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed if any, otherwise null
    */
+  @Nullable
   protected String parseOptionalWord(String dbName, final boolean iUpperCase,
       final String... iWords) {
     parserNextWord(iUpperCase);
@@ -551,6 +554,7 @@ public abstract class BaseParser {
     return parserNextWord(iForceUpperCase, iSeparatorChars, false);
   }
 
+  @Nullable
   protected String parserNextWord(
       final boolean iForceUpperCase, final String iSeparatorChars, boolean preserveEscapes) {
     parserPreviousPos = parserCurrentPos;

@@ -28,6 +28,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Adaptive class to handle shared resources. It's configurable specifying if it's running in a
@@ -158,6 +159,7 @@ public class AdaptiveLock extends AbstractLock {
             + (owner != null ? "\n" + owner : ""));
   }
 
+  @Nullable
   private String extractLockOwnerStackTrace(Lock lock) {
     try {
       var syncField = lock.getClass().getDeclaredField("sync");

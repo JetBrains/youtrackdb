@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Proxied abstract index.
@@ -52,7 +53,7 @@ public class IndexRemote implements Index {
 
   private final int version;
   protected final Map<String, Object> metadata;
-  protected Set<String> clustersToIndex;
+  protected Set<String> collectionsToIndex;
 
   public IndexRemote(
       final String iName,
@@ -61,7 +62,7 @@ public class IndexRemote implements Index {
       final RID iRid,
       final IndexDefinition iIndexDefinition,
       final Map<String, Object> iConfiguration,
-      final Set<String> clustersToIndex,
+      final Set<String> collectionsToIndex,
       String database) {
     this.name = iName;
     this.wrappedType = iWrappedType;
@@ -74,7 +75,7 @@ public class IndexRemote implements Index {
     var metadata = (Map<String, Object>) iConfiguration.get("metadata");
     this.metadata = Collections.unmodifiableMap(metadata);
 
-    this.clustersToIndex = new HashSet<>(clustersToIndex);
+    this.collectionsToIndex = new HashSet<>(collectionsToIndex);
     this.databaseName = database;
 
     if (configuration == null) {
@@ -168,12 +169,12 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Index addCluster(DatabaseSessionInternal session, String iClusterName) {
+  public Index addCollection(DatabaseSessionInternal session, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeCluster(DatabaseSessionInternal session, String iClusterName) {
+  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
@@ -343,6 +344,7 @@ public class IndexRemote implements Index {
     return new PropertyTypeInternal[0];
   }
 
+  @Nullable
   @Override
   public Object get(DatabaseSessionInternal session, Object key) {
     return null;
@@ -371,8 +373,8 @@ public class IndexRemote implements Index {
     return name.hashCode();
   }
 
-  public Set<String> getClusters() {
-    return Collections.unmodifiableSet(clustersToIndex);
+  public Set<String> getCollections() {
+    return Collections.unmodifiableSet(collectionsToIndex);
   }
 
   @Override

@@ -28,9 +28,11 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorBetween
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorIn;
 import java.util.Collection;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class LuceneOperatorUtil {
 
+  @Nullable
   public static IndexSearchResult buildOIndexSearchResult(
       SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
@@ -124,6 +126,7 @@ public class LuceneOperatorUtil {
     return true;
   }
 
+  @Nullable
   public static IndexSearchResult createIndexedProperty(
       final SQLFilterCondition iCondition, final Object iItem) {
     if (!(iItem instanceof SQLFilterItemField item)) {

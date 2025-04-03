@@ -20,8 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -87,7 +86,7 @@ public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedSer
         HttpUtils.STATUS_OK_CODE,
         HttpUtils.STATUS_OK_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        RecordSerializerJackson.mapToJson(result),
+        JSONSerializerJackson.mapToJson(result),
         null);
 
     return false;

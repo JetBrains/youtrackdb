@@ -65,14 +65,14 @@ public abstract class IndexAbstract implements Index {
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
   protected static final String CONFIG_MAP_RID = "mapRid";
-  private static final String CONFIG_CLUSTERS = "clusters";
+  private static final String CONFIG_COLLECTIONS = "collections";
   protected final AbstractPaginatedStorage storage;
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
   protected volatile int indexId = -1;
   protected volatile int apiVersion = -1;
 
-  protected Set<String> clustersToIndex = new HashSet<>();
+  protected Set<String> collectionsToIndex = new HashSet<>();
   protected IndexMetadata im;
 
   public IndexAbstract(IndexMetadata im, final Storage storage) {
@@ -123,7 +123,7 @@ public abstract class IndexAbstract implements Index {
     }
 
     @SuppressWarnings("unchecked")
-    var clusters = (Set<String>) config.get(CONFIG_CLUSTERS);
+    var collections = (Set<String>) config.get(CONFIG_COLLECTIONS);
     final var indexVersion =
         config.get(INDEX_VERSION) == null
             ? 1
@@ -134,7 +134,7 @@ public abstract class IndexAbstract implements Index {
     return new IndexMetadata(
         indexName,
         loadedIndexDefinition,
-        clusters,
+        collections,
         type,
         algorithm,
         indexVersion, metadataEntity);
@@ -165,12 +165,12 @@ public abstract class IndexAbstract implements Index {
       final ProgressListener progressListener) {
     acquireExclusiveLock();
     try {
-      var clustersToIndex = indexMetadata.getClustersToIndex();
+      var collectionsToIndex = indexMetadata.getCollectionsToIndex();
 
-      if (clustersToIndex != null) {
-        this.clustersToIndex = new HashSet<>(clustersToIndex);
+      if (collectionsToIndex != null) {
+        this.collectionsToIndex = new HashSet<>(collectionsToIndex);
       } else {
-        this.clustersToIndex = new HashSet<>();
+        this.collectionsToIndex = new HashSet<>();
       }
 
       // do not remove this, it is needed to remove index garbage if such one exists
@@ -225,11 +225,11 @@ public abstract class IndexAbstract implements Index {
       final Map<String, ?> config) {
     acquireExclusiveLock();
     try {
-      clustersToIndex.clear();
+      collectionsToIndex.clear();
 
       final var indexMetadata = loadMetadata(session, config);
       this.im = indexMetadata;
-      clustersToIndex.addAll(indexMetadata.getClustersToIndex());
+      collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
 
       try {
         indexId = storage.loadIndexEngine(im.getName());
@@ -471,7 +471,7 @@ public abstract class IndexAbstract implements Index {
 
       throw BaseException.wrapException(
           new IndexException(session.getDatabaseName(),
-              "Error on rebuilding the index for clusters: " + clustersToIndex),
+              "Error on rebuilding the index for collections: " + collectionsToIndex),
           e, session.getDatabaseName());
     } finally {
       releaseExclusiveLock();
@@ -494,7 +494,7 @@ public abstract class IndexAbstract implements Index {
 
       throw BaseException.wrapException(
           new IndexException(session.getDatabaseName(),
-              "Error on rebuilding the index for clusters: " + clustersToIndex),
+              "Error on rebuilding the index for collections: " + collectionsToIndex),
           e, session.getDatabaseName());
     } finally {
       releaseSharedLock();
@@ -510,18 +510,18 @@ public abstract class IndexAbstract implements Index {
       long entityNum = 0;
       long entitiesTotal = 0;
 
-      for (final var cluster : clustersToIndex) {
-        entitiesTotal += storage.count(session, storage.getClusterIdByName(cluster));
+      for (final var collection : collectionsToIndex) {
+        entitiesTotal += storage.count(session, storage.getCollectionIdByName(collection));
       }
 
       if (iProgressListener != null) {
         iProgressListener.onBegin(this, entitiesTotal, rebuild);
       }
 
-      // INDEX ALL CLUSTERS
-      for (final var clusterName : clustersToIndex) {
+      // INDEX ALL COLLECTIONS
+      for (final var collectionName : collectionsToIndex) {
         final var metrics =
-            indexCluster(session, clusterName, iProgressListener, entityNum,
+            indexCollection(session, collectionName, iProgressListener, entityNum,
                 entitiesIndexed, entitiesTotal);
         entityNum = metrics[0];
         entitiesIndexed = metrics[1];
@@ -660,21 +660,21 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public Set<String> getClusters() {
+  public Set<String> getCollections() {
     acquireSharedLock();
     try {
-      return Collections.unmodifiableSet(clustersToIndex);
+      return Collections.unmodifiableSet(collectionsToIndex);
     } finally {
       releaseSharedLock();
     }
   }
 
-  public IndexAbstract addCluster(DatabaseSessionInternal session, final String clusterName) {
+  public IndexAbstract addCollection(DatabaseSessionInternal session, final String collectionName) {
     acquireExclusiveLock();
     try {
-      if (clustersToIndex.add(clusterName)) {
-        // INDEX SINGLE CLUSTER
-        indexCluster(session, clusterName, null, 0, 0, 0);
+      if (collectionsToIndex.add(collectionName)) {
+        // INDEX SINGLE COLLECTION
+        indexCollection(session, collectionName, null, 0, 0, 0);
       }
 
       return this;
@@ -683,10 +683,10 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public void removeCluster(DatabaseSessionInternal session, String iClusterName) {
+  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
     acquireExclusiveLock();
     try {
-      if (clustersToIndex.remove(iClusterName)) {
+      if (collectionsToIndex.remove(iCollectionName)) {
         rebuild(session);
       }
 
@@ -713,7 +713,7 @@ public abstract class IndexAbstract implements Index {
       map.put(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
     }
 
-    map.put(CONFIG_CLUSTERS, session.newEmbeddedSet(clustersToIndex));
+    map.put(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
     map.put(ALGORITHM, im.getAlgorithm());
 
     if (im.getMetadata() != null) {
@@ -866,8 +866,8 @@ public abstract class IndexAbstract implements Index {
     return engine.acquireAtomicExclusiveLock();
   }
 
-  private long[] indexCluster(
-      DatabaseSessionInternal session, final String clusterName,
+  private long[] indexCollection(
+      DatabaseSessionInternal session, final String collectionName,
       final ProgressListener iProgressListener,
       long documentNum,
       long documentIndexed,
@@ -883,8 +883,8 @@ public abstract class IndexAbstract implements Index {
 
     var stat = new long[]{documentNum, documentIndexed};
 
-    var clusterIterator = session.browseCluster(clusterName);
-    session.executeInTxBatches(clusterIterator, (db, record) -> {
+    var collectionIterator = session.browseCollection(collectionName);
+    session.executeInTxBatches(collectionIterator, (db, record) -> {
       if (Thread.interrupted()) {
         throw new CommandExecutionException(session.getDatabaseName(),
             "The index rebuild has been interrupted");

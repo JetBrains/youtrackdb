@@ -35,6 +35,7 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
 /**
  * Manages network connections against YouTrackDB servers. All the connection pools are managed in a
@@ -81,6 +82,7 @@ public class RemoteConnectionManager {
     }
   }
 
+  @Nullable
   public SocketChannelBinaryAsynchClient acquire(
       String iServerURL, final ContextConfiguration clientConfiguration) {
 

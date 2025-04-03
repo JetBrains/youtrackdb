@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.EntityPropertiesVisitor;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -15,6 +16,7 @@ public final class LinksRewriter implements EntityPropertiesVisitor {
     this.converterData = converterData;
   }
 
+  @Nullable
   @Override
   public Object visitField(DatabaseSessionInternal db, PropertyType type, PropertyType linkedType,
       Object value) {

@@ -25,7 +25,7 @@
   </test>
   <test name="Hook">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.HookTxTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.HookTxTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30Test"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30TxTest"/>
     </classes>
@@ -40,6 +40,7 @@
       <class name="com.jetbrains.youtrack.db.auto.CRUDDocumentValidationTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DBRecordMetadataTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DocumentTrackingTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.DBRecordCreateTest"/>
     </classes>
   </test>
   <test name="Tx">
@@ -67,20 +68,20 @@
       <class name="com.jetbrains.youtrack.db.auto.SchemaPropertyIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollectionIndexTest"/>
 
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetValuesTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetValuesTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetEntriesTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetEntriesTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetValuesTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetValuesTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareMultiValueGetEntriesTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.IndexTxAwareOneValueGetEntriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.MapIndexTest"/>
       <class
         name="com.jetbrains.youtrack.db.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LinkListIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LinkBagIndexTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.LinkMapIndexTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.LinkMapIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.IndexTxTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.OrderByIndexReuseTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.OrderByIndexReuseTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LinkSetIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CompositeIndexWithNullTest"/>
     </classes>
@@ -88,7 +89,6 @@
   <test name="Query">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.WrongQueryTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.FetchPlanComplexNestedLevelsTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.BetweenConversionTest"/>
       <class name="com.jetbrains.youtrack.db.auto.PreparedStatementTest"/>
       <class name="com.jetbrains.youtrack.db.auto.QueryLocalCacheIntegrationTest"/>
@@ -135,7 +135,7 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateVertexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteEdgeTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLBatchTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLCombinationFunctionTests" />-->
+<!--      <class name="com.jetbrains.youtrack.db.auto.SQLCombinationFunctionTests"/>-->
     </classes>
   </test>
   <test name="other-commands">
@@ -147,16 +147,15 @@
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.TruncateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DateTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.SQLFindReferencesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateLinkTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentQueriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentCommandAndOpenTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollateTest"/>
       <class name="com.jetbrains.youtrack.db.auto.EmbeddedRidBagTest"/>
       <class name="com.jetbrains.youtrack.db.auto.BTreeBasedRidBagTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.StringsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.StringsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DBSequenceTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDBSequenceTest"/>
       <class name="com.jetbrains.youtrack.db.auto.RemoteProtocolCommandsTest"/>

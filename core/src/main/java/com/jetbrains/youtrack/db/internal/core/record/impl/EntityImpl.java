@@ -127,6 +127,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public PropertyAccess propertyAccess;
   public PropertyEncryption propertyEncryption;
 
+  private boolean propertyConversionInProgress = false;
+
   /**
    * Internal constructor used on unmarshalling.
    */
@@ -145,7 +147,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     setup();
 
-    this.recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
+    this.recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
   }
 
   /**
@@ -392,7 +394,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public Blob getBlob(String propertyName) {
+  public Blob getBlob(@Nonnull String propertyName) {
     var property = getProperty(propertyName);
 
     return switch (property) {
@@ -1045,7 +1047,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var fromFields = new HashMap<>(from.properties);
-    var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
+    var sameCollection = from.recordId.getCollectionId() == recordId.getCollectionId();
     var excludeSet = new HashSet<String>();
 
     if (exclude.length > 0) {
@@ -1070,12 +1072,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
         if (fromValue != null && currentValue == null) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+              copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
         } else if (fromValue == null && currentValue != null) {
           setPropertyInternal(propertyName, null, currentEntry.type);
         } else if (fromValue.getClass() != currentValue.getClass()) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster),
+              copyRidBagIfNecessary(session, fromValue, sameCollection),
               fromType);
         } else {
           if (!(currentValue instanceof RidBag ridBag)) {
@@ -1087,12 +1089,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
               if (!Objects.equals(fromType, currentEntry.type)) {
                 setPropertyInternal(propertyName,
                     copyRidBagIfNecessary(session,
-                        copyRidBagIfNecessary(session, fromValue, sameCluster), sameCluster),
+                        copyRidBagIfNecessary(session, fromValue, sameCollection), sameCollection),
                     fromType);
               }
             } else {
               setPropertyInternal(propertyName,
-                  copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+                  copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
             }
           }
         }
@@ -1101,12 +1103,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * All tree based ridbags are partitioned by clusters, so if we move entity to another cluster we
+   * All tree based ridbags are partitioned by collections, so if we move entity to another collection we
    * need to copy ridbags to avoid inconsistency.
    */
   private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
-      boolean sameCluster) {
-    if (sameCluster) {
+      boolean sameCollection) {
+    if (sameCollection) {
       return value;
     }
 
@@ -1807,13 +1809,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) propertyValue;
       final var rid = identifiable.getIdentity();
-      if (!schemaClass.hasPolymorphicClusterId(rid.getClusterId())) {
+      if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
         // COULD BE PARTIAL
         SchemaClass cls;
-        var clusterId = rid.getClusterId();
-        if (clusterId != RID.CLUSTER_ID_INVALID) {
-          cls = schema.getClassByClusterId(rid.getClusterId());
+        var collectionId = rid.getCollectionId();
+        if (collectionId != RID.COLLECTION_ID_INVALID) {
+          cls = schema.getClassByCollectionId(rid.getCollectionId());
         } else if (identifiable instanceof EntityImpl entity) {
           cls = entity.getImmutableSchemaClass(session);
         } else {
@@ -2747,6 +2749,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   @Override
   public void setDirty() {
+    if (propertyConversionInProgress) {
+      return;
+    }
+
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
     checkForProperties();
@@ -3474,98 +3480,105 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (properties == null) {
       return;
     }
+    propertyConversionInProgress = true;
+    try {
 
-    for (var propertyEntry : properties.entrySet()) {
-      var entry = propertyEntry.getValue();
-      final var propertyValue = entry.value;
-      if (propertyValue instanceof RidBag) {
-        if (isEmbedded()) {
-          throw new DatabaseException(session.getDatabaseName(),
-              "RidBag are supported only at entity root");
+      for (var propertyEntry : properties.entrySet()) {
+        var entry = propertyEntry.getValue();
+        final var propertyValue = entry.value;
+        if (propertyValue instanceof RidBag) {
+          if (isEmbedded()) {
+            throw new DatabaseException(session.getDatabaseName(),
+                "RidBag are supported only at entity root");
+          }
+          ((RidBag) propertyValue).checkAndConvert();
         }
-        ((RidBag) propertyValue).checkAndConvert();
-      }
-      if (!(propertyValue instanceof Collection<?>)
-          && !(propertyValue instanceof Map<?, ?>)
-          && !(propertyValue instanceof EntityImpl)) {
-        continue;
-      }
+        if (!(propertyValue instanceof Collection<?>)
+            && !(propertyValue instanceof Map<?, ?>)
+            && !(propertyValue instanceof EntityImpl)) {
+          continue;
+        }
 
-      if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
-        ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
-        continue;
-      }
+        if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
+          ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
+          continue;
+        }
 
-      var propertyType = entry.type;
-      if (propertyType == null) {
-        SchemaClass clazz = getImmutableSchemaClass(session);
-        if (clazz != null) {
-          final var prop = clazz.getProperty(propertyEntry.getKey());
-          propertyType =
-              prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
+        var propertyType = entry.type;
+        if (propertyType == null) {
+          SchemaClass clazz = getImmutableSchemaClass(session);
+          if (clazz != null) {
+            final var prop = clazz.getProperty(propertyEntry.getKey());
+            propertyType =
+                prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
+          }
+        }
+        if (propertyType == null) {
+          propertyType = PropertyTypeInternal.getTypeByValue(propertyValue);
+        }
+
+        switch (propertyType) {
+          case EMBEDDEDLIST:
+            if (propertyValue instanceof List<?>
+                && !(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case EMBEDDEDSET:
+            if (propertyValue instanceof Set<?>
+                && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
+                      + propertyValue.getClass());
+
+            }
+            break;
+          case EMBEDDEDMAP:
+            if (propertyValue instanceof Map<?, ?>
+                && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKLIST:
+            if (propertyValue instanceof List<?>
+                && !(propertyValue instanceof EntityLinkListImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKSET:
+            if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityLinkSetImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKMAP:
+            if (propertyValue instanceof Map<?, ?>
+                && !(propertyValue instanceof EntityLinkMapIml)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKBAG:
+            if (!(propertyValue instanceof RidBag)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          default:
+            break;
         }
       }
-      if (propertyType == null) {
-        propertyType = PropertyTypeInternal.getTypeByValue(propertyValue);
-      }
-
-      switch (propertyType) {
-        case EMBEDDEDLIST:
-          if (propertyValue instanceof List<?>
-              && !(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case EMBEDDEDSET:
-          if (propertyValue instanceof Set<?>
-              && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
-                    + propertyValue.getClass());
-
-          }
-          break;
-        case EMBEDDEDMAP:
-          if (propertyValue instanceof Map<?, ?>
-              && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKLIST:
-          if (propertyValue instanceof List<?> && !(propertyValue instanceof EntityLinkListImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKSET:
-          if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityLinkSetImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKMAP:
-          if (propertyValue instanceof Map<?, ?> && !(propertyValue instanceof EntityLinkMapIml)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKBAG:
-          if (!(propertyValue instanceof RidBag)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        default:
-          break;
-      }
+    } finally {
+      propertyConversionInProgress = false;
     }
   }
 
@@ -3773,10 +3786,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void fetchClassName(DatabaseSessionInternal session) {
-    if (recordId.getClusterId() >= 0) {
+    if (recordId.getCollectionId() >= 0) {
       final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
       if (schema != null) {
-        var clazz = schema.getClassByClusterId(recordId.getClusterId());
+        var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {
           className = clazz.getName();
         }

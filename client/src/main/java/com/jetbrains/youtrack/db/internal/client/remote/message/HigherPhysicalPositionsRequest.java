@@ -34,14 +34,14 @@ import java.io.IOException;
 public class HigherPhysicalPositionsRequest
     implements BinaryRequest<HigherPhysicalPositionsResponse> {
 
-  private int clusterId;
-  private PhysicalPosition clusterPosition;
+  private int collectionId;
+  private PhysicalPosition collectionPosition;
   private int limit;
 
-  public HigherPhysicalPositionsRequest(int iClusterId, PhysicalPosition iClusterPosition,
+  public HigherPhysicalPositionsRequest(int iCollectionId, PhysicalPosition iCollectionPosition,
       int limit) {
-    this.clusterId = iClusterId;
-    this.clusterPosition = iClusterPosition;
+    this.collectionId = iCollectionId;
+    this.collectionPosition = iCollectionPosition;
     this.limit = limit;
   }
 
@@ -51,8 +51,8 @@ public class HigherPhysicalPositionsRequest
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(clusterId);
-    network.writeLong(clusterPosition.clusterPosition);
+    network.writeInt(collectionId);
+    network.writeLong(collectionPosition.collectionPosition);
     network.writeInt(limit);
   }
 
@@ -60,8 +60,8 @@ public class HigherPhysicalPositionsRequest
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    clusterId = channel.readInt();
-    clusterPosition = new PhysicalPosition(channel.readLong());
+    collectionId = channel.readInt();
+    collectionPosition = new PhysicalPosition(channel.readLong());
     limit = channel.readInt();
   }
 
@@ -75,12 +75,12 @@ public class HigherPhysicalPositionsRequest
     return "Retrieve higher positions";
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
-  public PhysicalPosition getClusterPosition() {
-    return clusterPosition;
+  public PhysicalPosition getCollectionPosition() {
+    return collectionPosition;
   }
 
   public int getLimit() {

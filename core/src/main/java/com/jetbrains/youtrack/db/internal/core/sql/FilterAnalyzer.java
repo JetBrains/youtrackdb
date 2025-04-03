@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMinor;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMinorEquals;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -66,6 +67,7 @@ public class FilterAnalyzer {
     return analyzeOrFilterBranch(schemaClass, condition, context);
   }
 
+  @Nullable
   private List<List<IndexSearchResult>> analyzeOrFilterBranch(
       final SchemaClassInternal iSchemaClass, SQLFilterCondition condition,
       CommandContext iContext) {
@@ -124,6 +126,7 @@ public class FilterAnalyzer {
     return indexSearchResults;
   }
 
+  @Nullable
   private IndexSearchResult analyzeFilterBranch(
       DatabaseSessionInternal session, final SchemaClassInternal iSchemaClass,
       SQLFilterCondition condition,
@@ -167,6 +170,7 @@ public class FilterAnalyzer {
         .getOIndexSearchResult(iSchemaClass, condition, iIndexSearchResults, iContext);
   }
 
+  @Nullable
   private static IndexSearchResult analyzeIndexMethod(
       DatabaseSessionInternal session, SchemaClassInternal iSchemaClass,
       SQLFilterCondition condition,
@@ -188,6 +192,7 @@ public class FilterAnalyzer {
     return result;
   }
 
+  @Nullable
   private IndexSearchResult analyzeIntersection(
       DatabaseSessionInternal session, SchemaClassInternal iSchemaClass,
       SQLFilterCondition condition,
@@ -235,6 +240,7 @@ public class FilterAnalyzer {
    * @param iCondition Condition item
    * @param iItem      Value to search
    */
+  @Nullable
   private static IndexSearchResult createIndexedProperty(
       final SQLFilterCondition iCondition, final Object iItem, CommandContext ctx) {
     if (iItem == null || !(iItem instanceof SQLFilterItemField item)) {

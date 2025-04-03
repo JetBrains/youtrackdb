@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.distance.DistanceUtils;
 import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Shape;
@@ -124,11 +125,13 @@ public class LuceneNearOperator extends QueryTargetOperator {
     return IndexReuseType.INDEX_OPERATOR;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

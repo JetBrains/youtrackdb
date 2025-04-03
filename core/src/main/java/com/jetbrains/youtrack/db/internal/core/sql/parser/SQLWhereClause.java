@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLWhereClause extends SimpleNode {
 
@@ -204,6 +205,7 @@ public class SQLWhereClause extends SimpleNode {
     return flattened;
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (baseExpression == null) {

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLArraySingleValuesSelector extends SimpleNode {
 
@@ -53,6 +54,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
     for (var item : items) {
@@ -85,6 +87,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, Object iResult, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
     for (var item : items) {
@@ -117,6 +120,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     return result;
   }
 
+  @Nullable
   private Object calculateValue(Object item, Object index) {
     if (index instanceof Integer) {
       return MultiValue.getValue(item, ((Integer) index).intValue());

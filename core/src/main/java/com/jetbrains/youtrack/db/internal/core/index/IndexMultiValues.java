@@ -49,6 +49,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  * Abstract index implementation that supports multi-values for the same key.
@@ -415,6 +416,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder), session);
   }
 
+  @Nullable
   private Stream<RawPair<Object, RID>> txStramForKey(
       final FrontendTransactionIndexChanges indexChanges, Object key) {
     final var result = calculateTxValue(getCollatingValue(key), indexChanges);
@@ -456,6 +458,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
   }
 
+  @Nullable
   public static Set<Identifiable> calculateTxValue(
       final Object key, FrontendTransactionIndexChanges indexChanges) {
     final List<Identifiable> result = new ArrayList<>();
@@ -569,6 +572,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         keyComparator);
   }
 
+  @Nullable
   private RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
     key = getCollatingValue(key);

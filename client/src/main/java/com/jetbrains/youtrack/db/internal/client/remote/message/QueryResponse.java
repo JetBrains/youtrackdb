@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class QueryResponse implements BinaryResponse {
 
@@ -98,6 +99,7 @@ public class QueryResponse implements BinaryResponse {
     }
   }
 
+  @Nullable
   private ExecutionPlan readExecutionPlan(DatabaseSessionInternal db,
       ChannelDataInput network) throws IOException {
     var present = network.readBoolean();

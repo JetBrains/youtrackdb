@@ -49,7 +49,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       final ProgressListener progressListener,
       Map<String, Object> metadata);
 
@@ -58,7 +58,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       final ProgressListener progressListener,
       Map<String, Object> metadata,
       String algorithm);
@@ -71,11 +71,11 @@ public interface IndexManagerAbstract extends CloseableInStorage {
 
   void reload(DatabaseSessionInternal session);
 
-  void addClusterToIndex(DatabaseSessionInternal session, String clusterName, String indexName);
+  void addCollectionToIndex(DatabaseSessionInternal session, String collectionName, String indexName);
 
   void load(DatabaseSessionInternal session);
 
-  void removeClusterFromIndex(DatabaseSessionInternal session, String clusterName,
+  void removeCollectionFromIndex(DatabaseSessionInternal session, String collectionName,
       String indexName);
 
   void save(DatabaseSessionInternal session);

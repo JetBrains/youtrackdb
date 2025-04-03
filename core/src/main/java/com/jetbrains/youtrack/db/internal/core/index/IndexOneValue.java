@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  * Abstract Index implementation that allows only one value for a key.
@@ -54,6 +55,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     super(im, storage);
   }
 
+  @Nullable
   @Deprecated
   @Override
   public Object get(DatabaseSessionInternal session, Object key) {
@@ -467,6 +469,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     return true;
   }
 
+  @Nullable
   public RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, final FrontendTransactionIndexChanges indexChanges) {
     key = getCollatingValue(key);

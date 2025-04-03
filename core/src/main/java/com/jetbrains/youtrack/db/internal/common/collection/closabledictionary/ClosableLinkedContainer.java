@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Container for the elements which may be in open/closed state. But only limited amount of elements
@@ -257,6 +258,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with item to remove.
    * @return Removed item.
    */
+  @Nullable
   public V remove(K key) {
     final var removed = data.remove(key);
 
@@ -288,6 +290,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return doAcquireEntry(key);
   }
 
+  @Nullable
   private ClosableEntry<K, V> doAcquireEntry(K key) {
     final var entry = data.get(key);
 
@@ -322,6 +325,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return entry;
   }
 
+  @Nullable
   public ClosableEntry<K, V> tryAcquire(K key) throws InterruptedException {
     final var ok = tryCheckOpenFilesLimit();
     if (!ok) {
@@ -412,6 +416,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with required item.
    * @return Item associated with given key.
    */
+  @Nullable
   public V get(K key) {
     final var entry = data.get(key);
     if (entry != null) {

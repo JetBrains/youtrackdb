@@ -85,6 +85,7 @@ import java.util.Map.Entry;
 import java.util.TimeZone;
 import java.util.TreeMap;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class RecordSerializerBinaryV0 implements EntitySerializer {
 
@@ -194,6 +195,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     }
   }
 
+  @Nullable
   @Override
   public BinaryField deserializeField(
       DatabaseSessionInternal session, BytesContainer bytes,
@@ -845,6 +847,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return result;
   }
 
+  @Nullable
   protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
@@ -868,6 +871,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return null;
   }
 
+  @Nullable
   protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
       final BytesContainer bytes,
       final RecordElement owner) {
@@ -891,6 +895,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return found;
   }
 
+  @Nullable
   protected static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
       EntityImpl entity,
       PropertyTypeInternal type, String key) {
@@ -1148,6 +1153,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     }
   }
 
+  @Nullable
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionInternal db, BytesContainer bytes, String iFieldName,
       ImmutableSchema schema) {

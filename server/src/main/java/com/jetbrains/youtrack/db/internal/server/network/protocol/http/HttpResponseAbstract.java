@@ -55,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.zip.GZIPOutputStream;
+import javax.annotation.Nullable;
 
 /**
  * Maintains information about current HTTP response.
@@ -590,6 +591,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
       throws IOException;
 
   // Compress content string
+  @Nullable
   @Override
   public byte[] compress(String jsonStr) {
     if (jsonStr == null || jsonStr.isEmpty()) {

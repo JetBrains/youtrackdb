@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -25,6 +26,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     }
   }
 
+  @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);
     if (!downstream.hasNext(ctx)) {

@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.local.v2;
 
-import static com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPage.PAGE_SIZE;
+import static com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPage.PAGE_SIZE;
 
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;

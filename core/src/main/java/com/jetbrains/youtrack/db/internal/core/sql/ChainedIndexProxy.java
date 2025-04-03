@@ -49,6 +49,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * There are some cases when we need to create index for some class by traversed property.
@@ -156,6 +157,7 @@ public class ChainedIndexProxy<T> implements Index {
     return result;
   }
 
+  @Nullable
   private static List<Index> prepareBaseIndexes(
       DatabaseSessionInternal session, SchemaClassInternal iSchemaClass, FieldChain fieldChain) {
     List<Index> result = new ArrayList<>(fieldChain.getItemCount() - 1);
@@ -534,12 +536,12 @@ public class ChainedIndexProxy<T> implements Index {
   }
 
   @Override
-  public Index addCluster(DatabaseSessionInternal session, String iClusterName) {
+  public Index addCollection(DatabaseSessionInternal session, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeCluster(DatabaseSessionInternal session, String iClusterName) {
+  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
@@ -606,16 +608,18 @@ public class ChainedIndexProxy<T> implements Index {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 
-  public Set<String> getClusters() {
+  public Set<String> getCollections() {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 
+  @Nullable
   @Override
   public IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
       boolean ascSortOrder) {
     return null;
   }
 
+  @Nullable
   @Override
   public IndexCursor iterateEntriesBetween(
       DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
@@ -623,12 +627,14 @@ public class ChainedIndexProxy<T> implements Index {
     return null;
   }
 
+  @Nullable
   @Override
   public IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
       boolean fromInclusive, boolean ascOrder) {
     return null;
   }
 
+  @Nullable
   @Override
   public IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
       boolean toInclusive, boolean ascOrder) {

@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLSuffixIdentifier extends SimpleNode {
 
@@ -67,6 +68,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (star) {
       return iCurrentRecord;
@@ -129,6 +131,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (star) {
       return iCurrentRecord;
@@ -169,6 +172,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Map iCurrentRecord, CommandContext ctx) {
     if (star) {
       var result = new ResultInternal(ctx.getDatabaseSession());
@@ -199,6 +203,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Iterable iterable, CommandContext ctx) {
     if (star) {
       return null;
@@ -210,6 +215,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(Iterator iterator, CommandContext ctx) {
     if (star) {
       return null;
@@ -227,6 +233,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(CommandContext iCurrentRecord) {
     if (star) {
       return null;
@@ -244,6 +251,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Object currentValue, CommandContext ctx) {
     if (currentValue instanceof Result) {
       return execute((Result) currentValue, ctx);
@@ -490,6 +498,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return true;
   }
 
+  @Nullable
   public Collate getCollate(Result currentResult, CommandContext ctx) {
     if (identifier != null && currentResult != null) {
       var session = ctx.getDatabaseSession();

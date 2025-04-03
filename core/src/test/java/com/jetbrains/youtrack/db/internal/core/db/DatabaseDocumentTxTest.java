@@ -340,7 +340,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   @Test
   public void selectDescTest() {
     var className = "bar";
-    Schema schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     schema.createClass(className, 1, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
     session.begin();
 

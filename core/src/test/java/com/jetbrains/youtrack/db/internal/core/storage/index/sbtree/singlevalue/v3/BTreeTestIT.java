@@ -779,11 +779,11 @@ public class BTreeTestIT {
             for (var j = 0; j < keysCount; j++) {
               final var key = "name" + j;
               final var val = random.nextInt(Integer.MAX_VALUE);
-              final var clusterId = val % 32000;
-              singleValueTree.put(atomicOperation, key, new RecordId(clusterId, val));
+              final var collectionId = val % 32000;
+              singleValueTree.put(atomicOperation, key, new RecordId(collectionId, val));
               System.out.println("Added key=" + key + ", value=" + val);
 
-              keyValues.put(key, new RecordId(clusterId, val));
+              keyValues.put(key, new RecordId(collectionId, val));
             }
           });
     } catch (final RollbackException ignore) {

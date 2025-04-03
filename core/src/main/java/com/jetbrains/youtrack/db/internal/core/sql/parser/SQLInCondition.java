@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLInCondition extends SQLBooleanExpression {
 
@@ -381,6 +382,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();

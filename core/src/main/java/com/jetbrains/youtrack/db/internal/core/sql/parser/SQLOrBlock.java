@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLOrBlock extends SQLBooleanExpression {
 
@@ -143,6 +144,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (subBlocks == null || subBlocks.size() > 1) {
@@ -234,6 +236,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     return false;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<>();

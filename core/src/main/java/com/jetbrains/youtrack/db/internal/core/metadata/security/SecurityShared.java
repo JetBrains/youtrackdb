@@ -30,10 +30,10 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
@@ -52,6 +52,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser.STATUSES;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +64,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Shared security class. It's shared by all the database instances that point to the same storage.
@@ -75,7 +77,6 @@ public class SecurityShared implements SecurityInternal {
 
   private final AtomicLong version = new AtomicLong();
 
-  public static final String RESTRICTED_CLASSNAME = "ORestricted";
   public static final String IDENTITY_CLASSNAME = "OIdentity";
 
   /**
@@ -136,100 +137,6 @@ public class SecurityShared implements SecurityInternal {
 
   public SecurityShared(SecuritySystem security) {
     this.security = security;
-  }
-
-  @Override
-  public Identifiable allowRole(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    return session.computeInTx(
-        transaction -> {
-          final var role = getRoleRID(session, iRoleName);
-          if (role == null) {
-            throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-          }
-
-          return allowIdentity(session, entity, iOperation.getFieldName(), role);
-        });
-  }
-
-  @Override
-  public Identifiable allowUser(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    return session.computeInTx(
-        transaction -> {
-          final var user = getUserRID(session, iUserName);
-          if (user == null) {
-            throw new IllegalArgumentException("User '" + iUserName + "' not found");
-          }
-
-          return allowIdentity(session, entity, iOperation.getFieldName(), user);
-        });
-  }
-
-  public Identifiable allowIdentity(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final String iAllowFieldName,
-      final Identifiable iId) {
-    return session.computeInTx(
-        transaction -> {
-          var field = entity.getOrCreateLinkSet(iAllowFieldName);
-          field.add(iId);
-
-          return iId;
-        });
-  }
-
-  @Override
-  public Identifiable denyUser(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    return session.computeInTx(
-        transaction -> {
-          final var user = getUserRID(session, iUserName);
-          if (user == null) {
-            throw new IllegalArgumentException("User '" + iUserName + "' not found");
-          }
-
-          return disallowIdentity(session, entity, iOperation.getFieldName(), user);
-        });
-  }
-
-  @Override
-  public Identifiable denyRole(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    return session.computeInTx(
-        transaction -> {
-          final var role = getRoleRID(session, iRoleName);
-          if (role == null) {
-            throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-          }
-
-          return disallowIdentity(session, entity, iOperation.getFieldName(), role);
-        });
-  }
-
-  public Identifiable disallowIdentity(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final String iAllowFieldName,
-      final Identifiable iId) {
-    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
-    if (field != null) {
-      field.remove(iId);
-    }
-    return iId;
   }
 
   @Override
@@ -339,6 +246,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Nullable
   @Override
   public SecurityUserImpl authenticate(
       DatabaseSessionInternal session, final String iUsername, final String iUserPassword) {
@@ -371,6 +279,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
@@ -428,6 +337,7 @@ public class SecurityShared implements SecurityInternal {
     return removed != null && removed.intValue() > 0;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     try {
       var sessionInternal = (DatabaseSessionInternal) session;
@@ -446,6 +356,7 @@ public class SecurityShared implements SecurityInternal {
     return null;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -461,10 +372,12 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
 
+  @Nullable
   public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -480,6 +393,7 @@ public class SecurityShared implements SecurityInternal {
           return result.next().getProperty("rid");
         }
       }
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -634,17 +548,25 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityPolicyImpl getSecurityPolicy(DatabaseSession session, String name) {
-    return session.computeInTx(transaction -> {
-      try (var rs =
-          transaction.query(
-              "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
-        if (rs.hasNext()) {
-          var result = rs.next();
-          return new SecurityPolicyImpl(result.asEntity());
-        }
+    var currentTx = session.getActiveTransactionOrNull();
+    if (currentTx != null) {
+      return doGetSecurityPolicy(name, currentTx);
+    }
+
+    return session.computeInTx(transaction -> doGetSecurityPolicy(name, transaction));
+  }
+
+  @Nullable
+  private static SecurityPolicyImpl doGetSecurityPolicy(String name, Transaction transaction) {
+    try (var rs =
+        transaction.query(
+            "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
+      if (rs.hasNext()) {
+        var result = rs.next();
+        return new SecurityPolicyImpl(result.asEntity());
       }
-      return null;
-    });
+    }
+    return null;
   }
 
   @Override
@@ -677,6 +599,7 @@ public class SecurityShared implements SecurityInternal {
     return resource; // TODO
   }
 
+  @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
       return null;
@@ -696,7 +619,6 @@ public class SecurityShared implements SecurityInternal {
       var roleClass = createOrUpdateORoleClass(session, identityClass);
 
       createOrUpdateOUserClass(session, identityClass, roleClass);
-      createOrUpdateORestrictedClass(session);
 
       if (!SystemDatabase.SYSTEM_DB_NAME.equals(session.getDatabaseName())) {
         // CREATE ROLES AND USERS
@@ -757,11 +679,11 @@ public class SecurityShared implements SecurityInternal {
         ResourceGeneric.SCHEMA,
         null, Role.PERMISSION_READ + Role.PERMISSION_CREATE + Role.PERMISSION_UPDATE);
     writerRole.addRule(session,
-        ResourceGeneric.CLUSTER,
-        MetadataDefault.CLUSTER_INTERNAL_NAME, Role.PERMISSION_READ);
+        ResourceGeneric.COLLECTION,
+        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_READ);
-    writerRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_ALL);
+    writerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.RECORD_HOOK, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_READ);
@@ -772,7 +694,7 @@ public class SecurityShared implements SecurityInternal {
     writerRole.addRule(session,
         ResourceGeneric.CLASS,
         SecurityResource.class.getSimpleName(), Role.PERMISSION_READ);
-    writerRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+    writerRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
     writerRole.save(session);
 
     setSecurityPolicyWithBitmask(
@@ -785,20 +707,20 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName()
+        Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.CLUSTER_INTERNAL_NAME,
+            + MetadataDefault.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
             Locale.ROOT),
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".ouser",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".ouser",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -813,7 +735,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".*",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".*",
         Role.PERMISSION_ALL);
     setSecurityPolicyWithBitmask(
         session, writerRole, Rule.ResourceGeneric.COMMAND.getLegacyName(), Role.PERMISSION_ALL);
@@ -835,17 +757,17 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName() + ".OTriggered",
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName() + ".OTriggered",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName() + ".OSchedule",
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName() + ".OSchedule",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         writerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName(),
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName(),
         Role.PERMISSION_NONE);
   }
 
@@ -862,18 +784,18 @@ public class SecurityShared implements SecurityInternal {
     readerRole.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
     readerRole.addRule(session,
-        ResourceGeneric.CLUSTER,
-        MetadataDefault.CLUSTER_INTERNAL_NAME, Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, Role.CLASS_NAME.toLowerCase(Locale.ROOT),
+        ResourceGeneric.COLLECTION,
+        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, Role.CLASS_NAME.toLowerCase(Locale.ROOT),
         Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, "ouser", Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_NONE);
-    readerRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
+    readerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.RECORD_HOOK, null, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+    readerRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
 
     readerRole.save(session);
 
@@ -884,20 +806,20 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName()
+        Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.CLUSTER_INTERNAL_NAME,
+            + MetadataDefault.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + "." + Role.CLASS_NAME.toLowerCase(
             Locale.ROOT),
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".ouser",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".ouser",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -912,7 +834,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.CLUSTER.getLegacyName() + ".*",
+        Rule.ResourceGeneric.COLLECTION.getLegacyName() + ".*",
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session, readerRole, Rule.ResourceGeneric.COMMAND.getLegacyName(), Role.PERMISSION_READ);
@@ -929,7 +851,7 @@ public class SecurityShared implements SecurityInternal {
     setSecurityPolicyWithBitmask(
         session,
         readerRole,
-        Rule.ResourceGeneric.SYSTEM_CLUSTERS.getLegacyName(),
+        Rule.ResourceGeneric.SYSTEM_COLLECTIONS.getLegacyName(),
         Role.PERMISSION_NONE);
   }
 
@@ -946,8 +868,8 @@ public class SecurityShared implements SecurityInternal {
         .save(session);
     adminRole.addRule(session, ResourceGeneric.ALL, null, Role.PERMISSION_ALL).save(session);
     adminRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL).save(session);
-    adminRole.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_ALL).save(session);
-    adminRole.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_ALL)
+    adminRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL).save(session);
+    adminRole.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_ALL)
         .save(session);
     adminRole.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_ALL).save(session);
     adminRole.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_ALL).save(session);
@@ -957,42 +879,6 @@ public class SecurityShared implements SecurityInternal {
     adminRole.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_ALL).save(session);
 
     adminRole.save(session);
-  }
-
-  private static void createOrUpdateORestrictedClass(final DatabaseSessionInternal database) {
-    var restrictedClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal(RESTRICTED_CLASSNAME);
-    var unsafe = false;
-    if (restrictedClass == null) {
-      restrictedClass =
-          (SchemaClassInternal) database.getMetadata().getSchemaInternal()
-              .createAbstractClass(RESTRICTED_CLASSNAME);
-      unsafe = true;
-    }
-    if (!restrictedClass.existsProperty(ALLOW_ALL_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_ALL_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_READ_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_READ_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_UPDATE_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_UPDATE_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
-    if (!restrictedClass.existsProperty(ALLOW_DELETE_FIELD)) {
-      restrictedClass.createProperty(
-          ALLOW_DELETE_FIELD,
-          PropertyTypeInternal.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
-    }
   }
 
   private static void createOrUpdateOUserClass(
@@ -1221,13 +1107,6 @@ public class SecurityShared implements SecurityInternal {
     }
   }
 
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    var classTrigger = session.getMetadata().getSchema().getClass(ClassTrigger.CLASSNAME);
-    if (classTrigger == null) {
-      session.getMetadata().getSchema().createAbstractClass(ClassTrigger.CLASSNAME);
-    }
-  }
-
   public static SecurityUserImpl getUserInternal(final DatabaseSession session,
       final String iUserName) {
     return session.computeInTx(transaction -> {
@@ -1239,6 +1118,7 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -1306,6 +1186,7 @@ public class SecurityShared implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -1357,44 +1238,53 @@ public class SecurityShared implements SecurityInternal {
         .existsClass(Role.CLASS_NAME)) {
       return;
     }
+    if (session.isTxActive()) {
+      doInitPredicateOptimization(session, allClasses, result);
+    } else {
+      session.executeInTx(
+          transaction -> {
+            doInitPredicateOptimization(session, allClasses, result);
+          });
+    }
+  }
 
-    session.executeInTx(
-        transaction -> {
-          synchronized (this) {
-            try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
-              while (rs.hasNext()) {
-                var item = rs.next();
-                String roleName = item.getProperty("name");
+  private void doInitPredicateOptimization(DatabaseSessionInternal session,
+      Collection<SchemaClass> allClasses,
+      Map<String, Map<String, Boolean>> result) {
+    synchronized (this) {
+      try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
+        while (rs.hasNext()) {
+          var item = rs.next();
+          String roleName = item.getProperty("name");
 
-                Map<String, Identifiable> policies = item.getProperty("policies");
-                if (policies != null) {
-                  for (var policyEntry : policies.entrySet()) {
-                    var res = SecurityResource.getInstance(policyEntry.getKey());
-                    try {
-                      var transaction1 = session.getActiveTransaction();
-                      Entity policy = transaction1.load(policyEntry.getValue());
+          Map<String, Identifiable> policies = item.getProperty("policies");
+          if (policies != null) {
+            for (var policyEntry : policies.entrySet()) {
+              var res = SecurityResource.getInstance(policyEntry.getKey());
+              try {
+                var transaction1 = session.getActiveTransaction();
+                Entity policy = transaction1.load(policyEntry.getValue());
 
-                      for (var clazz : allClasses) {
-                        if (isClassInvolved(session, clazz, res)
-                            && !isAllAllowed(
-                            session,
-                            new ImmutableSecurityPolicy(session,
-                                new SecurityPolicyImpl(policy)))) {
-                          var roleMap =
-                              result.computeIfAbsent(roleName, k -> new HashMap<>());
-                          roleMap.put(clazz.getName(), true);
-                        }
-                      }
-                    } catch (RecordNotFoundException rne) {
-                      // ignore
-                    }
+                for (var clazz : allClasses) {
+                  if (isClassInvolved(session, clazz, res)
+                      && !isAllAllowed(
+                      session,
+                      new ImmutableSecurityPolicy(session,
+                          new SecurityPolicyImpl(policy)))) {
+                    var roleMap =
+                        result.computeIfAbsent(roleName, k -> new HashMap<>());
+                    roleMap.put(clazz.getName(), true);
                   }
                 }
+              } catch (RecordNotFoundException rne) {
+                // ignore
               }
             }
-            this.roleHasPredicateSecurityForClass = result;
           }
-        });
+        }
+      }
+      this.roleHasPredicateSecurityForClass = result;
+    }
   }
 
   private static boolean isAllAllowed(DatabaseSessionInternal db, SecurityPolicy policy) {
@@ -1811,6 +1701,7 @@ public class SecurityShared implements SecurityInternal {
         session, predicate, (DBRecord) transaction.loadEntity(identifiable));
   }
 
+  @Nullable
   protected SQLBooleanExpression getPredicateFromCache(String roleName, String key) {
     var roleMap = this.securityPredicateCache.get(roleName);
     if (roleMap == null) {

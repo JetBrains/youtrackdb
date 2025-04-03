@@ -31,6 +31,7 @@ import java.security.cert.X509Certificate;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
@@ -207,6 +208,7 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
     this.syslogServerPort = syslogServerPort;
   }
 
+  @Nullable
   public String getSyslogServerHostname() {
     var inetAddress = syslogServerHostnameReference.get();
     return inetAddress == null ? null : inetAddress.getHostName();

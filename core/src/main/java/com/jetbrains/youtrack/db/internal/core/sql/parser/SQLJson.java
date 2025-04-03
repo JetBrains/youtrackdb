@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLJson extends SimpleNode {
 
@@ -237,6 +238,7 @@ public class SQLJson extends SimpleNode {
     return map;
   }
 
+  @Nullable
   private String getClassNameForEntity(CommandContext ctx) {
     for (var item : items) {
       var left = item.getLeftValue();
@@ -248,6 +250,7 @@ public class SQLJson extends SimpleNode {
     return null;
   }
 
+  @Nullable
   private String getTypeForEntity(CommandContext ctx) {
     for (var item : items) {
       var left = item.getLeftValue();

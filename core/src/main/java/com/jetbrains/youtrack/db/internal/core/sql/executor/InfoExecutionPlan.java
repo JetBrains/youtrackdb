@@ -31,8 +31,9 @@ public class InfoExecutionPlan implements ExecutionPlan {
     return prettyPrint;
   }
 
+  @Nonnull
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
+  public Result toResult(@Nullable DatabaseSession db) {
     return null;
   }
 

@@ -13,8 +13,8 @@ public class SecurityResourceTest {
         SecurityResourceProperty.ALL_PROPERTIES,
         SecurityResource.parseResource("database.class.*.*"));
     Assert.assertEquals(
-        SecurityResourceCluster.ALL_CLUSTERS,
-        SecurityResource.parseResource("database.cluster.*"));
+        SecurityResourceCollection.ALL_COLLECTIONS,
+        SecurityResource.parseResource("database.collection.*"));
     Assert.assertEquals(
         SecurityResourceFunction.ALL_FUNCTIONS,
         SecurityResource.parseResource("database.function.*"));
@@ -39,12 +39,12 @@ public class SecurityResourceTest {
         SecurityResource.parseResource("database.class.*.name")
             instanceof SecurityResourceProperty);
     Assert.assertTrue(
-        SecurityResource.parseResource("database.cluster.person")
-            instanceof SecurityResourceCluster);
+        SecurityResource.parseResource("database.collection.person")
+            instanceof SecurityResourceCollection);
     Assert.assertEquals(
         "person",
-        ((SecurityResourceCluster) SecurityResource.parseResource("database.cluster.person"))
-            .getClusterName());
+        ((SecurityResourceCollection) SecurityResource.parseResource("database.collection.person"))
+            .getCollectionName());
     Assert.assertTrue(
         SecurityResource.parseResource("database.function.foo")
             instanceof SecurityResourceFunction);
@@ -94,7 +94,7 @@ public class SecurityResourceTest {
     } catch (Exception e) {
     }
     try {
-      SecurityResource.parseResource("database.cluster.person.foo");
+      SecurityResource.parseResource("database.collection.person.foo");
       Assert.fail();
     } catch (Exception e) {
     }

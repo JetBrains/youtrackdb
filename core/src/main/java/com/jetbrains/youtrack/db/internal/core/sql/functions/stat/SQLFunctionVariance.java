@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Compute the variance estimation for a given field.
@@ -70,6 +71,7 @@ public class SQLFunctionVariance extends SQLFunctionAbstract {
     super(iName, iMaxParams, iMaxParams);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -112,6 +114,7 @@ public class SQLFunctionVariance extends SQLFunctionAbstract {
     }
   }
 
+  @Nullable
   private Double evaluate() {
     return n > 1 ? m2 / n : null;
   }

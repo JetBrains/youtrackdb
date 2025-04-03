@@ -134,7 +134,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     var i = new int[1];
 
     session.executeInTx(tx -> {
-      var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Account");
+      var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
       session.forEachInTx(iterator, (session, rec) -> {
         rec = session.load(rec);
         if (i[0] % 2 == 0) {
@@ -151,7 +151,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   @Test(dependsOnMethods = "update")
   public void testUpdate() {
     session.begin();
-    var entityIterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Account");
+    var entityIterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
     while (entityIterator.hasNext()) {
       var rec = entityIterator.next();
       var price = ((Number) rec.getProperty("price")).intValue();
@@ -170,8 +170,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   public void testDoubleChanges() {
     checkEmbeddedDB();
 
-    final Set<Integer> profileClusterIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getClusterIds())
+    final Set<Integer> profileCollectionIds =
+        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getCollectionIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -181,7 +181,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     vDoc.setPropertyInChain("nick", "JayM1").setPropertyInChain("name", "Jay")
         .setProperty("surname", "Miner");
 
-    Assert.assertTrue(profileClusterIds.contains(vDoc.getIdentity().getClusterId()));
+    Assert.assertTrue(profileCollectionIds.contains(vDoc.getIdentity().getCollectionId()));
 
     vDoc = session.load(vDoc.getIdentity());
     vDoc.setProperty("nick", "JayM2");
@@ -328,7 +328,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testUnderscoreField")
   public void testUpdateLazyDirtyPropagation() {
-    var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCluster("Profile");
+    var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Profile");
     session.forEachInTx(iterator, (transaction, rec) -> {
       Assert.assertFalse(rec.isDirty());
       Collection<?> followers = rec.getProperty("followers");
@@ -520,8 +520,10 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       var entityIterator = session.browseClass("PersonTest");
       while (entityIterator.hasNext()) {
         var o = entityIterator.next();
-        for (Identifiable id : tx.query("traverse * from " + o.getIdentity())
-            .stream().map(Result::getIdentity).toList()) {
+        for (Identifiable id :
+            tx.query("match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
+                    o.getIdentity())
+                .stream().map(result -> result.getLink("record")).toList()) {
           tx.load(id.getIdentity()).toJSON();
         }
       }

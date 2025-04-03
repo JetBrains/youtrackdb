@@ -68,7 +68,7 @@ public class LuceneDocumentBuilder {
     if (value != null) {
       doc.add(createOldIdField(value));
       doc.add(createIdField(value, key));
-      doc.add(createField("_CLUSTER", "" + value.getIdentity().getClusterId(), Field.Store.YES));
+      doc.add(createField("_COLLECTION", "" + value.getIdentity().getCollectionId(), Field.Store.YES));
       doc.add(createField("_CLASS", definition.getClassName(), Field.Store.YES));
     }
   }

@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class RemoteResultSet implements ResultSet {
@@ -181,7 +182,7 @@ public class RemoteResultSet implements ResultSet {
   }
 
   @Override
-  public void forEachRemaining(Consumer<? super Result> action) {
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
     }

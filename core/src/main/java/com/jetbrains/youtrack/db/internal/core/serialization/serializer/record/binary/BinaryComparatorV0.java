@@ -609,15 +609,15 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case LINK: {
           switch (iField2.type) {
             case LINK: {
-              final var clusterId1 = VarIntSerializer.readAsInteger(fieldValue1);
-              final var clusterId2 = VarIntSerializer.readAsInteger(fieldValue2);
-              if (clusterId1 != clusterId2) {
+              final var collectionId1 = VarIntSerializer.readAsInteger(fieldValue1);
+              final var collectionId2 = VarIntSerializer.readAsInteger(fieldValue2);
+              if (collectionId1 != collectionId2) {
                 return false;
               }
 
-              final var clusterPos1 = VarIntSerializer.readAsLong(fieldValue1);
-              final var clusterPos2 = VarIntSerializer.readAsLong(fieldValue2);
-              if (clusterPos1 == clusterPos2) {
+              final var collectionPos1 = VarIntSerializer.readAsLong(fieldValue1);
+              final var collectionPos2 = VarIntSerializer.readAsLong(fieldValue2);
+              if (collectionPos1 == collectionPos2) {
                 return true;
               }
               break;
@@ -1244,18 +1244,18 @@ public class BinaryComparatorV0 implements BinaryComparator {
         case LINK: {
           switch (iField2.type) {
             case LINK: {
-              final var clusterId1 = VarIntSerializer.readAsInteger(fieldValue1);
-              final var clusterId2 = VarIntSerializer.readAsInteger(fieldValue2);
-              if (clusterId1 > clusterId2) {
+              final var collectionId1 = VarIntSerializer.readAsInteger(fieldValue1);
+              final var collectionId2 = VarIntSerializer.readAsInteger(fieldValue2);
+              if (collectionId1 > collectionId2) {
                 return 1;
-              } else if (clusterId1 < clusterId2) {
+              } else if (collectionId1 < collectionId2) {
                 return -1;
               } else {
-                final var clusterPos1 = VarIntSerializer.readAsLong(fieldValue1);
-                final var clusterPos2 = VarIntSerializer.readAsLong(fieldValue2);
-                if (clusterPos1 > clusterPos2) {
+                final var collectionPos1 = VarIntSerializer.readAsLong(fieldValue1);
+                final var collectionPos2 = VarIntSerializer.readAsLong(fieldValue2);
+                if (collectionPos1 > collectionPos2) {
                   return 1;
-                } else if (clusterPos1 < clusterPos2) {
+                } else if (collectionPos1 < collectionPos2) {
                   return -1;
                 }
                 return 0;

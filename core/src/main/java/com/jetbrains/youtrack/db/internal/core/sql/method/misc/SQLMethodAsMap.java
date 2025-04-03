@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Transforms current value into a Map.
@@ -35,6 +36,7 @@ public class SQLMethodAsMap extends AbstractSQLMethod {
     super(NAME);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   @Override
   public Object execute(

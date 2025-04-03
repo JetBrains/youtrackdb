@@ -20,13 +20,12 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.patch;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -64,7 +63,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 }
 
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
-                var content = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+                var content = JSONSerializerJackson.mapFromJson(iRequest.getContent());
                 final int recordVersion;
 
                 if (iRequest.getIfMatch() != null)

@@ -82,19 +82,19 @@ import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginat
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CELL_BTREE_NULL_BUCKET_SINGLE_VALUE_V3_INIT_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CELL_BTREE_NULL_BUCKET_SINGLE_VALUE_V3_REMOVE_VALUE_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CELL_BTREE_NULL_BUCKET_SINGLE_VALUE_V3_SET_VALUE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_APPEND_RECORD_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_DELETE_RECORD_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_INIT_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_REPLACE_RECORD_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_SET_NEXT_PAGE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_SET_PREV_PAGE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_PAGE_SET_RECORD_LONG_VALUE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_ADD_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_ALLOCATE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_INIT_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_UPDATE_ENTRY_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.CLUSTER_POSITION_MAP_UPDATE_STATUS_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_APPEND_RECORD_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_DELETE_RECORD_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_INIT_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_REPLACE_RECORD_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_SET_NEXT_PAGE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_SET_PREV_PAGE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_PAGE_SET_RECORD_LONG_VALUE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_ADD_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_ALLOCATE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_INIT_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_UPDATE_ENTRY_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.COLLECTION_POSITION_MAP_UPDATE_STATUS_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.EMPTY_WAL_RECORD;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.FILE_CREATED_WAL_RECORD;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.FILE_DELETED_WAL_RECORD;
@@ -122,17 +122,17 @@ import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginat
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.LOCAL_HASH_TABLE_V2_NULL_BUCKET_REMOVE_VALUE_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.LOCAL_HASH_TABLE_V2_NULL_BUCKET_SET_VALUE_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.NON_TX_OPERATION_PERFORMED_WAL_RECORD;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V0_SET_FREE_LIST_PAGE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V0_SET_RECORDS_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V0_SET_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V1_SET_FILE_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V1_SET_FREE_LIST_PAGE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V1_SET_RECORDS_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V1_SET_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V2_SET_FILE_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V2_SET_FREE_LIST_PAGE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V2_SET_RECORDS_SIZE_PO;
-import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_CLUSTER_STATE_V2_SET_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_FREE_LIST_PAGE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_RECORDS_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V1_SET_FILE_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V1_SET_FREE_LIST_PAGE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V1_SET_RECORDS_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V1_SET_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_FREE_LIST_PAGE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_RECORDS_SIZE_PO;
+import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_SIZE_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.SBTREE_BUCKET_V1_ADD_ALL_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.SBTREE_BUCKET_V1_ADD_LEAF_ENTRY_PO;
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.SBTREE_BUCKET_V1_INIT_PO;
@@ -309,76 +309,76 @@ public final class WALRecordsFactory {
       case EMPTY_WAL_RECORD:
         walRecord = new EmptyWALRecord();
         break;
-      case CLUSTER_POSITION_MAP_INIT_PO:
+      case COLLECTION_POSITION_MAP_INIT_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_POSITION_MAP_ADD_PO:
+      case COLLECTION_POSITION_MAP_ADD_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_POSITION_MAP_ALLOCATE_PO:
+      case COLLECTION_POSITION_MAP_ALLOCATE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO:
+      case COLLECTION_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_POSITION_MAP_UPDATE_ENTRY_PO:
+      case COLLECTION_POSITION_MAP_UPDATE_ENTRY_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_POSITION_MAP_UPDATE_STATUS_PO:
+      case COLLECTION_POSITION_MAP_UPDATE_STATUS_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_INIT_PO:
+      case COLLECTION_PAGE_INIT_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_APPEND_RECORD_PO:
+      case COLLECTION_PAGE_APPEND_RECORD_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_REPLACE_RECORD_PO:
+      case COLLECTION_PAGE_REPLACE_RECORD_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_DELETE_RECORD_PO:
+      case COLLECTION_PAGE_DELETE_RECORD_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_SET_NEXT_PAGE_PO:
+      case COLLECTION_PAGE_SET_NEXT_PAGE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_SET_PREV_PAGE_PO:
+      case COLLECTION_PAGE_SET_PREV_PAGE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case CLUSTER_PAGE_SET_RECORD_LONG_VALUE_PO:
+      case COLLECTION_PAGE_SET_RECORD_LONG_VALUE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V0_SET_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V0_SET_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V0_SET_RECORDS_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V0_SET_RECORDS_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V0_SET_FREE_LIST_PAGE_PO:
+      case PAGINATED_COLLECTION_STATE_V0_SET_FREE_LIST_PAGE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V1_SET_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V1_SET_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V1_SET_RECORDS_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V1_SET_RECORDS_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V1_SET_FREE_LIST_PAGE_PO:
+      case PAGINATED_COLLECTION_STATE_V1_SET_FREE_LIST_PAGE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V1_SET_FILE_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V1_SET_FILE_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V2_SET_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V2_SET_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V2_SET_RECORDS_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V2_SET_RECORDS_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V2_SET_FREE_LIST_PAGE_PO:
+      case PAGINATED_COLLECTION_STATE_V2_SET_FREE_LIST_PAGE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
-      case PAGINATED_CLUSTER_STATE_V2_SET_FILE_SIZE_PO:
+      case PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_PO:
         throw new IllegalStateException(
             "Cannot deserialize passed in wal record not exists anymore.");
       case CELL_BTREE_BUCKET_SINGLE_VALUE_V1_INIT_PO:

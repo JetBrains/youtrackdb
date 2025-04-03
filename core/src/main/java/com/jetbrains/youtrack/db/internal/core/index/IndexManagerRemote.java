@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class IndexManagerRemote implements IndexManagerAbstract {
 
@@ -104,12 +104,13 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     throw new UnsupportedOperationException();
   }
 
-  public void addClusterToIndex(DatabaseSessionInternal session, final String clusterName,
+  public void addCollectionToIndex(DatabaseSessionInternal session, final String collectionName,
       final String indexName) {
     throw new UnsupportedOperationException();
   }
 
-  public void removeClusterFromIndex(DatabaseSessionInternal session, final String clusterName,
+  public void removeCollectionFromIndex(DatabaseSessionInternal session,
+      final String collectionName,
       final String indexName) {
     throw new UnsupportedOperationException();
   }
@@ -271,6 +272,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     }
   }
 
+  @Nullable
   public Index getClassIndex(
       DatabaseSessionInternal session, String className, String indexName) {
     enterReadAccess(session);
@@ -411,7 +413,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       final String iName,
       final String iType,
       final IndexDefinition iIndexDefinition,
-      final int[] iClusterIdsToIndex,
+      final int[] iCollectionIdsToIndex,
       final ProgressListener progressListener,
       Map<String, Object> metadata,
       String engine) {
@@ -429,7 +431,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
           .constructMapType(HashMap.class, String.class, Object.class);
 
       createIndexDDL +=
-          " " + CommandExecutorSQLCreateIndex.KEYWORD_METADATA + " " + objectMapper.convertValue(
+          " METADATA " + objectMapper.convertValue(
               metadata, typeRef);
     }
 
@@ -461,7 +463,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       String iName,
       String iType,
       IndexDefinition indexDefinition,
-      int[] clusterIdsToIndex,
+      int[] collectionIdsToIndex,
       ProgressListener progressListener,
       Map<String, Object> metadata) {
     return createIndex(
@@ -469,7 +471,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
         iName,
         iType,
         indexDefinition,
-        clusterIdsToIndex,
+        collectionIdsToIndex,
         progressListener,
         metadata,
         null);
@@ -520,7 +522,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
             var type = newIndexMetadata.getType();
             var name = newIndexMetadata.getName();
             var algorithm = newIndexMetadata.getAlgorithm();
-            var clustersToIndex = newIndexMetadata.getClustersToIndex();
+            var collectionsToIndex = newIndexMetadata.getCollectionsToIndex();
             var indexDefinition = newIndexMetadata.getIndexDefinition();
             var configMapId = (RID) configMap.get(IndexAbstract.CONFIG_MAP_RID);
 
@@ -532,7 +534,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
                     configMapId,
                     indexDefinition,
                     configMap,
-                    clustersToIndex,
+                    collectionsToIndex,
                     storage.getName()));
           } catch (Exception e) {
             LogManager.instance()

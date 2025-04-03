@@ -773,8 +773,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
   /**
    * Write a Identifiable instance using this format:<br> - 2 bytes: class id [-2=no record, -3=rid,
-   * -1=no class id, > -1 = valid] <br> - 1 byte: record type [d,b,f] <br> - 2 bytes: cluster id
-   * <br> - 8 bytes: position in cluster <br> - 4 bytes: record version <br> - x bytes: record
+   * -1=no class id, > -1 = valid] <br> - 1 byte: record type [d,b,f] <br> - 2 bytes: collection id
+   * <br> - 8 bytes: position in collection <br> - 4 bytes: record version <br> - x bytes: record
    * content <br>
    *
    * @param channel TODO

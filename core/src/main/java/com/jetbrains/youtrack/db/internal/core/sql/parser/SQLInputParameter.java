@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLInputParameter extends SimpleNode {
 
@@ -28,10 +29,12 @@ public class SQLInputParameter extends SimpleNode {
     super(p, id);
   }
 
+  @Nullable
   public Object bindFromInputParams(Map<Object, Object> params) {
     return null;
   }
 
+  @Nullable
   public Object getValue(Map<Object, Object> params) {
     return null;
   }
@@ -113,7 +116,7 @@ public class SQLInputParameter extends SimpleNode {
       var splitted = stringVal.split(":");
       var c = new SQLInteger(-1);
       c.setValue(Integer.parseInt(splitted[0]));
-      rid.cluster = c;
+      rid.collection = c;
       var p = new SQLInteger(-1);
       p.setValue(Integer.parseInt(splitted[1]));
       rid.position = p;
@@ -150,6 +153,7 @@ public class SQLInputParameter extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   public static SQLInputParameter deserializeFromOResult(Result res) {
     try {
       var result =

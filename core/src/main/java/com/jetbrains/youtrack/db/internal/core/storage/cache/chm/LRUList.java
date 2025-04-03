@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.cache.chm;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import javax.annotation.Nullable;
 
 public final class LRUList implements Iterable<CacheEntry> {
 
@@ -102,6 +103,7 @@ public final class LRUList implements Iterable<CacheEntry> {
     return size;
   }
 
+  @Nullable
   CacheEntry poll() {
     if (head == null) {
       return null;

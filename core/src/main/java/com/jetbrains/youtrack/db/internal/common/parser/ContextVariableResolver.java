@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.common.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import javax.annotation.Nullable;
 
 /**
  * Resolve variables by using a context.
@@ -47,6 +48,7 @@ public class ContextVariableResolver implements VariableParserListener {
     return (String) VariableParser.resolveVariables(iValue, VAR_BEGIN, VAR_END, this, iDefault);
   }
 
+  @Nullable
   @Override
   public String resolve(final String variable) {
     if (variable == null) {

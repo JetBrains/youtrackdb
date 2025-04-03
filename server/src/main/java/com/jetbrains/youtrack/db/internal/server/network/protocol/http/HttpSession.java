@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Handles session information.
@@ -59,6 +60,7 @@ public class HttpSession {
     return this;
   }
 
+  @Nullable
   public Object getParameters(final Object iKey) {
     if (this.parameters == null) {
       return null;
@@ -67,6 +69,7 @@ public class HttpSession {
     return parameters.entrySet();
   }
 
+  @Nullable
   public Object getParameter(final Object iKey) {
     if (this.parameters == null) {
       return null;

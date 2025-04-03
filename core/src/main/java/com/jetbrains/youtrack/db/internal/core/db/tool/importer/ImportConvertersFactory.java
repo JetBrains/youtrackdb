@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -19,6 +20,7 @@ public final class ImportConvertersFactory {
   public static final RID BROKEN_LINK = new RecordId(-1, -42);
   public static final ImportConvertersFactory INSTANCE = new ImportConvertersFactory();
 
+  @Nullable
   public ValuesConverter getConverter(Object value, ConverterData converterData) {
     if (value instanceof EntityLinkMapIml) {
       return new LinkMapConverter(converterData);

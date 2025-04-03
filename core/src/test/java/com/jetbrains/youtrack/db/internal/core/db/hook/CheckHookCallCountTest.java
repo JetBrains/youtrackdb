@@ -72,7 +72,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.rollback();
 
     session.registerHook(
-        new EntityHookAbstract(session) {
+        new EntityHookAbstract() {
 
           {
             setIncludeClasses("TestInHook");
@@ -123,7 +123,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     public int readCount;
 
     public TestHook(DatabaseSession session) {
-      super(session);
+      super();
     }
 
     @Override

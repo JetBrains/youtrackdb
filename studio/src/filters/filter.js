@@ -106,7 +106,7 @@ filterModule.filter('formatArray', function () {
     }
   }
 })
-filterModule.filter('formatClusters', function () {
+filterModule.filter('formatCollections', function () {
   return function (input) {
     if (input instanceof Array) {
       var output = "";

@@ -9,6 +9,7 @@ import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 public interface ExecutionStream {
 
@@ -89,6 +90,7 @@ public interface ExecutionStream {
                 return false;
               }
 
+              @Nullable
               @Override
               public Spliterator<Result> trySplit() {
                 return null;

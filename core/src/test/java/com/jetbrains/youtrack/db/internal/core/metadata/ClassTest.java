@@ -6,7 +6,7 @@ import static org.junit.Assert.assertFalse;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import org.junit.Assert;
 import org.junit.Test;
@@ -23,17 +23,17 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     final var storage = session.getStorage();
     final var paginatedStorage = (AbstractPaginatedStorage) storage;
     final var writeCache = paginatedStorage.getWriteCache();
-    Assert.assertTrue(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
 
     oClass.setName("ClassNameNew");
 
-    assertFalse(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists("classnamenew" + PaginatedCluster.DEF_EXTENSION));
+    assertFalse(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classnamenew" + PaginatedCollection.DEF_EXTENSION));
 
     oClass.setName("ClassName");
 
-    assertFalse(writeCache.exists("classnamenew" + PaginatedCluster.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists("classname" + PaginatedCluster.DEF_EXTENSION));
+    assertFalse(writeCache.exists("classnamenew" + PaginatedCollection.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
   }
 
   @Test

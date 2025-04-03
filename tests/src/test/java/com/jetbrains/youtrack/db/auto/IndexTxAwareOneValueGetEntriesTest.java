@@ -2,49 +2,25 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
-
-  private static final String CLASS_NAME = "idxTxAwareOneValueGetEntriesTest";
-  private static final String PROPERTY_NAME = "value";
-  private static final String INDEX = "idxTxAwareOneValueGetEntriesTestIndex";
+public class IndexTxAwareOneValueGetEntriesTest extends IndexTxAwareBaseTest {
 
   @Parameters(value = "remote")
   public IndexTxAwareOneValueGetEntriesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  @BeforeClass
-  public void beforeClass() throws Exception {
-    super.beforeClass();
-
-    var cls = session.getMetadata().getSchema().createClass(CLASS_NAME);
-    cls.createProperty(PROPERTY_NAME, PropertyType.INTEGER);
-    cls.createIndex(INDEX, SchemaClass.INDEX_TYPE.UNIQUE, PROPERTY_NAME);
-  }
-
-  @AfterMethod
-  public void afterMethod() throws Exception {
-    session.getMetadata().getSchema().getClassInternal(CLASS_NAME).truncate();
-
-    super.afterMethod();
+    super(remote != null && remote, true);
   }
 
   @Test
@@ -54,15 +30,17 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 1);
+    final var doc1 = newDoc(1);
+    final var doc2 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -71,9 +49,10 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 3);
+    var doc3 = newDoc(3);
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    verifyTxIndexPut(Map.of(3, Set.of(doc3.getIdentity())));
+
     Set<Identifiable> resultTwo = new HashSet<>();
     stream = index.streamEntries(session, Arrays.asList(1, 2, 3), true);
     streamToSet(stream, resultTwo);
@@ -81,7 +60,6 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.rollback();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultThree = new HashSet<>();
     stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
@@ -96,16 +74,17 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
-        1);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -115,10 +94,11 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
 
     var activeTx = session.getActiveTransaction();
-    document = activeTx.load(document);
-    document.delete();
+    doc1 = activeTx.load(doc1);
+    doc1.delete();
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
+
     Set<Identifiable> resultTwo = new HashSet<>();
     stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
@@ -126,7 +106,6 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.rollback();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultThree = new HashSet<>();
     stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
@@ -140,16 +119,17 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     }
 
     session.begin();
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
-        1);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
     session.commit();
 
-    Assert.assertNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -159,12 +139,15 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.begin();
 
     var activeTx = session.getActiveTransaction();
-    document = activeTx.load(document);
-    document.removeProperty(PROPERTY_NAME);
+    doc1 = activeTx.load(doc1);
+    doc1.removeProperty(fieldName);
+    doc1.setProperty(fieldName, 1);
 
-    document.setProperty(PROPERTY_NAME, 1);
+    verifyTxIndexChanges(
+        Map.of(1, Set.of(doc1.getIdentity())),
+        Map.of(1, Set.of(doc1.getIdentity()))
+    );
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> resultTwo = new HashSet<>();
     stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
@@ -181,17 +164,18 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
+    var doc1 = newDoc(1);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
-        1);
+    doc1.setProperty(fieldName, 0);
+    doc1.setProperty(fieldName, 1);
 
-    document.setProperty(PROPERTY_NAME, 0);
-    document.setProperty(PROPERTY_NAME, 1);
+    var doc2 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -214,13 +198,14 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 1);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
-
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -230,7 +215,7 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 3);
+    newDoc(3);
 
     session.commit();
 
@@ -247,16 +232,20 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    final var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(
-        PROPERTY_NAME, 1);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    doc1.delete();
 
-    document.delete();
+    verifyTxIndexPut(Map.of(
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
     Set<Identifiable> result = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);
@@ -278,18 +267,21 @@ public class IndexTxAwareOneValueGetEntriesTest extends BaseDBTest {
 
     session.begin();
 
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, INDEX);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    var document = ((EntityImpl) session.newEntity(CLASS_NAME)).setPropertyInChain(PROPERTY_NAME,
-        1);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    session.newEntity(CLASS_NAME).setProperty(PROPERTY_NAME, 2);
+    doc1.removeProperty(fieldName);
+    doc1.setProperty(fieldName, 1);
 
-    document.removeProperty(PROPERTY_NAME);
-
-    document.setProperty(PROPERTY_NAME, 1);
-
-    Assert.assertNotNull(session.getTransactionInternal().getIndexChanges(INDEX));
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
     Set<Identifiable> result = new HashSet<>();
     var stream =
         index.streamEntries(session, Arrays.asList(1, 2), true);

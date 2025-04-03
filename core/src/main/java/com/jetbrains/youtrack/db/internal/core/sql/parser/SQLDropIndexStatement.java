@@ -36,7 +36,7 @@ public class SQLDropIndexStatement extends DDLStatement {
         session.getMetadata().getIndexManagerInternal().dropIndex(session, idx.getName());
         var result = new ResultInternal(session);
         result.setProperty("operation", "drop index");
-        result.setProperty("clusterName", idx.getName());
+        result.setProperty("collectionName", idx.getName());
         rs.add(result);
       }
 

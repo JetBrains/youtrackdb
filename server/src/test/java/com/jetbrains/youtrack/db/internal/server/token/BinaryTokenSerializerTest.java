@@ -49,7 +49,7 @@ public class BinaryTokenSerializerTest {
     assertEquals("test", token.getDatabaseName());
     assertEquals("disk", token.getDatabaseType());
     var id = token.getUserId();
-    assertEquals(43, id.getClusterId());
+    assertEquals(43, id.getCollectionId());
     assertEquals(20L, tok.getExpiry());
 
     assertEquals("YouTrackDB", tok.getHeader().getType());
@@ -90,7 +90,7 @@ public class BinaryTokenSerializerTest {
     assertEquals("test", token.getDatabaseName());
     assertEquals("disk", token.getDatabaseType());
     var id = token.getUserId();
-    assertEquals(43, id.getClusterId());
+    assertEquals(43, id.getCollectionId());
     assertEquals(20L, tok.getExpiry());
     assertTrue(token.isServerUser());
     assertEquals("aaa", tok.getUserName());

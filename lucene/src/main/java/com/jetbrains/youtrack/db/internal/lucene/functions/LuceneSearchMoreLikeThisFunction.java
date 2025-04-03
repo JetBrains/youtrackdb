@@ -10,8 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -32,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.mlt.MoreLikeThis;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -178,7 +178,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private static Map<String, ?> parseMetadata(SQLExpression[] args) {
-    return RecordSerializerJackson.mapFromJson(args[1].toString());
+    return JSONSerializerJackson.mapFromJson(args[1].toString());
   }
 
   private MoreLikeThis buildMoreLikeThis(
@@ -274,6 +274,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     return searchForIndex(ctx, className);
   }
 
+  @Nullable
   private LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
     var db = ctx.getDatabaseSession();
     var dbMetadata = db.getMetadata();

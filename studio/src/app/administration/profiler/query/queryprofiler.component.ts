@@ -20,7 +20,7 @@ export class QueryProfilerComponent implements OnInit {
     Promise.all([this.metrics.listDatabases(), this.metrics.getMetrics()]).then(
       response => {
         this.databases = response[0].databases;
-        this.servers = Object.keys(response[1].clusterStats);
+        this.servers = Object.keys(response[1].collectionStats);
         this.server = response[1].nodeName;
       }
     );

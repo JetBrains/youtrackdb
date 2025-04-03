@@ -31,9 +31,9 @@ public class DatabaseSecurityResources {
   public static final String SCHEMA = "database.schema";
   public static final String CLASS = "database.class";
   public static final String ALL_CLASSES = "database.class.*";
-  public static final String CLUSTER = "database.cluster";
-  public static final String ALL_CLUSTERS = "database.cluster.*";
-  public static final String SYSTEMCLUSTERS = "database.systemclusters";
+  public static final String COLLECTION = "database.collection";
+  public static final String ALL_COLLECTIONS = "database.collection.*";
+  public static final String SYSTEMCOLLECTIONS = "database.systemcollections";
   public static final String COMMAND = "database.command";
   public static final String COMMAND_GREMLIN = "database.command.gremlin";
   public static final String FUNCTION = "database.function";

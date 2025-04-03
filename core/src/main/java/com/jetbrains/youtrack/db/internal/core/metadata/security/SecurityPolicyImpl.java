@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SecurityPolicyImpl implements SecurityPolicy {
 
@@ -44,6 +45,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     this.getEntity(session).setProperty("active", active);
   }
 
+  @Nullable
   public String getCreateRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("create");
@@ -55,6 +57,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     getEntity(session).setProperty("create", rule);
   }
 
+  @Nullable
   public String getReadRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("read");
@@ -66,6 +69,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     getEntity(session).setProperty("read", rule);
   }
 
+  @Nullable
   public String getBeforeUpdateRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("beforeUpdate");
@@ -77,6 +81,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     getEntity(session).setProperty("beforeUpdate", rule);
   }
 
+  @Nullable
   public String getAfterUpdateRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("afterUpdate");
@@ -88,6 +93,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     getEntity(session).setProperty("afterUpdate", rule);
   }
 
+  @Nullable
   public String getDeleteRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("delete");
@@ -99,6 +105,7 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     getEntity(session).setProperty("delete", rule);
   }
 
+  @Nullable
   public String getExecuteRule(@Nonnull DatabaseSessionInternal session) {
     var element = getEntity(session);
     return element == null ? null : element.getProperty("execute");

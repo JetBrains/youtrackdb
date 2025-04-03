@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLExpression extends SimpleNode {
 
@@ -53,6 +54,7 @@ public class SQLExpression extends SimpleNode {
     mathExpression = new SQLBaseExpression(attr, modifier);
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (isNull) {
       return null;
@@ -78,7 +80,7 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.cluster.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {
@@ -94,6 +96,7 @@ public class SQLExpression extends SimpleNode {
     return value;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (isNull) {
       return null;
@@ -119,7 +122,7 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.cluster.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {
@@ -318,6 +321,7 @@ public class SQLExpression extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -587,6 +591,7 @@ public class SQLExpression extends SimpleNode {
    * @return a list of pattern aliases involved in this condition. Null it does not involve the
    * pattern
    */
+  @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     if (mathExpression != null) {
       return mathExpression.getMatchPatternInvolvedAliases();
@@ -682,6 +687,7 @@ public class SQLExpression extends SimpleNode {
     }
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (mathExpression != null) {
       return mathExpression.getCollate(currentRecord, ctx);

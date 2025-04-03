@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SecurityRemote implements SecurityInternal {
 
@@ -36,119 +37,6 @@ public class SecurityRemote implements SecurityInternal {
       DatabaseSessionInternal session, Set<Identifiable> iAllowAll,
       Set<Identifiable> iAllowOperation) {
     return true;
-  }
-
-  @Override
-  public Identifiable allowRole(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    final var role = getRoleRID(session, iRoleName);
-    if (role == null) {
-      throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-    }
-
-    return allowIdentity(session, entity, iOperation.getFieldName(), role);
-  }
-
-  @Override
-  public Identifiable allowUser(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    final var user = getUserRID(session, iUserName);
-    if (user == null) {
-      throw new IllegalArgumentException("User '" + iUserName + "' not found");
-    }
-
-    return allowIdentity(session, entity, iOperation.getFieldName(), user);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    final var user = getUserRID(session, iUserName);
-    if (user == null) {
-      throw new IllegalArgumentException("User '" + iUserName + "' not found");
-    }
-
-    return disallowIdentity(session, entity, iOperation.getFieldName(), user);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    final var role = getRoleRID(session, iRoleName);
-    if (role == null) {
-      throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-    }
-
-    return disallowIdentity(session, entity, iOperation.getFieldName(), role);
-  }
-
-  @Override
-  public Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
-    if (field == null) {
-      field = new EntityEmbeddedSetImpl<>(entity);
-      entity.setProperty(iAllowFieldName, field);
-    }
-    field.add(iId);
-
-    return iId;
-  }
-
-  public static RID getRoleRID(final DatabaseSession session, final String iRoleName) {
-    if (iRoleName == null) {
-      return null;
-    }
-
-    return session.computeInTx(transaction -> {
-      try (final var result =
-          transaction.query(
-              "select @rid as rid from " + Role.CLASS_NAME + " where name = ? limit 1",
-              iRoleName)) {
-
-        if (result.hasNext()) {
-          return result.next().getProperty("rid");
-        }
-      }
-      return null;
-    });
-  }
-
-  public static RID getUserRID(final DatabaseSession session, final String userName) {
-    return session.computeInTx(transaction -> {
-      try (var result =
-          transaction.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
-        if (result.hasNext()) {
-          return result.next().getProperty("rid");
-        }
-      }
-
-      return null;
-    });
-  }
-
-  @Override
-  public Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    Set<Identifiable> field = entity.getProperty(iAllowFieldName);
-    if (field != null) {
-      field.remove(iId);
-    }
-    return iId;
   }
 
   @Override
@@ -222,10 +110,12 @@ public class SecurityRemote implements SecurityInternal {
               (EntityImpl) result.next().asEntity());
         }
       }
+      //noinspection ReturnOfNull
       return null;
     });
   }
 
+  @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
@@ -240,6 +130,7 @@ public class SecurityRemote implements SecurityInternal {
     return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     var sessionInternal = (DatabaseSessionInternal) session;
     final EntityImpl entity = sessionInternal.load(iRole.getIdentity());
@@ -252,6 +143,7 @@ public class SecurityRemote implements SecurityInternal {
     return null;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
@@ -267,6 +159,7 @@ public class SecurityRemote implements SecurityInternal {
         }
       }
 
+      //noinspection ReturnOfNull
       return null;
     });
   }
@@ -352,11 +245,6 @@ public class SecurityRemote implements SecurityInternal {
         return removed != null && removed.intValue() > 0;
       }
     });
-  }
-
-  @Override
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
   }
 
   @Override

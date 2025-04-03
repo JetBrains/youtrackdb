@@ -46,10 +46,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   private static final int ENTRIES_COUNT_OFFSET =
       EMBEDDED_ENTRIES_COUNT_OFFSET + ByteSerializer.BYTE_SIZE;
   private static final int M_ID_OFFSET = ENTRIES_COUNT_OFFSET + IntegerSerializer.INT_SIZE;
-  private static final int CLUSTER_ID_OFFSET = M_ID_OFFSET + LongSerializer.LONG_SIZE;
-  private static final int CLUSTER_POSITION_OFFSET =
-      CLUSTER_ID_OFFSET + ShortSerializer.SHORT_SIZE;
-  private static final int KEY_OFFSET = CLUSTER_POSITION_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int COLLECTION_ID_OFFSET = M_ID_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int COLLECTION_POSITION_OFFSET =
+      COLLECTION_ID_OFFSET + ShortSerializer.SHORT_SIZE;
+  private static final int KEY_OFFSET = COLLECTION_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 
   private static final int EMBEDDED_ITEMS_THRESHOLD = 64;
   private static final int RID_SIZE = ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE;
@@ -198,18 +198,18 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
     // only single element in list
     if (nextItem == -1) {
-      final var clusterIdPosition = position;
-      final int clusterId = getShortValue(clusterIdPosition);
+      final var collectionIdPosition = position;
+      final int collectionId = getShortValue(collectionIdPosition);
       position += ShortSerializer.SHORT_SIZE;
 
-      final var clusterPosition = getLongValue(position);
+      final var collectionPosition = getLongValue(position);
 
-      if (clusterId != value.getClusterId()) {
+      if (collectionId != value.getCollectionId()) {
         return -1;
       }
 
-      if (clusterPosition == value.getClusterPosition()) {
-        setShortValue(clusterIdPosition, (short) -1);
+      if (collectionPosition == value.getCollectionPosition()) {
+        setShortValue(collectionIdPosition, (short) -1);
 
         assert embeddedEntriesCount == 1;
 
@@ -219,11 +219,11 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         return entriesCount - 1;
       }
     } else {
-      int clusterId = getShortValue(position);
+      int collectionId = getShortValue(position);
       position += ShortSerializer.SHORT_SIZE;
 
-      var clusterPosition = getLongValue(position);
-      if (clusterId == value.getClusterId() && clusterPosition == value.getClusterPosition()) {
+      var collectionPosition = getLongValue(position);
+      if (collectionId == value.getCollectionId() && collectionPosition == value.getCollectionPosition()) {
         final var nextNextItem = getIntValue(nextItem);
         final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
@@ -304,17 +304,17 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
           final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
           if (nextItemSize == 1) {
-            clusterId =
+            collectionId =
                 getShortValue(nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
-            clusterPosition =
+            collectionPosition =
                 getLongValue(
                     nextItem
                         + IntegerSerializer.INT_SIZE
                         + ByteSerializer.BYTE_SIZE
                         + ShortSerializer.SHORT_SIZE);
 
-            if (clusterId == value.getClusterId()
-                && clusterPosition == value.getClusterPosition()) {
+            if (collectionId == value.getCollectionId()
+                && collectionPosition == value.getCollectionPosition()) {
               setIntValue(prevItem, nextNextItem);
 
               final var freePointer = getIntValue(FREE_POINTER_OFFSET);
@@ -361,13 +361,13 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
             }
           } else {
             for (var i = 0; i < nextItemSize; i++) {
-              clusterId =
+              collectionId =
                   getShortValue(
                       nextItem
                           + IntegerSerializer.INT_SIZE
                           + ByteSerializer.BYTE_SIZE
                           + i * RID_SIZE);
-              clusterPosition =
+              collectionPosition =
                   getLongValue(
                       nextItem
                           + IntegerSerializer.INT_SIZE
@@ -375,8 +375,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                           + ByteSerializer.BYTE_SIZE
                           + i * RID_SIZE);
 
-              if (clusterId == value.getClusterId()
-                  && clusterPosition == value.getClusterPosition()) {
+              if (collectionId == value.getCollectionId()
+                  && collectionPosition == value.getCollectionPosition()) {
                 final var freePointer = getIntValue(FREE_POINTER_OFFSET);
                 setIntValue(FREE_POINTER_OFFSET, freePointer + RID_SIZE);
 
@@ -520,14 +520,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
     final List<RID> values = new ArrayList<>(entriesCount);
 
-    int clusterId = getShortValue(entryPosition);
+    int collectionId = getShortValue(entryPosition);
     entryPosition += ShortSerializer.SHORT_SIZE;
 
-    if (clusterId >= 0) {
-      final var clusterPosition = getLongValue(entryPosition);
+    if (collectionId >= 0) {
+      final var collectionPosition = getLongValue(entryPosition);
       entryPosition += LongSerializer.LONG_SIZE;
 
-      values.add(new RecordId(clusterId, clusterPosition));
+      values.add(new RecordId(collectionId, collectionPosition));
     } else {
       entryPosition += LongSerializer.LONG_SIZE;
     }
@@ -541,10 +541,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
       for (var i = 0; i < nextItemSize; i++) {
-        clusterId =
+        collectionId =
             getShortValue(
                 nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE + i * RID_SIZE);
-        final var clusterPosition =
+        final var collectionPosition =
             getLongValue(
                 nextItem
                     + ShortSerializer.SHORT_SIZE
@@ -552,7 +552,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                     + ByteSerializer.BYTE_SIZE
                     + i * RID_SIZE);
 
-        values.add(new RecordId(clusterId, clusterPosition));
+        values.add(new RecordId(collectionId, collectionPosition));
       }
 
       nextItem = nextNextItem;
@@ -791,8 +791,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     freePointer += setLongValue(freePointer, mId); // mId
 
     if (value != null) {
-      freePointer += setShortValue(freePointer, (short) value.getClusterId()); // rid
-      freePointer += setLongValue(freePointer, value.getClusterPosition());
+      freePointer += setShortValue(freePointer, (short) value.getCollectionId()); // rid
+      freePointer += setLongValue(freePointer, value.getCollectionPosition());
     } else {
       freePointer += setShortValue(freePointer, (short) -1); // rid
       freePointer += setLongValue(freePointer, -1);
@@ -833,14 +833,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
         freePointer += setIntValue(freePointer, nextItem); // next item pointer
         freePointer += setByteValue(freePointer, (byte) 1); // size
-        freePointer += setShortValue(freePointer, (short) value.getClusterId()); // rid
-        freePointer += setLongValue(freePointer, value.getClusterPosition());
+        freePointer += setShortValue(freePointer, (short) value.getCollectionId()); // rid
+        freePointer += setLongValue(freePointer, value.getCollectionPosition());
 
         freePointer -= itemSize;
         setIntValue(FREE_POINTER_OFFSET, freePointer);
       } else {
-        setShortValue(entryPosition + CLUSTER_ID_OFFSET, (short) value.getClusterId());
-        setLongValue(entryPosition + CLUSTER_POSITION_OFFSET, value.getClusterPosition());
+        setShortValue(entryPosition + COLLECTION_ID_OFFSET, (short) value.getCollectionId());
+        setLongValue(entryPosition + COLLECTION_POSITION_OFFSET, value.getCollectionPosition());
       }
 
       setByteValue(entryPosition + IntegerSerializer.INT_SIZE, (byte) (embeddedEntriesCount + 1));
@@ -876,13 +876,13 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
       setShortValue(
           entryPosition + 2 * IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE,
-          (short) rid.getClusterId()); // rid
+          (short) rid.getCollectionId()); // rid
       setLongValue(
           entryPosition
               + 2 * IntegerSerializer.INT_SIZE
               + ByteSerializer.BYTE_SIZE
               + ShortSerializer.SHORT_SIZE,
-          rid.getClusterPosition());
+          rid.getCollectionPosition());
       startIndex = 1;
     }
 
@@ -907,8 +907,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       for (var i = startIndex; i < values.size(); i++) {
         final var rid = values.get(i);
 
-        freePointer += setShortValue(freePointer, (short) rid.getClusterId());
-        freePointer += setLongValue(freePointer, rid.getClusterPosition());
+        freePointer += setShortValue(freePointer, (short) rid.getCollectionId());
+        freePointer += setLongValue(freePointer, rid.getCollectionPosition());
       }
     }
 

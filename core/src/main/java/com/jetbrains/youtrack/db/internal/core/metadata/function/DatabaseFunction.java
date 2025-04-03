@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
+import javax.annotation.Nullable;
 
 /**
  * Dynamic function factory bound to the database's functions
@@ -86,6 +87,7 @@ public class DatabaseFunction implements SQLFunction {
     return buffer.toString();
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

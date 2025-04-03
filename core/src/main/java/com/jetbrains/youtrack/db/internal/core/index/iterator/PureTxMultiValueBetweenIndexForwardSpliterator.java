@@ -12,6 +12,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public class PureTxMultiValueBetweenIndexForwardSpliterator
     implements Spliterator<RawPair<Object, RID>> {
@@ -97,6 +98,7 @@ public class PureTxMultiValueBetweenIndexForwardSpliterator
     return new RawPair<>(key, identifiable.getIdentity());
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<Object, RID>> trySplit() {
     return null;

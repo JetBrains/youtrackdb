@@ -19,44 +19,6 @@ public interface SecurityInternal {
       DatabaseSessionInternal session, Set<Identifiable> iAllowAll,
       Set<Identifiable> iAllowOperation);
 
-  @Deprecated
-  Identifiable allowUser(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName);
-
-  @Deprecated
-  Identifiable allowRole(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName);
-
-  @Deprecated
-  Identifiable denyUser(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName);
-
-  @Deprecated
-  Identifiable denyRole(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName);
-
-  @Deprecated
-  Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId);
-
-  @Deprecated
-  Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId);
-
   SecurityUserImpl authenticate(DatabaseSessionInternal session, String iUsername,
       String iUserPassword);
 
@@ -144,8 +106,6 @@ public interface SecurityInternal {
   boolean dropUser(DatabaseSession session, String iUserName);
 
   boolean dropRole(DatabaseSession session, String iRoleName);
-
-  void createClassTrigger(DatabaseSessionInternal session);
 
   long getVersion(DatabaseSession session);
 

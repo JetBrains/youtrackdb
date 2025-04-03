@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * MAJOR EQUALS operator.
@@ -71,6 +72,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
@@ -130,6 +132,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
       final Object iRight) {
@@ -148,6 +151,7 @@ public class QueryOperatorMajorEquals extends QueryOperatorEqualityNotNulls {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

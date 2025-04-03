@@ -9,7 +9,7 @@
 import '../views/database/configuration.html';
 import  '../views/database/config/structure.html';
 import  '../views/database/config/boolenaCustom.html';
-import  '../views/database/config/clusterSelection.html';
+import  '../views/database/config/collectionSelection.html';
 import  '../views/database/config/conflictStrategy.html';
 import  '../views/database/config/configuration.html';
 import  '../views/database/config/import-export.html';
@@ -27,7 +27,7 @@ configModule.controller("ConfigurationController", ['$scope', '$routeParams', '$
   $scope.tabsI18n = new Array;
 
   if ($scope.active == "structure") {
-    Database.setWiki("Clusters.html");
+    Database.setWiki("Collections.html");
   }
 
   else if ($scope.active == "configuration") {
@@ -177,9 +177,9 @@ configModule.controller("UMLController", ['$scope', '$routeParams', '$location',
 
 }]);
 
-configModule.controller("StructureController", ['$scope', '$routeParams', '$location', 'DatabaseApi', 'Database', 'ClusterAlterApi', "Notification", function ($scope, $routeParams, $location, DatabaseApi, Database, ClusterAlterApi, Notification) {
+configModule.controller("StructureController", ['$scope', '$routeParams', '$location', 'DatabaseApi', 'Database', 'CollectionAlterApi', "Notification", function ($scope, $routeParams, $location, DatabaseApi, Database, CollectionAlterApi, Notification) {
 
-  $scope.clusters = Database.getMetadata()['clusters'];
+  $scope.collections = Database.getMetadata()['collections'];
   $scope.conflictStrategies = Database.getMetadata()['server']['conflictStrategies'];
   if (!$scope.conflictStrategies) {
     $scope.conflictStrategies = ['version', 'content', 'automerge'];
@@ -188,18 +188,18 @@ configModule.controller("StructureController", ['$scope', '$routeParams', '$loca
   $scope.txSegments = Database.getMetadata()['txSegment'];
 
   $scope.links = {
-    linkConflictStrategy: Database.getOWikiFor("SQL-Alter-Cluster.html")
+    linkConflictStrategy: Database.getOWikiFor("SQL-Alter-Collection.html")
   }
   $scope.version = Database.getVersion();
 
-  $scope.changeStrategy = function (cluster) {
+  $scope.changeStrategy = function (collection) {
 
-    ClusterAlterApi.changeProperty(Database.getName(), {
-      cluster: cluster.name,
+    CollectionAlterApi.changeProperty(Database.getName(), {
+      collection: collection.name,
       name: "conflictStrategy",
-      value: cluster.conflictStrategy
+      value: collection.conflictStrategy
     }).then(function () {
-      Notification.push({content: "Conflict strategy for cluster '" + cluster.name + "' changed in '" + cluster.conflictStrategy + "'."});
+      Notification.push({content: "Conflict strategy for collection '" + collection.name + "' changed in '" + collection.conflictStrategy + "'."});
     });
   }
 }]);
@@ -211,8 +211,8 @@ configModule.controller("DbConfigController", ['$scope', '$routeParams', '$locat
 
   $scope.links = {
     useLightweightEdges: Database.getOWikiFor("Tutorial-Working-with-graphs.html#lightweight-edges"),
-    clusterSelection: Database.getOWikiFor("SQL-Alter-Database.html"),
-    minimumClusters: Database.getOWikiFor("SQL-Alter-Database.html"),
+    collectionSelection: Database.getOWikiFor("SQL-Alter-Database.html"),
+    minimumCollections: Database.getOWikiFor("SQL-Alter-Database.html"),
     conflictStrategy: Database.getOWikiFor("SQL-Alter-Database.html")
   }
 
@@ -235,16 +235,16 @@ configModule.controller("DbConfigController", ['$scope', '$routeParams', '$locat
   }
 
 
-  $scope.canChange = ["clusterSelection", "minimumClusters", "localeCountry", "useLightweightEdges", "strictSql", "conflictStrategy"];
+  $scope.canChange = ["collectionSelection", "minimumCollections", "localeCountry", "useLightweightEdges", "strictSql", "conflictStrategy"];
   $scope.changeTemplate = {
-    clusterSelection: "views/database/config/clusterSelection.html",
+    collectionSelection: "views/database/config/collectionSelection.html",
     strictSql: "views/database/config/boolenaCustom.html",
     useLightweightEdges: "views/database/config/boolenaCustom.html",
     conflictStrategy: "views/database/config/conflictStrategy.html"
   }
   $scope.dirty = [];
   $scope.customDirty = [];
-  $scope.clusterStrategies = ['round-robin', "default", "balanced", "local"];
+  $scope.collectionStrategies = ['round-robin', "default", "balanced", "local"];
 
   $scope.conflictStrategies = Database.getMetadata()['server']['conflictStrategies'];
 
@@ -276,7 +276,7 @@ configModule.controller("DbConfigController", ['$scope', '$routeParams', '$locat
     $scope.dirty.forEach(function (val) {
 
       var prop = angular.copy(val);
-      if (prop.name === 'clusterSelection') {
+      if (prop.name === 'collectionSelection') {
         prop.value = '`' + prop.value + '`';
       }
       var p = DatabaseAlterApi.changeProperty(Database.getName(), prop);

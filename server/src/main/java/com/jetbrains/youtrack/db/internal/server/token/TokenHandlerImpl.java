@@ -20,7 +20,7 @@ import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSignImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -303,6 +304,7 @@ public class TokenHandlerImpl implements TokenHandler {
     return baos.toByteArray();
   }
 
+  @Nullable
   public NetworkProtocolData getProtocolDataFromToken(
       ClientConnection connection, final Token token) {
     if (token instanceof BinaryToken binary) {
@@ -387,7 +389,7 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   protected static YouTrackDBJwtHeader deserializeWebHeader(final byte[] decodedHeader) {
-    final var map = RecordSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.mapFromJson(
         new String(decodedHeader, StandardCharsets.UTF_8));
     final var header = new YouTrackDBJwtHeader();
     header.setType((String) map.get("typ"));
@@ -401,7 +403,7 @@ public class TokenHandlerImpl implements TokenHandler {
     if (!"YouTrackDB".equals(type)) {
       throw new SystemException("Payload class not registered:" + type);
     }
-    final var map = RecordSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.mapFromJson(
         new String(decodedPayload, StandardCharsets.UTF_8));
     final var payload = new YouTrackDBJwtPayload();
     payload.setUserName((String) map.get("username"));
@@ -412,10 +414,10 @@ public class TokenHandlerImpl implements TokenHandler {
     payload.setDatabase((String) map.get("sub"));
     payload.setAudience((String) map.get("aud"));
     payload.setTokenId((String) map.get("jti"));
-    final int cluster = (Integer) map.get("uidc");
+    final int collection = (Integer) map.get("uidc");
     final var pos = ((Number) map.get("uidp")).longValue();
 
-    payload.setUserRid(new RecordId(cluster, pos));
+    payload.setUserRid(new RecordId(collection, pos));
     payload.setDatabaseType((String) map.get("bdtyp"));
     return payload;
   }
@@ -430,7 +432,7 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("alg", header.getAlgorithm());
     map.put("kid", header.getKeyId());
 
-    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected static byte[] serializeWebPayload(final JwtPayload payload) throws Exception {
@@ -447,10 +449,10 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("sub", payload.getDatabase());
     map.put("aud", payload.getAudience());
     map.put("jti", payload.getTokenId());
-    map.put("uidc", payload.getUserRid().getClusterId());
-    map.put("uidp", payload.getUserRid().getClusterPosition());
+    map.put("uidc", payload.getUserRid().getCollectionId());
+    map.put("uidp", payload.getUserRid().getCollectionPosition());
     map.put("bdtyp", payload.getDatabaseType());
-    return RecordSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected JwtPayload createPayloadServerUser(SecurityUser serverUser) {

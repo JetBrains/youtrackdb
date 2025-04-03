@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class ExecutionResultSet implements ResultSet {
@@ -66,6 +67,7 @@ public class ExecutionResultSet implements ResultSet {
     return false;
   }
 
+  @Nullable
   @Override
   public ResultSet trySplit() {
     return null;
@@ -82,7 +84,7 @@ public class ExecutionResultSet implements ResultSet {
   }
 
   @Override
-  public void forEachRemaining(Consumer<? super Result> action) {
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
     }

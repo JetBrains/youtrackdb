@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Index definition for index which is bound to field with type {@link PropertyTypeInternal#LINKBAG} .
@@ -75,6 +76,7 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
     return createValue(session, entity.<Object>getPropertyInternal(field));
   }
 
+  @Nullable
   @Override
   public Object createValue(DatabaseSessionInternal session, final List<?> params) {
     if (!(params.get(0) instanceof RidBag ridBag)) {
@@ -88,6 +90,7 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
     return values;
   }
 
+  @Nullable
   @Override
   public Object createValue(DatabaseSessionInternal session, final Object... params) {
     if (!(params[0] instanceof RidBag ridBag)) {

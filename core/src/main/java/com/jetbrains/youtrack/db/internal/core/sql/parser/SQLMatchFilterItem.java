@@ -9,8 +9,8 @@ public class SQLMatchFilterItem extends SimpleNode {
 
   protected SQLExpression className;
   protected SQLExpression classNames;
-  protected SQLIdentifier clusterName;
-  protected SQLInteger clusterId;
+  protected SQLIdentifier collectionName;
+  protected SQLInteger collectionId;
   protected SQLRid rid;
   protected SQLIdentifier alias;
   protected SQLWhereClause filter;
@@ -40,14 +40,14 @@ public class SQLMatchFilterItem extends SimpleNode {
       classNames.toString(params, builder);
       return;
     }
-    if (clusterName != null) {
-      builder.append("cluster: ");
-      clusterName.toString(params, builder);
+    if (collectionName != null) {
+      builder.append("collection: ");
+      collectionName.toString(params, builder);
       return;
     }
-    if (clusterId != null) {
-      builder.append("cluster: ");
-      clusterId.toString(params, builder);
+    if (collectionId != null) {
+      builder.append("collection: ");
+      collectionId.toString(params, builder);
       return;
     }
     if (rid != null) {
@@ -111,14 +111,14 @@ public class SQLMatchFilterItem extends SimpleNode {
       classNames.toGenericStatement(builder);
       return;
     }
-    if (clusterName != null) {
-      builder.append("cluster: ");
-      clusterName.toGenericStatement(builder);
+    if (collectionName != null) {
+      builder.append("collection: ");
+      collectionName.toGenericStatement(builder);
       return;
     }
-    if (clusterId != null) {
-      builder.append("cluster: ");
-      clusterId.toGenericStatement(builder);
+    if (collectionId != null) {
+      builder.append("collection: ");
+      collectionId.toGenericStatement(builder);
       return;
     }
     if (rid != null) {
@@ -176,8 +176,8 @@ public class SQLMatchFilterItem extends SimpleNode {
     var result = new SQLMatchFilterItem(-1);
     result.className = className == null ? null : className.copy();
     result.classNames = classNames == null ? null : classNames.copy();
-    result.clusterName = clusterName == null ? null : clusterName.copy();
-    result.clusterId = clusterId == null ? null : clusterId.copy();
+    result.collectionName = collectionName == null ? null : collectionName.copy();
+    result.collectionId = collectionId == null ? null : collectionId.copy();
     result.rid = rid == null ? null : rid.copy();
     result.alias = alias == null ? null : alias.copy();
     result.filter = filter == null ? null : filter.copy();
@@ -207,10 +207,10 @@ public class SQLMatchFilterItem extends SimpleNode {
     if (!Objects.equals(classNames, that.classNames)) {
       return false;
     }
-    if (!Objects.equals(clusterName, that.clusterName)) {
+    if (!Objects.equals(collectionName, that.collectionName)) {
       return false;
     }
-    if (!Objects.equals(clusterId, that.clusterId)) {
+    if (!Objects.equals(collectionId, that.collectionId)) {
       return false;
     }
     if (!Objects.equals(rid, that.rid)) {
@@ -244,8 +244,8 @@ public class SQLMatchFilterItem extends SimpleNode {
   public int hashCode() {
     var result = className != null ? className.hashCode() : 0;
     result = 31 * result + (classNames != null ? classNames.hashCode() : 0);
-    result = 31 * result + (clusterName != null ? clusterName.hashCode() : 0);
-    result = 31 * result + (clusterId != null ? clusterId.hashCode() : 0);
+    result = 31 * result + (collectionName != null ? collectionName.hashCode() : 0);
+    result = 31 * result + (collectionId != null ? collectionId.hashCode() : 0);
     result = 31 * result + (rid != null ? rid.hashCode() : 0);
     result = 31 * result + (alias != null ? alias.hashCode() : 0);
     result = 31 * result + (filter != null ? filter.hashCode() : 0);

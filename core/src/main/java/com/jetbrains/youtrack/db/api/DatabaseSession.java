@@ -410,8 +410,9 @@ public interface DatabaseSession extends AutoCloseable {
    * Registers a hook to listen all events for Records.
    *
    * @param iHookImpl RecordHook implementation
+   * @return
    */
-  void registerHook(@Nonnull RecordHook iHookImpl);
+  RecordHook registerHook(@Nonnull RecordHook iHookImpl);
 
   /**
    * Unregisters a previously registered hook.

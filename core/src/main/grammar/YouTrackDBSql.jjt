@@ -97,8 +97,6 @@ TOKEN:
 {
 	< SELECT: ( "s" | "S" ) ( "e" | "E" ) ( "l" | "L" ) ( "e" | "E" ) ( "c" | "C" ) ( "t" | "T" ) >
 	|
-	< TRAVERSE: ( "t" | "T") ( "r" | "R") ( "a" | "A") ( "v" | "V") ( "e" | "E") ( "r" | "R") ( "s" | "S") ( "e" | "E") >
-	|
 	< MATCH: ( "m" | "M" ) ( "a" | "A" ) ( "t" | "T" ) ( "c" | "C" ) ( "h" | "H" ) >
 	|
 	< INSERT: ( "i" | "I" ) ( "n" | "N" ) ( "s" | "S" ) ( "e" | "E" ) ( "r" | "R" ) ( "t" | "T" ) >
@@ -244,10 +242,6 @@ TOKEN:
 	< TRUNCATE: ( "t" | "T" ) ( "r" | "R" ) ( "u" | "U" ) ( "n" | "N" ) ( "c" | "C" ) ( "a" | "A" ) ( "t" | "T" ) ( "e" | "E" ) >
 	|
 	< POLYMORPHIC: ( "p" | "P" ) ( "o" | "O" ) ( "l" | "L" ) ( "y" | "Y" ) ( "m" | "M" ) ( "o" | "O" ) ( "r" | "R" ) ( "p" | "P" ) ( "h" | "H" ) ( "i" | "I" ) ( "c" | "C" ) >
-	|
-	< FIND: ( "f" | "F" ) ( "i" | "I" ) ( "n" | "N" ) ( "d" | "D" ) >
-	|
-	< REFERENCES: ( "r" | "R" ) ( "e" | "E" ) ( "f" | "F" ) ( "e" | "E" ) ( "r" | "R" ) ( "e" | "E" ) ( "n" | "N" ) ( "c" | "C" ) ( "e" | "E" ) ( "s" | "S" ) >
 	|
 	< EXTENDS: ( "e" | "E" ) ( "x" | "X" ) ( "t" | "T" ) ( "e" | "E" ) ( "n" | "N" ) ( "d" | "D" ) ( "s" | "S" ) >
 	|
@@ -611,13 +605,13 @@ SQLRid Rid():
     (
 	     LOOKAHEAD(4)
 	     (
-	       "#" jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+	       "#" jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
 	       { jjtThis.legacy = true; }
 	     )
     	 |
     	 LOOKAHEAD(3)
     	 (
-    	   jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+    	   jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
     	   { jjtThis.legacy = true; }
     	 )
     	 |
@@ -756,10 +750,6 @@ SQLIdentifier Identifier():
     token = <OFF>
     |
     token = <TRUNCATE>
-    |
-    token = <FIND>
-	|
-	token = <REFERENCES>
 	|
 	token = <EXTENDS>
 	|
@@ -1168,12 +1158,7 @@ SQLStatement QueryStatement():
         |
         result = SelectWithoutTargetStatement()
         |
-        result = TraverseStatement()
-        |
         result = MatchStatement()
-        |
-        LOOKAHEAD( FindReferencesStatement() )
-        result = FindReferencesStatement()
     ){ return result; }
 }
 
@@ -1232,31 +1217,6 @@ SQLSelectStatement SelectStatement():
         jjtThis.validate();
         return jjtThis;
     }
-}
-
-SQLTraverseStatement TraverseStatement():
-{ SQLTraverseProjectionItem lastProjection;}
-{
-    (
-    	<TRAVERSE>
-    	[
-    	    lastProjection = TraverseProjectionItem() { jjtThis.addProjection(lastProjection); }
-    	    ( <COMMA> lastProjection = TraverseProjectionItem()  { jjtThis.addProjection(lastProjection); } )*
-    	]
-    	<FROM>
-    	jjtThis.target = FromClause()
-    	[ <MAXDEPTH> jjtThis.maxDepth = Integer() ]
-    	[ <WHILE> jjtThis.whileClause = WhereClause() ]
-        [ jjtThis.limit = Limit() ]
-        [ <STRATEGY>
-            (
-                <DEPTH_FIRST> { jjtThis.strategy = SQLTraverseStatement.Strategy.DEPTH_FIRST; }
-                |
-                <BREADTH_FIRST> { jjtThis.strategy = SQLTraverseStatement.Strategy.BREADTH_FIRST; }
-            )
-        ]
-    )
-    {return jjtThis;}
 }
 
 SQLMatchStatement MatchStatement():
@@ -3324,18 +3284,6 @@ SQLFetchPlanItem FetchPlanItem():
     { return jjtThis; }
 }
 
-
-
-SQLTraverseProjectionItem TraverseProjectionItem():
-{}
-{
-    (
-        jjtThis.base = BaseIdentifier()
-        [ LOOKAHEAD( Modifier() ) jjtThis.modifier = Modifier() ]
-    )
-    { return jjtThis; }
-}
-
 SQLJson Json():
 {
     SQLJsonItem lastItem;
@@ -3716,35 +3664,6 @@ SQLTruncateClassStatement TruncateClassStatement():
 	[ <POLYMORPHIC> {jjtThis.polymorphic = true;} ]
 	[ <UNSAFE> {jjtThis.unsafe = true;} ]
 	{ return jjtThis; }
-}
-
-SQLFindReferencesStatement FindReferencesStatement():
-{ SimpleNode lastTarget; }
-{
-    <FIND> <REFERENCES>
-    (
-        jjtThis.rid = Rid()
-        |
-        (
-            <LPAREN>
-            jjtThis.subQuery = StatementInternal()
-            <RPAREN>
-        )
-    )
-    [
-    	<LBRACKET> { jjtThis.targets = new ArrayList<SimpleNode>(); }
-    	(
-    	    lastTarget = Identifier()
-    	){ jjtThis.addTarget(lastTarget); }
-    	(
-    		<COMMA>
-    		(
-				lastTarget = Identifier()
-			){ jjtThis.addTarget(lastTarget); }
-    	)*
-    	<RBRACKET>
-    ]
-    { return jjtThis; }
 }
 
 SQLCreateClassStatement CreateClassStatement():

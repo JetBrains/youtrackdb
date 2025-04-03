@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineFactory;
@@ -177,6 +178,7 @@ public class ScriptManager {
    * @param iLanguage Language as filter
    * @return String containing all the functions
    */
+  @Nullable
   public String getLibrary(final DatabaseSessionInternal session, final String iLanguage) {
     if (session == null)
     // NO DB = NO LIBRARY

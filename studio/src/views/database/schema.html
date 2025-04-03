@@ -86,21 +86,21 @@
                     </th>
                     <th>Alias</th>
                     <th>Abstract</th>
-                    <th>Clusters
+                    <th>Collections
                       <a href="javascript:void(0)" tabindex="1"
                          data-trigger="focus" data-placement="bottom"
                          data-container="body"
-                         data-content="{{ 'schema.clusters' | translate:links }}" bs-popover>
+                         data-content="{{ 'schema.collections' | translate:links }}" bs-popover>
                         <i class="fa fa-question-circle"></i>
                       </a>
                     </th>
-                    <th>Default Cluster</th>
+                    <th>Default Collection</th>
                     <th>
-                      Cluster Selection
+                      Collection Selection
                       <a href="javascript:void(0)" tabindex="1"
                          data-trigger="focus" data-placement="bottom"
                          data-container="body"
-                         data-content="{{ 'schema.clusterSelection' | translate:links }}" bs-popover>
+                         data-content="{{ 'schema.collectionSelection' | translate:links }}" bs-popover>
                         <i class="fa fa-question-circle"></i>
                       </a>
                     </th>
@@ -125,12 +125,12 @@
                       <input type="checkbox" ng-model="result['abstract']" ng-disabled="true">
                     </td>
 
-                    <td ng-click="openClass(result)">{{result['clusters']}}</td>
-                    <td ng-click="openClass(result)">{{result['defaultCluster']}}</td>
+                    <td ng-click="openClass(result)">{{result['collections']}}</td>
+                    <td ng-click="openClass(result)">{{result['defaultCollection']}}</td>
                     <td>
-                      <select type="text" ng-options="opt for opt in clusterStrategies"
-                              ng-change="setClusterStrategy(result)"
-                              ng-model="result['clusterSelection']">
+                      <select type="text" ng-options="opt for opt in collectionStrategies"
+                              ng-change="setCollectionStrategy(result)"
+                              ng-model="result['collectionSelection']">
                       </select>
                     </td>
                     <td ng-click="openClass(result)">{{result['records'] | number }}</td>

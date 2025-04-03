@@ -952,9 +952,9 @@ public class IndexTest extends BaseDBTest {
       db.commit();
 
       Assert.assertNotEquals(
-          childClassDocument.getIdentity(), new RecordId(-1, RID.CLUSTER_POS_INVALID));
+          childClassDocument.getIdentity(), new RecordId(-1, RID.COLLECTION_POS_INVALID));
       Assert.assertNotEquals(
-          anotherChildClassDocument.getIdentity(), new RecordId(-1, RID.CLUSTER_POS_INVALID));
+          anotherChildClassDocument.getIdentity(), new RecordId(-1, RID.COLLECTION_POS_INVALID));
     }
   }
 
@@ -1137,7 +1137,7 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testIndexWithLimitAndOffset() {
-    final var schema = session.getSchema();
+    final var schema = session.getMetadata().getSchema();
     final var indexWithLimitAndOffset =
         schema.createClass("IndexWithLimitAndOffsetClass", 1);
     indexWithLimitAndOffset.createProperty("val", PropertyType.INTEGER);
@@ -1171,7 +1171,7 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullIndexKeysSupport() {
-    final var schema = session.getSchema();
+    final var schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("NullIndexKeysSupport", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
@@ -1214,7 +1214,7 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullHashIndexKeysSupport() {
-    final var schema = session.getSchema();
+    final var schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("NullHashIndexKeysSupport", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
@@ -1261,7 +1261,7 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullIndexKeysSupportInTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final var schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("NullIndexKeysSupportInTx", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
@@ -1314,7 +1314,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
-    final var schema = session.getSchema();
+    final var schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
 
@@ -1412,7 +1412,7 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
-    final Schema schema = session.getMetadata().getSchema();
+    final var schema = session.getMetadata().getSchema();
     var clazz =
         schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1);
     clazz.createProperty("val", PropertyType.STRING);

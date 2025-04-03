@@ -48,6 +48,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * Contains the description of a persistent class property.
@@ -352,6 +353,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
+  @Nullable
   public String getCustom(DatabaseSessionInternal db, final String iName) {
     acquireSchemaReadLock(db);
     try {
@@ -365,6 +367,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
+  @Nullable
   public Map<String, String> getCustomInternal(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {

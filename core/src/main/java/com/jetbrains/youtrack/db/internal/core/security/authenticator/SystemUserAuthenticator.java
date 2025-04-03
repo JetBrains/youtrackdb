@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import javax.annotation.Nullable;
 
 /**
  * Provides a default password authenticator.
@@ -45,6 +46,7 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
   // This will authenticate username using the system database.
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
 

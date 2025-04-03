@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -76,6 +77,7 @@ public class LevelHelper {
    * @param name {@code null} or empty returns {@code null}
    * @return
    */
+  @Nullable
   public static Level findLevel(String name) {
     if (name == null || name.isEmpty()) {
       return null;

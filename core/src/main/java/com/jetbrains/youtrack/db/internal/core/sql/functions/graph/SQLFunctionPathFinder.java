@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class to find paths between nodes.
@@ -108,6 +109,7 @@ public abstract class SQLFunctionPathFinder extends SQLFunctionMathAbstract {
   /*
    * This method returns the path from the source to the selected target and NULL if no path exists
    */
+  @Nullable
   public LinkedList<Vertex> getPath() {
     final var path = new LinkedList<Vertex>();
     var step = paramDestinationVertex;

@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodField;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Represent an object field as value in the query condition.
@@ -146,6 +147,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     return transformValue(iRecord, iContext, v);
   }
 
+  @Nullable
   public BinaryField getBinaryField(DatabaseSessionInternal session, final Identifiable iRecord) {
     if (iRecord == null) {
       throw new CommandExecutionException(session,
@@ -250,6 +252,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
    * @param object  the root element (entity?) of this field chain
    * @return the collate, null if no collate is defined
    */
+  @Nullable
   public Collate getCollate(DatabaseSessionInternal session, Object object) {
     if (collate != null || operationsChain == null || !isFieldChain()) {
       return collate;

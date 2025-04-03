@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Works against multi value objects like collections, maps and arrays.
@@ -40,6 +41,7 @@ public class SQLMethodMultiValue extends AbstractSQLMethod {
     return "multivalue(<index>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

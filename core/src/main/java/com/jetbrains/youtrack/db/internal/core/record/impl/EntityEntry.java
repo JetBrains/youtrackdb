@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import javax.annotation.Nullable;
 
 /**
  * Entity entry. Used by EntityImpl.
@@ -83,6 +84,7 @@ public class EntityEntry {
     return entry;
   }
 
+  @Nullable
   public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
     //noinspection rawtypes
     if (!changed && value instanceof TrackedMultiValue trackedMultiValue) {

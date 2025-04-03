@@ -33,6 +33,7 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import javax.annotation.Nullable;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
@@ -163,6 +164,7 @@ public class SecurityManager {
     return buffer.toString();
   }
 
+  @Nullable
   public static synchronized byte[] digestSHA256(final String iInput) {
     if (iInput == null) {
       return null;
@@ -307,6 +309,7 @@ public class SecurityManager {
     return validAlgo;
   }
 
+  @Nullable
   public static String byteArrayToHexStr(final byte[] data) {
     if (data == null) {
       return null;

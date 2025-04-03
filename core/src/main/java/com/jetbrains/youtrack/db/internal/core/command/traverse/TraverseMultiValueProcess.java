@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 
 public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<Object>> {
 
@@ -37,6 +38,7 @@ public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<
     this.parentPath = parentPath;
   }
 
+  @Nullable
   public Identifiable process() {
     while (target.hasNext()) {
       value = target.next();

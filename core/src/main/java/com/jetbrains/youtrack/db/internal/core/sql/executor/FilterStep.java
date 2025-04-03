@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExpireResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -41,6 +42,7 @@ public class FilterStep extends AbstractExecutionStep {
     return resultSet;
   }
 
+  @Nullable
   private Result filterMap(Result result, CommandContext ctx) {
     if (whereClause.matchesFilters(result, ctx)) {
       return result;

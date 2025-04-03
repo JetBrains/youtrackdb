@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.Locale;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Provides a parser and evaluator for unix-like cron expressions. Cron expressions provide the
@@ -1034,6 +1035,7 @@ public final class CronExpression implements Serializable, Cloneable {
     }
   }
 
+  @Nullable
   IntRBTreeSet getSet(int type) {
     return switch (type) {
       case SECOND -> seconds;
@@ -1086,6 +1088,7 @@ public final class CronExpression implements Serializable, Cloneable {
 
   /// /////////////////////////////////////////////////////////////////////////
 
+  @Nullable
   public synchronized Date getTimeAfter(Date afterTime) {
 
     // Computation is based on Gregorian year only.
@@ -1503,6 +1506,7 @@ public final class CronExpression implements Serializable, Cloneable {
    * NOT YET IMPLEMENTED: Returns the time before the given time that the <code>CronExpression
    * </code> matches.
    */
+  @Nullable
   public Date getTimeBefore(Date endTime) {
     // FUTURE_TODO: implement QUARTZ-423
     return null;
@@ -1511,6 +1515,7 @@ public final class CronExpression implements Serializable, Cloneable {
   /**
    * NOT YET IMPLEMENTED: Returns the final time that the <code>CronExpression</code> will match.
    */
+  @Nullable
   public Date getFinalFireTime() {
     // FUTURE_TODO: implement QUARTZ-423
     return null;

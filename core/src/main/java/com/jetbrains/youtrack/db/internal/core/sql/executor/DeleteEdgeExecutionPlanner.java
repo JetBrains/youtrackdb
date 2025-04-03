@@ -27,7 +27,7 @@ public class DeleteEdgeExecutionPlanner {
   private final SQLDeleteEdgeStatement statement;
 
   protected SQLIdentifier className;
-  protected SQLIdentifier targetClusterName;
+  protected SQLIdentifier targetCollectionName;
 
   protected List<SQLRid> rids;
 
@@ -47,10 +47,10 @@ public class DeleteEdgeExecutionPlanner {
   private void init() {
     this.className =
         this.statement.getClassName() == null ? null : this.statement.getClassName().copy();
-    this.targetClusterName =
-        this.statement.getTargetClusterName() == null
+    this.targetCollectionName =
+        this.statement.getTargetCollectionName() == null
             ? null
-            : this.statement.getTargetClusterName().copy();
+            : this.statement.getTargetCollectionName().copy();
     if (this.statement.getRid() != null) {
       this.rids = new ArrayList<>();
       rids.add(this.statement.getRid().copy());
@@ -112,7 +112,7 @@ public class DeleteEdgeExecutionPlanner {
           fromLabel,
           "$__YOUTRACKDB_DELETE_EDGE_toV",
           className,
-          targetClusterName,
+          targetCollectionName,
           enableProfiling);
       handleWhere(result, ctx, whereClause, enableProfiling);
     } else if (whereClause != null) {
@@ -127,7 +127,7 @@ public class DeleteEdgeExecutionPlanner {
       handleTarget(result, ctx, fromClause, this.whereClause, enableProfiling);
     } else {
       handleTargetClass(result, ctx, className, enableProfiling);
-      handleTargetCluster(result, ctx, targetClusterName, enableProfiling);
+      handleTargetCollection(result, ctx, targetCollectionName, enableProfiling);
       handleTargetRids(result, ctx, rids, enableProfiling);
     }
 
@@ -164,15 +164,15 @@ public class DeleteEdgeExecutionPlanner {
       String fromAlias,
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       boolean profilingEnabled) {
     if (fromAlias != null && toAlias != null) {
       result.chain(
           new FetchEdgesFromToVerticesStep(
-              fromAlias, toAlias, targetClass, targetCluster, ctx, profilingEnabled));
+              fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled));
     } else if (toAlias != null) {
       result.chain(
-          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCluster, ctx, profilingEnabled));
+          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCollection, ctx, profilingEnabled));
     }
   }
 
@@ -190,18 +190,18 @@ public class DeleteEdgeExecutionPlanner {
     }
   }
 
-  private void handleTargetCluster(
+  private void handleTargetCollection(
       DeleteExecutionPlan result,
       CommandContext ctx,
-      SQLIdentifier targetClusterName,
+      SQLIdentifier targetCollectionName,
       boolean profilingEnabled) {
-    if (targetClusterName != null) {
-      var name = targetClusterName.getStringValue();
-      var clusterId = ctx.getDatabaseSession().getClusterIdByName(name);
-      if (clusterId < 0) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(), "Cluster not found: " + name);
+    if (targetCollectionName != null) {
+      var name = targetCollectionName.getStringValue();
+      var collectionId = ctx.getDatabaseSession().getCollectionIdByName(name);
+      if (collectionId < 0) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(), "Collection not found: " + name);
       }
-      result.chain(new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled));
+      result.chain(new FetchFromCollectionExecutionStep(collectionId, ctx, profilingEnabled));
     }
   }
 

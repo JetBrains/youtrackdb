@@ -168,7 +168,7 @@ public class RemoteTransactionHookTest extends DbTestBase {
     public int afterDelete = 0;
 
     public CountCallHook(DatabaseSession database) {
-      super(database);
+      super();
     }
 
     @Override

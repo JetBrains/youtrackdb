@@ -36,13 +36,13 @@ public class CheckIndexTool extends DatabaseTool {
   //    RID    rid;
   //    String  indexName;
   //    boolean presentInIndex;
-  //    boolean presentOnCluster;
+  //    boolean presentOnCollection;
   //
-  //    Error(RID rid, String indexName, boolean presentInIndex, boolean presentOnCluster) {
+  //    Error(RID rid, String indexName, boolean presentInIndex, boolean presentOnCollection) {
   //      this.rid = rid;
   //      this.indexName = indexName;
   //      this.presentInIndex = presentInIndex;
-  //      this.presentOnCluster = presentOnCluster;
+  //      this.presentOnCollection = presentOnCollection;
   //    }
   //  }
   //
@@ -86,26 +86,26 @@ public class CheckIndexTool extends DatabaseTool {
     var fields = index.getDefinition().getFields();
     var className = index.getDefinition().getClassName();
     var clazz = this.session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-    var clusterIds = clazz.getPolymorphicClusterIds();
-    for (var clusterId : clusterIds) {
-      checkCluster(session, clusterId, index, fields);
+    var collectionIds = clazz.getPolymorphicCollectionIds();
+    for (var collectionId : collectionIds) {
+      checkCollection(session, collectionId, index, fields);
     }
   }
 
-  private void checkCluster(
-      DatabaseSessionInternal session, int clusterId, Index index, List<String> fields) {
-    var totRecordsForCluster = this.session.countClusterElements(clusterId);
-    var clusterName = this.session.getClusterNameById(clusterId);
+  private void checkCollection(
+      DatabaseSessionInternal session, int collectionId, Index index, List<String> fields) {
+    var totRecordsForCollection = this.session.countCollectionElements(collectionId);
+    var collectionName = this.session.getCollectionNameById(collectionId);
 
     var totSteps = 5;
-    message("Checking cluster " + clusterName + "  for index " + index.getName() + "\n");
-    var iter = this.session.browseCluster(clusterName);
+    message("Checking collection " + collectionName + "  for index " + index.getName() + "\n");
+    var iter = this.session.browseCollection(collectionName);
     long count = 0;
     long step = -1;
     while (iter.hasNext()) {
-      var currentStep = count * totSteps / totRecordsForCluster;
+      var currentStep = count * totSteps / totRecordsForCollection;
       if (currentStep > step) {
-        printProgress(clusterName, clusterId, (int) currentStep, totSteps);
+        printProgress(collectionName, collectionId, (int) currentStep, totSteps);
         step = currentStep;
       }
       var record = iter.next();
@@ -114,13 +114,13 @@ public class CheckIndexTool extends DatabaseTool {
       }
       count++;
     }
-    printProgress(clusterName, clusterId, totSteps, totSteps);
+    printProgress(collectionName, collectionId, totSteps, totSteps);
     message("\n");
   }
 
-  void printProgress(String clusterName, int clusterId, int step, int totSteps) {
+  void printProgress(String collectionName, int collectionId, int step, int totSteps) {
     var msg = new StringBuilder();
-    msg.append("\rcluster " + clusterName + " (" + clusterId + ") |");
+    msg.append("\rcollection " + collectionName + " (" + collectionId + ") |");
     for (var i = 0; i < totSteps; i++) {
       if (i < step) {
         msg.append("*");

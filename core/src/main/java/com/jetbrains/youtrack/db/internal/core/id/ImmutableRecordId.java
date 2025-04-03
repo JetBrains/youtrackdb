@@ -34,8 +34,8 @@ public class ImmutableRecordId extends RecordId {
     super();
   }
 
-  public ImmutableRecordId(final int iClusterId, final long iClusterPosition) {
-    super(iClusterId, iClusterPosition);
+  public ImmutableRecordId(final int iCollectionId, final long iCollectionPosition) {
+    super(iCollectionId, iCollectionPosition);
   }
 
   public ImmutableRecordId(final RecordId iRID) {

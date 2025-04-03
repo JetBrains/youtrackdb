@@ -178,7 +178,7 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         LogManager.instance()
             .warn(
                 this,
-                "Cannot push cluster configuration to the client %s",
+                "Cannot push collection configuration to the client %s",
                 e,
                 protocol.getRemoteAddress());
         protocol.getServer().getClientConnectionManager().disconnect(connection);
@@ -232,7 +232,7 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         LogManager.instance()
             .warn(
                 this,
-                "Cannot push cluster configuration to the client %s",
+                "Cannot push collection configuration to the client %s",
                 e,
                 protocol.getRemoteAddress());
         protocol.getServer().getClientConnectionManager().disconnect(connection);
@@ -247,8 +247,8 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
   }
 
   private void writeRID(DataOutputStream out, RecordId record) throws IOException {
-    out.writeShort((short) record.getClusterId());
-    out.writeLong(record.getClusterPosition());
+    out.writeShort((short) record.getCollectionId());
+    out.writeLong(record.getCollectionPosition());
   }
 
   public void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

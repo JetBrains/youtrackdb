@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This operator add an entry in a map. The entry is composed by a key and a value.
@@ -36,6 +37,7 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
     super(NAME, 1, -1);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
       Object iThis,

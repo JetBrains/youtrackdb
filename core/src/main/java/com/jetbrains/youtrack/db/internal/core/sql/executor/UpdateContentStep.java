@@ -52,17 +52,9 @@ public class UpdateContentStep extends AbstractExecutionStep {
     // REPLACE ALL THE CONTENT
     var session = ctx.getDatabaseSession();
     var cls = record.getImmutableSchemaClass(session);
-    var preserverdProperties = new HashSet<>();
-
-    if (cls != null && cls.isRestricted()) {
-      var restrictedCls = session.getSchema().getClass(Security.RESTRICTED_CLASSNAME);
-      preserverdProperties.addAll(restrictedCls.getProperties());
-    }
 
     for (var propertyNames : record.getPropertyNames()) {
-      if (!preserverdProperties.contains(propertyNames)) {
-        record.removeProperty(propertyNames);
-      }
+      record.removeProperty(propertyNames);
     }
 
     if (json != null) {

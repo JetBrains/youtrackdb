@@ -27,6 +27,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLCreateIndexStatement extends DDLStatement {
 
@@ -68,6 +69,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
     }
   }
 
+  @Nullable
   Object execute(CommandContext ctx) {
     final var session = ctx.getDatabaseSession();
 
@@ -219,7 +221,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                   name.getValue(),
                   type.getStringValue(),
                   idxDef,
-                  oClass.getPolymorphicClusterIds(),
+                  oClass.getPolymorphicCollectionIds(),
                   null,
                   metadata,
                   engine);
@@ -233,6 +235,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
    * @param ctx
    * @return
    */
+  @Nullable
   private String[] calculateProperties(CommandContext ctx) {
     if (propertyList == null) {
       return null;
@@ -246,6 +249,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
   /**
    * calculates the indexed class based on the class name
    */
+  @Nullable
   private SchemaClass getIndexClass(CommandContext ctx) {
     if (className == null) {
       return null;
@@ -261,6 +265,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
   /**
    * returns index metadata as an ODocuemnt (as expected by Index API)
    */
+  @Nullable
   private Map<String, Object> calculateMetadata(CommandContext ctx) {
     if (metadata == null) {
       return null;
@@ -278,6 +283,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
         .toArray(new PropertyTypeInternal[]{});
   }
 
+  @Nullable
   private List<Collate> calculateCollates(CommandContext ctx) {
     List<Collate> result = new ArrayList<>();
     var found = false;

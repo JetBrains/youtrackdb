@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Spliterators;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -73,6 +74,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return ExecutionStream.resultIterator(stream.iterator());
   }
 
+  @Nullable
   private Index findIndex(String uniqueIndexName) {
     if (uniqueIndexName != null) {
       final var session = ctx.getDatabaseSession();
@@ -161,6 +163,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
             });
   }
 
+  @Nullable
   private static EdgeInternal getExistingEdge(
       DatabaseSessionInternal db,
       Vertex currentFrom,

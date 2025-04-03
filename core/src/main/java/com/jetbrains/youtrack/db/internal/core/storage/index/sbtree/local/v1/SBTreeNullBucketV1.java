@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySeria
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
+import javax.annotation.Nullable;
 
 /**
  * Bucket which is intended to save values stored in sbtree under <code>null</code> key. Bucket has
@@ -54,6 +55,7 @@ public final class SBTreeNullBucketV1<V> extends DurablePage {
     setBinaryValue(NEXT_FREE_POSITION + 2, value);
   }
 
+  @Nullable
   public SBTreeValue<V> getValue(final BinarySerializer<V> valueSerializer,
       BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
@@ -72,6 +74,7 @@ public final class SBTreeNullBucketV1<V> extends DurablePage {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
   }
 
+  @Nullable
   public byte[] getRawValue(final BinarySerializer<V> valueSerializer,
       BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {

@@ -36,15 +36,7 @@ public interface Schema {
   @Nonnull
   SchemaClass createClass(@Nonnull String iClassName, @Nonnull SchemaClass iSuperClass);
 
-  @Nonnull
-  SchemaClass createClass(@Nonnull String className, int clusters,
-      @Nonnull SchemaClass... superClasses);
-
   SchemaClass createClass(String iClassName, SchemaClass... superClasses);
-
-  SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iClusterIds);
-
-  SchemaClass createClass(String className, int[] clusterIds, SchemaClass... superClasses);
 
   SchemaClass createAbstractClass(String iClassName);
 
@@ -132,7 +124,7 @@ public interface Schema {
   int getVersion();
 
   @Nullable
-  SchemaClass getClassByClusterId(int clusterId);
+  SchemaClass getClassByCollectionId(int collectionId);
 
   GlobalProperty getGlobalPropertyById(int id);
 

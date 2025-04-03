@@ -14,8 +14,8 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryProtocolHelper;
@@ -35,8 +35,8 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
@@ -167,6 +167,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
@@ -210,27 +211,27 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   @Override
   public BinaryResponse executeDBReload(ReloadRequest request) {
     final var db = connection.getDatabaseSession();
-    final var clusters = db.getClusterNames();
+    final var collections = db.getCollectionNames();
 
-    var clusterNames = new String[clusters.size()];
-    var clusterIds = new int[clusterNames.length];
+    var collectionNames = new String[collections.size()];
+    var collectionIds = new int[collectionNames.length];
 
     var counter = 0;
-    for (final var name : clusters) {
-      final var clusterId = db.getClusterIdByName(name);
-      if (clusterId >= 0) {
-        clusterNames[counter] = name;
-        clusterIds[counter] = clusterId;
+    for (final var name : collections) {
+      final var collectionId = db.getCollectionIdByName(name);
+      if (collectionId >= 0) {
+        collectionNames[counter] = name;
+        collectionIds[counter] = collectionId;
         counter++;
       }
     }
 
-    if (counter < clusters.size()) {
-      clusterNames = Arrays.copyOf(clusterNames, counter);
-      clusterIds = Arrays.copyOf(clusterIds, counter);
+    if (counter < collections.size()) {
+      collectionNames = Arrays.copyOf(collectionNames, counter);
+      collectionIds = Arrays.copyOf(collectionIds, counter);
     }
 
-    return new ReloadResponse(clusterNames, clusterIds);
+    return new ReloadResponse(collectionNames, collectionIds);
   }
 
   @Override
@@ -270,6 +271,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     return new CreateDatabaseResponse();
   }
 
+  @Nullable
   @Override
   public BinaryResponse executeClose(CloseRequest request) {
     server.getClientConnectionManager().disconnect(connection);
@@ -304,41 +306,41 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeCountCluster(CountRequest request) {
+  public BinaryResponse executeCountCollection(CountRequest request) {
     final var count =
         connection
             .getDatabaseSession()
-            .countClusterElements(request.getClusterIds(), request.isCountTombstones());
+            .countCollectionElements(request.getCollectionIds(), request.isCountTombstones());
     return new CountResponse(count);
   }
 
   @Override
-  public BinaryResponse executeAddCluster(AddClusterRequest request) {
+  public BinaryResponse executeAddCollection(AddCollectionRequest request) {
     final int num;
     if (request.getRequestedId() < 0) {
-      num = connection.getDatabaseSession().addCluster(request.getClusterName());
+      num = connection.getDatabaseSession().addCollection(request.getCollectionName());
     } else {
       num = connection.getDatabaseSession()
-          .addCluster(request.getClusterName(), request.getRequestedId());
+          .addCollection(request.getCollectionName(), request.getRequestedId());
     }
 
-    return new AddClusterResponse(num);
+    return new AddCollectionResponse(num);
   }
 
   @Override
-  public BinaryResponse executeDropCluster(DropClusterRequest request) {
-    final var clusterName = connection.getDatabaseSession()
-        .getClusterNameById(request.getClusterId());
-    if (clusterName == null) {
+  public BinaryResponse executeDropCollection(DropCollectionRequest request) {
+    final var collectionName = connection.getDatabaseSession()
+        .getCollectionNameById(request.getCollectionId());
+    if (collectionName == null) {
       throw new IllegalArgumentException(
-          "Cluster "
-              + request.getClusterId()
+          "Collection "
+              + request.getCollectionId()
               + " does not exist anymore. Refresh the db structure or just reconnect to the"
               + " database");
     }
 
-    var result = connection.getDatabaseSession().dropCluster(clusterName);
-    return new DropClusterResponse(result);
+    var result = connection.getDatabaseSession().dropCollection(collectionName);
+    return new DropCollectionResponse(result);
   }
 
   @Override
@@ -407,7 +409,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var nextPositions =
         db
             .getStorage()
-            .higherPhysicalPositions(db, request.getClusterId(), request.getClusterPosition(),
+            .higherPhysicalPositions(db, request.getCollectionId(), request.getCollectionPosition(),
                 request.getLimit());
     return new HigherPhysicalPositionsResponse(nextPositions);
   }
@@ -417,7 +419,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var db = connection.getDatabaseSession();
     final var previousPositions =
         db.getStorage()
-            .ceilingPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition(),
+            .ceilingPhysicalPositions(db, request.getCollectionId(), request.getPhysicalPosition(),
                 request.getLimit());
     return new CeilingPhysicalPositionsResponse(previousPositions);
   }
@@ -428,7 +430,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var previousPositions =
         db
             .getStorage()
-            .lowerPhysicalPositions(db, request.getiClusterId(), request.getPhysicalPosition(),
+            .lowerPhysicalPositions(db, request.getiCollectionId(), request.getPhysicalPosition(),
                 request.getLimit());
     return new LowerPhysicalPositionsResponse(previousPositions);
   }
@@ -439,7 +441,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var previousPositions =
         db
             .getStorage()
-            .floorPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition(),
+            .floorPhysicalPositions(db, request.getCollectionId(), request.getPhysicalPosition(),
                 request.getLimit());
     return new FloorPhysicalPositionsResponse(previousPositions);
   }
@@ -524,7 +526,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
                   connection
                       .getDatabaseSession()
                       .getBTreeCollectionManager()
-                      .createSBTree(request.getClusterId(), atomicOperation, null, session));
+                      .createSBTree(request.getCollectionId(), atomicOperation, null, session));
     } catch (IOException e) {
       throw BaseException.wrapException(
           new DatabaseException(session, "Error during ridbag creation"), e, session);
@@ -792,7 +794,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     var db = connection.getDatabaseSession();
-    final var clusters = db.getClusterNames();
+    final var collections = db.getCollectionNames();
     final byte[] tokenToSend;
     if (Boolean.TRUE.equals(connection.getTokenBased())) {
       tokenToSend = token;
@@ -802,29 +804,29 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     byte[] distriConf = null;
 
-    var clusterNames = new String[clusters.size()];
-    var clusterIds = new int[clusters.size()];
+    var collectionNames = new String[collections.size()];
+    var collectionIds = new int[collections.size()];
 
     var counter = 0;
-    for (var name : clusters) {
-      final var clusterId = db.getClusterIdByName(name);
-      if (clusterId >= 0) {
-        clusterNames[counter] = name;
-        clusterIds[counter] = clusterId;
+    for (var name : collections) {
+      final var collectionId = db.getCollectionIdByName(name);
+      if (collectionId >= 0) {
+        collectionNames[counter] = name;
+        collectionIds[counter] = collectionId;
         counter++;
       }
     }
 
-    if (counter < clusters.size()) {
-      clusterNames = Arrays.copyOf(clusterNames, counter);
-      clusterIds = Arrays.copyOf(clusterIds, counter);
+    if (counter < collections.size()) {
+      collectionNames = Arrays.copyOf(collectionNames, counter);
+      collectionIds = Arrays.copyOf(collectionIds, counter);
     }
 
     return new OpenResponse(
         connection.getId(),
         tokenToSend,
-        clusterIds,
-        clusterNames,
+        collectionIds,
+        collectionNames,
         distriConf,
         YouTrackDBConstants.getVersion());
   }

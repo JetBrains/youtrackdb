@@ -25,6 +25,7 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import javax.annotation.Nullable;
 
 /**
  * Class to parse and write buffers in very fast way.
@@ -317,6 +318,7 @@ public class MemoryStream extends OutputStream {
     return this;
   }
 
+  @Nullable
   public byte[] getAsByteArrayFixed(final int iSize) {
     if (position >= buffer.length) {
       return null;
@@ -364,22 +366,7 @@ public class MemoryStream extends OutputStream {
     return len;
   }
 
-  public byte[] getAsByteArray(int iOffset) {
-    if (buffer == null || iOffset >= buffer.length) {
-      return null;
-    }
-
-    final var size = BinaryProtocol.bytes2int(buffer, iOffset);
-
-    if (size == 0) {
-      return null;
-    }
-
-    iOffset += BinaryProtocol.SIZE_INT;
-
-    return ArrayUtils.copyOfRange(buffer, iOffset, iOffset + size);
-  }
-
+  @Nullable
   public byte[] getAsByteArray() {
     if (position >= buffer.length) {
       return null;
@@ -401,6 +388,7 @@ public class MemoryStream extends OutputStream {
     return buffer.length - position;
   }
 
+  @Nullable
   public String getAsString() {
     if (position >= buffer.length) {
       return null;
@@ -453,6 +441,7 @@ public class MemoryStream extends OutputStream {
     position = 0;
   }
 
+  @Nullable
   public byte[] copy() {
     if (buffer == null) {
       return null;

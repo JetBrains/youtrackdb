@@ -245,7 +245,7 @@
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dindex.flushAfterCreate=false
           -Dyoutrackdb.storage.makeFullCheckpointAfterCreate=false
-          -Dstorage.makeFullCheckpointAfterClusterCreate=false -Dstorage.wal.syncOnPageFlush=false
+          -Dstorage.makeFullCheckpointAfterCollectionCreate=false -Dstorage.wal.syncOnPageFlush=false
           -Dstorage.configuration.syncOnUpdate=false
           -Dyoutrackdb.memory.directMemory.trackMode=true
           -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager

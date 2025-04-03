@@ -20,37 +20,37 @@ import org.junit.Test;
 public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
   /**
-   * If class was not abstract and we call {@code setAbstract(false)} clusters should not be
+   * If class was not abstract and we call {@code setAbstract(false)} collections should not be
    * changed.
    *
    * @throws Exception
    */
   @Test
-  public void testSetAbstractClusterNotChanged() throws Exception {
+  public void testSetAbstractCollectionNotChanged() throws Exception {
     final Schema oSchema = session.getMetadata().getSchema();
 
     var oClass = oSchema.createClass("Test1");
-    final var oldClusterId = oClass.getClusterIds()[0];
+    final var oldCollectionId = oClass.getCollectionIds()[0];
 
     oClass.setAbstract(false);
 
-    assertEquals(oClass.getClusterIds()[0], oldClusterId);
+    assertEquals(oClass.getCollectionIds()[0], oldCollectionId);
   }
 
   /**
-   * If class was abstract and we call {@code setAbstract(false)} a new non default cluster should
+   * If class was abstract and we call {@code setAbstract(false)} a new non default collection should
    * be created.
    */
   @Test
-  public void testSetAbstractShouldCreateNewClusters() {
+  public void testSetAbstractShouldCreateNewCollections() {
     final Schema oSchema = session.getMetadata().getSchema();
 
     var oClass = oSchema.createAbstractClass("Test2");
 
     oClass.setAbstract(false);
 
-    assertNotEquals(-1, oClass.getClusterIds()[0]);
-    assertEquals(oClass.getClusterIds()[0], session.getClusterIdByName("Test2"));
+    assertNotEquals(-1, oClass.getCollectionIds()[0]);
+    assertEquals(oClass.getCollectionIds()[0], session.getCollectionIdByName("Test2"));
   }
 
   @Test

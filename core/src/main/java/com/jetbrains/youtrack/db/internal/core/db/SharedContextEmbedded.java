@@ -145,7 +145,6 @@ public class SharedContextEmbedded extends SharedContext {
       security.create(session);
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
-      security.createClassTrigger(session);
       SchedulerImpl.create(session);
       schema.forceSnapshot(session);
 
@@ -155,12 +154,12 @@ public class SharedContextEmbedded extends SharedContext {
       schema.createClass(session, "E");
 
       var config = storage.getConfiguration();
-      var blobClustersCount = config.getContextConfiguration()
-          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_CLUSTERS_COUNT);
+      var blobCollectionsCount = config.getContextConfiguration()
+          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
 
-      for (var i = 0; i < blobClustersCount; i++) {
-        var blobClusterId = session.addCluster("$blob" + i);
-        schema.addBlobCluster(session, blobClusterId);
+      for (var i = 0; i < blobCollectionsCount; i++) {
+        var blobCollectionId = session.addCollection("$blob" + i);
+        schema.addBlobCollection(session, blobCollectionId);
       }
 
       // create geospatial classes

@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.SQLMethod;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -86,6 +87,7 @@ public abstract class AbstractSQLMethod implements SQLMethod {
     return maxparams;
   }
 
+  @Nullable
   protected static Object getParameterValue(DatabaseSessionInternal db, final Result iRecord,
       final String iValue) {
     if (iValue == null) {

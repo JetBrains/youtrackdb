@@ -378,8 +378,8 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     // make sure that we really save underlying record.
     if (collectionPointer == null) {
       if (context != null) {
-        final var clusterId = getHighLevelDocClusterId();
-        assert clusterId > -1;
+        final var collectionId = getHighLevelDocCollectionId();
+        assert collectionId > -1;
         try {
           final var atomicOperationsManager =
               ((AbstractPaginatedStorage) session.getStorage())
@@ -389,7 +389,7 @@ public class BTreeBasedRidBag implements RidBagDelegate {
           collectionPointer =
               session
                   .getBTreeCollectionManager()
-                  .createSBTree(clusterId, atomicOperation, ownerUuid, session);
+                  .createSBTree(collectionId, atomicOperation, ownerUuid, session);
         } catch (IOException e) {
           throw BaseException.wrapException(
               new DatabaseException(session.getDatabaseName(), "Error during ridbag creation"),
@@ -593,14 +593,14 @@ public class BTreeBasedRidBag implements RidBagDelegate {
     return ChangeSerializationHelper.getChangesSerializedSize(changedIds.size());
   }
 
-  private int getHighLevelDocClusterId() {
+  private int getHighLevelDocCollectionId() {
     var owner = this.owner;
     while (owner != null && owner.getOwner() != null) {
       owner = owner.getOwner();
     }
 
     if (owner != null) {
-      return ((Identifiable) owner).getIdentity().getClusterId();
+      return ((Identifiable) owner).getIdentity().getCollectionId();
     }
 
     return -1;

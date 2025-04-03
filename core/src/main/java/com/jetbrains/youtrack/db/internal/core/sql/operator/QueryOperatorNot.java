@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
+import javax.annotation.Nullable;
 
 /**
  * NOT operator.
@@ -69,6 +70,7 @@ public class QueryOperatorNot extends QueryOperator {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {
@@ -89,6 +91,7 @@ public class QueryOperatorNot extends QueryOperator {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {

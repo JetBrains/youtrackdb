@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -160,6 +161,7 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
     return searchForIndex(className, ctx, fieldNames);
   }
 
+  @Nullable
   private static LuceneFullTextIndex searchForIndex(
       String className, CommandContext ctx, List<String> fieldNames) {
     var db = ctx.getDatabaseSession();

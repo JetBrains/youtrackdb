@@ -35,6 +35,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 
 /**
  * Basic implementation of CommandContext interface that stores variables in a map. Supports
@@ -101,6 +102,7 @@ public class BasicCommandContext implements CommandContext {
     return false;
   }
 
+  @Nullable
   @Override
   public <T> T getSystemVariable(int id) {
     var value = systemVariables.get(id);
@@ -202,6 +204,7 @@ public class BasicCommandContext implements CommandContext {
     return value;
   }
 
+  @Nullable
   protected Object getVariableFromParentHierarchy(String varName) {
     if (this.variables != null && variables.containsKey(varName)) {
       return variables.get(varName);
@@ -216,6 +219,7 @@ public class BasicCommandContext implements CommandContext {
     return setVariable(iName, iValue);
   }
 
+  @Nullable
   public CommandContext setVariable(String iName, final Object iValue) {
     if (iName == null) {
       return null;
@@ -448,6 +452,7 @@ public class BasicCommandContext implements CommandContext {
     }
   }
 
+  @Nullable
   public Map<Object, Object> getInputParameters() {
     if (inputParameters != null) {
       return inputParameters;

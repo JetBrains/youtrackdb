@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public final class IndexMultiValuKeySerializer implements BinarySerializer<CompositeKey> {
 
@@ -406,6 +407,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     return 0;
   }
 
+  @Nullable
   @Override
   public CompositeKey preprocess(BinarySerializerFactory serializerFactory, CompositeKey value,
       Object... hints) {

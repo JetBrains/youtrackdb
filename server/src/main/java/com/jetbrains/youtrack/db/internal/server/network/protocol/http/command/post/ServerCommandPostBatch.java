@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -101,7 +101,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
         db.rollback(true);
       }
 
-      var batch = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+      var batch = JSONSerializerJackson.mapFromJson(iRequest.getContent());
 
       var tx = (Boolean) batch.get("transaction");
       if (tx == null) {
@@ -247,7 +247,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Error (%s) on serializing result of batch command:\n%s",
                 e,
-                RecordSerializerJackson.mapToJson(batch));
+                JSONSerializerJackson.mapToJson(batch));
         throw e;
       }
 

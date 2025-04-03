@@ -9,6 +9,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public final class SpliteratorBackward implements Spliterator<RawPairObjectInteger<EdgeKey>> {
 
@@ -73,6 +74,7 @@ public final class SpliteratorBackward implements Spliterator<RawPairObjectInteg
     cacheIterator = Collections.emptyIterator();
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPairObjectInteger<EdgeKey>> trySplit() {
     return null;

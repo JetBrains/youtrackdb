@@ -11,6 +11,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import javax.annotation.Nullable;
 import javax.management.Attribute;
 import javax.management.AttributeList;
 import javax.management.DynamicMBean;
@@ -225,6 +226,7 @@ public class MetricsRegistry {
       throw new UnsupportedOperationException("setAttribute");
     }
 
+    @Nullable
     @Override
     public Object getAttribute(String attribute) {
       final var metric = metricsGroup.metrics.get(attribute);

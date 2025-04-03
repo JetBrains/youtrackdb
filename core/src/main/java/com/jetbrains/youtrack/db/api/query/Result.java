@@ -14,8 +14,6 @@ import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.util.Date;
@@ -373,7 +371,7 @@ public interface Result {
    * @return the property value. Null if the property is not defined or if it's not an Blob
    */
   @Nullable
-  Blob getBlob(String name);
+  Blob getBlob(@Nonnull String name);
 
   /**
    * This method similar to {@link #getProperty(String)} bun unlike before mentioned method it does

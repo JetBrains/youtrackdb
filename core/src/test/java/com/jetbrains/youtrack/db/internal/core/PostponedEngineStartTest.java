@@ -36,8 +36,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.InputStream;
@@ -233,12 +233,12 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public String getClusterName(DatabaseSessionInternal database, int clusterId) {
+        public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
           return null;
         }
 
         @Override
-        public boolean setClusterAttribute(int id, StorageCluster.ATTRIBUTES attribute,
+        public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute,
             Object value) {
           return false;
         }
@@ -306,90 +306,90 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public ClusterBasedStorageConfiguration getConfiguration() {
+        public CollectionBasedStorageConfiguration getConfiguration() {
           return null;
         }
 
         @Override
-        public int getClusters() {
+        public int getCollections() {
           return 0;
         }
 
         @Override
-        public Set<String> getClusterNames() {
+        public Set<String> getCollectionNames() {
           return null;
         }
 
         @Override
-        public Collection<? extends StorageCluster> getClusterInstances() {
+        public Collection<? extends StorageCollection> getCollectionInstances() {
           return null;
         }
 
         @Override
-        public int addCluster(DatabaseSessionInternal database, String iClusterName,
+        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
             Object... iParameters) {
           return 0;
         }
 
         @Override
-        public int addCluster(DatabaseSessionInternal database, String iClusterName,
+        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
             int iRequestedId) {
           return 0;
         }
 
         @Override
-        public boolean dropCluster(DatabaseSessionInternal session, String iClusterName) {
+        public boolean dropCollection(DatabaseSessionInternal session, String iCollectionName) {
           return false;
         }
 
         @Override
-        public boolean dropCluster(DatabaseSessionInternal database, int iId) {
+        public boolean dropCollection(DatabaseSessionInternal database, int iId) {
           return false;
         }
 
         @Override
-        public String getClusterNameById(int clusterId) {
+        public String getCollectionNameById(int collectionId) {
           return null;
         }
 
         @Override
-        public long getClusterRecordsSizeById(int clusterId) {
+        public long getCollectionRecordsSizeById(int collectionId) {
           return 0;
         }
 
         @Override
-        public long getClusterRecordsSizeByName(String clusterName) {
+        public long getCollectionRecordsSizeByName(String collectionName) {
           return 0;
         }
 
         @Override
-        public String getClusterRecordConflictStrategy(int clusterId) {
+        public String getCollectionRecordConflictStrategy(int collectionId) {
           return null;
         }
 
         @Override
-        public boolean isSystemCluster(int clusterId) {
+        public boolean isSystemCollection(int collectionId) {
           return false;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int iClusterId) {
+        public long count(DatabaseSessionInternal session, int iCollectionId) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int iClusterId,
+        public long count(DatabaseSessionInternal session, int iCollectionId,
             boolean countTombstones) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iClusterIds) {
+        public long count(DatabaseSessionInternal session, int[] iCollectionIds) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iClusterIds,
+        public long count(DatabaseSessionInternal session, int[] iCollectionIds,
             boolean countTombstones) {
           return 0;
         }
@@ -405,12 +405,12 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public int getClusterIdByName(String iClusterName) {
+        public int getCollectionIdByName(String iCollectionName) {
           return 0;
         }
 
         @Override
-        public String getPhysicalClusterNameById(int iClusterId) {
+        public String getPhysicalCollectionNameById(int iCollectionId) {
           return null;
         }
 
@@ -440,28 +440,28 @@ public class PostponedEngineStartTest {
 
         @Override
         public PhysicalPosition[] higherPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] lowerPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] ceilingPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] floorPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition,
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
             int limit) {
           return new PhysicalPosition[0];
         }
@@ -487,7 +487,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean isAssigningClusterIds() {
+        public boolean isAssigningCollectionIds() {
           return false;
         }
 
@@ -569,11 +569,11 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public void setClusterSelection(String clusterSelection) {
+        public void setCollectionSelection(String collectionSelection) {
         }
 
         @Override
-        public void setMinimumClusters(int minimumClusters) {
+        public void setMinimumCollections(int minimumCollections) {
         }
 
         @Override
@@ -597,7 +597,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public int[] getClustersIds(Set<String> filterClusters) {
+        public int[] getCollectionsIds(Set<String> filterCollections) {
           return null;
         }
 

@@ -246,9 +246,9 @@ public enum GlobalConfiguration {
       Integer.class,
       256),
 
-  STORAGE_CLUSTER_VERSION(
-      "youtrackdb.storage.cluster.version",
-      "Binary version of cluster which will be used inside of storage",
+  STORAGE_COLLECTION_VERSION(
+      "youtrackdb.storage.collection.version",
+      "Binary version of collection which will be used inside of storage",
       Integer.class,
       2),
 
@@ -264,8 +264,8 @@ public enum GlobalConfiguration {
       Integer.class,
       10),
 
-  STORAGE_BLOB_CLUSTERS_COUNT("youtrackdb.storage.blob.clusters.count",
-      "Amount storage clusters allocated for storing blobs", Integer.class,
+  STORAGE_BLOB_COLLECTIONS_COUNT("youtrackdb.storage.blob.collections.count",
+      "Amount storage collections allocated for storing blobs", Integer.class,
       8),
 
   WAL_CACHE_SIZE(
@@ -722,9 +722,9 @@ public enum GlobalConfiguration {
       200),
 
   // CLASS
-  CLASS_CLUSTERS_COUNT(
-      "youtrackdb.class.clustersCount",
-      "Minimum clusters to create when a new class is created. 0 means Automatic",
+  CLASS_COLLECTIONS_COUNT(
+      "youtrackdb.class.collectionsCount",
+      "Minimum collections to create when a new class is created. 0 means Automatic",
       Integer.class,
       8),
 
@@ -752,9 +752,9 @@ public enum GlobalConfiguration {
 
   COMMAND_CACHE_EVICT_STRATEGY(
       "youtrackdb.command.cache.evictStrategy",
-      "Command cache strategy between: [INVALIDATE_ALL,PER_CLUSTER]",
+      "Command cache strategy between: [INVALIDATE_ALL,PER_COLLECTION]",
       String.class,
-      "PER_CLUSTER"),
+      "PER_COLLECTION"),
 
   COMMAND_CACHE_MIN_EXECUTION_TIME(
       "youtrackdb.command.cache.minExecutionTime",
@@ -803,7 +803,7 @@ public enum GlobalConfiguration {
 
   QUERY_SCAN_BATCH_SIZE(
       "youtrackdb.query.scanBatchSize",
-      "Scan clusters in blocks of records. This setting reduces the lock time on the cluster during"
+      "Scan collections in blocks of records. This setting reduces the lock time on the collection during"
           + " scans. A high value mean a faster execution, but also a lower concurrency level. Set"
           + " to 0 to disable batch scanning. Disabling batch scanning is suggested for read-only"
           + " databases only",

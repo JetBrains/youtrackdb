@@ -128,10 +128,10 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   @Test
   public void testCreationOfClassWithV() {
     final Schema oSchema = session.getMetadata().getSchema();
-    var oRestrictedClass = oSchema.getClass("ORestricted");
+    var oClass = oSchema.getClass("O");
     var vClass = oSchema.getClass("V");
-    vClass.setSuperClasses(Collections.singletonList(oRestrictedClass));
-    var dummy1Class = oSchema.createClass("Dummy1", oRestrictedClass, vClass);
+    vClass.setSuperClasses(Collections.singletonList(oClass));
+    var dummy1Class = oSchema.createClass("Dummy1", oClass, vClass);
     var dummy2Class = oSchema.createClass("Dummy2");
     var dummy3Class = oSchema.createClass("Dummy3", dummy1Class, dummy2Class);
     assertNotNull(dummy3Class);

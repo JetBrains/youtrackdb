@@ -27,6 +27,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -103,6 +104,7 @@ public class ConsoleCommandStream implements CommandStream {
     }
   }
 
+  @Nullable
   private Character nextCharacter() throws IOException {
     if (nextCharacter == null) {
       return null;

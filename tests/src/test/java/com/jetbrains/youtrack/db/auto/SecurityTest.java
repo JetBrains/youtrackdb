@@ -257,7 +257,7 @@ public class SecurityTest extends BaseDBTest {
   }
 
   @Test
-  public void testAdminCanSeeSystemClusters() {
+  public void testAdminCanSeeSystemCollections() {
     session = createSessionInstance();
 
     session.begin();
@@ -271,13 +271,13 @@ public class SecurityTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    Assert.assertTrue(session.browseCluster("OUser").hasNext());
+    Assert.assertTrue(session.browseCollection("OUser").hasNext());
     session.commit();
   }
 
   @Test
   @Ignore
-  public void testOnlyAdminCanSeeSystemClusters() {
+  public void testOnlyAdminCanSeeSystemCollections() {
     session = createSessionInstance("reader", "reader");
 
     try {
@@ -292,7 +292,7 @@ public class SecurityTest extends BaseDBTest {
     }
 
     try {
-      Assert.assertFalse(session.browseCluster("OUser").hasNext());
+      Assert.assertFalse(session.browseCollection("OUser").hasNext());
       Assert.fail();
     } catch (SecurityException e) {
     }

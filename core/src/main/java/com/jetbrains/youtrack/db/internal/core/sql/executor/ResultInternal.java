@@ -240,14 +240,16 @@ public class ResultInternal implements Result {
         if (entity.isEmbedded()) {
           return entity.detach();
         }
-
-        return session.refreshRid(entity.getIdentity());
+        final var rid = entity.getIdentity();
+        return session.isTxActive() && !rid.isPersistent() ?
+            session.refreshRid(rid) :
+            rid;
       }
 
       case ContextualRecordId contextualRecordId -> {
         addMetadata(contextualRecordId.getContext());
-        return new RecordId(contextualRecordId.getClusterId(),
-            contextualRecordId.getClusterPosition());
+        return new RecordId(contextualRecordId.getCollectionId(),
+            contextualRecordId.getCollectionPosition());
       }
 
       case Identifiable id -> {
@@ -590,7 +592,7 @@ public class ResultInternal implements Result {
   }
 
   @Override
-  public Blob getBlob(String name) {
+  public Blob getBlob(@Nonnull String name) {
     checkSessionForRecords();
 
     Object result = null;
@@ -832,8 +834,8 @@ public class ResultInternal implements Result {
     checkSessionForRecords();
 
     var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var blobClusters = schemaSnapshot.getBlobClusters();
-    return blobClusters.contains(identifiable.getIdentity().getClusterId());
+    var blobCollections = schemaSnapshot.getBlobCollections();
+    return blobCollections.contains(identifiable.getIdentity().getCollectionId());
   }
 
   @Nonnull
@@ -932,8 +934,8 @@ public class ResultInternal implements Result {
     this.content = null;
 
     if (identifiable instanceof ContextualRecordId contextualRecordId) {
-      this.identifiable = new RecordId(contextualRecordId.getClusterId(),
-          contextualRecordId.getClusterPosition());
+      this.identifiable = new RecordId(contextualRecordId.getCollectionId(),
+          contextualRecordId.getCollectionPosition());
       addMetadata(contextualRecordId.getContext());
     } else {
       this.identifiable = identifiable;
@@ -1003,7 +1005,7 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isEdgeType();
       }
@@ -1025,7 +1027,7 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
+        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isVertexType();
       }

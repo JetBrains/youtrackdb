@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
 
@@ -53,11 +54,12 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     return new RidBagBucketPointer(ridBagId, 0);
   }
 
+  @Nullable
   @Override
   public Integer get(RID rid) {
     final int result;
 
-    result = bTree.get(new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()));
+    result = bTree.get(new EdgeKey(ridBagId, rid.getCollectionId(), rid.getCollectionPosition()));
 
     if (result < 0) {
       return null;
@@ -70,7 +72,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public boolean put(AtomicOperation atomicOperation, RID rid, Integer value) {
     return bTree.put(
         atomicOperation,
-        new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()),
+        new EdgeKey(ridBagId, rid.getCollectionId(), rid.getCollectionPosition()),
         value);
   }
 
@@ -105,12 +107,13 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     clear(atomicOperation);
   }
 
+  @Nullable
   @Override
   public Integer remove(AtomicOperation atomicOperation, RID rid) {
     final int result;
     result =
         bTree.remove(
-            atomicOperation, new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()));
+            atomicOperation, new EdgeKey(ridBagId, rid.getCollectionId(), rid.getCollectionPosition()));
 
     if (result < 0) {
       return null;
@@ -127,7 +130,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
       RangeResultListener<RID, Integer> listener) {
     try (final var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()),
+            new EdgeKey(ridBagId, rid.getCollectionId(), rid.getCollectionPosition()),
             inclusive,
             new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
@@ -136,6 +139,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     }
   }
 
+  @Nullable
   @Override
   public RID firstKey() {
     try (final var stream =
@@ -148,13 +152,14 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCluster, entry.first.targetPosition);
+        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
       }
     }
 
     return null;
   }
 
+  @Nullable
   @Override
   public RID lastKey() {
     try (final var stream =
@@ -167,7 +172,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
-        return new RecordId(entry.first.targetCluster, entry.first.targetPosition);
+        return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
       }
     }
 
@@ -190,7 +195,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
           stream,
           entry -> {
             final var rid =
-                new RecordId(entry.first.targetCluster, entry.first.targetPosition);
+                new RecordId(entry.first.targetCollection, entry.first.targetPosition);
             final var change = notAppliedChanges.remove(rid);
             final int result;
 
@@ -265,7 +270,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
                 new Entry<>() {
                   @Override
                   public RID getKey() {
-                    return new RecordId(entry.first.targetCluster, entry.first.targetPosition);
+                    return new RecordId(entry.first.targetCollection, entry.first.targetPosition);
                   }
 
                   @Override

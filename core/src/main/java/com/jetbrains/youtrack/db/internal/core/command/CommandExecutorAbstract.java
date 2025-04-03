@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Abstract implementation of Executor Command interface.
@@ -78,6 +79,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return parameters;
   }
 
+  @Nullable
   @Override
   public String getFetchPlan() {
     return null;
@@ -92,7 +94,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
   }
 
   @Override
-  public Set<String> getInvolvedClusters(DatabaseSessionInternal session) {
+  public Set<String> getInvolvedCollections(DatabaseSessionInternal session) {
     return Collections.EMPTY_SET;
   }
 

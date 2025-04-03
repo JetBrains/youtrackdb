@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -37,6 +38,7 @@ public class SubscribeMetadataRequest implements BinaryRequest<SubscribeMetadata
     return new SubscribeMetadataResponse();
   }
 
+  @Nullable
   @Override
   public BinaryResponse execute(BinaryRequestExecutor executor) {
     return null;

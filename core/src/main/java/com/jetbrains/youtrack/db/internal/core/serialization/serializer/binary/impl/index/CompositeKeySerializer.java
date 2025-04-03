@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.B
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Serializer that is used for serialization of {@link CompositeKey} keys in index.
@@ -244,6 +245,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return 0;
   }
 
+  @Nullable
   @Override
   public CompositeKey preprocess(BinarySerializerFactory serializerFactory, CompositeKey value,
       Object... hints) {

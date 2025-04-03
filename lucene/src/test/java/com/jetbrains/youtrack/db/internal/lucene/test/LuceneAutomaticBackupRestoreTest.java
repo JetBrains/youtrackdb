@@ -28,8 +28,10 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup;
+import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup.AutomaticBackupListener;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
@@ -44,7 +46,6 @@ import java.util.zip.GZIPInputStream;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -52,9 +53,6 @@ import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-/**
- *
- */
 @RunWith(JUnit4.class)
 public class LuceneAutomaticBackupRestoreTest {
 
@@ -74,10 +72,6 @@ public class LuceneAutomaticBackupRestoreTest {
 
   @Before
   public void setUp() throws Exception {
-
-    final var os = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
-    Assume.assumeFalse(os.contains("win"));
-
     final var buildDirectory = System.getProperty("buildDirectory", "target");
     final var buildDirectoryFile = new File(buildDirectory);
 
@@ -121,10 +115,9 @@ public class LuceneAutomaticBackupRestoreTest {
     db.execute("create property City.name string");
     db.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
+    db.begin();
     var doc = ((EntityImpl) db.newEntity("City"));
     doc.setProperty("name", "Rome");
-
-    db.begin();
     db.commit();
   }
 
@@ -136,13 +129,9 @@ public class LuceneAutomaticBackupRestoreTest {
   }
 
   @After
-  public void tearDown() throws Exception {
-    final var os = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
-    if (!os.contains("win")) {
-      dropIfExists();
-
-      FileUtils.deleteRecursively(tempFolder);
-    }
+  public void tearDown() {
+    dropIfExists();
+    FileUtils.deleteRecursively(tempFolder);
   }
 
   @AfterClass
@@ -166,22 +155,20 @@ public class LuceneAutomaticBackupRestoreTest {
         IOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
-    var doc = ((EntityImpl) db.newEntity());
-    doc.updateFromJSON(jsonConfig);
+    var map = JSONSerializerJackson.mapFromJson(jsonConfig);
 
-    doc.setProperty("enabled", true);
-    doc.setProperty("targetFileName", "${DBNAME}.json");
+    map.put("enabled", true);
+    map.put("targetFileName", "${DBNAME}.json");
+    map.put("targetDirectory", BACKUPDIR);
+    map.put("mode", "EXPORT");
 
-    doc.setProperty("targetDirectory", BACKUPDIR);
-    doc.setProperty("mode", "EXPORT");
-
-    doc.setProperty("dbInclude", new String[]{"OLuceneAutomaticBackupRestoreTest"});
-
-    doc.setPropertyInChain(
+    map.put("dbInclude", new String[]{"OLuceneAutomaticBackupRestoreTest"});
+    map.put(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
-    IOUtils.writeFile(new File(tempFolder, "config/automatic-backup.json"), doc.toJSON());
+    IOUtils.writeFile(new File(tempFolder, "config/automatic-backup.json"),
+        JSONSerializerJackson.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();
 
@@ -191,7 +178,7 @@ public class LuceneAutomaticBackupRestoreTest {
     final var latch = new CountDownLatch(1);
 
     aBackup.registerListener(
-        new AutomaticBackup.OAutomaticBackupListener() {
+        new AutomaticBackupListener() {
           @Override
           public void onBackupCompleted(String database) {
             latch.countDown();

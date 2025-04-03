@@ -21,14 +21,12 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequestWrapper;
@@ -80,7 +78,7 @@ public abstract class ServerCommandAbstractLogic extends ServerCommandAuthentica
         if (args.length == 0 && iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
           // PARSE PARAMETERS FROM CONTENT PAYLOAD
           try {
-            final var params = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+            final var params = JSONSerializerJackson.mapFromJson(iRequest.getContent());
             functionResult = f.executeInContext(context, params);
           } catch (Exception e) {
             throw BaseException.wrapException(

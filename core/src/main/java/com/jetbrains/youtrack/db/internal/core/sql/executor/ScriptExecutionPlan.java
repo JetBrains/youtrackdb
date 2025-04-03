@@ -181,6 +181,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
    *
    * @return
    */
+  @Nullable
   public ExecutionStepInternal executeFull() {
     for (var i = 0; i < steps.size(); i++) {
       var step = steps.get(i);

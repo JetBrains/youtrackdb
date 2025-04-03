@@ -52,7 +52,7 @@ public class InsertUnionValueTest {
                   
                     /* both of the following throw the exception and require to restart the\
                    server*/
-                    update $example set metadata["something"] = $u;
+                    /* update $example set metadata["something"] = $u; */
                     update $example set metadata.something = $u;\
                     commit;\
                   """

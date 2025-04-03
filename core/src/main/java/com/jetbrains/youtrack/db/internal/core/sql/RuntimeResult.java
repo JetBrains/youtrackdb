@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import java.util.Collection;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Handles runtime results.
@@ -59,6 +60,7 @@ public class RuntimeResult {
     return true;
   }
 
+  @Nullable
   public static ResultInternal getResult(
       DatabaseSessionInternal session, final ResultInternal iValue,
       final Map<String, Object> iProjections) {

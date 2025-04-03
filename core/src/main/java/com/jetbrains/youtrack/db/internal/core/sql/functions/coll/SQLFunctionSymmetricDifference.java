@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * This operator can work as aggregate or inline. If only one argument is passed than aggregates,
@@ -57,6 +58,7 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
     }
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
       Object iThis,

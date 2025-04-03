@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Contains the user settings about security and permissions. Each user has one or more roles
@@ -112,7 +113,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
         true);
   }
 
-  public static boolean encodePassword(
+  public static void encodePassword(
       DatabaseSessionInternal session, final EntityImpl entity) {
     final String name = entity.getProperty(NAME_PROPERTY);
     if (name == null) {
@@ -130,10 +131,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
 
     if (!(!password.isEmpty() && password.charAt(0) == '{')) {
       entity.setProperty("password", encryptPassword(password));
-      return true;
     }
-
-    return false;
   }
 
   /**
@@ -179,6 +177,7 @@ public class SecurityUserImpl extends IdentityWrapper implements SecurityUser {
    * @param operation Requested operation
    * @return The role that has granted the permission if any, otherwise null
    */
+  @Nullable
   public Role checkIfAllowed(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       String resourceSpecific,

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> implements
     SchemaClassInternal {
@@ -28,15 +29,15 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public ClusterSelectionStrategy getClusterSelection() {
+  public CollectionSelectionStrategy getCollectionSelection() {
     assert this.session.assertIfNotActive();
-    return delegate.getClusterSelection(session);
+    return delegate.getCollectionSelection(session);
   }
 
   @Override
-  public int getClusterForNewInstance(EntityImpl entity) {
+  public int getCollectionForNewInstance(EntityImpl entity) {
     assert this.session.assertIfNotActive();
-    return delegate.getClusterSelection(this.session).getCluster(this.session, this, entity);
+    return delegate.getCollectionSelection(this.session).getCollection(this.session, this, entity);
   }
 
   @Override
@@ -99,6 +100,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return delegate.count(this.session, isPolymorphic);
   }
 
+  @Nullable
   @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     assert this.session.assertIfNotActive();
@@ -345,6 +347,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return resultProxy;
   }
 
+  @Nullable
   @Override
   public SchemaProperty getProperty(String iPropertyName) {
     assert session.assertIfNotActive();
@@ -391,15 +394,15 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public int[] getClusterIds() {
+  public int[] getCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getClusterIds(session);
+    return delegate.getCollectionIds(session);
   }
 
   @Override
-  public int[] getPolymorphicClusterIds() {
+  public int[] getPolymorphicCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getPolymorphicClusterIds(session);
+    return delegate.getPolymorphicCollectionIds(session);
   }
 
   @Override
@@ -539,15 +542,15 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   }
 
   @Override
-  public boolean hasClusterId(int clusterId) {
+  public boolean hasCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasClusterId(session, clusterId);
+    return delegate.hasCollectionId(session, collectionId);
   }
 
   @Override
-  public boolean hasPolymorphicClusterId(int clusterId) {
+  public boolean hasPolymorphicCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasPolymorphicClusterId(session, clusterId);
+    return delegate.hasPolymorphicCollectionId(session, collectionId);
   }
 
   @Override

@@ -11,9 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class HookSaveTest extends DbTestBase {
 
   @Test
@@ -23,7 +21,7 @@ public class HookSaveTest extends DbTestBase {
           @Override
           public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
+            if (iType != TYPE.AFTER_CREATE) {
               return;
             }
 
@@ -60,7 +58,7 @@ public class HookSaveTest extends DbTestBase {
           @Override
           public void onTrigger(@Nonnull TYPE iType,
               @Nonnull DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
+            if (iType != TYPE.AFTER_CREATE) {
               return;
             }
 

@@ -111,6 +111,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
+import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -1565,6 +1566,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   @Override
   public String restoreFileById(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);
@@ -1797,6 +1799,7 @@ public final class WOWCache extends AbstractWriteCache
     return idNameMap.get(intId);
   }
 
+  @Nullable
   @Override
   public String nativeFileNameById(final long fileId) {
     final var fileClassic = files.get(fileId);
@@ -2224,6 +2227,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   private NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
@@ -2245,6 +2249,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   private NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
@@ -2280,6 +2285,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
     try {
       final var xxHashLen = 8;
@@ -2403,6 +2409,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
@@ -2708,6 +2715,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   public Long executeFindDirtySegment() {
     if (flushError != null) {
       final var iAdditionalArgs = new Object[]{flushError.getMessage()};
@@ -3551,6 +3559,7 @@ public final class WOWCache extends AbstractWriteCache
     return storageName;
   }
 
+  @Nullable
   public RawPair<String, String> executeDeleteFile(long externalFileId)
       throws IOException, java.lang.InterruptedException {
     final var internalFileId = extractFileId(externalFileId);

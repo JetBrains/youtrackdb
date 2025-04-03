@@ -43,6 +43,7 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 public class IOUtils {
 
@@ -214,6 +215,7 @@ public class IOUtils {
   /**
    * Returns the Unix file name format converting backslashes (\) to slasles (/)
    */
+  @Nullable
   public static String getUnixFileName(final String iFileName) {
     return iFileName != null ? iFileName.replace('\\', '/') : null;
   }
@@ -323,6 +325,7 @@ public class IOUtils {
         || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"');
   }
 
+  @Nullable
   public static String getStringContent(final Object iValue) {
     if (iValue == null) {
       return null;
@@ -347,6 +350,7 @@ public class IOUtils {
     return s;
   }
 
+  @Nullable
   public static String wrapStringContent(final Object iValue, final char iStringDelimiter) {
     if (iValue == null) {
       return null;

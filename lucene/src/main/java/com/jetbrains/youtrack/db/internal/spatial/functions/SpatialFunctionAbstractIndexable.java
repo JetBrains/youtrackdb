@@ -19,9 +19,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -40,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -51,6 +50,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     super(iName, iMinParams, iMaxParams);
   }
 
+  @Nullable
   protected LuceneSpatialIndex searchForIndex(DatabaseSessionInternal session,
       SQLFromClause target,
       SQLExpression[] args) {
@@ -80,6 +80,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     return indices.isEmpty() ? null : indices.get(0);
   }
 
+  @Nullable
   protected Iterable<Identifiable> results(
       SQLFromClause target, SQLExpression[] args, CommandContext ctx, Object rightValue) {
     var session = ctx.getDatabaseSession();
@@ -94,7 +95,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     Object shape;
 
     if (args[1].getValue() instanceof SQLJson json) {
-      shape = RecordSerializerJackson.mapFromJson(json.toString());
+      shape = JSONSerializerJackson.mapFromJson(json.toString());
     } else {
       shape = args[1].execute((Identifiable) null, ctx);
     }

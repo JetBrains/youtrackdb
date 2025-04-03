@@ -11,7 +11,7 @@ public class RidSetIterator implements Iterator<RID> {
 
   private final Iterator<RID> negativesIterator;
   private final RidSet set;
-  private int currentCluster = -1;
+  private int currentCollection = -1;
   private long currentId = -1;
 
   protected RidSetIterator(RidSet set) {
@@ -22,7 +22,7 @@ public class RidSetIterator implements Iterator<RID> {
 
   @Override
   public boolean hasNext() {
-    return negativesIterator.hasNext() || currentCluster >= 0;
+    return negativesIterator.hasNext() || currentCollection >= 0;
   }
 
   @Override
@@ -33,15 +33,15 @@ public class RidSetIterator implements Iterator<RID> {
     if (!hasNext()) {
       throw new IllegalStateException();
     }
-    var result = new RecordId(currentCluster, currentId);
+    var result = new RecordId(currentCollection, currentId);
     currentId++;
     fetchNext();
     return result;
   }
 
   private void fetchNext() {
-    if (currentCluster < 0) {
-      currentCluster = 0;
+    if (currentCollection < 0) {
+      currentCollection = 0;
       currentId = 0;
     }
 
@@ -50,16 +50,16 @@ public class RidSetIterator implements Iterator<RID> {
     var block = (int) (currentArrayPos / set.maxArraySize);
     var blockPositionByteInt = (int) (currentArrayPos % set.maxArraySize);
 
-    while (currentCluster < set.content.length) {
-      while (set.content[currentCluster] != null && block < set.content[currentCluster].length) {
-        while (set.content[currentCluster][block] != null
-            && blockPositionByteInt < set.content[currentCluster][block].length) {
-          if (currentBit == 0 && set.content[currentCluster][block][blockPositionByteInt] == 0L) {
+    while (currentCollection < set.content.length) {
+      while (set.content[currentCollection] != null && block < set.content[currentCollection].length) {
+        while (set.content[currentCollection][block] != null
+            && blockPositionByteInt < set.content[currentCollection][block].length) {
+          if (currentBit == 0 && set.content[currentCollection][block][blockPositionByteInt] == 0L) {
             blockPositionByteInt++;
             currentArrayPos++;
             continue;
           }
-          if (set.contains(new RecordId(currentCluster, currentArrayPos * 63 + currentBit))) {
+          if (set.contains(new RecordId(currentCollection, currentArrayPos * 63 + currentBit))) {
             currentId = currentArrayPos * 63 + currentBit;
             return;
           } else {
@@ -71,8 +71,8 @@ public class RidSetIterator implements Iterator<RID> {
             }
           }
         }
-        if (set.content[currentCluster][block] == null
-            && set.content[currentCluster].length >= block) {
+        if (set.content[currentCollection][block] == null
+            && set.content[currentCollection].length >= block) {
           currentArrayPos += set.maxArraySize;
         }
         block++;
@@ -83,9 +83,9 @@ public class RidSetIterator implements Iterator<RID> {
       currentBit = 0;
       currentArrayPos = 0;
       blockPositionByteInt = 0;
-      currentCluster++;
+      currentCollection++;
     }
 
-    currentCluster = -1;
+    currentCollection = -1;
   }
 }

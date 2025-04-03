@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import java.math.BigDecimal;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * PLUS "+" operator.
@@ -40,6 +41,7 @@ public class QueryOperatorPlus extends QueryOperator {
     super("+", 9, false);
   }
 
+  @Nullable
   @Override
   public Object evaluateRecord(
       final Result iRecord,
@@ -92,11 +94,13 @@ public class QueryOperatorPlus extends QueryOperator {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

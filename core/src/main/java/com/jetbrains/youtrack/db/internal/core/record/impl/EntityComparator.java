@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLSelect;
 import java.text.Collator;
 import java.util.Comparator;
 import java.util.List;
@@ -117,7 +116,7 @@ public class EntityComparator implements Comparator<Identifiable> {
   }
 
   private int factor(final int partialResult, final String iOrdering) {
-    if (iOrdering.equals(CommandExecutorSQLSelect.KEYWORD_DESC))
+    if (iOrdering.equals("DESC"))
     // INVERT THE ORDERING
     {
       return partialResult * -1;

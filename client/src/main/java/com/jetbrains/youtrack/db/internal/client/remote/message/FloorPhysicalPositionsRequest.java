@@ -35,12 +35,12 @@ public class FloorPhysicalPositionsRequest
     implements BinaryRequest<FloorPhysicalPositionsResponse> {
 
   private PhysicalPosition physicalPosition;
-  private int clusterId;
+  private int collectionId;
   private int limit;
 
-  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int clusterId, int limit) {
+  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int collectionId, int limit) {
     this.physicalPosition = physicalPosition;
-    this.clusterId = clusterId;
+    this.collectionId = collectionId;
     this.limit = limit;
   }
 
@@ -50,8 +50,8 @@ public class FloorPhysicalPositionsRequest
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(clusterId);
-    network.writeLong(physicalPosition.clusterPosition);
+    network.writeInt(collectionId);
+    network.writeLong(physicalPosition.collectionPosition);
     network.writeInt(limit);
   }
 
@@ -59,7 +59,7 @@ public class FloorPhysicalPositionsRequest
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.clusterId = channel.readInt();
+    this.collectionId = channel.readInt();
     this.physicalPosition = new PhysicalPosition(channel.readLong());
     this.limit = channel.readInt();
   }
@@ -74,8 +74,8 @@ public class FloorPhysicalPositionsRequest
     return "Retrieve floor positions";
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
   public PhysicalPosition getPhysicalPosition() {

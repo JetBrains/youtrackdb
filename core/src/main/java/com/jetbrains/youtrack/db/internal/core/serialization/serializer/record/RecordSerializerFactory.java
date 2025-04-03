@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Factory of record serialized.
@@ -69,6 +70,7 @@ public class RecordSerializerFactory {
     return implementations.values();
   }
 
+  @Nullable
   public RecordSerializer getFormat(final String iFormatName) {
     if (iFormatName == null) {
       return null;

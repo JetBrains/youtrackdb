@@ -54,7 +54,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponent
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -130,7 +130,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
-  void registerHook(final @Nonnull RecordHook iHookImpl);
+  RecordHook registerHook(final @Nonnull RecordHook iHookImpl);
 
   /**
    * Retrieves all the registered hooks.
@@ -151,19 +151,19 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   boolean isActiveOnCurrentThread();
 
   /**
-   * Adds a new cluster for store blobs.
+   * Adds a new collection for store blobs.
    *
-   * @param iClusterName Cluster name
+   * @param iCollectionName Collection name
    * @param iParameters  Additional parameters to pass to the factories
-   * @return Cluster id
+   * @return Collection id
    */
-  int addBlobCluster(String iClusterName, Object... iParameters);
+  int addBlobCollection(String iCollectionName, Object... iParameters);
 
   int begin(FrontendTransactionImpl tx);
 
   void setSerializer(RecordSerializer serializer);
 
-  int assignAndCheckCluster(DBRecord record);
+  int assignAndCheckCollection(DBRecord record);
 
   void reloadUser();
 
@@ -171,34 +171,34 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean beforeReadOperations(final RecordAbstract identifiable);
 
-  void beforeUpdateOperations(final RecordAbstract recordAbstract, String clusterName);
+  void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName);
 
   void afterUpdateOperations(final RecordAbstract recordAbstract);
 
-  void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName);
+  void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName);
 
   void afterCreateOperations(final RecordAbstract recordAbstract);
 
-  void beforeDeleteOperations(final RecordAbstract recordAbstract, String clusterName);
+  void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName);
 
   void afterDeleteOperations(final RecordAbstract recordAbstract);
 
   void callbackHooks(final TYPE type, final RecordAbstract record);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
-      int clusterId);
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
-      int clusterId);
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
       @Nonnull final RecordId recordId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
       @Nonnull final RecordId recordId);
 
   @Nullable
@@ -224,8 +224,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void setPrefetchRecords(boolean prefetchRecords);
 
   boolean isPrefetchRecords();
-
-  void checkForClusterPermissions(String name);
 
   @Nullable
   default ResultSet getActiveQuery(String id) {
@@ -264,15 +262,15 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   void internalCommit(@Nonnull FrontendTransactionImpl transaction);
 
-  boolean isClusterVertex(int cluster);
+  boolean isCollectionVertex(int collection);
 
-  boolean isClusterEdge(int cluster);
+  boolean isCollectionEdge(int collection);
 
   void deleteInternal(@Nonnull DBRecord record);
 
   void internalClose(boolean recycle);
 
-  String getClusterName(@Nonnull final DBRecord record);
+  String getCollectionName(@Nonnull final DBRecord record);
 
   default boolean isRemote() {
     return false;
@@ -280,11 +278,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   Map<UUID, BonsaiCollectionPointer> getCollectionsChanges();
 
-  boolean dropClusterInternal(int clusterId);
+  boolean dropCollectionInternal(int collectionId);
 
-  String getClusterRecordConflictStrategy(int clusterId);
+  String getCollectionRecordConflictStrategy(int collectionId);
 
-  int[] getClustersIds(@Nonnull Set<String> filterClusters);
+  int[] getCollectionsIds(@Nonnull Set<String> filterCollections);
 
   default void startExclusiveMetadataChange() {
   }
@@ -296,15 +294,15 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   long truncateClass(String name, boolean polimorfic);
 
-  long truncateClusterInternal(String name);
+  long truncateCollectionInternal(String name);
 
   /**
-   * Browses all the records of the specified cluster.
+   * Browses all the records of the specified collection.
    *
-   * @param iClusterName Cluster name to iterate
+   * @param iCollectionName Collection name to iterate
    * @return Iterator of EntityImpl instances
    */
-  <REC extends RecordAbstract> RecordIteratorCluster<REC> browseCluster(String iClusterName);
+  <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(String iCollectionName);
 
   /**
    * Browses all the records of the specified class and also all the subclasses. If you've a class
@@ -393,9 +391,9 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resource
    * </ol>
    *
-   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.collections
    * @param iOperation        Operation to execute against the resource
-   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the cluster name.
+   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the collection name.
    */
   @Deprecated
   void checkSecurity(String iResourceGeneric, int iOperation, Object iResourceSpecific);
@@ -409,10 +407,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resources
    * </ol>
    *
-   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.collections
    * @param iOperation         Operation to execute against the resource
    * @param iResourcesSpecific Target resources as an array of Objects, i.e.: ["employee", 2] to
-   *                           specify cluster name and id.
+   *                           specify collection name and id.
    */
   @Deprecated
   void checkSecurity(String iResourceGeneric, int iOperation, Object... iResourcesSpecific);
@@ -435,14 +433,14 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resource
    * </ol>
    *
-   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.collections
    * @param iOperation        Operation to execute against the resource
-   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the cluster name.
+   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the collection name.
    */
   void checkSecurity(
       Rule.ResourceGeneric iResourceGeneric, int iOperation, Object iResourceSpecific);
 
-  void checkSecurity(final int operation, final Identifiable record, String cluster);
+  void checkSecurity(final int operation, final Identifiable record, String collection);
 
   /**
    * Checks if the operation against multiple resources is allowed for the current user. The check
@@ -453,10 +451,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resources
    * </ol>
    *
-   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.collections
    * @param iOperation         Operation to execute against the resource
    * @param iResourcesSpecific Target resources as an array of Objects, i.e.: ["employee", 2] to
-   *                           specify cluster name and id.
+   *                           specify collection name and id.
    */
   void checkSecurity(
       Rule.ResourceGeneric iResourceGeneric, int iOperation, Object... iResourcesSpecific);
@@ -470,7 +468,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   FrontendTransaction getTransactionInternal();
 
   /**
-   * Reloads the database information like the cluster list.
+   * Reloads the database information like the collection list.
    */
   void reload();
 
@@ -619,52 +617,52 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   DatabaseSession setStatus(STATUS iStatus);
 
   /**
-   * Returns the total size of records contained in the cluster defined by its name.
+   * Returns the total size of records contained in the collection defined by its name.
    *
-   * @param iClusterName Cluster name
+   * @param iCollectionName Collection name
    * @return Total size of records contained.
    */
   @Deprecated
-  long getClusterRecordSizeByName(String iClusterName);
+  long getCollectionRecordSizeByName(String iCollectionName);
 
   /**
-   * Returns the total size of records contained in the cluster defined by its id.
+   * Returns the total size of records contained in the collection defined by its id.
    *
-   * @param iClusterId Cluster id
-   * @return The name of searched cluster.
+   * @param iCollectionId Collection id
+   * @return The name of searched collection.
    */
   @Deprecated
-  long getClusterRecordSizeById(int iClusterId);
+  long getCollectionRecordSizeById(int iCollectionId);
 
   /**
-   * Removes all data in the cluster with given name. As result indexes for this class will be
+   * Removes all data in the collection with given name. As result indexes for this class will be
    * rebuilt.
    *
-   * @param clusterName Name of cluster to be truncated.
+   * @param collectionName Name of collection to be truncated.
    */
-  void truncateCluster(String clusterName);
+  void truncateCollection(String collectionName);
 
   /**
-   * Counts all the entities in the specified cluster id.
+   * Counts all the entities in the specified collection id.
    *
-   * @param iCurrentClusterId Cluster id
-   * @return Total number of entities contained in the specified cluster
+   * @param iCurrentCollectionId Collection id
+   * @return Total number of entities contained in the specified collection
    */
-  long countClusterElements(int iCurrentClusterId);
+  long countCollectionElements(int iCurrentCollectionId);
 
   @Deprecated
-  long countClusterElements(int iCurrentClusterId, boolean countTombstones);
+  long countCollectionElements(int iCurrentCollectionId, boolean countTombstones);
 
   /**
-   * Counts all the entities in the specified cluster ids.
+   * Counts all the entities in the specified collection ids.
    *
-   * @param iClusterIds Array of cluster ids Cluster id
-   * @return Total number of entities contained in the specified clusters
+   * @param iCollectionIds Array of collection ids Collection id
+   * @return Total number of entities contained in the specified collections
    */
-  long countClusterElements(int[] iClusterIds);
+  long countCollectionElements(int[] iCollectionIds);
 
   @Deprecated
-  long countClusterElements(int[] iClusterIds, boolean countTombstones);
+  long countCollectionElements(int[] iCollectionIds, boolean countTombstones);
 
   /**
    * Sets a property value
@@ -767,73 +765,73 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   long getSize();
 
   /**
-   * Returns the number of clusters.
+   * Returns the number of collections.
    *
-   * @return Number of the clusters
+   * @return Number of the collections
    */
-  int getClusters();
+  int getCollections();
 
   /**
-   * Returns true if the cluster exists, otherwise false.
+   * Returns true if the collection exists, otherwise false.
    *
-   * @param iClusterName Cluster name
-   * @return true if the cluster exists, otherwise false
+   * @param iCollectionName Collection name
+   * @return true if the collection exists, otherwise false
    */
-  boolean existsCluster(String iClusterName);
+  boolean existsCollection(String iCollectionName);
 
   /**
-   * Returns all the names of the clusters.
+   * Returns all the names of the collections.
    *
-   * @return Collection of cluster names.
+   * @return Collection of collection names.
    */
-  Collection<String> getClusterNames();
+  Collection<String> getCollectionNames();
 
   /**
-   * Returns the cluster id by name.
+   * Returns the collection id by name.
    *
-   * @param iClusterName Cluster name
-   * @return The id of searched cluster.
+   * @param iCollectionName Collection name
+   * @return The id of searched collection.
    */
-  int getClusterIdByName(String iClusterName);
+  int getCollectionIdByName(String iCollectionName);
 
   /**
-   * Returns the cluster name by id.
+   * Returns the collection name by id.
    *
-   * @param iClusterId Cluster id
-   * @return The name of searched cluster.
+   * @param iCollectionId Collection id
+   * @return The name of searched collection.
    */
   @Nullable
-  String getClusterNameById(int iClusterId);
+  String getCollectionNameById(int iCollectionId);
 
   /**
-   * Counts all the entities in the specified cluster name.
+   * Counts all the entities in the specified collection name.
    *
-   * @param iClusterName Cluster name
-   * @return Total number of entities contained in the specified cluster
+   * @param iCollectionName Collection name
+   * @return Total number of entities contained in the specified collection
    */
-  long countClusterElements(String iClusterName);
+  long countCollectionElements(String iCollectionName);
 
   /**
-   * Adds a new cluster.
+   * Adds a new collection.
    *
-   * @param iClusterName Cluster name
+   * @param iCollectionName Collection name
    * @param iParameters  Additional parameters to pass to the factories
-   * @return Cluster id
+   * @return Collection id
    */
-  int addCluster(String iClusterName, Object... iParameters);
+  int addCollection(String iCollectionName, Object... iParameters);
 
-  boolean dropCluster(final String iClusterName);
+  boolean dropCollection(final String iCollectionName);
 
-  boolean dropCluster(final int clusterId);
+  boolean dropCollection(final int collectionId);
 
   /**
-   * Adds a new cluster.
+   * Adds a new collection.
    *
-   * @param iClusterName Cluster name
-   * @param iRequestedId requested id of the cluster
-   * @return Cluster id
+   * @param iCollectionName Collection name
+   * @param iRequestedId requested id of the collection
+   * @return Collection id
    */
-  int addCluster(String iClusterName, int iRequestedId);
+  int addCollection(String iCollectionName, int iRequestedId);
 
   MetadataInternal getMetadata();
 
@@ -1070,11 +1068,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   Vertex newVertex(String type);
 
   /**
-   * Retrieve the set of defined blob cluster.
+   * Retrieve the set of defined blob collection.
    *
-   * @return the array of defined blob cluster ids.
+   * @return the array of defined blob collection ids.
    */
-  int[] getBlobClusterIds();
+  int[] getBlobCollectionIds();
 
   /**
    * Loads the entity by the Record ID.

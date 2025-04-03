@@ -20,9 +20,10 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Converts a document in JSON string.
@@ -40,6 +41,7 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     return "toJSON([<format>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object current,
@@ -62,7 +64,7 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     } else if (current instanceof Map) {
 
       //noinspection unchecked
-      return RecordSerializerJackson.mapToJson((Map<String, Object>) current);
+      return JSONSerializerJackson.mapToJson((Map<String, Object>) current);
     } else if (MultiValue.isMultiValue(current)) {
       var builder = new StringBuilder();
       builder.append("[");

@@ -112,12 +112,12 @@ public class IndexManagerShared implements IndexManagerAbstract {
     internalSave(session);
   }
 
-  public void addClusterToIndex(DatabaseSessionInternal session, final String clusterName,
+  public void addCollectionToIndex(DatabaseSessionInternal session, final String collectionName,
       final String indexName) {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
-      if (index.getClusters().contains(clusterName)) {
+      if (index.getCollections().contains(collectionName)) {
         return;
       }
     } finally {
@@ -130,20 +130,20 @@ public class IndexManagerShared implements IndexManagerAbstract {
         throw new IndexException(session.getDatabaseName(),
             "Index with name " + indexName + " does not exist.");
       }
-      if (!index.getClusters().contains(clusterName)) {
-        index.addCluster(session, clusterName);
+      if (!index.getCollections().contains(collectionName)) {
+        index.addCollection(session, collectionName);
       }
     } finally {
       releaseExclusiveLock(session, true);
     }
   }
 
-  public void removeClusterFromIndex(DatabaseSessionInternal session, final String clusterName,
+  public void removeCollectionFromIndex(DatabaseSessionInternal session, final String collectionName,
       final String indexName) {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
-      if (!index.getClusters().contains(clusterName)) {
+      if (!index.getCollections().contains(collectionName)) {
         return;
       }
     } finally {
@@ -156,7 +156,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         throw new IndexException(session.getDatabaseName(),
             "Index with name " + indexName + " does not exist.");
       }
-      index.removeCluster(session, clusterName);
+      index.removeCollection(session, collectionName);
     } finally {
       releaseExclusiveLock(session, true);
     }
@@ -452,7 +452,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
    * @param iName             - name of index
    * @param iType             - index type. Specified by plugged index factories.
    * @param indexDefinition   metadata that describes index structure
-   * @param clusterIdsToIndex ids of clusters that index should track for changes.
+   * @param collectionIdsToIndex ids of collections that index should track for changes.
    * @param progressListener  listener to track task progress.
    * @param metadata          entity with additional properties that can be used by index engine.
    * @return a newly created index instance
@@ -462,7 +462,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final String iName,
       final String iType,
       final IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       ProgressListener progressListener,
       Map<String, Object> metadata) {
     return createIndex(
@@ -470,7 +470,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         iName,
         iType,
         indexDefinition,
-        clusterIdsToIndex,
+        collectionIdsToIndex,
         progressListener,
         metadata,
         null);
@@ -484,7 +484,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
    * @param iName             name of index
    * @param type              index type. Specified by plugged index factories.
    * @param indexDefinition   metadata that describes index structure
-   * @param clusterIdsToIndex ids of clusters that index should track for changes.
+   * @param collectionIdsToIndex ids of collections that index should track for changes.
    * @param progressListener  listener to track task progress.
    * @param metadata          entity with additional properties that can be used by index engine.
    * @param algorithm         tip to an index factory what algorithm to use
@@ -495,7 +495,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       final String iName,
       String type,
       final IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       ProgressListener progressListener,
       Map<String, Object> metadata,
       String algorithm) {
@@ -542,7 +542,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         metadata = new HashMap<>();
       }
 
-      final var clustersToIndex = findClustersByIds(clusterIdsToIndex, session);
+      final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
       var ignoreNullValues = metadata.get("ignoreNullValues");
       if (Boolean.TRUE.equals(ignoreNullValues)) {
         indexDefinition.setNullValuesIgnored(true);
@@ -560,7 +560,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
           new IndexMetadata(
               iName,
               indexDefinition,
-              clustersToIndex,
+              collectionsToIndex,
               type,
               algorithm,
               -1,
@@ -646,21 +646,21 @@ public class IndexManagerShared implements IndexManagerAbstract {
   }
 
 
-  private static Set<String> findClustersByIds(
-      int[] clusterIdsToIndex, DatabaseSessionInternal database) {
-    Set<String> clustersToIndex = new HashSet<>();
-    if (clusterIdsToIndex != null) {
-      for (var clusterId : clusterIdsToIndex) {
-        final var clusterNameToIndex = database.getClusterNameById(clusterId);
-        if (clusterNameToIndex == null) {
+  private static Set<String> findCollectionsByIds(
+      int[] collectionIdsToIndex, DatabaseSessionInternal database) {
+    Set<String> collectionsToIndex = new HashSet<>();
+    if (collectionIdsToIndex != null) {
+      for (var collectionId : collectionIdsToIndex) {
+        final var collectionNameToIndex = database.getCollectionNameById(collectionId);
+        if (collectionNameToIndex == null) {
           throw new IndexException(database.getDatabaseName(),
-              "Cluster with id " + clusterId + " does not exist.");
+              "Collection with id " + collectionId + " does not exist.");
         }
 
-        clustersToIndex.add(clusterNameToIndex);
+        collectionsToIndex.add(collectionNameToIndex);
       }
     }
-    return clustersToIndex;
+    return collectionsToIndex;
   }
 
   public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
@@ -668,7 +668,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       throw new IllegalStateException("Cannot drop an index inside a transaction");
     }
 
-    int[] clusterIdsToIndex;
+    int[] collectionIdsToIndex;
 
     acquireExclusiveLock(session);
 
@@ -676,12 +676,12 @@ public class IndexManagerShared implements IndexManagerAbstract {
     try {
       idx = indexes.get(iIndexName);
       if (idx != null) {
-        final var clusters = idx.getClusters();
-        if (clusters != null && !clusters.isEmpty()) {
-          clusterIdsToIndex = new int[clusters.size()];
+        final var collections = idx.getCollections();
+        if (collections != null && !collections.isEmpty()) {
+          collectionIdsToIndex = new int[collections.size()];
           var i = 0;
-          for (var cl : clusters) {
-            clusterIdsToIndex[i++] = session.getClusterIdByName(cl);
+          for (var cl : collections) {
+            collectionIdsToIndex[i++] = session.getCollectionIdByName(cl);
           }
         }
 

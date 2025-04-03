@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinar
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class PushSequencesRequest implements BinaryPushRequest<BinaryPushResponse> {
 
@@ -27,6 +28,7 @@ public class PushSequencesRequest implements BinaryPushRequest<BinaryPushRespons
     return pushHandler.executeUpdateSequences(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

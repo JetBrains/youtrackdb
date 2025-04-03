@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -31,6 +31,7 @@ import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
 import java.util.UUID;
+import javax.annotation.Nullable;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
@@ -202,6 +203,7 @@ public class SymmetricKey {
   /**
    * Returns the secret key algorithm portion of the cipher transformation.
    */
+  @Nullable
   protected static String separateAlgorithm(final String cipherTransform) {
     var array = cipherTransform.split("/");
 
@@ -582,7 +584,7 @@ public class SymmetricKey {
       var json = new String(decoded, StandardCharsets.UTF_8);
 
       // Convert the JSON content to an Map to make parsing it easier.
-      final var map = RecordSerializerJackson.mapFromJson(json);
+      final var map = JSONSerializerJackson.mapFromJson(json);
 
       // Set a default in case the JSON document does not contain an "algorithm" property.
       var algorithm = secretKeyAlgorithm;

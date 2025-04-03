@@ -250,11 +250,11 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
 
       entryPosition += getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
 
-      final int clusterId = getShortValue(entryPosition);
-      final var clusterPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+      final int collectionId = getShortValue(entryPosition);
+      final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
       return new CellBTreeSingleValueEntryV3<>(
-          -1, -1, key, new RecordId(clusterId, clusterPosition));
+          -1, -1, key, new RecordId(collectionId, collectionPosition));
     } else {
       final var leftChild = getIntValue(entryPosition);
       entryPosition += IntegerSerializer.INT_SIZE;
@@ -320,10 +320,10 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     // skip key
     entryPosition += getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
 
-    final int clusterId = getShortValue(entryPosition);
-    final var clusterPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+    final int collectionId = getShortValue(entryPosition);
+    final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-    return new RecordId(clusterId, clusterPosition);
+    return new RecordId(collectionId, collectionPosition);
   }
 
   byte[] getRawValue(final int entryIndex, final BinarySerializer<K> keySerializer,

@@ -29,95 +29,11 @@ import java.util.Set;
  * Manages users and roles.
  */
 public interface Security {
-
-  String RESTRICTED_CLASSNAME = "ORestricted";
   @Deprecated
   String IDENTITY_CLASSNAME = Identity.CLASS_NAME;
-  String ALLOW_ALL_FIELD = "_allow";
-  String ALLOW_READ_FIELD = "_allowRead";
-  String ALLOW_UPDATE_FIELD = "_allowUpdate";
-  String ALLOW_DELETE_FIELD = "_allowDelete";
-  String ONCREATE_IDENTITY_TYPE = "onCreate.identityType";
-  String ONCREATE_FIELD = "onCreate.fields";
 
   @Deprecated
   boolean isAllowed(final Set<Identifiable> iAllowAll, final Set<Identifiable> iAllowOperation);
-
-  /**
-   * Record level security: allows a user to access to a record.
-   *
-   * @param entity      EntityImpl instance to give access
-   * @param iOperationType Operation type to use based on the permission to allow:
-   *                       <ul>
-   *                         <li>ALLOW_ALL, to provide full access (RUD)
-   *                         <li>ALLOW_READ, to provide read access
-   *                         <li>ALLOW_UPDATE, to provide update access
-   *                         <li>ALLOW_DELETE, to provide delete access
-   *                       </ul>
-   * @param iUserName      User name to provide the access
-   * @return The Identity instance allowed
-   */
-  @Deprecated
-  Identifiable allowUser(
-      final EntityImpl entity, final RestrictedOperation iOperationType,
-      final String iUserName);
-
-  /**
-   * Record level security: allows a role to access to a record.
-   *
-   * @param entity      EntityImpl instance to give access
-   * @param iOperationType Operation type to use based on the permission to allow:
-   *                       <ul>
-   *                         <li>ALLOW_ALL, to provide full access (RUD)
-   *                         <li>ALLOW_READ, to provide read access
-   *                         <li>ALLOW_UPDATE, to provide update access
-   *                         <li>ALLOW_DELETE, to provide delete access
-   *                       </ul>
-   * @param iRoleName      Role name to provide the access
-   * @return The Identity instance allowed
-   */
-  @Deprecated
-  Identifiable allowRole(
-      final EntityImpl entity, final RestrictedOperation iOperationType,
-      final String iRoleName);
-
-  /**
-   * Record level security: deny a user to access to a record.
-   *
-   * @param entity      EntityImpl instance to give access
-   * @param iOperationType Operation type to use based on the permission to deny:
-   *                       <ul>
-   *                         <li>ALLOW_ALL, to provide full access (RUD)
-   *                         <li>ALLOW_READ, to provide read access
-   *                         <li>ALLOW_UPDATE, to provide update access
-   *                         <li>ALLOW_DELETE, to provide delete access
-   *                       </ul>
-   * @param iUserName      User name to deny the access
-   * @return The Identity instance denied
-   */
-  @Deprecated
-  Identifiable denyUser(
-      final EntityImpl entity, final RestrictedOperation iOperationType,
-      final String iUserName);
-
-  /**
-   * Record level security: deny a role to access to a record.
-   *
-   * @param entity      EntityImpl instance to give access
-   * @param iOperationType Operation type to use based on the permission to deny:
-   *                       <ul>
-   *                         <li>ALLOW_ALL, to provide full access (RUD)
-   *                         <li>ALLOW_READ, to provide read access
-   *                         <li>ALLOW_UPDATE, to provide update access
-   *                         <li>ALLOW_DELETE, to provide delete access
-   *                       </ul>
-   * @param iRoleName      Role name to deny the access
-   * @return The Identity instance denied
-   */
-  @Deprecated
-  Identifiable denyRole(
-      final EntityImpl entity, final RestrictedOperation iOperationType,
-      final String iRoleName);
 
   @Deprecated
   SecurityUserImpl authenticate(String iUsername, String iUserPassword);

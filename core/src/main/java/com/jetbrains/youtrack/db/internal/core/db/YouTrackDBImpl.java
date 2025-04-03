@@ -25,10 +25,13 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
 import org.apache.commons.lang.ArrayUtils;
 
 
@@ -236,11 +239,11 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users. In case if you want to create users during creation please
-   * use {@link #create(String, DatabaseType, String...)}
+   * use {@link YouTrackDB#create(String, DatabaseType, String...)}
    *
    * @param database database name
    * @param type     can be disk or memory
-   * @see #create(String, DatabaseType, String...)
+   * @see YouTrackDB#create(String, DatabaseType, String...)
    */
   @Override
   public void create(String database, DatabaseType type) {
@@ -272,15 +275,25 @@ public class YouTrackDBImpl implements YouTrackDB {
    *                        strings
    */
   @Override
-  public void create(String database, DatabaseType type, String... userCredentials) {
+  public void create(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials) {
     var queryString = new StringBuilder("create database ? " + type.name());
     var params = addUsersToCreationScript(userCredentials, queryString);
     execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
   }
 
+  @Override
+  public void create(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig youTrackDBConfig, String... userCredentials) {
+    var queryString = new StringBuilder("create database ? " + type.name());
+    var params = addUsersToCreationScript(userCredentials, queryString);
+    addConfigToCreationScript(queryString, youTrackDBConfig);
+    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
   /**
    * Creates a new database without users. In case if you want to create users during creation
-   * please use {@link #create(String, DatabaseType, String...)}
+   * please use {@link YouTrackDB#create(String, DatabaseType, String...)}
    *
    * @param database database name
    * @param type     can be disk or memory
@@ -293,7 +306,8 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users if it does not exist. In case if you want to create users
-   * during creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
+   * during creation please use
+   * {@link YouTrackDB#createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
    * @param type     can be disk or memory
@@ -330,11 +344,42 @@ public class YouTrackDBImpl implements YouTrackDB {
    *                        strings
    */
   @Override
-  public void createIfNotExists(String database, DatabaseType type, String... userCredentials) {
+  public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials) {
     var queryString =
         new StringBuilder("create database ? " + type.name() + " if not exists");
     var params = addUsersToCreationScript(userCredentials, queryString);
     execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  @Override
+  public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig config, String... userCredentials) {
+    var queryString =
+        new StringBuilder("create database ? " + type.name() + " if not exists");
+    var params = addUsersToCreationScript(userCredentials, queryString);
+    addConfigToCreationScript(queryString, config);
+    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  private static void addConfigToCreationScript(StringBuilder queryString,
+      YouTrackDBConfig config) {
+    var configInternal = (YouTrackDBConfigImpl) config;
+    var contextConfig = configInternal.getConfiguration();
+    var configMap = new HashMap<String, Object>();
+
+    for (var key : contextConfig.getContextKeys()) {
+      var value = contextConfig.getValue(key, null);
+      if (value != null) {
+        configMap.put(key, value);
+      }
+    }
+
+    var jsonMap = new HashMap<String, Object>();
+    jsonMap.put("config", configMap);
+
+    var json = JSONSerializerJackson.mapToJson(jsonMap);
+    queryString.append(" ").append(json);
   }
 
   private static String[] addUsersToCreationScript(
@@ -368,7 +413,7 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users if not exists. In case if you want to create users during
-   * creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
+   * creation please use {@link YouTrackDB#createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
    * @param type     can be disk or memory

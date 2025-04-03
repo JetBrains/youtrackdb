@@ -61,7 +61,7 @@ import javax.annotation.Nullable;
 public class HelperClasses {
 
   public static final String CHARSET_UTF_8 = "UTF-8";
-  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   public static final long MILLISEC_PER_DAY = 86400000;
 
   public static class Tuple<T1, T2> {
@@ -166,12 +166,12 @@ public class HelperClasses {
 
   @Nullable
   public static RecordId readOptimizedLink(final BytesContainer bytes, boolean justRunThrough) {
-    var clusterId = VarIntSerializer.readAsInteger(bytes);
-    var clusterPos = VarIntSerializer.readAsLong(bytes);
+    var collectionId = VarIntSerializer.readAsInteger(bytes);
+    var collectionPos = VarIntSerializer.readAsLong(bytes);
     if (justRunThrough) {
       return null;
     } else {
-      return new RecordId(clusterId, clusterPos);
+      return new RecordId(collectionId, collectionPos);
     }
   }
 
@@ -236,20 +236,20 @@ public class HelperClasses {
     if (!rid.isPersistent()) {
       rid = session.refreshRid(rid);
     }
-    if (rid.getClusterId() < 0) {
+    if (rid.getCollectionId() < 0) {
       throw new DatabaseException(session.getDatabaseName(),
           "Impossible to serialize invalid link " + link.getIdentity());
     }
 
-    final var pos = VarIntSerializer.write(bytes, rid.getClusterId());
-    VarIntSerializer.write(bytes, rid.getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
 
     return pos;
   }
 
   public static int writeNullLink(final BytesContainer bytes) {
-    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
     return pos;
   }
 
@@ -445,8 +445,8 @@ public class HelperClasses {
     }
 
     if (pointer == null && context != null) {
-      final var clusterId = getHighLevelDocClusterId(ridbag);
-      assert clusterId > -1;
+      final var collectionId = getHighLevelDocCollectionId(ridbag);
+      assert collectionId > -1;
       try {
         final var storage = (AbstractPaginatedStorage) session.getStorage();
         final var atomicOperation =
@@ -455,7 +455,7 @@ public class HelperClasses {
         assert atomicOperation != null;
         pointer = session
             .getBTreeCollectionManager()
-            .createSBTree(clusterId, atomicOperation, ownerUuid, session);
+            .createSBTree(collectionId, atomicOperation, ownerUuid, session);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new DatabaseException(session.getDatabaseName(), "Error during creation of ridbag"), e,
@@ -480,7 +480,7 @@ public class HelperClasses {
     }
   }
 
-  private static int getHighLevelDocClusterId(RidBag ridbag) {
+  private static int getHighLevelDocCollectionId(RidBag ridbag) {
     var delegate = ridbag.getDelegate();
     var owner = delegate.getOwner();
     while (owner != null && owner.getOwner() != null) {
@@ -488,7 +488,7 @@ public class HelperClasses {
     }
 
     if (owner != null) {
-      return ((Identifiable) owner).getIdentity().getClusterId();
+      return ((Identifiable) owner).getIdentity().getCollectionId();
     }
 
     return -1;
@@ -496,8 +496,8 @@ public class HelperClasses {
 
   public static void writeLinkOptimized(final BytesContainer bytes, Identifiable link) {
     var id = link.getIdentity();
-    VarIntSerializer.write(bytes, id.getClusterId());
-    VarIntSerializer.write(bytes, id.getClusterPosition());
+    VarIntSerializer.write(bytes, id.getCollectionId());
+    VarIntSerializer.write(bytes, id.getCollectionPosition());
   }
 
   public static RidBag readRidbag(DatabaseSessionInternal db, BytesContainer bytes) {

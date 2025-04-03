@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -21,12 +22,12 @@ public class InfoExecutionStep implements ExecutionStep {
   private final List<ExecutionStep> subSteps = new ArrayList<>();
 
   @Override
-  public String getName() {
+  public @Nonnull String getName() {
     return name;
   }
 
   @Override
-  public String getType() {
+  public @Nonnull String getType() {
     return type;
   }
 
@@ -35,6 +36,7 @@ public class InfoExecutionStep implements ExecutionStep {
     return description;
   }
 
+  @Nonnull
   @Override
   public List<ExecutionStep> getSubSteps() {
     return subSteps;
@@ -45,8 +47,9 @@ public class InfoExecutionStep implements ExecutionStep {
     return cost;
   }
 
+  @Nonnull
   @Override
-  public @Nonnull Result toResult(DatabaseSession db) {
+  public Result toResult(DatabaseSession db) {
     return null;
   }
 

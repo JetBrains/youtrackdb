@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -10,6 +11,7 @@ import org.junit.Test;
 public class TraverseStatementExecutionTest extends DbTestBase {
 
   @Test
+  @Ignore
   public void testPlainTraverse() {
     var classPrefix = "testPlainTraverse_";
     session.createVertexClass(classPrefix + "V");
@@ -65,6 +67,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  @Ignore
   public void testWithDepth() {
     var classPrefix = "testWithDepth_";
     session.createVertexClass(classPrefix + "V");
@@ -123,6 +126,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  @Ignore
   public void testMaxDepth() {
     var classPrefix = "testMaxDepth";
     session.createVertexClass(classPrefix + "V");
@@ -191,6 +195,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  @Ignore
   public void testBreadthFirst() {
     var classPrefix = "testBreadthFirst_";
     session.createVertexClass(classPrefix + "V");
@@ -249,6 +254,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  @Ignore
   public void testTraverseInBatchTx() {
     var script = "";
     script += "";

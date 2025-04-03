@@ -3,12 +3,12 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree;
 public final class EdgeKey implements Comparable<EdgeKey> {
 
   public final long ridBagId;
-  public final int targetCluster;
+  public final int targetCollection;
   public final long targetPosition;
 
-  public EdgeKey(long ridBagId, int targetCluster, long targetPosition) {
+  public EdgeKey(long ridBagId, int targetCollection, long targetPosition) {
     this.ridBagId = ridBagId;
-    this.targetCluster = targetCluster;
+    this.targetCollection = targetCollection;
     this.targetPosition = targetPosition;
   }
 
@@ -17,8 +17,8 @@ public final class EdgeKey implements Comparable<EdgeKey> {
     return "EdgeKey{"
         + " ridBagId="
         + ridBagId
-        + ", targetCluster="
-        + targetCluster
+        + ", targetCollection="
+        + targetCollection
         + ", targetPosition="
         + targetPosition
         + '}';
@@ -38,7 +38,7 @@ public final class EdgeKey implements Comparable<EdgeKey> {
     if (ridBagId != edgeKey.ridBagId) {
       return false;
     }
-    if (targetCluster != edgeKey.targetCluster) {
+    if (targetCollection != edgeKey.targetCollection) {
       return false;
     }
     return targetPosition == edgeKey.targetPosition;
@@ -47,7 +47,7 @@ public final class EdgeKey implements Comparable<EdgeKey> {
   @Override
   public int hashCode() {
     var result = (int) (ridBagId ^ (ridBagId >>> 32));
-    result = 31 * result + targetCluster;
+    result = 31 * result + targetCollection;
     result = 31 * result + (int) (targetPosition ^ (targetPosition >>> 32));
     return result;
   }
@@ -62,8 +62,8 @@ public final class EdgeKey implements Comparable<EdgeKey> {
       }
     }
 
-    if (targetCluster != other.targetCluster) {
-      if (targetCluster < other.targetCluster) {
+    if (targetCollection != other.targetCollection) {
+      if (targetCollection < other.targetCollection) {
         return -1;
       } else {
         return 1;

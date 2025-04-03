@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.cache.chm.writequeue;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 public final class MPSCLinkedQueue<E> {
 
@@ -20,6 +21,7 @@ public final class MPSCLinkedQueue<E> {
     prev.lazySetNext(newNode);
   }
 
+  @Nullable
   public E poll() {
     final var head = this.head.get();
     Node<E> next;

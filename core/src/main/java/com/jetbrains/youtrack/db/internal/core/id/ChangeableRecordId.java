@@ -29,39 +29,39 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     tempId = tempIdCounter++;
   }
 
-  public void setClusterId(int clusterId) {
-    if (clusterId == this.clusterId) {
+  public void setCollectionId(int collectionId) {
+    if (collectionId == this.collectionId) {
       return;
     }
 
-    checkClusterLimits(clusterId);
+    checkCollectionLimits(collectionId);
 
     fireBeforeIdentityChange();
-    this.clusterId = clusterId;
+    this.collectionId = collectionId;
     fireAfterIdentityChange();
   }
 
-  public void setClusterPosition(long clusterPosition) {
-    if (clusterPosition == this.clusterPosition) {
+  public void setCollectionPosition(long collectionPosition) {
+    if (collectionPosition == this.collectionPosition) {
       return;
     }
 
     fireBeforeIdentityChange();
-    this.clusterPosition = clusterPosition;
+    this.collectionPosition = collectionPosition;
     fireAfterIdentityChange();
   }
 
   @Override
-  public void setClusterAndPosition(int clusterId, long clusterPosition) {
-    if (clusterId == this.clusterId && clusterPosition == this.clusterPosition) {
+  public void setCollectionAndPosition(int collectionId, long collectionPosition) {
+    if (collectionId == this.collectionId && collectionPosition == this.collectionPosition) {
       return;
     }
 
-    checkClusterLimits(clusterId);
+    checkCollectionLimits(collectionId);
 
     fireBeforeIdentityChange();
-    this.clusterId = clusterId;
-    this.clusterPosition = clusterPosition;
+    this.collectionId = collectionId;
+    this.collectionPosition = collectionPosition;
     fireAfterIdentityChange();
   }
 
@@ -121,8 +121,8 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     }
     final var other = (RecordId) ((Identifiable) obj).getIdentity();
 
-    if (clusterId == other.clusterId && clusterPosition == other.clusterPosition) {
-      if (clusterId != CLUSTER_ID_INVALID || clusterPosition != CLUSTER_POS_INVALID) {
+    if (collectionId == other.collectionId && collectionPosition == other.collectionPosition) {
+      if (collectionId != COLLECTION_ID_INVALID || collectionPosition != COLLECTION_POS_INVALID) {
         return true;
       }
 
@@ -138,11 +138,11 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
   @Override
   public int hashCode() {
-    if (clusterPosition != CLUSTER_POS_INVALID || clusterId != CLUSTER_ID_INVALID) {
-      return 31 * clusterId + 103 * (int) clusterPosition;
+    if (collectionPosition != COLLECTION_POS_INVALID || collectionId != COLLECTION_ID_INVALID) {
+      return 31 * collectionId + 103 * (int) collectionPosition;
     }
 
-    return 31 * clusterId + 103 * (int) clusterPosition + 17 * tempId;
+    return 31 * collectionId + 103 * (int) collectionPosition + 17 * tempId;
   }
 
   public int compareTo(@Nonnull final Identifiable other) {
@@ -151,12 +151,12 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     }
 
     var otherIdentity = other.getIdentity();
-    final var otherClusterId = otherIdentity.getClusterId();
-    if (clusterId == otherClusterId) {
-      final var otherClusterPos = other.getIdentity().getClusterPosition();
+    final var otherCollectionId = otherIdentity.getCollectionId();
+    if (collectionId == otherCollectionId) {
+      final var otherCollectionPos = other.getIdentity().getCollectionPosition();
 
-      if (clusterPosition == otherClusterPos) {
-        if ((clusterId == CLUSTER_ID_INVALID && clusterPosition == CLUSTER_POS_INVALID)
+      if (collectionPosition == otherCollectionPos) {
+        if ((collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID)
             && otherIdentity instanceof ChangeableRecordId otherRecordId) {
           return Integer.compare(tempId, otherRecordId.tempId);
         }
@@ -164,8 +164,8 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
         return 0;
       }
 
-      return Long.compare(clusterPosition, otherClusterPos);
-    } else if (clusterId > otherClusterId) {
+      return Long.compare(collectionPosition, otherCollectionPos);
+    } else if (collectionId > otherCollectionId) {
       return 1;
     }
 
@@ -173,18 +173,18 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
   }
 
   public RecordId copy() {
-    if (clusterId == CLUSTER_ID_INVALID && clusterPosition == CLUSTER_POS_INVALID) {
+    if (collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID) {
       var recordId = new ChangeableRecordId();
-      recordId.clusterId = clusterId;
-      recordId.clusterPosition = clusterPosition;
+      recordId.collectionId = collectionId;
+      recordId.collectionPosition = collectionPosition;
       recordId.tempId = tempId;
 
       return recordId;
     }
 
     var recordId = new RecordId();
-    recordId.clusterId = clusterId;
-    recordId.clusterPosition = clusterPosition;
+    recordId.collectionId = collectionId;
+    recordId.collectionPosition = collectionPosition;
 
     return recordId;
   }
