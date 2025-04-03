@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFiltered;
 
@@ -56,7 +56,7 @@ public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
           if (argument instanceof Identifiable identifiable) {
             return move(context.getDatabaseSession(), identifiable, labels, possibleResults);
           }
-          if (argument instanceof BidirectionalLink<?> bidirectionalLink) {
+          if (argument instanceof Relation<?> bidirectionalLink) {
             return move(context.getDatabaseSession(), bidirectionalLink, labels);
           }
           throw new IllegalArgumentException(

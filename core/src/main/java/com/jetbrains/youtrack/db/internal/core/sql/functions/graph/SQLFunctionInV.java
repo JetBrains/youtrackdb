@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 
 /**
  *
@@ -24,7 +24,7 @@ public class SQLFunctionInV extends SQLFunctionMove {
 
   @Override
   protected Object move(DatabaseSessionInternal db,
-      BidirectionalLink<?> bidirectionalLink, String[] labels) {
+      Relation<?> bidirectionalLink, String[] labels) {
     return e2v(bidirectionalLink, Direction.IN);
   }
 }

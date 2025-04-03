@@ -8,10 +8,10 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
-public class EntityLinksIterable extends
-    BidirectionalLinkIterable<Entity, LightweightBidirectionalLinkImpl<Entity>> {
+public class EntityRelationsIterable extends
+    RelationsIterable<Entity, LightweightRelationImpl<Entity>> {
 
-  protected EntityLinksIterable(@Nonnull Entity sourceEntity,
+  protected EntityRelationsIterable(@Nonnull Entity sourceEntity,
       Pair<Direction, String> connection,
       String[] labels,
       @Nonnull DatabaseSessionInternal session,
@@ -22,8 +22,8 @@ public class EntityLinksIterable extends
 
   @Nonnull
   @Override
-  public Iterator<LightweightBidirectionalLinkImpl<Entity>> iterator() {
-    return new EntityLinksIterator(
+  public Iterator<LightweightRelationImpl<Entity>> iterator() {
+    return new EntityRelationsIterator(
         sourceEntity,
         iterable,
         iterable.iterator(),

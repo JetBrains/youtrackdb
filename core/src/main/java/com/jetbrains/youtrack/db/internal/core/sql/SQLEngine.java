@@ -385,8 +385,8 @@ public class SQLEngine {
     } else if (current instanceof Identifiable) {
       return function.apply(current);
     } else if (current instanceof ResultInternal result) {
-      if (result.isBiLink()) {
-        return function.apply(result.asBiLink());
+      if (result.isRelation()) {
+        return function.apply(result.asRelation());
       } else if (result.isEntity()) {
         return function.apply(result.asEntity());
       }

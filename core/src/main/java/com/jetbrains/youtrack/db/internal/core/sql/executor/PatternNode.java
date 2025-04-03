@@ -4,9 +4,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/**
- *
- */
 public class PatternNode {
 
   public String alias;

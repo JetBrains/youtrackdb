@@ -136,6 +136,11 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return this;
   }
 
+  @Override
+  public String label() {
+    var typeClass = getImmutableSchemaClass(session);
+    return typeClass.getName();
+  }
 
   @Override
   public @Nonnull List<String> getPropertyNames() {
@@ -187,13 +192,13 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   @Nullable
   @Override
-  public Vertex getFromEntity() {
+  public Vertex fromEntity() {
     return getFrom();
   }
 
   @Nullable
   @Override
-  public Vertex getToEntity() {
+  public Vertex toEntity() {
     return getTo();
   }
 
@@ -203,7 +208,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   }
 
   @Override
-  public Iterable<? extends BidirectionalLink<Entity>> getBidirectionalLinks(Direction direction,
+  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(Direction direction,
       String... linkNames) {
     throw new UnsupportedOperationException("Operation not supported for edges");
   }

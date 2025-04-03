@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -378,6 +379,10 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var transaction = session.getActiveTransaction();
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
+      }
+      case Result result when result.isRecord() -> {
+        var resultRecord = result.asRecord();
+        return equals(resultRecord);
       }
       case null, default -> {
         return false;

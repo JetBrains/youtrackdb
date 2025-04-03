@@ -12,10 +12,10 @@ import javax.annotation.Nonnull;
  */
 public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>, Sizeable {
 
-  private final Iterable<? extends BidirectionalLink<T>> links;
+  private final Iterable<? extends Relation<T>> links;
   private final Direction direction;
 
-  public BidirectionalLinksIterable(Iterable<? extends BidirectionalLink<T>> links,
+  public BidirectionalLinksIterable(Iterable<? extends Relation<T>> links,
       Direction direction) {
     this.links = links;
     this.direction = direction;

@@ -7,8 +7,8 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import java.util.Collections;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -32,7 +32,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(DatabaseSessionInternal db,
-      BidirectionalLink<?> bidirectionalLink, String[] labels) {
+      Relation<?> bidirectionalRelation, String[] labels) {
     throw new UnsupportedOperationException(
         "Function 'out' is not supported for bidirectional links");
   }
