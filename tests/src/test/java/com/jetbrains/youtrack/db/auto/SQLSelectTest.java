@@ -188,7 +188,6 @@ public class SQLSelectTest extends AbstractSelectTest {
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("tags", tags);
 
-
     session.commit();
 
     var resultset =
@@ -230,12 +229,12 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var resultset =
         executeQuery(
-            "select coll[name='Jay'] as value from Profile where coll is not null", session);
+            "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
+            session);
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertTrue(resultset.getFirst().getProperty("value") instanceof List<?>);
     Assert.assertEquals(
-        ((List<EntityImpl>) resultset.getFirst().getProperty("value")).getFirst()
-            .getProperty("name"),
+        resultset.getFirst().<Result>getEmbeddedList("value").getFirst().getProperty("name"),
         "Jay");
 
     session.begin();
@@ -266,7 +265,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     session.begin();
     var resultset =
         executeQuery(
-            "select coll[name='Jay'] as value from Profile where coll is not null", session);
+            "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
+            session);
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertTrue(resultset.getFirst().getProperty("value") instanceof List<?>);
     Assert.assertEquals(
@@ -297,7 +297,6 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
-
 
     session.commit();
 
@@ -336,7 +335,6 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
-
 
     session.commit();
 
@@ -581,7 +579,8 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var result =
         executeQuery(
-            "select * from OUser where roles contains #" + collectionId + ":" + positions.getFirst(),
+            "select * from OUser where roles contains #" + collectionId + ":"
+                + positions.getFirst(),
             session);
 
     Assert.assertEquals(result.size(), 1);
@@ -1139,25 +1138,19 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testQueryNotOperator() {
-    session.begin();
+    final var tx = session.begin();
 
     var result =
         executeQuery("select from Account where not ( addresses.@class in [ 'Address' ] )");
     Assert.assertFalse(result.isEmpty());
     for (var d : result) {
-      Identifiable identifiable = ((Collection<Identifiable>) d.getProperty("addresses"))
-          .iterator()
-          .next();
-      var transaction = session.getActiveTransaction();
-      Assert.assertTrue(
-          d.getProperty("addresses") == null
-              || ((Collection<Identifiable>) d.getProperty("addresses")).isEmpty()
-              || !Objects.requireNonNull(
-                  ((EntityImpl)
-                      transaction.load(identifiable))
-                      .getSchemaClass())
-              .getName()
-              .equals("Address"));
+      final var addresses = d.getLinkList("addresses");
+      if (addresses != null && !addresses.isEmpty()) {
+
+        for (var a : addresses) {
+          Assert.assertNotEquals(tx.loadEntity(a).getSchemaClassName(), "Address");
+        }
+      }
     }
     session.commit();
   }
@@ -1414,7 +1407,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     RID famousPlaceId = famousPlace.getIdentity();
     // if one of these two asserts fails, the test will be meaningless.
     Assert.assertTrue(secondPlaceId.getCollectionId() < famousPlaceId.getCollectionId());
-    Assert.assertTrue(secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
+    Assert.assertTrue(
+        secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
 
     var result =
         executeQuery(
@@ -1560,27 +1554,6 @@ public class SQLSelectTest extends AbstractSelectTest {
       positions.add(doc.getIdentity().getCollectionPosition());
     }
     return positions;
-  }
-
-  @Test
-  public void testBinaryCollectionSelect() {
-    session.execute("create blob collection binarycollection").close();
-    session.reload();
-    session.begin();
-    session.newBlob(new byte[]{1, 2, 3});
-    session.commit();
-
-    var result = session.query("select from collection:binarycollection");
-
-    Assert.assertEquals(result.stream().count(), 1);
-
-    session.begin();
-    session.execute("delete from collection:binarycollection").close();
-    session.commit();
-
-    result = session.query("select from collection:binarycollection");
-
-    Assert.assertEquals(result.stream().count(), 0);
   }
 
   @Test

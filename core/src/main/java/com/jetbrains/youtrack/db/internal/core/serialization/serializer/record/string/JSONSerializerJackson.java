@@ -755,7 +755,8 @@ public class JSONSerializerJackson {
   private static PropertyTypeInternal determineType(DatabaseSessionInternal session,
       EntityImpl entity,
       String fieldName,
-      String charType, SchemaProperty schemaProperty) {
+      String charType,
+      SchemaProperty schemaProperty) {
     PropertyTypeInternal type = null;
 
     if (schemaProperty != null) {
@@ -943,7 +944,13 @@ public class JSONSerializerJackson {
         };
       }
 
-      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> jsonParser.getNumberValue();
+      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
+         Object num = jsonParser.getNumberValue();
+         if (type != null) {
+           num = type.convert(num, session);
+         }
+         yield num;
+      }
       case VALUE_FALSE -> false;
       case VALUE_TRUE -> true;
 

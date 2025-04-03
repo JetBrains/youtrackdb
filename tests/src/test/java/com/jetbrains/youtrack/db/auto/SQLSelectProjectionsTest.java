@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -184,16 +185,19 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   }
 
   @Test
-  public void queryProjectionJSON() {
-    var result = executeQuery("select @this.toJson() as json from Profile");
+  public void queryProjectionJSON() throws JsonProcessingException {
+    final var tx = session.begin();
+    var result = executeQuery("select @rid, @this.toJson() as json from Profile");
     Assert.assertFalse(result.isEmpty());
 
     for (var r : result) {
-      Assert.assertTrue(r.getPropertyNames().size() <= 1);
-      Assert.assertNotNull(r.getProperty("json"));
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      final var jsonStr = r.getString("json");
+      Assert.assertNotNull(jsonStr);
 
-      new EntityImpl(session).updateFromJSON((String) r.getProperty("json"));
+      tx.loadEntity(r.getProperty("@rid")).updateFromJSON(jsonStr);
     }
+    session.commit();
   }
 
   public void queryProjectionRid() {
@@ -330,7 +334,6 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNotNull(res.getFirst().getProperty("a"));
       Assert.assertNotNull(res.getFirst().getProperty("b"));
 
-
       final var child = res.getFirst().getResult("child");
 
       Assert.assertNotNull(child.getProperty("c"));
@@ -400,7 +403,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
       rids.add(rid);
 
-      final List<Identifiable> embeddedList = d.getProperty("l");
+      final List<Result> embeddedList = d.getEmbeddedList("l");
       Assert.assertNotNull(embeddedList);
       Assert.assertFalse(embeddedList.isEmpty());
 

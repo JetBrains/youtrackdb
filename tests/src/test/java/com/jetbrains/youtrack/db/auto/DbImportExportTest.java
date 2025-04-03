@@ -157,7 +157,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final Schema schema = session.getMetadata().getSchema();
 
         final var rootCls = schema.createClass("RootClass");
-        rootCls.createProperty("embeddedList", PropertyType.LINKLIST);
+        rootCls.createProperty("linkList", PropertyType.LINKLIST);
 
         final var childCls = schema.createClass("ChildClass");
 
@@ -192,7 +192,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
           documents.add(embeddedDocument);
         }
 
-        rootDocument.setProperty("embeddedList", documents);
+        rootDocument.setProperty("linkList", documents);
 
         session.commit();
 
@@ -213,9 +213,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final Iterator<EntityImpl> classIterator = session.browseClass("RootClass");
         final var rootDocument = classIterator.next();
 
-        final List<EntityImpl> documents = rootDocument.getProperty("embeddedList");
+        final var documents = rootDocument.getLinkList("linkList");
         for (var i = 0; i < 10; i++) {
-          final var embeddedDocument = documents.get(i);
+          final var docId = documents.get(i);
+          final var embeddedDocument = ((EntityImpl) session.loadEntity(docId.getIdentity()));
 
           embeddedDocument.setLazyLoad(false);
           final RecordId link = embeddedDocument.getProperty("link");

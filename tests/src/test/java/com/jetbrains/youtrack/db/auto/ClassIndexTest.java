@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -88,6 +89,15 @@ public class ClassIndexTest extends BaseDBTest {
     oClass.addSuperClass(oSuperClass);
 
     session.close();
+  }
+
+  @BeforeMethod
+  @Override
+  public void beforeMethod() throws Exception {
+    super.beforeMethod();
+
+    oClass = session.getClassInternal("ClassIndexTestClass");
+    oSuperClass = session.getClassInternal("ClassIndexTestSuperClass");
   }
 
   @Test
@@ -237,7 +247,7 @@ public class ClassIndexTest extends BaseDBTest {
     assertEquals(indexDefinition.getFields().toArray(), new String[]{"fFifteen", "fEmbeddedMap"});
 
     assertEquals(indexDefinition.getTypes(),
-        new PropertyType[]{PropertyType.INTEGER, PropertyType.STRING});
+        new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING});
     assertEquals(indexDefinition.getParamCount(), 2);
   }
 

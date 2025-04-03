@@ -25,6 +25,7 @@
   <test name="Hook">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.HookTxTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.hooks.HookOnIndexedMapTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30Test"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30TxTest"/>
     </classes>
@@ -63,7 +64,7 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLDropSchemaPropertyIndexTest"/>
 
       <class name="com.jetbrains.youtrack.db.auto.SchemaIndexTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.ClassIndexTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.ClassIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SchemaPropertyIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollectionIndexTest"/>
 
@@ -120,16 +121,16 @@
   </test>
   <test name="sql-commands">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLCommandsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLCommandsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDropClassTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLInsertTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLInsertTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.SQLMetadataTest"/>
       <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>-->
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectGroupByTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateVertexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteEdgeTest"/>
@@ -148,7 +149,7 @@
       <class name="com.jetbrains.youtrack.db.auto.DateTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentQueriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentCommandAndOpenTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollateTest"/>

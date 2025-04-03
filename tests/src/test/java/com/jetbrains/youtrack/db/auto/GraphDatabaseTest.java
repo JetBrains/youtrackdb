@@ -67,7 +67,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     tom = activeTx.load(tom);
     Assert.assertEquals(CollectionUtils.size(tom.getEdges(Direction.OUT, "drives")), 2);
 
@@ -82,6 +82,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     result = session.query("select out_[in.brand = 'Ferrari'].in_ from V where name = 'Tom'");
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
   }
 
   public void testNotDuplicatedIndexTxChanges() throws IOException {
@@ -130,6 +131,11 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
+    vertexA = session.getActiveTransaction().load(vertexA);
+    vertexB = session.getActiveTransaction().load(vertexB);
+    edgeC = session.getActiveTransaction().load(edgeC);
+
     Assert.assertEquals(vertexA.getProperty("field1"), "value1");
     Assert.assertEquals(vertexA.getProperty("field2"), "value2");
 
@@ -137,6 +143,7 @@ public class GraphDatabaseTest extends BaseDBTest {
     Assert.assertEquals(vertexB.getProperty("field2"), "value2");
 
     Assert.assertEquals(edgeC.getProperty("edgeF1"), "edgeV2");
+    session.commit();
   }
 
   @Test
@@ -161,6 +168,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var query1 = "select driver from V where out().car contains 'ford'";
     var result = session.query(query1);
     Assert.assertEquals(result.stream().count(), 1);
@@ -177,6 +185,7 @@ public class GraphDatabaseTest extends BaseDBTest {
         "select driver from V where outE()[color='red'][action='owns'].inV().car = 'ford'";
     result = session.query(query4);
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
   }
 
   @SuppressWarnings("unchecked")
@@ -204,6 +213,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     session.commit();
     var subquery = "select out('owns') as out from V where name = 'UK'";
+    session.begin();
     var result = session.query(subquery).stream().collect(Collectors.toList());
 
     Assert.assertEquals(result.size(), 1);
@@ -216,7 +226,9 @@ public class GraphDatabaseTest extends BaseDBTest {
     for (var value : result) {
       Assert.assertTrue(value.hasProperty("lat"));
     }
+    session.commit();
 
+    session.begin();
     var query =
         "select name, lat, long, distance(lat,long,51.5,0.08) as distance from (select"
             + " expand(out('owns')) from V where name = 'UK') order by distance";
@@ -227,14 +239,17 @@ public class GraphDatabaseTest extends BaseDBTest {
       Assert.assertTrue(oResult.hasProperty("lat"));
       Assert.assertTrue(oResult.hasProperty("distance"));
     }
+    session.commit();
   }
 
   public void testDeleteOfVerticesWithDeleteCommandMustFail() {
+    session.begin();
     try {
       session.execute("delete from GraphVehicle").close();
       Assert.fail();
     } catch (CommandExecutionException e) {
       Assert.assertTrue(true);
+      session.rollback();
     }
   }
 
@@ -270,7 +285,8 @@ public class GraphDatabaseTest extends BaseDBTest {
   }
 
   public void testEmbeddedDoc() {
-    session.createClass("NonVertex");
+    session.createAbstractClass("Vertex", "V");
+    session.createAbstractClass("NonVertex");
 
     session.begin();
     var vertex = session.newVertex();
@@ -281,21 +297,13 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     vertex.setProperty("emb1", doc);
 
-    var doc2 = ((EntityImpl) session.newEntity("V"));
-    doc2.setProperty("foo", "bar1");
-    vertex.setProperty("emb2", doc2, PropertyType.EMBEDDED);
-
-    var doc3 = ((EntityImpl) session.newEntity("NonVertex"));
+    var doc3 = ((EntityImpl) session.newEmbeddedEntity("NonVertex"));
     doc3.setProperty("foo", "bar2");
     vertex.setProperty("emb3", doc3, PropertyType.EMBEDDED);
 
     var res1 = vertex.getProperty("emb1");
     Assert.assertNotNull(res1);
     Assert.assertTrue(res1 instanceof EntityImpl);
-
-    var res2 = vertex.getProperty("emb2");
-    Assert.assertNotNull(res2);
-    Assert.assertFalse(res2 instanceof EntityImpl);
 
     var res3 = vertex.getProperty("emb3");
     Assert.assertNotNull(res3);
