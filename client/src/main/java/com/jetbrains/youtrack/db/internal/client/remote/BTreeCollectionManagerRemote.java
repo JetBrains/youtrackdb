@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -75,7 +75,7 @@ public class BTreeCollectionManagerRemote
   }
 
   protected EdgeBTree<RID, Integer> loadTree(
-      BonsaiCollectionPointer collectionPointer) {
+      LinkBagPointer collectionPointer) {
     throw new UnsupportedOperationException();
   }
 
@@ -92,7 +92,7 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public void updateCollectionPointer(UUID uuid, BonsaiCollectionPointer pointer,
+  public void updateCollectionPointer(UUID uuid, LinkBagPointer pointer,
       DatabaseSessionInternal session) {
     final var reference = pendingCollections.get().get(uuid);
     if (reference == null) {
@@ -114,7 +114,7 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public Map<UUID, BonsaiCollectionPointer> changedIds(DatabaseSessionInternal session) {
+  public Map<UUID, LinkBagPointer> changedIds(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
@@ -133,7 +133,7 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public BonsaiCollectionPointer createSBTree(
+  public LinkBagPointer createSBTree(
       int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) throws IOException {
     var tree = createEdgeTree(atomicOperation, clusterId);
@@ -142,7 +142,7 @@ public class BTreeCollectionManagerRemote
 
   @Override
   public EdgeBTree<RID, Integer> loadSBTree(
-      BonsaiCollectionPointer collectionPointer) {
+      LinkBagPointer collectionPointer) {
 
     final EdgeBTree<RID, Integer> tree;
     tree = loadTree(collectionPointer);
@@ -151,11 +151,11 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public void releaseSBTree(BonsaiCollectionPointer collectionPointer) {
+  public void releaseSBTree(LinkBagPointer collectionPointer) {
   }
 
   @Override
-  public void delete(BonsaiCollectionPointer collectionPointer) {
+  public void delete(LinkBagPointer collectionPointer) {
   }
 
   @Override

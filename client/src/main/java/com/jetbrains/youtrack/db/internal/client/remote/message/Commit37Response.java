@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
@@ -33,11 +33,11 @@ import java.util.UUID;
 
 public final class Commit37Response extends BeginTransactionResponse {
 
-  private Map<UUID, BonsaiCollectionPointer> collectionChanges;
+  private Map<UUID, LinkBagPointer> collectionChanges;
 
   public Commit37Response(
       long txId, Map<RecordId, RecordId> updatedToOldRecordIdMap,
-      Map<UUID, BonsaiCollectionPointer> collectionChanges, DatabaseSessionInternal session) {
+      Map<UUID, LinkBagPointer> collectionChanges, DatabaseSessionInternal session) {
     super(txId, updatedToOldRecordIdMap, Collections.emptyList(), session);
 
     this.collectionChanges = collectionChanges;
@@ -63,7 +63,7 @@ public final class Commit37Response extends BeginTransactionResponse {
     collectionChanges = MessageHelper.readCollectionChanges(network);
   }
 
-  public Map<UUID, BonsaiCollectionPointer> getCollectionChanges() {
+  public Map<UUID, LinkBagPointer> getCollectionChanges() {
     return collectionChanges;
   }
 }

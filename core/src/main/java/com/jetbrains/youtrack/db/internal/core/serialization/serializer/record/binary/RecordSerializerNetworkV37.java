@@ -49,7 +49,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
@@ -362,6 +362,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   private static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
     final var bTreeCollectionManager = session.getBTreeCollectionManager();
+
     UUID uuid = null;
     if (bTreeCollectionManager != null) {
       uuid = bTreeCollectionManager.listenForChanges(bag, session);
@@ -376,24 +377,22 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 1;
       VarIntSerializer.write(bytes, bag.size());
-      for (Identifiable itemValue : bag) {
-        if (itemValue == null) {
-          writeNullLink(bytes);
-        } else {
-          writeOptimizedLink(session, bytes, itemValue);
-        }
+
+      for (var itemValue : bag) {
+        writeOptimizedLink(session, bytes, itemValue);
       }
     } else {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 2;
       var pointer = bag.getPointer();
-      if (pointer == null || pointer == BonsaiCollectionPointer.INVALID) {
+
+      if (pointer == null || pointer.isValid()) {
         throw new IllegalStateException("RidBag with invalid pointer was found");
       }
 
-      VarIntSerializer.write(bytes, pointer.getFileId());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
+      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageOffset());
       VarIntSerializer.write(bytes, -1);
       var changes = bag.getChanges();
 
@@ -452,10 +451,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
       }
 
-      BonsaiCollectionPointer pointer = null;
+      LinkBagPointer pointer = null;
       if (fileId != -1) {
         pointer =
-            new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
+            new LinkBagPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
       }
       return new RidBag(db, pointer, changes, uuid);
     }

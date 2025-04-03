@@ -1355,7 +1355,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
       case RidBag ridBag -> {
         ridBag.setOwner(this);
-        ridBag.setRecordAndField(recordId, name);
+        ridBag.setOwnerFieldName(name);
       }
       case RecordElement element -> {
         if (!(element instanceof Blob)) {

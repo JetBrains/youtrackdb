@@ -33,12 +33,11 @@ import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import java.util.Collection;
@@ -87,9 +86,7 @@ public class RidBag
 
   private LinkBagDelegate delegate;
 
-  private RecordId ownerRecord;
   private String fieldName;
-
   private int topThreshold;
   private int bottomThreshold;
   private UUID uuid;
@@ -119,7 +116,7 @@ public class RidBag
     this.uuid = uuid;
   }
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, BonsaiCollectionPointer pointer,
+  public RidBag(@Nonnull DatabaseSessionInternal session, LinkBagPointer pointer,
       Map<RID, Change> changes, UUID uuid, int size) {
     this.session = session;
     initThresholds(session);
@@ -187,12 +184,12 @@ public class RidBag
     if (isEmbedded()) {
       return true;
     }
-    if (getOwner() instanceof DBRecord && !((DBRecord) getOwner()).getIdentity().isPersistent()) {
+    if (getOwner() instanceof DBRecord record && !record.getIdentity().isPersistent()) {
       return true;
     }
 
     var pointer = getPointer();
-    return pointer == null || pointer == BonsaiCollectionPointer.INVALID;
+    return pointer == null || pointer == LinkBagPointer.INVALID;
   }
 
   public void checkAndConvert() {
@@ -303,7 +300,7 @@ public class RidBag
    *
    * @param newPointer new collection pointer
    */
-  public void notifySaved(BonsaiCollectionPointer newPointer, DatabaseSessionInternal session) {
+  public void notifySaved(LinkBagPointer newPointer, DatabaseSessionInternal session) {
     if (newPointer.isValid()) {
       if (isEmbedded()) {
         replaceWithSBTree(newPointer, session);
@@ -314,51 +311,14 @@ public class RidBag
     }
   }
 
-  public BonsaiCollectionPointer getPointer() {
+  public LinkBagPointer getPointer() {
     if (isEmbedded()) {
-      return BonsaiCollectionPointer.INVALID;
+      return LinkBagPointer.INVALID;
     } else if (delegate instanceof RemoteTreeLinkBag) {
       return ((RemoteTreeLinkBag) delegate).getCollectionPointer();
     } else {
       return ((BTreeBasedLinkBag) delegate).getCollectionPointer();
     }
-  }
-
-  /**
-   * IMPORTANT! Only for internal usage.
-   */
-  public boolean tryMerge(final RidBag otherValue, boolean iMergeSingleItemsOfMultiValueFields) {
-    if (!isEmbedded() && !otherValue.isEmbedded()) {
-      final var thisTree = (BTreeBasedLinkBag) delegate;
-      final var otherTree = (BTreeBasedLinkBag) otherValue.delegate;
-      if (thisTree.getCollectionPointer().equals(otherTree.getCollectionPointer())) {
-
-        thisTree.mergeChanges(otherTree);
-
-        uuid = otherValue.uuid;
-
-        return true;
-      }
-    } else if (iMergeSingleItemsOfMultiValueFields) {
-      for (var value : otherValue) {
-        if (value != null) {
-          final var localIter = iterator();
-          var found = false;
-          while (localIter.hasNext()) {
-            final Identifiable v = localIter.next();
-            if (value.equals(v)) {
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            add(value);
-          }
-        }
-      }
-      return true;
-    }
-    return false;
   }
 
   protected void initThresholds(@Nonnull DatabaseSessionInternal session) {
@@ -382,10 +342,10 @@ public class RidBag
    *
    * @param pointer new collection pointer
    */
-  private void replaceWithSBTree(BonsaiCollectionPointer pointer, DatabaseSessionInternal session) {
+  private void replaceWithSBTree(LinkBagPointer pointer, DatabaseSessionInternal session) {
     delegate.requestDelete();
-    final var treeBag = new RemoteTreeLinkBag(pointer, session);
-    treeBag.setRecordAndField(ownerRecord, fieldName);
+    final var treeBag = new RemoteTreeLinkBag(pointer, session, Integer.MAX_VALUE);
+    treeBag.setOwnerFieldName(fieldName);
     treeBag.setOwner(delegate.getOwner());
     treeBag.setTracker(delegate.getTracker());
     delegate = treeBag;
@@ -474,11 +434,11 @@ public class RidBag
     return delegate.getTransactionTimeLine();
   }
 
-  public void setRecordAndField(RecordId id, String fieldName) {
+  public void setOwnerFieldName(String fieldName) {
     if (this.delegate instanceof RemoteTreeLinkBag) {
-      ((RemoteTreeLinkBag) this.delegate).setRecordAndField(id, fieldName);
+      ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);
     }
-    this.ownerRecord = id;
+
     this.fieldName = fieldName;
   }
 

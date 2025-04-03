@@ -145,7 +145,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -512,7 +512,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeSBTreeCreate(SBTCreateTreeRequest request) {
-    BonsaiCollectionPointer collectionPointer = null;
+    LinkBagPointer collectionPointer = null;
     final var session = connection.getDatabaseSession();
     try {
       final var storage = (AbstractPaginatedStorage) session.getStorage();
@@ -1174,7 +1174,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         session.commit();
         final var collectionManager =
             connection.getDatabaseSession().getBTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
+        Map<UUID, LinkBagPointer> changedIds = null;
 
         if (collectionManager != null) {
           changedIds = collectionManager.changedIds(session);

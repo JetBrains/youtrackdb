@@ -774,10 +774,10 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return retList;
   }
 
-  protected static int writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
+  protected static int writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag ridbag) {
     var positionOffset = bytes.offset;
-    HelperClasses.writeRidBag(session, bytes, ridbag);
+    HelperClasses.writeLinkBag(session, bytes, ridbag);
     return positionOffset;
   }
 
@@ -1054,7 +1054,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
         break;
       case LINKBAG:
-        pointer = writeRidBag(session, bytes, (RidBag) value);
+        pointer = writeLinkBag(session, bytes, (RidBag) value);
         break;
     }
     return pointer;

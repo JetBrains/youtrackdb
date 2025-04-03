@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySeria
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import java.io.IOException;
 import javax.annotation.Nullable;
 
@@ -45,7 +45,7 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
   /**
    * @return pointer to a collection.
    */
-  BonsaiCollectionPointer getCollectionPointer();
+  LinkBagPointer getCollectionPointer();
 
   /**
    * Search for entry with specific key and return its value.

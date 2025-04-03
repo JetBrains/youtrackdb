@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -33,11 +33,11 @@ public class CollectionNetworkSerializer {
   public CollectionNetworkSerializer() {
   }
 
-  public BonsaiCollectionPointer readCollectionPointer(ChannelDataInput client)
+  public LinkBagPointer readCollectionPointer(ChannelDataInput client)
       throws IOException {
     final var fileId = client.readLong();
     final var rootPointer = readBonsaiBucketPointer(client);
-    return new BonsaiCollectionPointer(fileId, rootPointer);
+    return new LinkBagPointer(fileId, rootPointer);
   }
 
   private RidBagBucketPointer readBonsaiBucketPointer(ChannelDataInput client)
@@ -48,9 +48,9 @@ public class CollectionNetworkSerializer {
   }
 
   public void writeCollectionPointer(
-      ChannelDataOutput client, BonsaiCollectionPointer treePointer) throws IOException {
+      ChannelDataOutput client, LinkBagPointer treePointer) throws IOException {
     client.writeLong(treePointer.getFileId());
-    client.writeLong(treePointer.getRootPointer().getPageIndex());
-    client.writeInt(treePointer.getRootPointer().getPageOffset());
+    client.writeLong(treePointer.getLinkBagId().getPageIndex());
+    client.writeInt(treePointer.getLinkBagId().getPageOffset());
   }
 }

@@ -19,19 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Interface that indicates that collection will send notifications about operations that are
@@ -126,6 +118,8 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
     var session = getSession();
     assert session != null && session.assertIfNotActive();
     assert session.isTxActive();
+    var owner = getOwnerEntity();
+    assert owner == null || !owner.isNotBound(session);
     return true;
   }
 }

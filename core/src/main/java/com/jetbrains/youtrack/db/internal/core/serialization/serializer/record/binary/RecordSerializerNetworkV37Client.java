@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
@@ -62,10 +62,10 @@ public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37
         var change = VarIntSerializer.readAsInteger(bytes);
         changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
       }
-      BonsaiCollectionPointer pointer = null;
+      LinkBagPointer pointer = null;
       if (fileId != -1) {
         pointer =
-            new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
+            new LinkBagPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
       }
       return new RidBag(session, new RemoteTreeLinkBag(pointer, session));
     }

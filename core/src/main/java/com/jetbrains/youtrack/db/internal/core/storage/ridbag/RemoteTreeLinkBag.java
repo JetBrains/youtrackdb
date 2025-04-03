@@ -21,155 +21,42 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDelegate;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.NoSuchElementException;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
-public class RemoteTreeLinkBag implements LinkBagDelegate {
-
-  /**
-   * Entries with not valid id.
-   */
-  private int size;
-  private final SimpleMultiValueTracker<RID, RID> tracker = new SimpleMultiValueTracker<>(this);
-
-  private transient RecordElement owner;
-  private boolean dirty;
-  private boolean transactionDirty = false;
-
-  private RecordId ownerRecord;
+public class RemoteTreeLinkBag extends AbstractLinkBag {
+  private final LinkBagPointer collectionPointer;
   private String fieldName;
 
-  private final BonsaiCollectionPointer collectionPointer;
-  @Nonnull
-  private final DatabaseSessionInternal session;
-
-  public RemoteTreeLinkBag(BonsaiCollectionPointer pointer,
-      @Nonnull DatabaseSessionInternal session) {
-    this.session = session;
-    this.size = -1;
+  public RemoteTreeLinkBag(LinkBagPointer pointer, @Nonnull DatabaseSessionInternal session,
+      int counterMaxValue) {
+    super(session, counterMaxValue);
     this.collectionPointer = pointer;
   }
 
   @Override
-  public RecordElement getOwner() {
-    return owner;
+  protected AbsoluteChange getAbsoluteValue(RID rid) {
+    return session.getStorage().getLinkBagCounter(session,
+        owner.getOwnerEntity().getIdentity(), fieldName, rid);
   }
 
   @Override
-  public void setOwner(RecordElement owner) {
-    if (owner != null && this.owner != null && !this.owner.equals(owner)) {
-      throw new IllegalStateException(
-          "This data structure is owned by entity "
-              + owner
-              + " if you want to use it in other entity create new rid bag instance and copy"
-              + " content of current one.");
-    }
-    this.owner = owner;
-  }
-
-  @Override
-  public @Nonnull Iterator<RID> iterator() {
-    var set = loadElements(session);
-    return new RemovableIterator(set.iterator());
-  }
-
-  private List<RID> loadElements(DatabaseSessionInternal session) {
-    List<RID> list;
-    try (var result =
-        session.query("select list(@this.field(?)) as entities from ?", fieldName,
-            ownerRecord)) {
-      if (result.hasNext()) {
-        list = (result.next().getProperty("entities"));
-      } else {
-        list = Collections.emptyList();
-      }
-    }
-
-    //as transaction synchronized with elements already we do not need to postprocess results
-    return list;
-  }
-
-  @Override
-  public void addAll(Collection<RID> values) {
-    for (var identifiable : values) {
-      add(identifiable);
-    }
-  }
-
-  @Override
-  public void add(RID rid) {
-    if (rid == null) {
-      throw new IllegalArgumentException("Impossible to add a null identifiable in a ridbag");
-    }
-
-    rid = refreshNonPersistentRid(rid);
-    if (size >= 0) {
-      size++;
-    }
-
-    addEvent(rid, rid);
-  }
-
-  @Override
-  public void remove(RID rid) {
-    rid = refreshNonPersistentRid(rid);
-
-    size = -1;
-    removeEvent(rid);
-  }
-
-  @Override
-  public boolean contains(RID rid) {
-    rid = refreshNonPersistentRid(rid);
-    return loadElements(session).contains(rid);
-  }
-
-  @Override
-  public int size() {
-    return updateSize();
-  }
-
-  @Override
-  public String toString() {
-    if (size >= 0) {
-      return "RemoteLinkBag[size=" + size + "]";
-    }
-
-    return "RemoteLinkBag[...]";
-  }
-
-  @Override
-  public List<RawPair<RID, Change>> getChanges() {
-    return Collections.emptyList();
-  }
-
-  @Override
-  public boolean isEmpty() {
-    return size() == 0;
+  protected void updateSize() {
+    size = session.getStorage().getLinkBagSize(session,
+        owner.getOwnerEntity().getIdentity(), fieldName);
   }
 
   @Override
   public Object returnOriginalState(
       DatabaseSessionInternal session,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    final var reverted = new RemoteTreeLinkBag(this.collectionPointer, session);
+    final var reverted = new RemoteTreeLinkBag(this.collectionPointer, session, counterMaxValue);
+
     for (var identifiable : this) {
       reverted.add(identifiable);
     }
@@ -199,165 +86,12 @@ public class RemoteTreeLinkBag implements LinkBagDelegate {
     throw new UnsupportedOperationException();
   }
 
-  /**
-   * Recalculates real bag size.
-   *
-   * @return real size
-   */
-  private int updateSize() {
-    this.size = loadElements(session).size();
-    return size;
-  }
 
-
-  private void addEvent(RID key, RID rid) {
-    if (tracker.isEnabled()) {
-      tracker.add(key, rid);
-    } else {
-      setDirty();
-    }
-  }
-
-  private void removeEvent(RID removed) {
-    if (tracker.isEnabled()) {
-      tracker.remove(removed, removed);
-    } else {
-      setDirty();
-    }
-  }
-
-  public void enableTracking(RecordElement parent) {
-    if (!tracker.isEnabled()) {
-      tracker.enable();
-    }
-  }
-
-  public void disableTracking(RecordElement entity) {
-    if (tracker.isEnabled()) {
-      this.tracker.disable();
-      this.dirty = false;
-    }
-  }
-
-  @Override
-  public void transactionClear() {
-    tracker.transactionClear();
-    this.transactionDirty = false;
-  }
-
-  @Override
-  public boolean isModified() {
-    return dirty;
-  }
-
-  @Override
-  public boolean isTransactionModified() {
-    return transactionDirty;
-  }
-
-  @Override
-  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
-    return tracker.getTimeLine();
-  }
-
-  @Override
-  public void setDirty() {
-    this.dirty = true;
-    this.transactionDirty = true;
-
-    if (owner != null) {
-      owner.setDirty();
-    }
-  }
-
-  public void setTransactionModified(boolean transactionDirty) {
-    this.transactionDirty = transactionDirty;
-  }
-
-  @Override
-  public void setDirtyNoChanged() {
-    if (owner != null) {
-      owner.setDirtyNoChanged();
-    }
-    this.dirty = true;
-    this.transactionDirty = true;
-  }
-
-  @Override
-  public SimpleMultiValueTracker<RID, RID> getTracker() {
-    return tracker;
-  }
-
-  @Override
-  public void setTracker(SimpleMultiValueTracker<RID, RID> tracker) {
-    this.tracker.sourceFrom(tracker);
-  }
-
-  @Override
-  public MultiValueChangeTimeLine<RID, RID> getTransactionTimeLine() {
-    return this.tracker.getTransactionTimeLine();
-  }
-
-  public void setRecordAndField(RecordId id, String fieldName) {
-    this.ownerRecord = id;
+  public void setOwnerFieldName(String fieldName) {
     this.fieldName = fieldName;
   }
 
-  private RID refreshNonPersistentRid(RID identifiable) {
-    if (!identifiable.isPersistent()) {
-      identifiable = session.refreshRid(identifiable);
-    }
-    return identifiable;
-  }
-
-  public BonsaiCollectionPointer getCollectionPointer() {
+  public LinkBagPointer getCollectionPointer() {
     return collectionPointer;
-  }
-
-
-  private class RemovableIterator implements Iterator<RID> {
-
-    private final Iterator<RID> iter;
-    private RID next;
-    private RID removeNext;
-
-    public RemovableIterator(Iterator<RID> iterator) {
-      this.iter = iterator;
-    }
-
-    @Override
-    public boolean hasNext() {
-      if (next != null) {
-        return true;
-      } else {
-        if (iter.hasNext()) {
-          next = iter.next();
-          return true;
-        } else {
-          return false;
-        }
-      }
-    }
-
-    @Override
-    public RID next() {
-      if (!hasNext()) {
-        throw new NoSuchElementException();
-      }
-      var val = next;
-      removeNext = next;
-      next = null;
-      return val;
-    }
-
-    @Override
-    public void remove() {
-      if (removeNext != null) {
-        RemoteTreeLinkBag.this.remove(removeNext);
-        removeNext = null;
-      } else {
-        throw new IllegalStateException();
-      }
-    }
   }
 }

@@ -24,24 +24,25 @@ import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 public class EmbeddedLinkBag extends AbstractLinkBag {
-
   public EmbeddedLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {
     super(session, counterMaxValue);
   }
 
-  public EmbeddedLinkBag(@Nonnull Map<RID, Change> changes,
+  public EmbeddedLinkBag(@Nonnull List<ObjectIntPair<RID>> changes,
       @Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
-    super(changes, session, size, counterMaxValue);
+    super(session, size, counterMaxValue);
+    for (var pair : changes) {
+      this.changes.put(pair.key(), new AbsoluteChange(pair.value()));
+    }
   }
 
   @Override
@@ -92,17 +93,19 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
   @Override
   protected void updateSize() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Nullable
-  @Override
-  protected EdgeBTree<RID, Integer> loadTree() {
-    return null;
+    if (size < 0) {
+      throw new UnsupportedOperationException();
+    }
   }
 
   @Override
-  protected void releaseTree() {
+  protected AbsoluteChange getAbsoluteValue(RID rid) {
+    var change = changes.get(rid);
+    if (!(change instanceof AbsoluteChange absoluteChange)) {
+      throw new IllegalArgumentException("Change is not an absolute change");
+    }
+
+    return absoluteChange;
   }
 
   private final class RIDBagIterator implements Iterator<RID>, Resettable, Sizeable {

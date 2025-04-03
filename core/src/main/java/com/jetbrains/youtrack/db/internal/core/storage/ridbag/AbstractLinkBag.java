@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
@@ -12,7 +11,6 @@ import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -21,6 +19,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.TreeMap;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -30,7 +29,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   protected final DatabaseSessionInternal session;
   @Nonnull
-  protected Map<RID, Change> changes;
+  protected TreeMap<RID, Change> changes;
 
   /**
    * Entries with not valid id.
@@ -46,13 +45,10 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   protected boolean dirty;
   protected boolean transactionDirty = false;
 
-  public AbstractLinkBag(@Nonnull Map<RID, Change> changes,
-      @Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
+  public AbstractLinkBag(@Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
-    this.changes = initChanges();
-    this.changes.putAll(changes);
-
+    this.changes = new TreeMap<>();
     this.size = size;
 
     this.counterMaxValue = counterMaxValue;
@@ -62,7 +58,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     assert assertIfNotActive();
     this.session = session;
     this.counterMaxValue = counterMaxValue;
-    this.changes = initChanges();
+    this.changes = new TreeMap<>();
   }
 
   public int getCounterMaxValue() {
@@ -87,7 +83,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     this.owner = owner;
   }
 
-  protected abstract Map<RID, Change> initChanges();
 
   @Override
   public void addAll(Collection<RID> values) {
@@ -256,34 +251,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     newEntries.clear();
   }
 
-  @Nullable
-  protected abstract EdgeBTree<RID, Integer> loadTree();
 
-  protected abstract void releaseTree();
-
-  protected AbsoluteChange getAbsoluteValue(RID rid) {
-    final var tree = loadTree();
-    try {
-      Integer oldValue;
-
-      if (tree == null) {
-        oldValue = 0;
-      } else {
-        oldValue = tree.get(rid);
-      }
-
-      if (oldValue == null) {
-        oldValue = 0;
-      }
-
-      final var change = changes.get(rid);
-
-      return new AbsoluteChange(
-          change == null ? oldValue : change.applyTo(oldValue, counterMaxValue));
-    } finally {
-      releaseTree();
-    }
-  }
+  protected abstract AbsoluteChange getAbsoluteValue(RID rid);
 
   /**
    * Removes entry with given key from {@link #newEntries}.

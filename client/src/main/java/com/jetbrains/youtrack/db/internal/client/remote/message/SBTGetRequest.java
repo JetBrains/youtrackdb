@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSeriali
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -34,10 +34,10 @@ import java.io.IOException;
 
 public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
 
-  private BonsaiCollectionPointer collectionPointer;
+  private LinkBagPointer collectionPointer;
   private byte[] keyStream;
 
-  public SBTGetRequest(BonsaiCollectionPointer collectionPointer, byte[] keyStream) {
+  public SBTGetRequest(LinkBagPointer collectionPointer, byte[] keyStream) {
     this.collectionPointer = collectionPointer;
     this.keyStream = keyStream;
   }
@@ -70,7 +70,7 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
     return "SB-Tree bonsai get";
   }
 
-  public BonsaiCollectionPointer getCollectionPointer() {
+  public LinkBagPointer getCollectionPointer() {
     return collectionPointer;
   }
 

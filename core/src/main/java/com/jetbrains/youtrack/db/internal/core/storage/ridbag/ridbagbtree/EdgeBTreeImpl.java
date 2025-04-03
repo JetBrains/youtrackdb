@@ -1,17 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -20,7 +16,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
 
   private final LinkBagBTree bTree;
   private final int intFileId;
-  private final long ridBagId;
+  private final long linkBagId;
 
   private final BinarySerializer<RID> keySerializer;
   private final BinarySerializer<Integer> valueSerializer;
@@ -28,19 +24,19 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public EdgeBTreeImpl(
       final LinkBagBTree bTree,
       final int intFileId,
-      final long ridBagId,
+      final long linkBagId,
       BinarySerializer<RID> keySerializer,
       BinarySerializer<Integer> valueSerializer) {
     this.bTree = bTree;
     this.intFileId = intFileId;
-    this.ridBagId = ridBagId;
+    this.linkBagId = linkBagId;
     this.keySerializer = keySerializer;
     this.valueSerializer = valueSerializer;
   }
 
   @Override
-  public BonsaiCollectionPointer getCollectionPointer() {
-    return new BonsaiCollectionPointer(intFileId, getRootBucketPointer());
+  public LinkBagPointer getCollectionPointer() {
+    return new LinkBagPointer(intFileId, linkBagId);
   }
 
   @Override
@@ -50,14 +46,14 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
 
   @Override
   public RidBagBucketPointer getRootBucketPointer() {
-    return new RidBagBucketPointer(ridBagId, 0);
+    return new RidBagBucketPointer(linkBagId, 0);
   }
 
   @Override
   public Integer get(RID rid) {
     final int result;
 
-    result = bTree.get(new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()));
+    result = bTree.get(new EdgeKey(linkBagId, rid.getClusterId(), rid.getClusterPosition()));
 
     if (result < 0) {
       return null;
@@ -70,7 +66,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public boolean put(AtomicOperation atomicOperation, RID rid, Integer value) {
     return bTree.put(
         atomicOperation,
-        new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()),
+        new EdgeKey(linkBagId, rid.getClusterId(), rid.getClusterPosition()),
         value);
   }
 
@@ -78,9 +74,9 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public void clear(AtomicOperation atomicOperation) {
     try (var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       final var iterator = stream.iterator();
@@ -95,7 +91,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public boolean isEmpty() {
     try (final var stream =
         bTree.iterateEntriesMajor(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE), true, true)) {
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE), true, true)) {
       return stream.findAny().isEmpty();
     }
   }
@@ -110,7 +106,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     final int result;
     result =
         bTree.remove(
-            atomicOperation, new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()));
+            atomicOperation, new EdgeKey(linkBagId, rid.getClusterId(), rid.getClusterPosition()));
 
     if (result < 0) {
       return null;
@@ -127,9 +123,9 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
       RangeResultListener<RID, Integer> listener) {
     try (final var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, rid.getClusterId(), rid.getClusterPosition()),
+            new EdgeKey(linkBagId, rid.getClusterId(), rid.getClusterPosition()),
             inclusive,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       listenStream(stream, listener);
@@ -140,9 +136,9 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public RID firstKey() {
     try (final var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       final var iterator = stream.iterator();
@@ -159,9 +155,9 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   public RID lastKey() {
     try (final var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
             false)) {
       final var iterator = stream.iterator();
@@ -180,9 +176,9 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
 
     try (final var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       forEachEntry(

@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
 import java.io.IOException;
@@ -40,13 +40,13 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
 
   private final NavigableMap<RID, Change> changedValues;
 
-  private final BonsaiCollectionPointer collectionPointer;
+  private final LinkBagPointer collectionPointer;
   private final BTreeCollectionManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(
       final NavigableMap<RID, Change> changedValues,
-      BonsaiCollectionPointer collectionPointer, int maxCounterValue,
+      LinkBagPointer collectionPointer, int maxCounterValue,
       @Nonnull DatabaseSessionInternal session) {
     this.changedValues = changedValues;
     this.collectionPointer = collectionPointer;

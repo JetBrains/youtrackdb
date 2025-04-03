@@ -42,13 +42,12 @@ import javax.annotation.Nullable;
 public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     LinkTrackedMultiValue<Identifiable>,
     LinkSet, RecordElement,
-    Serializable {
+    Serializable, TrackedCollection<Identifiable, Identifiable> {
 
   @Nonnull
   private final WeakReference<DatabaseSessionInternal> session;
   private final SimpleMultiValueTracker<Identifiable, Identifiable> tracker = new SimpleMultiValueTracker<>(
       this);
-
 
   protected RecordElement sourceRecord;
   private boolean dirty = false;
@@ -60,7 +59,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   public EntityLinkSetImpl(DatabaseSessionInternal session) {
     this.session = new WeakReference<>(session);
     this.set = new HashSet<>();
-
   }
 
   public EntityLinkSetImpl(int size, DatabaseSessionInternal session) {
@@ -88,16 +86,14 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     }
   }
 
-  public boolean addInternal(Identifiable e) {
+  @Override
+  public void addInternal(Identifiable e) {
     checkValue(e);
     var rid = convertToRid(e);
 
     if (set.add(rid)) {
       addOwner(e);
-      return true;
     }
-
-    return false;
   }
 
   public boolean remove(Object o) {

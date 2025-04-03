@@ -45,12 +45,14 @@ import javax.annotation.Nullable;
 public class BTreeBasedLinkBag extends AbstractLinkBag {
 
   private final BTreeCollectionManager collectionManager;
-  private BonsaiCollectionPointer collectionPointer;
+  private LinkBagPointer collectionPointer;
   private int initialSize;
 
-  public BTreeBasedLinkBag(BonsaiCollectionPointer pointer, @Nonnull Map<RID, Change> changes,
+  public BTreeBasedLinkBag(LinkBagPointer pointer, @Nonnull Map<RID, Change> changes,
       @Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
-    super(changes, session, size, counterMaxValue);
+    super(session, size, counterMaxValue);
+
+    this.changes.putAll(changes);
 
     this.collectionPointer = pointer;
     this.size = size;
@@ -152,7 +154,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   public void handleContextSBTree(
-      RecordSerializationContext context, BonsaiCollectionPointer pointer) {
+      RecordSerializationContext context, LinkBagPointer pointer) {
     assert assertIfNotActive();
     refreshNonPersistentRidsInChanges();
     this.collectionPointer = pointer;
@@ -190,16 +192,41 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     size = 0;
   }
 
-  public BonsaiCollectionPointer getCollectionPointer() {
+  public LinkBagPointer getCollectionPointer() {
     assert assertIfNotActive();
 
     return collectionPointer;
   }
 
-  public void setCollectionPointer(BonsaiCollectionPointer collectionPointer) {
+  public void setCollectionPointer(LinkBagPointer collectionPointer) {
     assert assertIfNotActive();
 
     this.collectionPointer = collectionPointer;
+  }
+
+  @Override
+  protected AbsoluteChange getAbsoluteValue(RID rid) {
+    final var tree = loadTree();
+    try {
+      Integer oldValue;
+
+      if (tree == null) {
+        oldValue = 0;
+      } else {
+        oldValue = tree.get(rid);
+      }
+
+      if (oldValue == null) {
+        oldValue = 0;
+      }
+
+      final var change = changes.get(rid);
+
+      return new AbsoluteChange(
+          change == null ? oldValue : change.applyTo(oldValue, counterMaxValue));
+    } finally {
+      releaseTree();
+    }
   }
 
   @Nullable

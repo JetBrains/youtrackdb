@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.Backupable;
@@ -52,8 +53,7 @@ import javax.annotation.Nullable;
  * @see DirectMemoryStorage
  */
 public interface Storage extends Backupable, StorageInfo {
-
-  enum STATUS {
+enum STATUS {
     CLOSED,
     OPEN,
     MIGRATION,
@@ -149,6 +149,10 @@ public interface Storage extends Backupable, StorageInfo {
    * Returns the size of the database.
    */
   long getSize(DatabaseSessionInternal session);
+
+  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity, String fieldName, RID rid);
+
+  int getLinkBagSize(DatabaseSessionInternal session, RecordId identity, String fieldName);
 
   /**
    * Returns the total number of records.

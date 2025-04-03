@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import java.io.IOException;
@@ -78,9 +78,9 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     var channel = new MockChannel();
 
-    Map<UUID, BonsaiCollectionPointer> changes = new HashMap<>();
+    Map<UUID, LinkBagPointer> changes = new HashMap<>();
     var val = UUID.randomUUID();
-    changes.put(val, new BonsaiCollectionPointer(10, new RidBagBucketPointer(30, 40)));
+    changes.put(val, new LinkBagPointer(10, new RidBagBucketPointer(30, 40)));
     var updatedRids = new HashMap<RecordId, RecordId>();
 
     updatedRids.put(new RecordId(10, 20), new RecordId(10, 30));
@@ -104,8 +104,8 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
     assertEquals(1, readResponse.getCollectionChanges().size());
     assertNotNull(readResponse.getCollectionChanges().get(val));
     assertEquals(10, readResponse.getCollectionChanges().get(val).getFileId());
-    assertEquals(30, readResponse.getCollectionChanges().get(val).getRootPointer().getPageIndex());
-    assertEquals(40, readResponse.getCollectionChanges().get(val).getRootPointer().getPageOffset());
+    assertEquals(30, readResponse.getCollectionChanges().get(val).getLinkBagId().getPageIndex());
+    assertEquals(40, readResponse.getCollectionChanges().get(val).getLinkBagId().getPageOffset());
   }
 
   @Test

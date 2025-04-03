@@ -22,7 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.ResultSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -94,9 +94,9 @@ public class MessageHelper {
     return stream;
   }
 
-  public static Map<UUID, BonsaiCollectionPointer> readCollectionChanges(ChannelDataInput network)
+  public static Map<UUID, LinkBagPointer> readCollectionChanges(ChannelDataInput network)
       throws IOException {
-    Map<UUID, BonsaiCollectionPointer> collectionsUpdates = new HashMap<>();
+    Map<UUID, LinkBagPointer> collectionsUpdates = new HashMap<>();
     var count = network.readInt();
     for (var i = 0; i < count; i++) {
       final var mBitsOfId = network.readLong();
@@ -111,7 +111,7 @@ public class MessageHelper {
   }
 
   public static void writeCollectionChanges(
-      ChannelDataOutput channel, Map<UUID, BonsaiCollectionPointer> changedIds)
+      ChannelDataOutput channel, Map<UUID, LinkBagPointer> changedIds)
       throws IOException {
     channel.writeInt(changedIds.size());
     for (var entry : changedIds.entrySet()) {

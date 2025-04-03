@@ -69,7 +69,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
@@ -278,7 +278,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     return false;
   }
 
-  Map<UUID, BonsaiCollectionPointer> getCollectionsChanges();
+  Map<UUID, LinkBagPointer> getCollectionsChanges();
 
   boolean dropClusterInternal(int clusterId);
 

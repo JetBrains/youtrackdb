@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -136,33 +137,26 @@ public final class BTreeCollectionManagerShared
 
   @Override
   public EdgeBTree<RID, Integer> loadSBTree(
-      BonsaiCollectionPointer collectionPointer) {
-    final var intFileId = AbstractWriteCache.extractFileId(collectionPointer.getFileId());
+      LinkBagPointer collectionPointer) {
+    final var intFileId = AbstractWriteCache.extractFileId(collectionPointer.fileId());
 
     final var bTree = fileIdBTreeMap.get(intFileId);
 
-    final long ridBagId;
-    final var rootPointer = collectionPointer.getRootPointer();
-    if (rootPointer.getPageIndex() < 0) {
-      ridBagId = rootPointer.getPageIndex();
-    } else {
-      ridBagId = (rootPointer.getPageIndex() << 16) + rootPointer.getPageOffset();
-    }
-
     return new EdgeBTreeImpl(
-        bTree, intFileId, ridBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
+        bTree, intFileId, collectionPointer.linkBagId(), LinkSerializer.INSTANCE,
+        IntegerSerializer.INSTANCE);
   }
 
   @Override
-  public void releaseSBTree(final BonsaiCollectionPointer collectionPointer) {
+  public void releaseSBTree(final LinkBagPointer collectionPointer) {
   }
 
   @Override
-  public void delete(final BonsaiCollectionPointer collectionPointer) {
+  public void delete(final LinkBagPointer collectionPointer) {
   }
 
   @Override
-  public BonsaiCollectionPointer createSBTree(
+  public LinkBagPointer createSBTree(
       int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) {
     final var bonsaiGlobal = doCreateRidBag(atomicOperation, clusterId);
@@ -183,11 +177,14 @@ public final class BTreeCollectionManagerShared
    * Change UUID to null to prevent its serialization to disk.
    */
   @Override
+  @Nullable
   public UUID listenForChanges(RidBag collection, DatabaseSessionInternal session) {
     var ownerUUID = collection.getTemporaryId();
+
     if (ownerUUID != null) {
       final var pointer = collection.getPointer();
       var changedPointers = session.getCollectionsChanges();
+
       if (pointer != null && pointer.isValid()) {
         changedPointers.put(ownerUUID, pointer);
       }
@@ -197,7 +194,7 @@ public final class BTreeCollectionManagerShared
   }
 
   @Override
-  public void updateCollectionPointer(UUID uuid, BonsaiCollectionPointer pointer,
+  public void updateCollectionPointer(UUID uuid, LinkBagPointer pointer,
       DatabaseSessionInternal session) {
   }
 
@@ -206,7 +203,7 @@ public final class BTreeCollectionManagerShared
   }
 
   @Override
-  public Map<UUID, BonsaiCollectionPointer> changedIds(DatabaseSessionInternal session) {
+  public Map<UUID, LinkBagPointer> changedIds(DatabaseSessionInternal session) {
     return session.getCollectionsChanges();
   }
 
@@ -228,28 +225,21 @@ public final class BTreeCollectionManagerShared
   }
 
   public boolean delete(
-      AtomicOperation atomicOperation, BonsaiCollectionPointer collectionPointer,
+      AtomicOperation atomicOperation, LinkBagPointer collectionPointer,
       String storageName) {
-    final var fileId = (int) collectionPointer.getFileId();
+    final var fileId = (int) collectionPointer.fileId();
     final var bTree = fileIdBTreeMap.get(fileId);
     if (bTree == null) {
       throw new StorageException(storageName,
           "RidBug for with collection pointer " + collectionPointer + " does not exist");
     }
 
-    final long ridBagId;
-    final var rootPointer = collectionPointer.getRootPointer();
-    if (rootPointer.getPageIndex() < 0) {
-      ridBagId = rootPointer.getPageIndex();
-    } else {
-      ridBagId = (rootPointer.getPageIndex() << 16) + rootPointer.getPageOffset();
-    }
-
+    var linkBagId = collectionPointer.linkBagId();
     try (var stream =
         bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       stream.forEach(pair -> bTree.remove(atomicOperation, pair.first));

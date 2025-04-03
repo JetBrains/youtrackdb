@@ -44,7 +44,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
@@ -1456,10 +1456,10 @@ public class EntitySerializerDelta {
         changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
       }
 
-      BonsaiCollectionPointer pointer = null;
+      LinkBagPointer pointer = null;
       if (fileId != -1) {
         pointer =
-            new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
+            new LinkBagPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
       }
 
       return new RidBag(session, pointer, changes, uuid, size);
@@ -1494,11 +1494,11 @@ public class EntitySerializerDelta {
       bytes.bytes[pos] = 2;
       var pointer = bag.getPointer();
       if (pointer == null) {
-        pointer = BonsaiCollectionPointer.INVALID;
+        pointer = LinkBagPointer.INVALID;
       }
       VarIntSerializer.write(bytes, pointer.getFileId());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
+      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageIndex());
+      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageOffset());
       VarIntSerializer.write(bytes, bag.size());
 
       var changes = bag.getChanges().toList();

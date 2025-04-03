@@ -101,7 +101,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
@@ -161,7 +161,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
-  private Map<UUID, BonsaiCollectionPointer> collectionsChanges;
+  private Map<UUID, LinkBagPointer> collectionsChanges;
 
   // database stats!
   protected long loadedRecordsCount;
@@ -2206,7 +2206,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
 
-  public Map<UUID, BonsaiCollectionPointer> getCollectionsChanges() {
+  public Map<UUID, LinkBagPointer> getCollectionsChanges() {
     assert assertIfNotActive();
 
     if (collectionsChanges == null) {

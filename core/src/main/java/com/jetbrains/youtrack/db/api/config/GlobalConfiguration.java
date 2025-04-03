@@ -469,15 +469,15 @@ public enum GlobalConfiguration {
 
   LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD(
       "youtrackdb.linkcollection.embeddedToBtreeThreshold",
-      "Amount of values after which a LINKBAG implementation will use sbtree as values container."
-          + " Set to -1 to always use an sbtree",
+      "Amount of values after which a link-based collection implementation will use btree as values container."
+          + " Set to -1 to always use an btree",
       Integer.class,
       40,
       true),
 
   LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD(
       "youtrackdb.linkcollection.btreeToEmbeddedToThreshold",
-      "Amount of values, after which a LINKBAG implementation will use an embedded values container"
+      "Amount of values, after which a link-based collection implementation will use an embedded values container"
           + " (disabled by default)",
       Integer.class,
       -1,

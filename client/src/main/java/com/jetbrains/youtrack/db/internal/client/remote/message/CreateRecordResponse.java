@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
@@ -35,13 +35,13 @@ public class CreateRecordResponse implements BinaryResponse {
 
   private RecordId identity;
   private int version;
-  private Map<UUID, BonsaiCollectionPointer> changedIds;
+  private Map<UUID, LinkBagPointer> changedIds;
 
   public CreateRecordResponse() {
   }
 
   public CreateRecordResponse(
-      RecordId identity, int version, Map<UUID, BonsaiCollectionPointer> changedIds) {
+      RecordId identity, int version, Map<UUID, LinkBagPointer> changedIds) {
     this.identity = identity;
     this.version = version;
     this.changedIds = changedIds;
@@ -76,7 +76,7 @@ public class CreateRecordResponse implements BinaryResponse {
     return version;
   }
 
-  public Map<UUID, BonsaiCollectionPointer> getChangedIds() {
+  public Map<UUID, LinkBagPointer> getChangedIds() {
     return changedIds;
   }
 }

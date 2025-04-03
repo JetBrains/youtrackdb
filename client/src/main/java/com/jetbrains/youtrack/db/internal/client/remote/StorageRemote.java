@@ -108,7 +108,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
@@ -781,7 +781,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   private static void updateCollectionsFromChanges(
       final BTreeCollectionManager collectionManager,
-      final Map<UUID, BonsaiCollectionPointer> changes, DatabaseSessionInternal session) {
+      final Map<UUID, LinkBagPointer> changes, DatabaseSessionInternal session) {
     if (collectionManager != null) {
       for (var coll : changes.entrySet()) {
         collectionManager.updateCollectionPointer(coll.getKey(), coll.getValue(), session);
@@ -1334,6 +1334,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public long getClusterRecordsSizeByName(String clusterName) {
     throw new UnsupportedOperationException();
+  }
+
+  public int getLinkBagCounter(DatabaseSessionInternal session, RID recordRid,String recordFieldName, RID itemRid) {
+    var request = new GetRidBagCounterRequest(rid);
+    var response =
+        networkOperation((DatabaseSessionRemote) session, request,
+            "Error on read rid bag counter");
+    return response.getRidBagCounter();
   }
 
   public String getClusterRecordConflictStrategy(int clusterId) {

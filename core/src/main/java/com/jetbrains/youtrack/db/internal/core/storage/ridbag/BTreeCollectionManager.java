@@ -28,27 +28,29 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBT
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 public interface BTreeCollectionManager {
 
-  BonsaiCollectionPointer createSBTree(
+  LinkBagPointer createSBTree(
       int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) throws IOException;
 
-  EdgeBTree<RID, Integer> loadSBTree(BonsaiCollectionPointer collectionPointer);
+  EdgeBTree<RID, Integer> loadSBTree(LinkBagPointer collectionPointer);
 
-  void releaseSBTree(BonsaiCollectionPointer collectionPointer);
+  void releaseSBTree(LinkBagPointer collectionPointer);
 
-  void delete(BonsaiCollectionPointer collectionPointer);
+  void delete(LinkBagPointer collectionPointer);
 
+  @Nullable
   UUID listenForChanges(RidBag collection, DatabaseSessionInternal session);
 
-  void updateCollectionPointer(UUID uuid, BonsaiCollectionPointer pointer,
+  void updateCollectionPointer(UUID uuid, LinkBagPointer pointer,
       DatabaseSessionInternal session);
 
   void clearPendingCollections();
 
-  Map<UUID, BonsaiCollectionPointer> changedIds(DatabaseSessionInternal session);
+  Map<UUID, LinkBagPointer> changedIds(DatabaseSessionInternal session);
 
   void clearChangedIds(DatabaseSessionInternal session);
 }

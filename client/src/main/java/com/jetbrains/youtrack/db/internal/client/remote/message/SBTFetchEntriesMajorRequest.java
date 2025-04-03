@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -38,7 +38,7 @@ public class SBTFetchEntriesMajorRequest<K, V>
 
   private boolean inclusive;
   private byte[] keyStream;
-  private BonsaiCollectionPointer pointer;
+  private LinkBagPointer pointer;
   private int pageSize;
   private BinarySerializer<K> keySerializer;
   private BinarySerializer<V> valueSerializer;
@@ -46,7 +46,7 @@ public class SBTFetchEntriesMajorRequest<K, V>
   public SBTFetchEntriesMajorRequest(
       boolean inclusive,
       byte[] keyStream,
-      BonsaiCollectionPointer pointer,
+      LinkBagPointer pointer,
       BinarySerializer<K> keySerializer,
       BinarySerializer<V> valueSerializer) {
     this.inclusive = inclusive;
@@ -96,7 +96,7 @@ public class SBTFetchEntriesMajorRequest<K, V>
     return keyStream;
   }
 
-  public BonsaiCollectionPointer getPointer() {
+  public LinkBagPointer getPointer() {
     return pointer;
   }
 

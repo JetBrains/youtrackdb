@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSeriali
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -34,9 +34,9 @@ import java.io.IOException;
 
 public class SBTFirstKeyRequest implements BinaryRequest<SBTFirstKeyResponse> {
 
-  private BonsaiCollectionPointer collectionPointer;
+  private LinkBagPointer collectionPointer;
 
-  public SBTFirstKeyRequest(BonsaiCollectionPointer collectionPointer) {
+  public SBTFirstKeyRequest(LinkBagPointer collectionPointer) {
     this.collectionPointer = collectionPointer;
   }
 
@@ -66,7 +66,7 @@ public class SBTFirstKeyRequest implements BinaryRequest<SBTFirstKeyResponse> {
     return "SB-Tree bonsai get first key";
   }
 
-  public BonsaiCollectionPointer getCollectionPointer() {
+  public LinkBagPointer getCollectionPointer() {
     return collectionPointer;
   }
 

@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import java.io.Serializable;
 import java.util.AbstractList;
@@ -21,7 +20,7 @@ import javax.annotation.Nullable;
 
 public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     implements RecordElement, EmbeddedTrackedMultiValue<Integer, T>, Serializable, EmbeddedList<T>,
-    RandomAccess {
+    RandomAccess, TrackedCollection<Integer, T> {
 
   @Nullable
   protected RecordElement sourceRecord;
@@ -109,15 +108,13 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     return list.size();
   }
 
-  public boolean addInternal(T element) {
+  public void addInternal(T element) {
     checkValue(element);
     final var result = list.add(element);
 
     if (result) {
       addOwner(element);
     }
-
-    return result;
   }
 
   @Override
@@ -125,19 +122,6 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     checkValue(element);
     list.add(index, element);
     addEvent(index, element);
-  }
-
-  public void setInternal(int index, T element) {
-    checkValue(element);
-    final var oldValue = list.set(index, element);
-
-    if (oldValue != null && !oldValue.equals(element)) {
-      if (oldValue instanceof EntityImpl) {
-        ((EntityImpl) oldValue).removeOwner(this);
-      }
-
-      addOwner(element);
-    }
   }
 
   @Override

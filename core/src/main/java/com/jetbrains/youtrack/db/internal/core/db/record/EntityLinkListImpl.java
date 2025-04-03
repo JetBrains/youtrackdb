@@ -40,7 +40,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EntityLinkListImpl extends AbstractList<Identifiable> implements
-    Sizeable, LinkTrackedMultiValue<Integer>, LinkList, RandomAccess {
+    Sizeable, LinkTrackedMultiValue<Integer>, LinkList, RandomAccess,
+    TrackedCollection<Integer, Identifiable> {
 
   @Nullable
   protected RecordElement sourceRecord;
@@ -147,14 +148,12 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     return list.size();
   }
 
-  public boolean addInternal(Identifiable element) {
+  public void addInternal(Identifiable element) {
     checkValue(element);
     var rid = convertToRid(element);
 
     list.add(rid);
     addOwner(element);
-
-    return true;
   }
 
   @Override
