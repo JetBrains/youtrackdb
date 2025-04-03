@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -66,6 +67,11 @@ public class InternalResultSet implements ResultSet, Resettable {
     this.next = 0;
   }
 
+  @Override
+  public boolean isResetable() {
+    return true;
+  }
+
   public int size() {
     assert session == null || session.assertIfNotActive();
     return content.size();
@@ -94,12 +100,13 @@ public class InternalResultSet implements ResultSet, Resettable {
   }
 
   @Override
-  public void forEachRemaining(Consumer<? super Result> action) {
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
     }
   }
 
+  @Nullable
   @Override
   public ResultSet trySplit() {
     return null;

@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -30,7 +31,7 @@ public class CastToEdgeStep extends AbstractExecutionStep {
       if (result.isStatefulEdge()) {
         ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
       } else {
-        result = new ResultInternal(db, result.asEdge());
+        result = new ResultInternal(db, (EdgeInternal) result.asEdge());
       }
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

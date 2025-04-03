@@ -650,7 +650,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     session.begin();
     var entity = session.newEntity(clazz);
     var list = Arrays.asList(1, 2);
-    entity.newEmbeddedSet("embeddedList").addAll(list);
+    entity.newEmbeddedList("embeddedList").addAll(list);
     var set = session.<Integer>newEmbeddedSet();
     set.addAll(list);
     entity.setEmbeddedSet("embeddedSet", set);

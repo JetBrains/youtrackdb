@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinar
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class CloseRequest implements BinaryRequest<BinaryResponse> {
 
@@ -40,6 +41,7 @@ public class CloseRequest implements BinaryRequest<BinaryResponse> {
     return false;
   }
 
+  @Nullable
   @Override
   public BinaryResponse createResponse() {
     return null;

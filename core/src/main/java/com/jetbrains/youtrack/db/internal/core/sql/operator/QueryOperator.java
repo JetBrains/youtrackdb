@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorMu
 import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorPlus;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Query Operators. Remember to handle the operator in OQueryItemCondition.
@@ -148,6 +149,7 @@ public abstract class QueryOperator {
    */
   public abstract IndexReuseType getIndexReuseType(Object iLeft, Object iRight);
 
+  @Nullable
   public IndexSearchResult getOIndexSearchResult(
       SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,

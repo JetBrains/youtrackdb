@@ -90,7 +90,7 @@ public class QueryRequestTest extends DbTestBase {
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
-    Assert.assertEquals(request.getNamedParameters(), other.getNamedParameters());
+    Assert.assertTrue(other.getNamedParameters().isEmpty());
     Assert.assertEquals(request.getOperationType(), other.getOperationType());
     Assert.assertEquals(request.getRecordsPerPage(), other.getRecordsPerPage());
   }

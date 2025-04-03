@@ -66,9 +66,9 @@ ee.controller("GeneralMonitorController", [
   "$scope",
   "$location",
   "$routeParams",
-  "Cluster",
+  "Collection",
   "AgentService",
-  function($scope, $location, $routeParams, Cluster, AgentService) {
+  function($scope, $location, $routeParams, Collection, AgentService) {
     $scope.rid = $routeParams.server;
 
     $scope.tab = $routeParams.db;
@@ -109,7 +109,7 @@ ee.controller("GeneralMonitorController", [
     };
 
     if (AgentService.active) {
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
 
         $scope.server = $scope.servers[0];
@@ -178,7 +178,7 @@ ee.controller("GeneralMonitorController", [
 
           $scope.databases = server.databases;
 
-          Cluster.configFile(server).then(function(data) {
+          Collection.configFile(server).then(function(data) {
             $scope.configuration = data;
           });
         } else {
@@ -232,7 +232,7 @@ ee.controller("GeneralMonitorController", [
     $scope.downloadDb = function(db) {
       $scope.dbselected = db;
 
-      Cluster.backUp($scope.server, db);
+      Collection.backUp($scope.server, db);
       //Server.backUpDb($scope.server, db);
     };
     $scope.$watch("dbselected", function(data) {
@@ -252,7 +252,7 @@ ee.controller("SinglePollerController", [
   "$routeParams",
   "$timeout",
   "Profiler",
-  "Cluster",
+  "Collection",
   "AgentService",
   "ChartHelper",
   function(
@@ -262,7 +262,7 @@ ee.controller("SinglePollerController", [
     $routeParams,
     $timeout,
     Profiler,
-    Cluster,
+    Collection,
     AgentService,
     ChartHelper
   ) {
@@ -279,7 +279,7 @@ ee.controller("SinglePollerController", [
 
     var singlePoll = function() {
       if (AgentService.active) {
-        Cluster.stats($scope.server.name).then(function(data) {
+        Collection.stats($scope.server.name).then(function(data) {
           data.name = $scope.server.name;
           $rootScope.$broadcast("server:updated", data);
         });
@@ -308,28 +308,28 @@ ee.controller("SinglePollerController", [
   }
 ]);
 
-ee.controller("ClusterController", [
+ee.controller("CollectionController", [
   "$scope",
-  "Cluster",
+  "Collection",
   "Notification",
   "$rootScope",
   "$timeout",
   "AgentService",
-  function($scope, Cluster, Notification, $rootScope, $timeout, AgentService) {
+  function($scope, Collection, Notification, $rootScope, $timeout, AgentService) {
     $scope.links = {
       ee: "https://www.orientdb.com/orientdb-enterprise"
     };
     $scope.polling = true;
     $scope.agentActive = AgentService.active;
-    var clusterPolling = function() {
+    var collectionPolling = function() {
       if (AgentService.active) {
-        Cluster.stats()
+        Collection.stats()
           .then(function(data) {
             $scope.servers = data.members;
 
             $rootScope.$broadcast("server-list", $scope.servers);
 
-            $scope.clusterStats = data.clusterStats;
+            $scope.collectionStats = data.collectionStats;
 
             $scope.$broadcast("db-status", data.databasesStatus);
           })
@@ -358,12 +358,12 @@ ee.controller("ClusterController", [
       $scope.polling = false;
     });
 
-    clusterPolling();
-    statsWatching(clusterPolling);
+    collectionPolling();
+    statsWatching(collectionPolling);
   }
 ]);
 
-ee.controller("ClusterOverviewController", [
+ee.controller("CollectionOverviewController", [
   "$scope",
   "$rootScope",
   "ChartHelper",
@@ -387,7 +387,7 @@ ee.controller("ClusterOverviewController", [
     $scope.disk = 0;
     $scope.ram = 0;
 
-    $scope.server = { name: "orientdb-cluster" };
+    $scope.server = { name: "orientdb-collection" };
     var lastRequest = null;
     var lastOps = null;
 
@@ -444,10 +444,10 @@ ee.controller("ClusterOverviewController", [
       $scope.latenciesTotal = latenciesTotal;
       $scope.totalLatency = totalLatency;
     });
-    $scope.$watch("clusterStats", function(data) {
+    $scope.$watch("collectionStats", function(data) {
       if (data) {
-        var clusterCrud = {
-          name: "orientdb-cluster",
+        var collectionCrud = {
+          name: "orientdb-collection",
           realtime: { chronos: {}, counters: {} }
         };
         var keys = Object.keys(data);
@@ -508,13 +508,13 @@ ee.controller("ClusterOverviewController", [
 
           var keys = Object.keys(realtime["counters"]);
           keys.forEach(function(k) {
-            if (!clusterCrud.realtime["counters"]) {
-              clusterCrud.realtime["counters"] = {};
+            if (!collectionCrud.realtime["counters"]) {
+              collectionCrud.realtime["counters"] = {};
             }
-            if (!clusterCrud.realtime["counters"][k]) {
-              clusterCrud.realtime["counters"][k] = 0;
+            if (!collectionCrud.realtime["counters"][k]) {
+              collectionCrud.realtime["counters"][k] = 0;
             }
-            clusterCrud.realtime["counters"][k] += realtime["counters"][k];
+            collectionCrud.realtime["counters"][k] += realtime["counters"][k];
           });
         });
 
@@ -551,7 +551,7 @@ ee.controller("ClusterOverviewController", [
         }
         lastOps = operations;
 
-        $rootScope.$broadcast("server:updated", clusterCrud);
+        $rootScope.$broadcast("server:updated", collectionCrud);
       }
     });
   }
@@ -560,11 +560,11 @@ ee.controller("ClusterOverviewController", [
 ee.controller("DataCentersOverviewController", [
   "$scope",
   "$rootScope",
-  "Cluster",
+  "Collection",
   "ChartHelper",
-  function($scope, $rootScope, Cluster, ChartHelper) {
+  function($scope, $rootScope, Collection, ChartHelper) {
     $scope.dcEnabled = true;
-    Cluster.stats()
+    Collection.stats()
       .then(initDatabases)
       .catch(function(error) {
         Notification.push({ content: error.data, error: true, autoHide: true });
@@ -618,7 +618,7 @@ ee.controller("DataCentersOverviewController", [
     });
     $scope.$watch("selectedDb", function(db) {
       if (db) {
-        Cluster.database(db).then(function(data) {
+        Collection.database(db).then(function(data) {
           $scope.config = data;
           if (!data.dataCenters || Object.keys(data.dataCenters).length == 0) {
             $scope.dcEnabled = false;
@@ -631,9 +631,9 @@ ee.controller("DataCentersOverviewController", [
           var servers = $scope.databases[db];
           var statuses = $scope.statuses;
           var uniqueServers = [];
-          Object.keys($scope.config.clusters).forEach(function(c) {
-            if ($scope.config.clusters[c].servers) {
-              $scope.config.clusters[c].servers.forEach(function(s) {
+          Object.keys($scope.config.collections).forEach(function(c) {
+            if ($scope.config.collections[c].servers) {
+              $scope.config.collections[c].servers.forEach(function(s) {
                 if (uniqueServers.indexOf(s) == -1) {
                   uniqueServers.push(s);
                 }
@@ -693,7 +693,7 @@ ee.controller("DataCentersOverviewController", [
 ee.controller("ProfilerController", [
   "$scope",
   "Profiler",
-  "Cluster",
+  "Collection",
   "Spinner",
   "Notification",
   "CommandCache",
@@ -703,7 +703,7 @@ ee.controller("ProfilerController", [
   function(
     $scope,
     Profiler,
-    Cluster,
+    Collection,
     Spinner,
     Notification,
     CommandCache,
@@ -711,7 +711,7 @@ ee.controller("ProfilerController", [
     scroller,
     AgentService
   ) {
-    $scope.strategies = ["INVALIDATE_ALL", "PER_CLUSTER"];
+    $scope.strategies = ["INVALIDATE_ALL", "PER_COLLECTION"];
 
     $scope.links = {
       ee: "https://www.orientdb.com/orientdb-enterprise"
@@ -719,7 +719,7 @@ ee.controller("ProfilerController", [
     $scope.agentActive = AgentService.active;
     $scope.itemsByPage = 10;
     if (AgentService.active) {
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
         $scope.server = $scope.servers[0];
       });
@@ -882,7 +882,7 @@ ee.controller("ProfilerController", [
 ee.controller("AuditingController", [
   "$scope",
   "Auditing",
-  "Cluster",
+  "Collection",
   "Spinner",
   "Notification",
   "$modal",
@@ -894,7 +894,7 @@ ee.controller("AuditingController", [
   function(
     $scope,
     Auditing,
-    Cluster,
+    Collection,
     Spinner,
     Notification,
     $modal,
@@ -921,7 +921,7 @@ ee.controller("AuditingController", [
     };
 
     if (AgentService.active) {
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
         $scope.server = $scope.servers[0];
 
@@ -1155,10 +1155,10 @@ ee.controller("AuditingController", [
 ee.controller("PluginsController", [
   "$scope",
   "Plugins",
-  "Cluster",
+  "Collection",
   "Notification",
   "AgentService",
-  function($scope, Plugins, Cluster, Notification, AgentService) {
+  function($scope, Plugins, Collection, Notification, AgentService) {
     $scope.links = {
       ee: "https://www.orientdb.com/orientdb-enterprise"
     };
@@ -1359,8 +1359,8 @@ ee.controller("EEDashboardController", [
         //     icon: "fa-desktop"
         //   },
         //   {
-        //     name: "cluster",
-        //     title: "Cluster Management",
+        //     name: "collection",
+        //     title: "Collection Management",
         //     template: "distributed",
         //     icon: "fa-sitemap"
         //   },
@@ -1464,10 +1464,10 @@ ee.controller("WarningsController", [
   }
 ]);
 
-ee.controller("ClusterDBController", [
+ee.controller("CollectionDBController", [
   "$scope",
-  "Cluster",
-  function($scope, Cluster) {
+  "Collection",
+  function($scope, Collection) {
     $scope.clazz = "tabs-style-linebox";
     $scope.icon = "fa-database";
 
@@ -1485,7 +1485,7 @@ ee.controller("ClusterDBController", [
       }
     });
 
-    Cluster.stats()
+    Collection.stats()
       .then(function(data) {
         initDatabases(data);
       })
@@ -1513,12 +1513,12 @@ ee.controller("ClusterDBController", [
   }
 ]);
 
-ee.controller("ClusterSingleDBController", [
+ee.controller("CollectionSingleDBController", [
   "$scope",
   "$rootScope",
   "$modal",
   "$q",
-  "Cluster",
+  "Collection",
   "$timeout",
   "Notification",
   "Database",
@@ -1528,7 +1528,7 @@ ee.controller("ClusterSingleDBController", [
     $rootScope,
     $modal,
     $q,
-    Cluster,
+    Collection,
     $timeout,
     Notification,
     Database,
@@ -1536,7 +1536,7 @@ ee.controller("ClusterSingleDBController", [
   ) {
     $scope.links = {
       ownership: Database.getOWikiFor(
-        "Distributed-Architecture.html#cluster-ownership"
+        "Distributed-Architecture.html#collection-ownership"
       ),
       role: Database.getOWikiFor("Distributed-Architecture.html"),
       configuration: Database.getOWikiFor(
@@ -1560,7 +1560,7 @@ ee.controller("ClusterSingleDBController", [
       var servers = angular.copy(db.servers);
       var statuses = angular.copy(db.statuses);
 
-      Cluster.database(db.name).then(function(data) {
+      Collection.database(db.name).then(function(data) {
         $scope.config = data;
         $scope.name = db.name;
 
@@ -1584,9 +1584,9 @@ ee.controller("ClusterSingleDBController", [
         }
 
         var uniqueServers = [];
-        Object.keys($scope.config.clusters).forEach(function(c) {
-          if ($scope.config.clusters[c].servers) {
-            $scope.config.clusters[c].servers.forEach(function(s) {
+        Object.keys($scope.config.collections).forEach(function(c) {
+          if ($scope.config.collections[c].servers) {
+            $scope.config.collections[c].servers.forEach(function(s) {
               if (uniqueServers.indexOf(s) == -1) {
                 uniqueServers.push(s);
               }
@@ -1672,14 +1672,14 @@ ee.controller("ClusterSingleDBController", [
         return deferred.promise;
       };
 
-      $scope.isClusterInNode = function(cluster, node) {
-        var tmp = $scope.config.clusters[cluster];
+      $scope.isCollectionInNode = function(collection, node) {
+        var tmp = $scope.config.collections[collection];
         if (!tmp.servers) return false;
         return tmp.servers.indexOf(node) != -1;
       };
 
-      $scope.getOwnership = function(cluster, node) {
-        var tmp = $scope.config.clusters[cluster];
+      $scope.getOwnership = function(collection, node) {
+        var tmp = $scope.config.collections[collection];
         if (!tmp.servers) return "";
 
         if (tmp.owner && tmp.owner != "") {
@@ -1692,18 +1692,18 @@ ee.controller("ClusterSingleDBController", [
     $scope.syncDatabaseTooltip = {
       title: "Sync database"
     };
-    $scope.syncClusterTooltip = {
-      title: "Sync cluster"
+    $scope.syncCollectionTooltip = {
+      title: "Sync collection"
     };
 
     $scope.syncDatabase = function(node) {
-      var syncClusterLink = Database.getOWikiFor("SQL-HA-Sync-Database.html");
+      var syncCollectionLink = Database.getOWikiFor("SQL-HA-Sync-Database.html");
       var confirmMessage = S(
         "Database <b>{{database}}</b> will be re-synchronized for node <b>{{node}}</b>. OrientDB will select the best server to provide the database. Are you sure? <a class='btn btn-trasparent btn-help' target='_blank' href='{{link}}'> <i class='fa fa-question-circle'></i></a>"
       ).template({
         database: $scope.name,
         node: node.name,
-        link: syncClusterLink
+        link: syncCollectionLink
       }).s;
 
       Utilities.confirm($scope, $modal, $q, {
@@ -1725,27 +1725,27 @@ ee.controller("ClusterSingleDBController", [
         }
       });
     };
-    $scope.syncCluster = function(cluster, node) {
-      var syncClusterLink = Database.getOWikiFor("SQL-HA-Sync-Cluster.html");
+    $scope.syncCollection = function(collection, node) {
+      var syncCollectionLink = Database.getOWikiFor("SQL-HA-Sync-Collection.html");
       var confirmMessage = S(
-        "Cluster <b>{{cluster}}</b> of database <b>{{database}}</b> will be re-synchronized for node <b>{{node}}</b>. OrientDB will select the best server to provide the cluster. Are you sure? <a class='btn btn-trasparent btn-help' target='_blank' href='{{link}}'> <i class='fa fa-question-circle'></i></a>"
+        "Collection <b>{{collection}}</b> of database <b>{{database}}</b> will be re-synchronized for node <b>{{node}}</b>. OrientDB will select the best server to provide the collection. Are you sure? <a class='btn btn-trasparent btn-help' target='_blank' href='{{link}}'> <i class='fa fa-question-circle'></i></a>"
       ).template({
-        cluster: cluster,
+        collection: collection,
         database: $scope.name,
         node: node,
-        link: syncClusterLink
+        link: syncCollectionLink
       }).s;
 
       Utilities.confirm($scope, $modal, $q, {
         title: "Confirm Required!",
         body: confirmMessage,
         success: function() {
-          HaCommand.syncCluster(node, $scope.name, cluster)
+          HaCommand.syncCollection(node, $scope.name, collection)
             .then(function(res) {
               var msg = S(
-                "Cluster {{cluster}} synchronized correctly "
+                "Collection {{collection}} synchronized correctly "
               ).template({
-                cluster: cluster
+                collection: collection
               }).s;
               Notification.push({ content: res.result, autoHide: true });
             })
@@ -1826,7 +1826,7 @@ ee.controller("ClusterSingleDBController", [
           config.writeQuorum = val;
         }
       } catch (e) {}
-      Cluster.saveDBConfig({ name: $scope.name, config: config })
+      Collection.saveDBConfig({ name: $scope.name, config: config })
         .then(function() {
           Notification.push({
             content: "Distributed Configuration correctly saved.",
@@ -1843,7 +1843,7 @@ ee.controller("ClusterSingleDBController", [
     };
 
     $scope.startReplication = function(node) {
-      var syncClusterLink = Database.getOWikiFor(
+      var syncCollectionLink = Database.getOWikiFor(
         "SQL-HA-Start-Replication.html"
       );
       var confirmMessage = S(
@@ -1851,7 +1851,7 @@ ee.controller("ClusterSingleDBController", [
       ).template({
         database: $scope.name,
         node: node.name,
-        link: syncClusterLink
+        link: syncCollectionLink
       }).s;
 
       Utilities.confirm($scope, $modal, $q, {
@@ -1879,7 +1879,7 @@ ee.controller("ClusterSingleDBController", [
     };
 
     $scope.stopReplication = function(node) {
-      var syncClusterLink = Database.getOWikiFor(
+      var syncCollectionLink = Database.getOWikiFor(
         "SQL-HA-Stop-Replication.html"
       );
       var confirmMessage = S(
@@ -1887,7 +1887,7 @@ ee.controller("ClusterSingleDBController", [
       ).template({
         database: $scope.name,
         node: node.name,
-        link: syncClusterLink
+        link: syncCollectionLink
       }).s;
 
       Utilities.confirm($scope, $modal, $q, {
@@ -1952,7 +1952,7 @@ ee.controller("EventsController", [
   "$scope",
   "Plugins",
   "$modal",
-  "Cluster",
+  "Collection",
   "Profiler",
   "Notification",
   "AgentService",
@@ -1960,7 +1960,7 @@ ee.controller("EventsController", [
     $scope,
     Plugins,
     $modal,
-    Cluster,
+    Collection,
     Profiler,
     Notification,
     AgentService
@@ -1996,7 +1996,7 @@ ee.controller("EventsController", [
       Profiler.metadata().then(function(data) {
         $scope.metadata = data.metadata;
       });
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
         Plugins.one({ plugin: PNAME }).then(function(plugin) {
           $scope.config = plugin;
@@ -2142,25 +2142,25 @@ ee.controller("ThreadsController", [
 ]);
 ee.controller("MonitoringController", [
   "$scope",
-  "Cluster",
+  "Collection",
   "AgentService",
-  function($scope, Cluster, AgentService) {
+  function($scope, Collection, AgentService) {
     $scope.clazz = "tabs-style-linebox";
     $scope.agentActive = AgentService.active;
   }
 ]);
 ee.controller("MetricsController", [
   "$scope",
-  "Cluster",
+  "Collection",
   "AgentService",
-  function($scope, Cluster, AgentService) {
+  function($scope, Collection, AgentService) {
     $scope.clazz = "tabs-style-linebox";
 
     $scope.agentActive = AgentService.active;
 
     if (AgentService.active) {
       $scope.$watch("server", function(server) {
-        Cluster.stats(server.name).then(function(data) {
+        Collection.stats(server.name).then(function(data) {
           $scope.chronos = Object.keys(data.realtime.chronos)
             .filter(function(k) {
               return k.match(/db.*command/g) == null;
@@ -2397,9 +2397,9 @@ ee.controller("BackupConfigController", [
   "AgentService",
   "$rootScope",
   "$timeout",
-  "Cluster",
+  "Collection",
   "BackupService",
-  function($scope, AgentService, $rootScope, $timeout, Cluster, BackupService) {
+  function($scope, AgentService, $rootScope, $timeout, Collection, BackupService) {
     $scope.agentActive = AgentService.active;
 
     $scope.clazz = "tabs-style-linebox";
@@ -2414,7 +2414,7 @@ ee.controller("BackupConfigController", [
     });
 
     if (AgentService.active) {
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
         $scope.server = $scope.servers[0];
 
@@ -2849,12 +2849,12 @@ ee.controller("ServerSecurityController", [
   "$scope",
   "AgentService",
   "SecurityService",
-  "Cluster",
-  function($scope, AgentService, SecurityService, Cluster) {
+  "Collection",
+  function($scope, AgentService, SecurityService, Collection) {
     $scope.agentActive = AgentService.active;
 
     if ($scope.agentActive) {
-      Cluster.node().then(function(data) {
+      Collection.node().then(function(data) {
         $scope.servers = data.members;
         $scope.server = $scope.servers[0];
         if ($scope.server.databases.length > 0) {

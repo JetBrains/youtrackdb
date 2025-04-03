@@ -39,11 +39,11 @@ public class CurrentStorageComponentsFactory {
   }
 
   /**
-   * @return Whether class of is detected by cluster id or it is taken from documents serialized
+   * @return Whether class of is detected by collection id or it is taken from documents serialized
    * content.
    * @since 1.7
    */
-  public boolean classesAreDetectedByClusterId() {
+  public boolean classesAreDetectedByCollectionId() {
     return binaryFormatVersion >= 10;
   }
 }

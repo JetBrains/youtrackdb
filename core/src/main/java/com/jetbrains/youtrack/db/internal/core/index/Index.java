@@ -245,11 +245,11 @@ public interface Index extends Comparable<Index> {
   IndexDefinition getDefinition();
 
   /**
-   * Returns Names of clusters that will be indexed.
+   * Returns Names of collections that will be indexed.
    *
-   * @return Names of clusters that will be indexed.
+   * @return Names of collections that will be indexed.
    */
-  Set<String> getClusters();
+  Set<String> getCollections();
 
   /**
    * Returns cursor which presents data associated with passed in keys.
@@ -358,21 +358,21 @@ public interface Index extends Comparable<Index> {
   Map<String, ?> updateConfiguration(DatabaseSessionInternal session);
 
   /**
-   * Add given cluster to the list of clusters that should be automatically indexed.
+   * Add given collection to the list of collections that should be automatically indexed.
    *
    * @param session
-   * @param iClusterName Cluster to add.
+   * @param iCollectionName Collection to add.
    * @return Current index instance.
    */
-  Index addCluster(DatabaseSessionInternal session, final String iClusterName);
+  Index addCollection(DatabaseSessionInternal session, final String iCollectionName);
 
   /**
-   * Remove given cluster from the list of clusters that should be automatically indexed.
+   * Remove given collection from the list of collections that should be automatically indexed.
    *
    * @param session
-   * @param iClusterName Cluster to remove.
+   * @param iCollectionName Collection to remove.
    */
-  void removeCluster(DatabaseSessionInternal session, final String iClusterName);
+  void removeCollection(DatabaseSessionInternal session, final String iCollectionName);
 
   /**
    * Indicates whether given index can be used to calculate result of {@link QueryOperatorEquality}
@@ -467,6 +467,7 @@ public interface Index extends Comparable<Index> {
   Stream<RawPair<Object, RID>> streamEntriesMinor(
       DatabaseSessionInternal session, Object toKey, boolean toInclusive, boolean ascOrder);
 
+  @Nullable
   static Identifiable securityFilterOnRead(DatabaseSessionInternal session, Index idx,
       Identifiable item) {
     if (idx.getDefinition() == null) {

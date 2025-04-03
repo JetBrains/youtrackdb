@@ -34,27 +34,28 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Serial;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class RecordId implements RID, SerializableStream {
 
   @Serial
   private static final long serialVersionUID = 247070594054408657L;
   // INT TO AVOID JVM PENALTY, BUT IT'S STORED AS SHORT
-  protected int clusterId = CLUSTER_ID_INVALID;
-  protected long clusterPosition = CLUSTER_POS_INVALID;
+  protected int collectionId = COLLECTION_ID_INVALID;
+  protected long collectionPosition = COLLECTION_POS_INVALID;
 
   protected RecordId() {
   }
 
-  public RecordId(final int clusterId, final long position) {
-    this.clusterId = clusterId;
-    checkClusterLimits();
-    clusterPosition = position;
+  public RecordId(final int collectionId, final long position) {
+    this.collectionId = collectionId;
+    checkCollectionLimits();
+    collectionPosition = position;
   }
 
-  public RecordId(final int iClusterIdId) {
-    clusterId = iClusterIdId;
-    checkClusterLimits();
+  public RecordId(final int iCollectionIdId) {
+    collectionId = iCollectionIdId;
+    checkCollectionLimits();
   }
 
   public RecordId(final String iRecordId) {
@@ -67,28 +68,28 @@ public class RecordId implements RID, SerializableStream {
    * @param parentRid Source object
    */
   public RecordId(final RID parentRid) {
-    clusterId = parentRid.getClusterId();
-    clusterPosition = parentRid.getClusterPosition();
+    collectionId = parentRid.getCollectionId();
+    collectionPosition = parentRid.getCollectionPosition();
   }
 
-  public static String generateString(final int iClusterId, final long iPosition) {
-    return String.valueOf(PREFIX) + iClusterId + SEPARATOR + iPosition;
+  public static String generateString(final int iCollectionId, final long iPosition) {
+    return String.valueOf(PREFIX) + iCollectionId + SEPARATOR + iPosition;
   }
 
   public static boolean isValid(final long pos) {
-    return pos != CLUSTER_POS_INVALID;
+    return pos != COLLECTION_POS_INVALID;
   }
 
   public static boolean isPersistent(final long pos) {
-    return pos > CLUSTER_POS_INVALID;
+    return pos > COLLECTION_POS_INVALID;
   }
 
   public static boolean isNew(final long pos) {
     return pos < 0;
   }
 
-  public static boolean isTemporary(final long clusterPosition) {
-    return clusterPosition < CLUSTER_POS_INVALID;
+  public static boolean isTemporary(final long collectionPosition) {
+    return collectionPosition < COLLECTION_POS_INVALID;
   }
 
   public static boolean isA(final String iString) {
@@ -96,29 +97,29 @@ public class RecordId implements RID, SerializableStream {
   }
 
   public void reset() {
-    clusterId = CLUSTER_ID_INVALID;
-    clusterPosition = CLUSTER_POS_INVALID;
+    collectionId = COLLECTION_ID_INVALID;
+    collectionPosition = COLLECTION_POS_INVALID;
   }
 
   public boolean isValidPosition() {
-    return clusterPosition != CLUSTER_POS_INVALID;
+    return collectionPosition != COLLECTION_POS_INVALID;
   }
 
   public boolean isPersistent() {
-    return clusterId > -1 && clusterPosition > CLUSTER_POS_INVALID;
+    return collectionId > -1 && collectionPosition > COLLECTION_POS_INVALID;
   }
 
   public boolean isNew() {
-    return clusterPosition < 0;
+    return collectionPosition < 0;
   }
 
   public boolean isTemporary() {
-    return clusterId != -1 && clusterPosition < CLUSTER_POS_INVALID;
+    return collectionId != -1 && collectionPosition < COLLECTION_POS_INVALID;
   }
 
   @Override
   public String toString() {
-    return generateString(clusterId, clusterPosition);
+    return generateString(collectionId, collectionPosition);
   }
 
   public StringBuilder toString(StringBuilder iBuffer) {
@@ -127,9 +128,9 @@ public class RecordId implements RID, SerializableStream {
     }
 
     iBuffer.append(PREFIX);
-    iBuffer.append(clusterId);
+    iBuffer.append(collectionId);
     iBuffer.append(SEPARATOR);
-    iBuffer.append(clusterPosition);
+    iBuffer.append(collectionPosition);
     return iBuffer;
   }
 
@@ -146,12 +147,12 @@ public class RecordId implements RID, SerializableStream {
     }
     final var other = (RecordId) ((Identifiable) obj).getIdentity();
 
-    return clusterId == other.clusterId && clusterPosition == other.clusterPosition;
+    return collectionId == other.collectionId && collectionPosition == other.collectionPosition;
   }
 
   @Override
   public int hashCode() {
-    return 31 * clusterId + 103 * (int) clusterPosition;
+    return 31 * collectionId + 103 * (int) collectionPosition;
   }
 
   public int compareTo(@Nonnull final Identifiable other) {
@@ -160,11 +161,11 @@ public class RecordId implements RID, SerializableStream {
     }
 
     var otherIdentity = other.getIdentity();
-    final var otherClusterId = otherIdentity.getClusterId();
-    if (clusterId == otherClusterId) {
-      final var otherClusterPos = other.getIdentity().getClusterPosition();
-      return Long.compare(clusterPosition, otherClusterPos);
-    } else if (clusterId > otherClusterId) {
+    final var otherCollectionId = otherIdentity.getCollectionId();
+    if (collectionId == otherCollectionId) {
+      final var otherCollectionPos = other.getIdentity().getCollectionPosition();
+      return Long.compare(collectionPosition, otherCollectionPos);
+    } else if (collectionId > otherCollectionId) {
       return 1;
     }
 
@@ -184,66 +185,66 @@ public class RecordId implements RID, SerializableStream {
   }
 
   public RecordId copy() {
-    return new RecordId(clusterId, clusterPosition);
+    return new RecordId(collectionId, collectionPosition);
   }
 
   public void toStream(final DataOutput out) throws IOException {
-    out.writeShort(clusterId);
-    out.writeLong(clusterPosition);
+    out.writeShort(collectionId);
+    out.writeLong(collectionPosition);
   }
 
   public void fromStream(final DataInput in) throws IOException {
-    clusterId = in.readShort();
-    clusterPosition = in.readLong();
+    collectionId = in.readShort();
+    collectionPosition = in.readLong();
   }
 
   public RecordId fromStream(final InputStream iStream) throws IOException {
-    clusterId = BinaryProtocol.bytes2short(iStream);
-    clusterPosition = BinaryProtocol.bytes2long(iStream);
+    collectionId = BinaryProtocol.bytes2short(iStream);
+    collectionPosition = BinaryProtocol.bytes2long(iStream);
     return this;
   }
 
   public RecordId fromStream(final MemoryStream iStream) {
-    clusterId = iStream.getAsShort();
-    clusterPosition = iStream.getAsLong();
+    collectionId = iStream.getAsShort();
+    collectionPosition = iStream.getAsLong();
     return this;
   }
 
   public RecordId fromStream(final byte[] iBuffer) {
     if (iBuffer != null) {
-      clusterId = BinaryProtocol.bytes2short(iBuffer, 0);
-      clusterPosition = BinaryProtocol.bytes2long(iBuffer, BinaryProtocol.SIZE_SHORT);
+      collectionId = BinaryProtocol.bytes2short(iBuffer, 0);
+      collectionPosition = BinaryProtocol.bytes2long(iBuffer, BinaryProtocol.SIZE_SHORT);
     }
     return this;
   }
 
   public int toStream(final OutputStream iStream) throws IOException {
-    final var beginOffset = BinaryProtocol.short2bytes((short) clusterId, iStream);
-    BinaryProtocol.long2bytes(clusterPosition, iStream);
+    final var beginOffset = BinaryProtocol.short2bytes((short) collectionId, iStream);
+    BinaryProtocol.long2bytes(collectionPosition, iStream);
     return beginOffset;
   }
 
   public int toStream(final MemoryStream iStream) throws IOException {
-    final var beginOffset = BinaryProtocol.short2bytes((short) clusterId, iStream);
-    BinaryProtocol.long2bytes(clusterPosition, iStream);
+    final var beginOffset = BinaryProtocol.short2bytes((short) collectionId, iStream);
+    BinaryProtocol.long2bytes(collectionPosition, iStream);
     return beginOffset;
   }
 
   public byte[] toStream() {
     final var buffer = new byte[BinaryProtocol.SIZE_SHORT + BinaryProtocol.SIZE_LONG];
 
-    BinaryProtocol.short2bytes((short) clusterId, buffer, 0);
-    BinaryProtocol.long2bytes(clusterPosition, buffer, BinaryProtocol.SIZE_SHORT);
+    BinaryProtocol.short2bytes((short) collectionId, buffer, 0);
+    BinaryProtocol.long2bytes(collectionPosition, buffer, BinaryProtocol.SIZE_SHORT);
 
     return buffer;
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
-  public long getClusterPosition() {
-    return clusterPosition;
+  public long getCollectionPosition() {
+    return collectionPosition;
   }
 
   public void fromString(String iRecordId) {
@@ -252,8 +253,8 @@ public class RecordId implements RID, SerializableStream {
     }
 
     if (iRecordId == null || iRecordId.isEmpty()) {
-      clusterId = CLUSTER_ID_INVALID;
-      clusterPosition = CLUSTER_POS_INVALID;
+      collectionId = COLLECTION_ID_INVALID;
+      collectionPosition = COLLECTION_POS_INVALID;
       return;
     }
 
@@ -262,7 +263,7 @@ public class RecordId implements RID, SerializableStream {
           "Argument '"
               + iRecordId
               + "' is not a RecordId in form of string. Format must be:"
-              + " <cluster-id>:<cluster-position>");
+              + " <collection-id>:<collection-position>");
     }
 
     final var parts = StringSerializerHelper.split(iRecordId, SEPARATOR, PREFIX);
@@ -272,16 +273,16 @@ public class RecordId implements RID, SerializableStream {
           "Argument received '"
               + iRecordId
               + "' is not a RecordId in form of string. Format must be:"
-              + " #<cluster-id>:<cluster-position>. Example: #3:12");
+              + " #<collection-id>:<collection-position>. Example: #3:12");
     }
 
-    clusterId = Integer.parseInt(parts.get(0));
-    checkClusterLimits();
-    clusterPosition = Long.parseLong(parts.get(1));
+    collectionId = Integer.parseInt(parts.get(0));
+    checkCollectionLimits();
+    collectionPosition = Long.parseLong(parts.get(1));
   }
 
   public String next() {
-    return generateString(clusterId, clusterPosition + 1);
+    return generateString(collectionId, collectionPosition + 1);
   }
 
 
@@ -290,37 +291,37 @@ public class RecordId implements RID, SerializableStream {
     return this;
   }
 
-  private void checkClusterLimits() {
-    checkClusterLimits(clusterId);
+  private void checkCollectionLimits() {
+    checkCollectionLimits(collectionId);
   }
 
-  protected static void checkClusterLimits(int clusterId) {
-    if (clusterId < -2) {
+  protected static void checkCollectionLimits(int collectionId) {
+    if (collectionId < -2) {
       throw new DatabaseException(
-          "RecordId cannot support negative cluster id. Found: " + clusterId);
+          "RecordId cannot support negative collection id. Found: " + collectionId);
     }
 
-    if (clusterId > CLUSTER_MAX) {
+    if (collectionId > COLLECTION_MAX) {
       throw new DatabaseException(
-          "RecordId cannot support cluster id major than 32767. Found: " + clusterId);
+          "RecordId cannot support collection id major than 32767. Found: " + collectionId);
     }
   }
 
-  public void setClusterId(int clusterId) {
-    checkClusterLimits(clusterId);
+  public void setCollectionId(int collectionId) {
+    checkCollectionLimits(collectionId);
 
-    this.clusterId = clusterId;
+    this.collectionId = collectionId;
   }
 
-  public void setClusterAndPosition(int clusterId, long clusterPosition) {
-    checkClusterLimits(clusterId);
+  public void setCollectionAndPosition(int collectionId, long collectionPosition) {
+    checkCollectionLimits(collectionId);
 
-    this.clusterId = clusterId;
-    this.clusterPosition = clusterPosition;
+    this.collectionId = collectionId;
+    this.collectionPosition = collectionPosition;
   }
 
-  public void setClusterPosition(long clusterPosition) {
-    this.clusterPosition = clusterPosition;
+  public void setCollectionPosition(long collectionPosition) {
+    this.collectionPosition = collectionPosition;
   }
 
   public static void serialize(RID id, DataOutput output) throws IOException {
@@ -328,17 +329,18 @@ public class RecordId implements RID, SerializableStream {
       output.writeInt(-2);
       output.writeLong(-2);
     } else {
-      output.writeInt(id.getClusterId());
-      output.writeLong(id.getClusterPosition());
+      output.writeInt(id.getCollectionId());
+      output.writeLong(id.getCollectionPosition());
     }
   }
 
+  @Nullable
   public static RecordId deserialize(DataInput input) throws IOException {
-    var cluster = input.readInt();
+    var collection = input.readInt();
     var pos = input.readLong();
-    if (cluster == -2 && pos == -2) {
+    if (collection == -2 && pos == -2) {
       return null;
     }
-    return new RecordId(cluster, pos);
+    return new RecordId(collection, pos);
   }
 }

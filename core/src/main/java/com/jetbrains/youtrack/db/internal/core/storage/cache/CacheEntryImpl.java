@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import javax.annotation.Nullable;
 
 public class CacheEntryImpl implements CacheEntry {
 
@@ -137,11 +138,13 @@ public class CacheEntryImpl implements CacheEntry {
     USAGES_COUNT_UPDATER.decrementAndGet(this);
   }
 
+  @Nullable
   @Override
   public WALChanges getChanges() {
     return null;
   }
 
+  @Nullable
   @Override
   public LogSequenceNumber getInitialLSN() {
     return null;

@@ -485,10 +485,10 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public int addBlobCluster(final String iClusterName, final Object... iParameters) {
+  public int addBlobCollection(final String iCollectionName, final Object... iParameters) {
     int id;
     assert assertIfNotActive();
-    try (var resultSet = execute("create blob cluster :1", iClusterName)) {
+    try (var resultSet = execute("create blob collection :1", iCollectionName)) {
       assert resultSet.hasNext();
       var result = resultSet.next();
       assert result.getProperty("value") != null;
@@ -498,7 +498,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public void beforeUpdateOperations(final RecordAbstract recordAbstract,
-      java.lang.String clusterName) {
+      java.lang.String collectionName) {
     assert assertIfNotActive();
 
     callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
@@ -512,7 +512,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
   }
 
-  public void beforeCreateOperations(final RecordAbstract recordAbstract, String clusterName) {
+  public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
     callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
@@ -525,7 +525,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
   }
 
-  public void beforeDeleteOperations(final RecordAbstract recordAbstract, String clusterName) {
+  public void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
     callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
@@ -578,14 +578,14 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
           new DatabaseException(getDatabaseName(),
               "Error on retrieving record "
                   + rid
-                  + " (cluster: "
-                  + getStorage().getPhysicalClusterNameById(rid.getClusterId())
+                  + " (collection: "
+                  + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
                   + ")"),
           t, this);
     }
   }
 
-  public String getClusterName(final @Nonnull DBRecord record) {
+  public String getCollectionName(final @Nonnull DBRecord record) {
     throw new UnsupportedOperationException();
   }
 
@@ -597,15 +597,15 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public int addCluster(final String iClusterName, final Object... iParameters) {
+  public int addCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
-    return storage.addCluster(this, iClusterName, iParameters);
+    return storage.addCollection(this, iCollectionName, iParameters);
   }
 
   @Override
-  public int addCluster(final String iClusterName, final int iRequestedId) {
+  public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
-    return storage.addCluster(this, iClusterName, iRequestedId);
+    return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
   public RecordConflictStrategy getConflictStrategy() {
@@ -630,115 +630,112 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int iClusterId, boolean countTombstones) {
+  public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
-    return storage.count(this, iClusterId, countTombstones);
+    return storage.count(this, iCollectionId, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
+  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
-    return storage.count(this, iClusterIds, countTombstones);
+    return storage.count(this, iCollectionIds, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(final String iClusterName) {
+  public long countCollectionElements(final String iCollectionName) {
     assert assertIfNotActive();
 
-    final var clusterId = getClusterIdByName(iClusterName);
-    if (clusterId < 0) {
-      throw new IllegalArgumentException("Cluster '" + iClusterName + "' was not found");
+    final var collectionId = getCollectionIdByName(iCollectionName);
+    if (collectionId < 0) {
+      throw new IllegalArgumentException("Collection '" + iCollectionName + "' was not found");
     }
-    return storage.count(this, clusterId);
+    return storage.count(this, collectionId);
   }
 
   @Override
-  public long getClusterRecordSizeByName(final String clusterName) {
+  public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeByName(clusterName);
+      return storage.getCollectionRecordsSizeByName(collectionName);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new DatabaseException(getDatabaseName(),
-              "Error on reading records size for cluster '" + clusterName + "'"),
+              "Error on reading records size for collection '" + collectionName + "'"),
           e, this);
     }
   }
 
   @Override
-  public boolean dropCluster(final String iClusterName) {
+  public boolean dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
-    final var clusterId = getClusterIdByName(iClusterName);
+    final var collectionId = getCollectionIdByName(iCollectionName);
     var schema = metadata.getSchema();
-    var clazz = schema.getClassByClusterId(clusterId);
+    var clazz = schema.getClassByCollectionId(collectionId);
 
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
           + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(iClusterName);
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(iCollectionName);
     }
-    getLocalCache().freeCluster(clusterId);
-    checkForClusterPermissions(iClusterName);
-    return storage.dropCluster(this, iClusterName);
+    getLocalCache().freeCollection(collectionId);
+    return storage.dropCollection(this, iCollectionName);
   }
 
   @Override
-  public boolean dropCluster(final int clusterId) {
+  public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
 
     var schema = metadata.getSchema();
-    final var clazz = schema.getClassByClusterId(clusterId);
+    final var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop cluster '" + getClusterNameById(clusterId)
+      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
           + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
-    getLocalCache().freeCluster(clusterId);
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(getClusterNameById(clusterId));
+    getLocalCache().freeCollection(collectionId);
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(getCollectionNameById(collectionId));
     }
 
-    checkForClusterPermissions(getClusterNameById(clusterId));
-
-    final var clusterName = getClusterNameById(clusterId);
-    if (clusterName == null) {
+    final var collectionName = getCollectionNameById(collectionId);
+    if (collectionName == null) {
       return false;
     }
 
-    final var iteratorCluster = browseCluster(clusterName);
-    if (iteratorCluster == null) {
+    final var iteratorCollection = browseCollection(collectionName);
+    if (iteratorCollection == null) {
       return false;
     }
 
-    executeInTxBatches(iteratorCluster,
+    executeInTxBatches(iteratorCollection,
         (session, record) -> record.delete());
 
-    return storage.dropCluster(this, clusterId);
+    return storage.dropCollection(this, collectionId);
   }
 
-  public boolean dropClusterInternal(int clusterId) {
+  public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
-    return storage.dropCluster(this, clusterId);
+    return storage.dropCollection(this, collectionId);
   }
 
   @Override
-  public long getClusterRecordSizeById(final int clusterId) {
+  public long getCollectionRecordSizeById(final int collectionId) {
     assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeById(clusterId);
+      return storage.getCollectionRecordsSizeById(collectionId);
     } catch (Exception e) {
       throw BaseException.wrapException(
           new DatabaseException(getDatabaseName(),
-              "Error on reading records size for cluster with id '" + clusterId + "'"),
+              "Error on reading records size for collection with id '" + collectionId + "'"),
           e, this);
     }
   }
@@ -904,7 +901,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
+  public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
@@ -918,18 +915,18 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public int[] getClustersIds(@Nonnull Set<String> filterClusters) {
+  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
     assert assertIfNotActive();
-    return filterClusters.stream().map(this::getClusterIdByName).mapToInt(i -> i).toArray();
+    return filterCollections.stream().map(this::getCollectionIdByName).mapToInt(i -> i).toArray();
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public void truncateCluster(String clusterName) {
+  public void truncateCollection(String collectionName) {
     assert assertIfNotActive();
-    execute("truncate cluster " + clusterName).close();
+    execute("truncate collection " + collectionName).close();
   }
 
   @Override
@@ -939,7 +936,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public long truncateClusterInternal(String name) {
+  public long truncateCollectionInternal(String name) {
     throw new UnsupportedOperationException();
   }
 

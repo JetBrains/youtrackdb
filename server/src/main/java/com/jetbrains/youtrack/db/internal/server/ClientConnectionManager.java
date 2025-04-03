@@ -39,6 +39,7 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 import javax.net.ssl.SSLSocket;
 import jdk.jfr.FlightRecorder;
 
@@ -241,6 +242,7 @@ public class ClientConnectionManager {
    * @param iAddress The address as string in the format address as format <ip>:<port>
    * @return The connection if any, otherwise null
    */
+  @Nullable
   public ClientConnection getConnection(final String iAddress) {
     for (var conn : connections.values()) {
       if (iAddress.equals(conn.getRemoteAddress())) {

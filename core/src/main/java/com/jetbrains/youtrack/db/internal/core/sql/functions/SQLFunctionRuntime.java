@@ -39,6 +39,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Wraps function managing the binding of parameters.
@@ -149,6 +150,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
     function.setResult(iValue);
   }
 
+  @Nullable
   @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {
@@ -225,7 +227,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
 
     final var funcParamsText = StringSerializerHelper.getParameters(iText);
 
-    function = SQLEngine.getInstance().getFunction(session, funcName);
+    function = SQLEngine.getFunction(session, funcName);
     if (function == null) {
       throw new CommandSQLParsingException(session.getDatabaseName(),
           "Unknown function " + funcName + "()");

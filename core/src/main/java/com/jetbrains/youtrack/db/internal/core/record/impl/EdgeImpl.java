@@ -29,55 +29,43 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeImpl implements EdgeInternal {
-
-  @Nullable
-  private final Vertex vOut;
-  @Nullable
-  private final Vertex vIn;
+public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
 
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;
-  @Nonnull
-  private final DatabaseSessionInternal session;
 
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
       @Nonnull SchemaImmutableClass lightweightEdgeType) {
-    vOut = out;
-    vIn = in;
-
+    super(session, out, in, lightweightEdgeType.getName());
     this.lightweightEdgeType = lightweightEdgeType;
-    this.session = session;
   }
 
   @Nullable
   @Override
   public Vertex getFrom() {
-    return vOut;
+    return fromEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getFromLink() {
-    return vOut;
+    return fromEntity();
   }
 
   @Nullable
   @Override
   public Vertex getTo() {
-    return vIn;
-
+    return toEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getToLink() {
-    return vIn;
+    return toEntity();
   }
 
   @Override
@@ -102,18 +90,15 @@ public class EdgeImpl implements EdgeInternal {
   }
 
   public boolean isLabeled(@Nonnull String[] labels) {
-    if (labels == null) {
+    if (super.isLabeled(labels)) {
       return true;
     }
-    if (labels.length == 0) {
-      return true;
-    }
-    Set<String> types = new HashSet<>();
+
+    var types = new HashSet<String>();
 
     var typeClass = getSchemaClass();
-    types.add(typeClass.getName());
     typeClass.getAllSuperClasses().stream()
-        .map(x -> x.getName())
+        .map(SchemaClass::getName)
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {
@@ -137,12 +122,17 @@ public class EdgeImpl implements EdgeInternal {
   @Override
   public String toJSON() {
     return "{\"out\":\""
-        + vOut.getIdentity()
+        + fromEntity().getIdentity()
         + "\", \"in\":\""
-        + vIn.getIdentity()
+        + toEntity().getIdentity()
         + "\", \"@class\":\""
         + StringSerializerHelper.encode(lightweightEdgeType.getName())
         + "\"}";
+  }
+
+  @Override
+  public String label() {
+    return lightweightEdgeType.getName();
   }
 
   @Nonnull

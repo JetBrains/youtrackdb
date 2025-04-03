@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -28,6 +29,7 @@ public class SchemaRemote extends SchemaShared {
   private final ThreadLocal<boolean[]> ignoreReloadRequest = ThreadLocal.withInitial(
       () -> new boolean[1]);
 
+  @Nullable
   @Override
   public SchemaClassImpl getOrCreateClass(
       DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
@@ -47,7 +49,7 @@ public class SchemaRemote extends SchemaShared {
 
     SchemaClassImpl cls;
 
-    int[] clusterIds = null;
+    int[] collectionIds = null;
 
     acquireSchemaWriteLock(session);
     try {
@@ -56,9 +58,9 @@ public class SchemaRemote extends SchemaShared {
         return cls;
       }
 
-      cls = createClass(session, iClassName, clusterIds, superClasses);
+      cls = createClass(session, iClassName, collectionIds, superClasses);
 
-      addClusterClassMap(session, cls);
+      addCollectionClassMap(session, cls);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -73,7 +75,7 @@ public class SchemaRemote extends SchemaShared {
   public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
-      int[] clusterIds,
+      int[] collectionIds,
       SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
@@ -101,7 +103,7 @@ public class SchemaRemote extends SchemaShared {
             "Class '" + className + "' already exists in current database");
       }
 
-      checkClustersAreAbsent(clusterIds, session);
+      checkCollectionsAreAbsent(collectionIds, session);
 
       var cmd = new StringBuilder("create class ");
       cmd.append('`');
@@ -124,19 +126,19 @@ public class SchemaRemote extends SchemaShared {
         }
       }
 
-      if (clusterIds != null) {
-        if (clusterIds.length == 1 && clusterIds[0] == -1) {
+      if (collectionIds != null) {
+        if (collectionIds.length == 1 && collectionIds[0] == -1) {
           cmd.append(" abstract");
         } else {
-          cmd.append(" cluster ");
-          for (var i = 0; i < clusterIds.length; ++i) {
+          cmd.append(" collection ");
+          for (var i = 0; i < collectionIds.length; ++i) {
             if (i > 0) {
               cmd.append(',');
             } else {
               cmd.append(' ');
             }
 
-            cmd.append(clusterIds[i]);
+            cmd.append(collectionIds[i]);
           }
         }
       }
@@ -155,7 +157,7 @@ public class SchemaRemote extends SchemaShared {
   public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
-      int clusters,
+      int collections,
       SchemaClassImpl... superClasses) {
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
     //noinspection ConstantValue
@@ -204,11 +206,11 @@ public class SchemaRemote extends SchemaShared {
         }
       }
 
-      if (clusters == 0) {
+      if (collections == 0) {
         cmd.append(" abstract");
       } else {
-        cmd.append(" clusters ");
-        cmd.append(clusters);
+        cmd.append(" collections ");
+        cmd.append(collections);
       }
 
       session.execute(cmd.toString()).close();
@@ -221,22 +223,22 @@ public class SchemaRemote extends SchemaShared {
     return result;
   }
 
-  private void checkClustersAreAbsent(final int[] iClusterIds, DatabaseSessionInternal session) {
-    if (iClusterIds == null) {
+  private void checkCollectionsAreAbsent(final int[] iCollectionIds, DatabaseSessionInternal session) {
+    if (iCollectionIds == null) {
       return;
     }
 
-    for (var clusterId : iClusterIds) {
-      if (clusterId < 0) {
+    for (var collectionId : iCollectionIds) {
+      if (collectionId < 0) {
         continue;
       }
 
-      if (clustersToClasses.containsKey(clusterId)) {
+      if (collectionsToClasses.containsKey(collectionId)) {
         throw new SchemaException(session,
-            "Cluster with id "
-                + clusterId
+            "Collection with id "
+                + collectionId
                 + " already belongs to class "
-                + clustersToClasses.get(clusterId));
+                + collectionsToClasses.get(collectionId));
       }
     }
   }
@@ -278,8 +280,8 @@ public class SchemaRemote extends SchemaShared {
       reload(session);
 
       var localCache = session.getLocalCache();
-      for (var clusterId : cls.getClusterIds(session)) {
-        localCache.freeCluster(clusterId);
+      for (var collectionId : cls.getCollectionIds(session)) {
+        localCache.freeCollection(collectionId);
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -360,14 +362,14 @@ public class SchemaRemote extends SchemaShared {
   }
 
   @Override
-  public int addBlobCluster(DatabaseSessionInternal session, int clusterId) {
+  public int addBlobCollection(DatabaseSessionInternal session, int collectionId) {
     throw new SchemaException(session,
-        "Not supported operation use instead DatabaseSession.addBlobCluster");
+        "Not supported operation use instead DatabaseSession.addBlobCollection");
   }
 
   @Override
-  public void removeBlobCluster(DatabaseSessionInternal session, String clusterName) {
+  public void removeBlobCollection(DatabaseSessionInternal session, String collectionName) {
     throw new SchemaException(session,
-        "Not supported operation use instead DatabaseSession.dropCluster");
+        "Not supported operation use instead DatabaseSession.dropCollection");
   }
 }

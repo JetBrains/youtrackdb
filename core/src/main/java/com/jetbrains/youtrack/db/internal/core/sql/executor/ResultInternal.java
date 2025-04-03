@@ -21,6 +21,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -54,7 +56,7 @@ public class ResultInternal implements Result {
   @Nullable
   protected DatabaseSessionInternal session;
   @Nullable
-  protected Edge lightweightEdge;
+  protected Relation<?> relation;
 
   public ResultInternal(@Nullable DatabaseSessionInternal session) {
     content = new HashMap<>();
@@ -76,12 +78,13 @@ public class ResultInternal implements Result {
     this.session = session;
   }
 
-  public ResultInternal(@Nullable DatabaseSessionInternal session, @Nonnull Edge edge) {
+  public ResultInternal(@Nullable DatabaseSessionInternal session,
+      @Nonnull Relation<?> relation) {
     this.session = session;
-    if (edge.isLightweight()) {
-      lightweightEdge = edge;
+    if (relation.isLightweight()) {
+      this.relation = relation;
     } else {
-      setIdentifiable(edge.asStatefulEdge());
+      setIdentifiable(relation.asEntity());
     }
   }
 
@@ -190,7 +193,7 @@ public class ResultInternal implements Result {
       if (identifiable != null) {
         throw new IllegalStateException("Impossible to mutate result set containing entity");
       }
-      if (lightweightEdge != null) {
+      if (relation != null) {
         throw new IllegalStateException(
             "Impossible to mutate result set containing lightweight edge");
       }
@@ -237,14 +240,16 @@ public class ResultInternal implements Result {
         if (entity.isEmbedded()) {
           return entity.detach();
         }
-
-        return session.refreshRid(entity.getIdentity());
+        final var rid = entity.getIdentity();
+        return session.isTxActive() && !rid.isPersistent() ?
+            session.refreshRid(rid) :
+            rid;
       }
 
       case ContextualRecordId contextualRecordId -> {
         addMetadata(contextualRecordId.getContext());
-        return new RecordId(contextualRecordId.getClusterId(),
-            contextualRecordId.getClusterPosition());
+        return new RecordId(contextualRecordId.getCollectionId(),
+            contextualRecordId.getCollectionPosition());
       }
 
       case Identifiable id -> {
@@ -263,10 +268,13 @@ public class ResultInternal implements Result {
         }
         if (result.isEdge()) {
           if (!result.isStatefulEdge()) {
-            throw new IllegalStateException("Lightweight edges are not supported in properties");
+            return result.asEdge();
           }
 
           return convertPropertyValue(result.asStatefulEdge());
+        }
+        if (result instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
+          return resultInternal.asRelation();
         }
 
         var resultSession = result.getBoundedToSession();
@@ -276,6 +284,36 @@ public class ResultInternal implements Result {
         }
 
         return result;
+      }
+      case Object[] array -> {
+        List<Object> listCopy = null;
+        var allIdentifiable = false;
+
+        for (var o : array) {
+          var res = convertPropertyValue(o);
+
+          if (res instanceof Identifiable) {
+            allIdentifiable = true;
+            if (listCopy == null) {
+              //noinspection unchecked,rawtypes
+              listCopy = (List<Object>) (List) new LinkListResultImpl(array.length);
+            }
+          } else {
+            if (allIdentifiable) {
+              throw new IllegalArgumentException(
+                  "Invalid property value, if list contains identifiables, it should contain only them");
+            }
+            if (listCopy == null) {
+              listCopy = new EmbeddedListResultImpl<>(array.length);
+            }
+          }
+
+          listCopy.add(res);
+        }
+        if (listCopy == null) {
+          listCopy = new EmbeddedListResultImpl<>();
+        }
+        return listCopy;
       }
       case List<?> collection -> {
         List<Object> listCopy = null;
@@ -381,14 +419,19 @@ public class ResultInternal implements Result {
 
         return mapCopy;
       }
-
+      case Relation<?> biLink -> {
+        if (biLink.isLightweight()) {
+          return biLink;
+        } else {
+          return convertPropertyValue(biLink.asEntity());
+        }
+      }
       default -> {
         throw new CommandExecutionException(
             "Invalid property value for Result: " + value + " - " + value.getClass().getName());
       }
     }
   }
-
 
   public void setTemporaryProperty(String name, Object value) {
     assert checkSession();
@@ -549,7 +592,7 @@ public class ResultInternal implements Result {
   }
 
   @Override
-  public Blob getBlob(String name) {
+  public Blob getBlob(@Nonnull String name) {
     checkSessionForRecords();
 
     Object result = null;
@@ -595,7 +638,6 @@ public class ResultInternal implements Result {
 
   }
 
-
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
     if (content != null) {
@@ -633,7 +675,7 @@ public class ResultInternal implements Result {
   @Override
   public @Nonnull Result detach() {
     assert checkSession();
-    if (lightweightEdge != null) {
+    if (relation != null) {
       throw new DatabaseException("Cannot detach lightweight edge");
     }
 
@@ -672,7 +714,6 @@ public class ResultInternal implements Result {
     return identifiable;
   }
 
-
   @Override
   public boolean isEntity() {
     assert checkSession();
@@ -710,7 +751,6 @@ public class ResultInternal implements Result {
     throw new IllegalStateException("Result is not an entity");
   }
 
-
   @Nullable
   @Override
   public Entity asEntityOrNull() {
@@ -727,7 +767,6 @@ public class ResultInternal implements Result {
 
     return null;
   }
-
 
   @Override
   public RID getIdentity() {
@@ -795,8 +834,8 @@ public class ResultInternal implements Result {
     checkSessionForRecords();
 
     var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var blobClusters = schemaSnapshot.getBlobClusters();
-    return blobClusters.contains(identifiable.getIdentity().getClusterId());
+    var blobCollections = schemaSnapshot.getBlobCollections();
+    return blobCollections.contains(identifiable.getIdentity().getCollectionId());
   }
 
   @Nonnull
@@ -879,7 +918,7 @@ public class ResultInternal implements Result {
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
 
-    this.lightweightEdge = null;
+    this.relation = null;
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
       content = new HashMap<>();
       this.identifiable = null;
@@ -895,19 +934,19 @@ public class ResultInternal implements Result {
     this.content = null;
 
     if (identifiable instanceof ContextualRecordId contextualRecordId) {
-      this.identifiable = new RecordId(contextualRecordId.getClusterId(),
-          contextualRecordId.getClusterPosition());
+      this.identifiable = new RecordId(contextualRecordId.getCollectionId(),
+          contextualRecordId.getCollectionPosition());
       addMetadata(contextualRecordId.getContext());
     } else {
       this.identifiable = identifiable;
     }
   }
 
-  public void setLightweightEdge(Edge edge) {
+  public void setRelation(Relation<?> relation) {
     assert checkSession();
 
     this.identifiable = null;
-    this.lightweightEdge = edge;
+    this.relation = relation;
     this.content = null;
   }
 
@@ -916,8 +955,8 @@ public class ResultInternal implements Result {
   public Map<String, Object> toMap() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge.toMap();
+    if (relation != null) {
+      return relation.toMap();
     }
 
     if (isEntity()) {
@@ -933,6 +972,11 @@ public class ResultInternal implements Result {
     return map;
   }
 
+  public boolean isRelation() {
+    assert checkSession();
+    return relation != null;
+  }
+
   @Override
   public boolean isEdge() {
     assert checkSession();
@@ -940,7 +984,7 @@ public class ResultInternal implements Result {
       return false;
     }
 
-    if (lightweightEdge != null) {
+    if (relation instanceof Edge) {
       return true;
     }
 
@@ -958,15 +1002,14 @@ public class ResultInternal implements Result {
         return true;
       }
       default -> {
+        checkSessionForRecords();
+
+        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+
+        return cls != null && !cls.isAbstract() && cls.isEdgeType();
       }
     }
-
-    checkSessionForRecords();
-
-    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
-
-    return cls != null && !cls.isAbstract() && cls.isEdgeType();
   }
 
   @Override
@@ -977,27 +1020,26 @@ public class ResultInternal implements Result {
       case null -> {
         return false;
       }
-      case Vertex statefulEdge -> {
+      case Vertex vertex -> {
         return true;
       }
       default -> {
+        checkSessionForRecords();
+
+        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+
+        return cls != null && !cls.isAbstract() && cls.isVertexType();
       }
     }
-
-    checkSessionForRecords();
-
-    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-    var cls = schemaSnapshot.getClassByClusterId(identifiable.getIdentity().getClusterId());
-
-    return cls != null && !cls.isAbstract() && cls.isVertexType();
   }
 
   @Nonnull
   @Override
   public Edge asEdge() {
     assert checkSession();
-    if (lightweightEdge != null) {
-      return lightweightEdge;
+    if (relation instanceof Edge edge) {
+      return edge;
     }
 
     if (isStatefulEdge()) {
@@ -1012,8 +1054,8 @@ public class ResultInternal implements Result {
   public Edge asEdgeOrNull() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge;
+    if (relation instanceof Edge edge) {
+      return edge;
     }
 
     if (isStatefulEdge()) {
@@ -1023,11 +1065,40 @@ public class ResultInternal implements Result {
     return null;
   }
 
+  @Nonnull
+  public Relation<?> asRelation() {
+    assert checkSession();
+    if (relation != null) {
+      return relation;
+    }
+
+    if (isStatefulEdge()) {
+      return (EdgeInternal) asStatefulEdge();
+    }
+
+    throw new DatabaseException("Result is not an relation");
+  }
+
+  @Nullable
+  public Relation<?> asRelationOrNull() {
+    assert checkSession();
+
+    if (relation != null) {
+      return relation;
+    }
+
+    if (isStatefulEdge()) {
+      return (EdgeInternal) asStatefulEdge();
+    }
+
+    return null;
+  }
+
   public @Nonnull String toJSON() {
     assert checkSession();
 
-    if (lightweightEdge != null) {
-      return lightweightEdge.toJSON();
+    if (relation != null) {
+      return relation.toJSON();
     }
 
     if (isEntity()) {
@@ -1153,13 +1224,15 @@ public class ResultInternal implements Result {
     return jsonVal;
   }
 
-
   @Override
   public String toString() {
     if (identifiable != null) {
-      return identifiable.toString();
+      return "identifiable:" + identifiable;
     }
-    return "{\n"
+    if (relation != null) {
+      return "relation:" + relation.toJSON();
+    }
+    return "content:{\n"
         + content.entrySet().stream()
         .map(x -> x.getKey() + ": " + x.getValue())
         .reduce("", (a, b) -> a + b + "\n")
@@ -1173,14 +1246,46 @@ public class ResultInternal implements Result {
     }
 
     if (!(obj instanceof ResultInternal resultObj)) {
+      if (obj instanceof Result result) {
+        if (result.isRecord() && identifiable != null) {
+          return identifiable.equals(result.getIdentity());
+        } else if (result.isEdge() && relation instanceof Edge edge) {
+          return edge.equals(result.getIdentity());
+        } else if (result.isProjection() && content != null) {
+          var propNames = result.getPropertyNames();
+
+          if (propNames.size() != content.size()) {
+            return false;
+          }
+
+          //noinspection ObjectInstantiationInEqualsHashCode
+          for (var prop : propNames) {
+            var thisValue = content.get(prop);
+            var otherValue = result.getProperty(prop);
+            if (thisValue == null && otherValue == null) {
+              continue;
+            }
+            if (thisValue == null || otherValue == null) {
+              return false;
+            }
+            if (!thisValue.equals(otherValue)) {
+              return false;
+            }
+          }
+
+          return true;
+        }
+      }
+
       return false;
     }
 
     if (session != resultObj.session) {
       return false;
     }
-    if (lightweightEdge != null) {
-      return lightweightEdge.equals(resultObj.lightweightEdge);
+
+    if (relation != null) {
+      return relation.equals(resultObj.relation);
     } else if (identifiable != null) {
       return identifiable.equals(resultObj.identifiable);
     }
@@ -1194,8 +1299,8 @@ public class ResultInternal implements Result {
 
   @Override
   public int hashCode() {
-    if (lightweightEdge != null) {
-      return lightweightEdge.hashCode();
+    if (relation != null) {
+      return relation.hashCode();
     }
     if (identifiable != null) {
       return identifiable.hashCode();
@@ -1204,6 +1309,78 @@ public class ResultInternal implements Result {
       return content.hashCode();
     } else {
       return super.hashCode();
+    }
+  }
+
+  @Nullable
+  public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionInternal session) {
+    return toResult(value, session, null);
+  }
+
+  @Nullable
+  public static Result toResult(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+    if (value instanceof Result result) {
+      return result;
+    }
+
+    return toResultInternal(value, session, alias);
+  }
+
+  @Nullable
+  public static ResultInternal toResultInternal(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session) {
+    return toResultInternal(value, session, null);
+  }
+
+  @Nullable
+  public static ResultInternal toResultInternal(@Nullable Object value,
+      @Nonnull DatabaseSessionInternal session, @Nullable String alias) {
+    switch (value) {
+      case null -> {
+        return null;
+      }
+      case ResultInternal result -> {
+        return result;
+      }
+      case Identifiable identifiable -> {
+        if (alias != null) {
+          throw new IllegalArgumentException(
+              "Alias is not supported for identifiable values");
+        }
+        return new ResultInternal(session, identifiable);
+      }
+      case Relation<?> bidirectionalLink -> {
+        return new ResultInternal(session, bidirectionalLink);
+      }
+      case Map<?, ?> map -> {
+        if (alias != null) {
+          throw new IllegalArgumentException(
+              "Alias is not supported for map values");
+        }
+
+        var result = new ResultInternal(session);
+        for (var entry : map.entrySet()) {
+          if (entry.getKey() instanceof String key) {
+            result.setProperty(key, entry.getValue());
+          } else {
+            throw new IllegalArgumentException(
+                "Invalid value, only maps with key types of String are supported : " +
+                    entry.getKey());
+          }
+        }
+        return result;
+      }
+      default -> {
+        var result = new ResultInternal(session);
+        if (alias != null) {
+          result.setProperty(alias, value);
+        } else {
+          throw new IllegalArgumentException(
+              "Not supported value type: " + value.getClass().getName());
+        }
+        return result;
+      }
     }
   }
 

@@ -34,6 +34,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import javax.annotation.Nullable;
 
 /**
  * Abstract representation of a channel.
@@ -129,6 +130,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     return in.readShort();
   }
 
+  @Nullable
   public String readString() throws IOException {
     if (debug) {
       LogManager.instance()
@@ -171,6 +173,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     return new String(tmp, StandardCharsets.UTF_8);
   }
 
+  @Nullable
   public byte[] readBytes() throws IOException {
     if (debug) {
       LogManager.instance()
@@ -222,9 +225,9 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public RecordId readRID() throws IOException {
-    final int clusterId = readShort();
-    final var clusterPosition = readLong();
-    return new RecordId(clusterId, clusterPosition);
+    final int collectionId = readShort();
+    final var collectionPosition = readLong();
+    return new RecordId(collectionId, collectionPosition);
   }
 
   public int readVersion() throws IOException {
@@ -351,8 +354,8 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public void writeRID(final RID iRID) throws IOException {
-    writeShort((short) iRID.getClusterId());
-    writeLong(iRID.getClusterPosition());
+    writeShort((short) iRID.getCollectionId());
+    writeLong(iRID.getCollectionPosition());
   }
 
   public void writeVersion(final int version) throws IOException {

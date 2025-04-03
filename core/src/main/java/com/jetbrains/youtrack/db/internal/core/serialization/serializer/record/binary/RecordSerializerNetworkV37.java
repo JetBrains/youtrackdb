@@ -73,7 +73,7 @@ import javax.annotation.Nonnull;
 public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
   public static final String NAME = "onet_ser_v37";
-  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   private static final long MILLISEC_PER_DAY = 86400000;
   public static final RecordSerializerNetworkV37 INSTANCE = new RecordSerializerNetworkV37();
 
@@ -726,8 +726,8 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   }
 
   private static void writeNullLink(final BytesContainer bytes) {
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
   }
 
   protected static void writeOptimizedLink(DatabaseSessionInternal session,
@@ -738,8 +738,8 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       rid = session.refreshRid(rid);
     }
 
-    VarIntSerializer.write(bytes, rid.getClusterId());
-    VarIntSerializer.write(bytes, rid.getClusterPosition());
+    VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
   }
 
   private static void writeLinkCollection(

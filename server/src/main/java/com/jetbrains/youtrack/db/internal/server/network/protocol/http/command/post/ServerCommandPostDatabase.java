@@ -31,7 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassIntern
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerAbstract {
 
@@ -69,7 +70,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
 
-        var result = RecordSerializerJackson.mapFromJson(iRequest.getContent());
+        var result = JSONSerializerJackson.mapFromJson(iRequest.getContent());
 
         if (result.containsKey("adminPassword")) {
           createAdmin = true;
@@ -119,6 +120,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
     return NAMES;
   }
 
+  @Nullable
   protected String getStoragePath(final String databaseName, final String iStorageMode) {
     if (iStorageMode.equals(EngineLocalPaginated.NAME)) {
       return iStorageMode + ":" + server.getDatabaseDirectory() + databaseName;
@@ -154,20 +156,20 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       json.endCollection(1, true);
     }
 
-    if (session.getClusterNames() != null) {
-      json.beginCollection(session, 1, false, "clusters");
-      for (var clusterName : session.getClusterNames()) {
-        final var clusterId = session.getClusterIdByName(clusterName);
-        if (clusterId < 0) {
+    if (session.getCollectionNames() != null) {
+      json.beginCollection(session, 1, false, "collections");
+      for (var collectionName : session.getCollectionNames()) {
+        final var collectionId = session.getCollectionIdByName(collectionName);
+        if (collectionId < 0) {
           continue;
         }
 
         try {
           json.beginObject(2, true, null);
-          json.writeAttribute(session, 3, false, "id", clusterId);
-          json.writeAttribute(session, 3, false, "name", clusterName);
+          json.writeAttribute(session, 3, false, "id", collectionId);
+          json.writeAttribute(session, 3, false, "name", collectionName);
           json.writeAttribute(session, 3, false, "records",
-              session.countClusterElements(clusterId));
+              session.countCollectionElements(collectionId));
           json.writeAttribute(session, 3, false, "size", "-");
           json.writeAttribute(session, 3, false, "filled", "-");
           json.writeAttribute(session, 3, false, "maxSize", "-");
@@ -301,7 +303,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       i++;
     }
     json.endCollection();
-    json.writeAttribute(session, 3, true, "clusters", cls.getClusterIds());
+    json.writeAttribute(session, 3, true, "collections", cls.getCollectionIds());
     try {
       json.writeAttribute(session, 3, false, "records", session.countClass(cls.getName()));
     } catch (SecurityAccessException e) {

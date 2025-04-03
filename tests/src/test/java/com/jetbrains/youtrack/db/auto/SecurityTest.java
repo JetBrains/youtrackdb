@@ -257,7 +257,7 @@ public class SecurityTest extends BaseDBTest {
   }
 
   @Test
-  public void testAdminCanSeeSystemClusters() {
+  public void testAdminCanSeeSystemCollections() {
     session = createSessionInstance();
 
     session.begin();
@@ -271,13 +271,13 @@ public class SecurityTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    Assert.assertTrue(session.browseCluster("OUser").hasNext());
+    Assert.assertTrue(session.browseCollection("OUser").hasNext());
     session.commit();
   }
 
   @Test
   @Ignore
-  public void testOnlyAdminCanSeeSystemClusters() {
+  public void testOnlyAdminCanSeeSystemCollections() {
     session = createSessionInstance("reader", "reader");
 
     try {
@@ -292,7 +292,7 @@ public class SecurityTest extends BaseDBTest {
     }
 
     try {
-      Assert.assertFalse(session.browseCluster("OUser").hasNext());
+      Assert.assertFalse(session.browseCollection("OUser").hasNext());
       Assert.fail();
     } catch (SecurityException e) {
     }
@@ -307,7 +307,7 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("writer", "writer");
 
     try {
-      session.command("alter class Protected superclass OUser");
+      session.command("alter class Protected superclasses OUser");
       Assert.fail();
     } catch (SecurityException e) {
     } finally {
@@ -324,7 +324,7 @@ public class SecurityTest extends BaseDBTest {
     session.getMetadata().getSchema().createClass("Protected");
 
     try {
-      session.execute("alter class Protected superclass OUser").close();
+      session.execute("alter class Protected superclasses OUser").close();
     } finally {
       session.getMetadata().getSchema().dropClass("Protected");
     }

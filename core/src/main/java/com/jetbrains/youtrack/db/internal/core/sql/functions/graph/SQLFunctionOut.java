@@ -8,8 +8,10 @@ import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -24,8 +26,15 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSessionInternal graph, final Identifiable iRecord, final String[] iLabels) {
-    return v2v(graph, iRecord, Direction.OUT, iLabels);
+      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+    return v2v(graph, record, Direction.OUT, labels);
+  }
+
+  @Override
+  protected Object move(DatabaseSessionInternal db,
+      Relation<?> bidirectionalRelation, String[] labels) {
+    throw new UnsupportedOperationException(
+        "Function 'out' is not supported for bidirectional links");
   }
 
   protected Object move(
@@ -42,8 +51,8 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     }
 
     var edges = v2e(graph, iRecord, Direction.OUT, iLabels);
-    if (edges instanceof Sizeable) {
-      var size = ((Sizeable) edges).size();
+    if (edges instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      var size = sizeable.size();
       if (size > supernodeThreshold) {
         var result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
         if (result != null) {
@@ -55,6 +64,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     return v2v(graph, iRecord, Direction.OUT, iLabels);
   }
 
+  @Nullable
   private static Object fetchFromIndex(
       DatabaseSessionInternal session,
       Identifiable iFrom,

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLArrayRangeSelector extends SimpleNode {
 
@@ -78,6 +79,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, Object result, CommandContext ctx) {
     if (result == null) {
       return null;
@@ -118,6 +120,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
     return Arrays.asList(Arrays.copyOfRange(arrayResult, lFrom, lTo));
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, Object result, CommandContext ctx) {
     if (result == null) {
       return null;

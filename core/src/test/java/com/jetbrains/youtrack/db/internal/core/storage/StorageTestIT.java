@@ -47,7 +47,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndSwitchReadOnlyMode)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -113,7 +113,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndSwitchReadOnlyMode)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -176,7 +176,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndVerify)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
@@ -239,7 +239,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
                 ChecksumMode.StoreAndVerify)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
     youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);

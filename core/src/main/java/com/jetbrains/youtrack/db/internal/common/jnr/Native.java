@@ -31,6 +31,7 @@ import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
 import javax.management.MBeanException;
@@ -154,6 +155,7 @@ public class Native {
    * YouTrackDB instance is running inside container. If <code>null</code> is returned then it was
    * impossible to detect amount of memory on machine.
    */
+  @Nullable
   public MemoryLimitResult getMemoryLimit(final boolean printSteps) {
     // Perform several steps here:
     // 1. Fetch physical size available on machine

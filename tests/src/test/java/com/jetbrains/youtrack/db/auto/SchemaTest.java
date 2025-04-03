@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.ClusterDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
@@ -26,7 +25,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Locale;
@@ -116,11 +114,11 @@ public class SchemaTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "checkSchemaApi")
-  public void checkClusters() {
+  public void checkCollections() {
 
     for (var cls : session.getMetadata().getSchema().getClasses()) {
       assert cls.isAbstract()
-          || session.getClusterNameById(cls.getClusterIds()[0]) != null;
+          || session.getCollectionNameById(cls.getCollectionIds()[0]) != null;
     }
   }
 
@@ -169,57 +167,57 @@ public class SchemaTest extends BaseDBTest {
   public void createAndDropClassTestApi() {
 
     final var testClassName = "dropTestClass";
-    final int clusterId;
+    final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
-    clusterId = dropTestClass.getClusterIds()[0];
+    collectionId = dropTestClass.getCollectionIds()[0];
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
-    Assert.assertNotNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
+    Assert.assertNotNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
-    Assert.assertNotNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
+    Assert.assertNotNull(session.getCollectionNameById(collectionId));
     session.getMetadata().getSchema().dropClass(testClassName);
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), -1);
-    Assert.assertNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
+    Assert.assertNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), -1);
-    Assert.assertNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
+    Assert.assertNull(session.getCollectionNameById(collectionId));
   }
 
   @Test
   public void createAndDropClassTestCommand() {
 
     final var testClassName = "dropTestClass";
-    final int clusterId;
+    final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
-    clusterId = dropTestClass.getClusterIds()[0];
+    collectionId = dropTestClass.getCollectionIds()[0];
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
-    Assert.assertNotNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
+    Assert.assertNotNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), clusterId);
-    Assert.assertNotNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
+    Assert.assertNotNull(session.getCollectionNameById(collectionId));
     session.execute("drop class " + testClassName).close();
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), -1);
-    Assert.assertNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
+    Assert.assertNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
-    Assert.assertEquals(session.getStorage().getClusterIdByName(testClassName), -1);
-    Assert.assertNull(session.getClusterNameById(clusterId));
+    Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
+    Assert.assertNull(session.getCollectionNameById(collectionId));
   }
 
   @Test
@@ -369,7 +367,7 @@ public class SchemaTest extends BaseDBTest {
   }
 
   @Test
-  public void invalidClusterWrongKeywords() {
+  public void invalidCollectionWrongKeywords() {
 
     try {
       session.command("create class Antani the pen is on the table");
@@ -405,62 +403,6 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
   }
 
-  public void testMinimumClustersAndClusterSelection() {
-    session.command("alter database minimum_clusters 3");
-    try {
-      session.execute("create class multipleclusters").close();
-
-      Assert.assertTrue(session.existsCluster("multipleclusters"));
-
-      for (var i = 1; i < 3; ++i) {
-        Assert.assertTrue(session.existsCluster("multipleclusters_" + i));
-      }
-
-      for (var i = 0; i < 6; ++i) {
-        session.begin();
-        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
-        entity.setProperty("num", i);
-
-        session.commit();
-      }
-
-      // CHECK THERE ARE 2 RECORDS IN EACH CLUSTER (ROUND-ROBIN STRATEGY)
-      Assert.assertEquals(
-          session.countClusterElements(session.getClusterIdByName("multipleclusters")), 2);
-      for (var i = 1; i < 3; ++i) {
-        Assert.assertEquals(
-            session.countClusterElements(session.getClusterIdByName("multipleclusters_" + i)), 2);
-      }
-
-      session.begin();
-      // DELETE ALL THE RECORDS
-      var deleted =
-          session.execute("delete from cluster:multipleclusters_2").stream().
-              findFirst().orElseThrow().<Long>getProperty("count");
-      session.commit();
-      Assert.assertEquals(deleted, 2);
-
-      // CHANGE CLASS STRATEGY to BALANCED
-      session
-          .execute("alter class multipleclusters cluster_selection balanced").close();
-
-      for (var i = 0; i < 2; ++i) {
-        session.begin();
-        var entity = ((EntityImpl) session.newEntity("multipleclusters"));
-        entity.setProperty("num", i);
-
-        session.commit();
-      }
-
-      Assert.assertEquals(
-          session.countClusterElements(session.getClusterIdByName("multipleclusters_2")), 2);
-
-    } finally {
-      // RESTORE DEFAULT
-      session.execute("alter database minimum_clusters 0").close();
-    }
-  }
-
   public void testRenameWithSameNameIsNop() {
     session.getMetadata().getSchema().getClass("V").setName("V");
   }
@@ -476,8 +418,8 @@ public class SchemaTest extends BaseDBTest {
   @Test
   public void testDeletionOfDependentClass() {
     Schema schema = session.getMetadata().getSchema();
-    var oRestricted = schema.getClass(SecurityShared.RESTRICTED_CLASSNAME);
-    var classA = schema.createClass("TestDeletionOfDependentClassA", oRestricted);
+    var oClass = schema.getClass(EntityImpl.DEFAULT_CLASS_NAME);
+    var classA = schema.createClass("TestDeletionOfDependentClassA", oClass);
     var classB = schema.createClass("TestDeletionOfDependentClassB", classA);
     schema.dropClass(classB.getName());
   }
@@ -555,7 +497,7 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
 
     try (var rs =
-        session.execute(
+        session.query(
             "select from "
                 + className
                 + " where "
@@ -609,35 +551,35 @@ public class SchemaTest extends BaseDBTest {
     schema.dropClass(className);
   }
 
-  private void swapClusters(DatabaseSessionInternal databaseDocumentTx, int i) {
+  private void swapCollections(DatabaseSessionInternal databaseDocumentTx, int i) {
     databaseDocumentTx
-        .execute("CREATE CLASS TestRenameClusterNew extends TestRenameClusterOriginal clusters 2")
+        .execute("CREATE CLASS TestRenameCollectionNew extends TestRenameCollectionOriginal collections 2")
         .close();
     databaseDocumentTx.begin();
     databaseDocumentTx
-        .execute("INSERT INTO TestRenameClusterNew (iteration) VALUES(" + i + ")")
+        .execute("INSERT INTO TestRenameCollectionNew (iteration) VALUES(" + i + ")")
         .close();
     databaseDocumentTx.commit();
 
     databaseDocumentTx
-        .execute("ALTER CLASS TestRenameClusterOriginal remove_cluster TestRenameClusterOriginal")
+        .execute("ALTER CLASS TestRenameCollectionOriginal remove_collection TestRenameCollectionOriginal")
         .close();
     databaseDocumentTx
-        .execute("ALTER CLASS TestRenameClusterNew remove_cluster TestRenameClusterNew")
+        .execute("ALTER CLASS TestRenameCollectionNew remove_collection TestRenameCollectionNew")
         .close();
-    databaseDocumentTx.execute("DROP CLASS TestRenameClusterNew").close();
+    databaseDocumentTx.execute("DROP CLASS TestRenameCollectionNew").close();
     databaseDocumentTx
-        .execute("ALTER CLASS TestRenameClusterOriginal add_cluster TestRenameClusterNew")
+        .execute("ALTER CLASS TestRenameCollectionOriginal add_collection TestRenameCollectionNew")
         .close();
-    databaseDocumentTx.execute("DROP CLUSTER TestRenameClusterOriginal").close();
+    databaseDocumentTx.execute("DROP COLLECTION TestRenameCollectionOriginal").close();
     databaseDocumentTx
         .command(
-            "ALTER CLUSTER TestRenameClusterNew name TestRenameClusterOriginal");
+            "ALTER COLLECTION TestRenameCollectionNew name TestRenameCollectionOriginal");
 
     session.begin();
     var result =
         databaseDocumentTx.query(
-            "select * from TestRenameClusterOriginal").toList();
+            "select * from TestRenameCollectionOriginal").toList();
     Assert.assertEquals(result.size(), 1);
 
     var document = result.getFirst();

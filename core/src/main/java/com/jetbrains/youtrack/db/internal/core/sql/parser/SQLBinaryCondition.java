@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBinaryCondition extends SQLBooleanExpression {
 
@@ -144,6 +145,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   public SQLBinaryCondition isIndexedFunctionCondition(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (left.isIndexedFunctionCal(database)) {
@@ -210,6 +212,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
         target, context, operator, right.execute((Result) null, context));
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (left.isIndexedFunctionCal(database)) {
@@ -567,6 +570,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Nullable
   @Override
   public SQLExpression resolveKeyFrom(SQLBinaryCondition additional) {
     var operator = this.operator;
@@ -584,6 +588,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     }
   }
 
+  @Nullable
   @Override
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
     var operator = this.operator;

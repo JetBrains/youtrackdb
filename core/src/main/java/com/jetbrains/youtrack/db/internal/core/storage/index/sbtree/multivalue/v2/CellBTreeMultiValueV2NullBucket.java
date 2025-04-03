@@ -70,8 +70,8 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     if (embeddedSize < EMBEDDED_RIDS_BOUNDARY) {
       final var position = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
-      setShortValue(position, (short) rid.getClusterId());
-      setLongValue(position + ShortSerializer.SHORT_SIZE, rid.getClusterPosition());
+      setShortValue(position, (short) rid.getCollectionId());
+      setLongValue(position + ShortSerializer.SHORT_SIZE, rid.getCollectionPosition());
 
       setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) (embeddedSize + 1));
 
@@ -103,10 +103,10 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     final var end = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
     for (var position = RIDS_OFFSET; position < end; position += RID_SIZE) {
-      final int clusterId = getShortValue(position);
-      final var clusterPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
+      final int collectionId = getShortValue(position);
+      final var collectionPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
 
-      rids.add(new RecordId(clusterId, clusterPosition));
+      rids.add(new RecordId(collectionId, collectionPosition));
     }
 
     return rids;
@@ -127,13 +127,13 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     final var end = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
     for (var position = RIDS_OFFSET; position < end; position += RID_SIZE) {
-      final int clusterId = getShortValue(position);
-      if (clusterId != rid.getClusterId()) {
+      final int collectionId = getShortValue(position);
+      if (collectionId != rid.getCollectionId()) {
         continue;
       }
 
-      final var clusterPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
-      if (clusterPosition == rid.getClusterPosition()) {
+      final var collectionPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
+      if (collectionPosition == rid.getCollectionPosition()) {
         moveData(position + RID_SIZE, position, end - (position + RID_SIZE));
         setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) (embeddedSize - 1));
         setIntValue(RIDS_SIZE_OFFSET, size - 1);

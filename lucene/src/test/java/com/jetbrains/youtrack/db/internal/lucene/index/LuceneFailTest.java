@@ -37,6 +37,8 @@ public class LuceneFailTest {
           transaction.query("select from V where search_class('*this breaks') = true").close();
         } catch (Exception e) {
         }
+      });
+      session.executeInTx(transaction -> {
         transaction.query("select from V ").close();
       });
     }

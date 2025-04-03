@@ -69,14 +69,14 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
     var res =
         storage.createRecord(bad, doc.toStream(), doc.getVersion(), EntityImpl.RECORD_TYPE, null);
 
-    // assertTrue(" the cluster is not valid", bad.clusterId >= 0);
+    // assertTrue(" the collection is not valid", bad.collectionId >= 0);
     var ids = "";
-    for (var aId : clazz.getClusterIds()) {
+    for (var aId : clazz.getCollectionIds()) {
       ids += aId;
     }
 
     assertTrue(
-        " returned id:" + bad.getClusterId() + " shoud be one of:" + ids,
-        Arrays.binarySearch(clazz.getClusterIds(), bad.getClusterId()) >= 0);
+        " returned id:" + bad.getCollectionId() + " shoud be one of:" + ids,
+        Arrays.binarySearch(clazz.getCollectionIds(), bad.getCollectionId()) >= 0);
   }
 }

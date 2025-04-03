@@ -33,7 +33,7 @@ public class IndexMetadata {
   @Nonnull
   private final String name;
   private final IndexDefinition indexDefinition;
-  private final Set<String> clustersToIndex;
+  private final Set<String> collectionsToIndex;
   private final String type;
   private final String algorithm;
   private int version;
@@ -42,14 +42,14 @@ public class IndexMetadata {
   public IndexMetadata(
       @Nonnull String name,
       IndexDefinition indexDefinition,
-      Set<String> clustersToIndex,
+      Set<String> collectionsToIndex,
       String type,
       String algorithm,
       int version,
       Map<String, Object> metadata) {
     this.name = name;
     this.indexDefinition = indexDefinition;
-    this.clustersToIndex = clustersToIndex;
+    this.collectionsToIndex = collectionsToIndex;
     this.type = type;
 
     this.algorithm = algorithm;
@@ -67,8 +67,8 @@ public class IndexMetadata {
     return indexDefinition;
   }
 
-  public Set<String> getClustersToIndex() {
-    return clustersToIndex;
+  public Set<String> getCollectionsToIndex() {
+    return collectionsToIndex;
   }
 
   public String getType() {
@@ -93,7 +93,7 @@ public class IndexMetadata {
     if (!Objects.equals(algorithm, that.algorithm)) {
       return false;
     }
-    if (!clustersToIndex.equals(that.clustersToIndex)) {
+    if (!collectionsToIndex.equals(that.collectionsToIndex)) {
       return false;
     }
     if (!Objects.equals(indexDefinition, that.indexDefinition)) {
@@ -109,7 +109,7 @@ public class IndexMetadata {
   public int hashCode() {
     var result = name.hashCode();
     result = 31 * result + (indexDefinition != null ? indexDefinition.hashCode() : 0);
-    result = 31 * result + clustersToIndex.hashCode();
+    result = 31 * result + collectionsToIndex.hashCode();
     result = 31 * result + type.hashCode();
     result = 31 * result + (algorithm != null ? algorithm.hashCode() : 0);
     return result;

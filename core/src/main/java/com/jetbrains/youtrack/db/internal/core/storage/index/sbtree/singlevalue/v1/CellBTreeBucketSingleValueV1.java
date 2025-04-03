@@ -217,10 +217,10 @@ public final class CellBTreeBucketSingleValueV1<K> extends DurablePage {
 
       entryPosition += getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
 
-      final int clusterId = getShortValue(entryPosition);
-      final var clusterPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+      final int collectionId = getShortValue(entryPosition);
+      final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-      return new SBTreeEntry<>(-1, -1, key, new RecordId(clusterId, clusterPosition));
+      return new SBTreeEntry<>(-1, -1, key, new RecordId(collectionId, collectionPosition));
     } else {
       final var leftChild = getIntValue(entryPosition);
       entryPosition += IntegerSerializer.INT_SIZE;
@@ -291,10 +291,10 @@ public final class CellBTreeBucketSingleValueV1<K> extends DurablePage {
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
     entryPosition += getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
 
-    final int clusterId = getShortValue(entryPosition);
-    final var clusterPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+    final int collectionId = getShortValue(entryPosition);
+    final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-    return new RecordId(clusterId, clusterPosition);
+    return new RecordId(collectionId, collectionPosition);
   }
 
   public RID getValue(final int entryIndex, final int keyLen) {
@@ -304,10 +304,10 @@ public final class CellBTreeBucketSingleValueV1<K> extends DurablePage {
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
     entryPosition += keyLen;
 
-    final int clusterId = getShortValue(entryPosition);
-    final var clusterPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+    final int collectionId = getShortValue(entryPosition);
+    final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-    return new RecordId(clusterId, clusterPosition);
+    return new RecordId(collectionId, collectionPosition);
   }
 
   byte[] getRawValue(

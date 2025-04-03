@@ -2,79 +2,91 @@ package com.jetbrains.youtrack.db.internal.lucene.functions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
 
   @Before
   public void setUp() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      //noinspection resource
       session.runScript("sql", getScriptFromStream(stream)).close();
     }
   }
 
-  @Test
-  public void shouldSearchMoreLikeThisWithRid() throws Exception {
-    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
-    var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds()[0];
+  @Override
+  protected YouTrackDBConfig createConfig() {
+    var builder = YouTrackDBConfig.builder();
+    builder.addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1);
+    return builder.build();
+  }
 
+  @Test
+  public void shouldSearchMoreLikeThisWithRid() {
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    var tx = session.begin();
+    var firstRecordId = tx.query("SELECT * FROM Song WHERE title = 'UNCLE SAMS BLUES'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var secondRecordId = tx.query("SELECT * FROM Song WHERE title = 'THINGS I USED TO DO'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
     try (var resultSet =
         session.query(
-            "SELECT from Song where SEARCH_More([#"
-                + defCluster
-                + ":2, #"
-                + defCluster
-                + ":3],{'minTermFreq':1, 'minDocFreq':1} ) = true")) {
+            "SELECT from Song where SEARCH_More([?, ?],{'minTermFreq':1, 'minDocFreq':1} ) = true",
+            firstRecordId, secondRecordId)) {
       assertThat(resultSet).hasSize(48);
     }
+    tx.commit();
   }
 
   @Test
   public void shouldSearchMoreLikeThisWithRidOnMultiFieldsIndex() throws Exception {
-
     session.execute("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
-    var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds()[0];
-
+    var tx = session.begin();
+    var firstRecordId = tx.query("SELECT * FROM Song WHERE title = 'UNCLE SAMS BLUES'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var secondRecordId = tx.query("SELECT * FROM Song WHERE title = 'THINGS I USED TO DO'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
     try (var resultSet =
-        session.query(
-            "SELECT from Song where SEARCH_More([#"
-                + defCluster
-                + ":2, #"
-                + defCluster
-                + ":3] , {'minTermFreq':1, 'minDocFreq':1} ) = true")) {
+        tx.query(
+            "SELECT from Song where SEARCH_More([?, ?] , {'minTermFreq':1, 'minDocFreq':1} ) = true",
+            firstRecordId, secondRecordId)) {
       assertThat(resultSet).hasSize(84);
     }
+    tx.commit();
   }
 
   @Test
   public void shouldSearchOnFieldAndMoreLikeThisWithRidOnMultiFieldsIndex() throws Exception {
     session.execute("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
-
-    var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds()[0];
-
+    var tx = session.begin();
+    var firstRecordId = tx.query("SELECT * FROM Song WHERE title = 'UNCLE SAMS BLUES'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var secondRecordId = tx.query("SELECT * FROM Song WHERE title = 'THINGS I USED TO DO'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var thirdRecordId = tx.query("SELECT * FROM Song WHERE title = 'STEALING'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var fourthRecordId = tx.query("SELECT * FROM Song WHERE title = 'SITTING ON TOP OF THE WORLD'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
     try (var resultSet =
         session.query(
-            "SELECT from Song where author ='Hunter' AND SEARCH_More([#"
-                + defCluster
-                + ":2, #"
-                + defCluster
-                + ":3,#"
-                + defCluster
-                + ":4,#"
-                + defCluster
-                + ":5],{'minTermFreq':1, 'minDocFreq':1} ) = true")) {
+            "SELECT from Song where author ='Hunter' AND SEARCH_More([?, ?, ? ,?],{'minTermFreq':1, 'minDocFreq':1} ) = true",
+            firstRecordId, secondRecordId, thirdRecordId, fourthRecordId)) {
       assertThat(resultSet).hasSize(8);
     }
+    tx.commit();
   }
 
   @Test
@@ -82,16 +94,17 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
 
     session.execute("create index Song.multi on Song (title) FULLTEXT ENGINE LUCENE ");
 
-    var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds()[0];
-
+    var tx = session.begin();
+    var firstRecordId = tx.query("SELECT * FROM Song WHERE title = 'UNCLE SAMS BLUES'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var secondRecordId = tx.query("SELECT * FROM Song WHERE title = 'THINGS I USED TO DO'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
     try (var resultSet =
-        session.query(
-            "SELECT from Song where SEARCH_More([#"
-                + defCluster
-                + ":2, #"
-                + defCluster
-                + ":3], {'minTermFreq':1, 'minDocFreq':1} ) = true OR author ='Hunter' ")) {
+        tx.query(
+            "SELECT from Song where SEARCH_More([?, ?], {'minTermFreq':1, 'minDocFreq':1} ) = true OR author ='Hunter' ",
+            firstRecordId, secondRecordId)) {
       var plan = resultSet.getExecutionPlan();
       if (plan != null) {
         System.out.println(plan.prettyPrint(1, 1));
@@ -105,16 +118,19 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
 
     session.execute("create index Song.multi on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
-    var clazz = session.getMetadata().getSchema().getClass("Song");
-    var defCluster = clazz.getClusterIds()[0];
+    var tx = session.begin();
+    var firstRecordId = tx.query("SELECT * FROM Song WHERE title = 'UNCLE SAMS BLUES'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
+    var secondRecordId = tx.query("SELECT * FROM Song WHERE title = 'THINGS I USED TO DO'")
+        .findFirstEntity(
+            DBRecord::getIdentity);
 
     try (var resultSet =
-        session.query(
-            "SELECT from Song where SEARCH_More( [#"
-                + defCluster
-                + ":2, #"
-                + defCluster
-                + ":3] , {'fields': [ 'title' ], 'minTermFreq':1, 'minDocFreq':1}) = true")) {
+        tx.query(
+            "SELECT from Song where SEARCH_More( [?, ?] "
+                + ", {'fields': [ 'title' ], 'minTermFreq':1, 'minDocFreq':1}) = true",
+            firstRecordId, secondRecordId)) {
 
       var plan = resultSet.getExecutionPlan();
       if (plan != null) {
@@ -122,6 +138,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
       }
       assertThat(resultSet).hasSize(84);
     }
+    tx.commit();
   }
 
   @Test

@@ -25,11 +25,11 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayOutputStream;
@@ -2827,7 +2827,7 @@ public class CRUDTest extends BaseDBTest {
   public void testSaveMultiCircular() {
     session = createSessionInstance();
     try {
-      startRecordNumber = session.countClusterElements("Profile");
+      startRecordNumber = session.countCollectionElements("Profile");
       session.begin();
       var bObama = session.newInstance("Profile");
       bObama.setProperty("nick", "TheUSPresident");

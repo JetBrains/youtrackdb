@@ -141,8 +141,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     byte[] binary;
     createAccountClass();
 
-    final Set<Integer> accountClusterIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Account").getClusterIds())
+    final Set<Integer> accountCollectionIds =
+        Arrays.stream(session.getMetadata().getSchema().getClass("Account").getCollectionIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -165,7 +165,7 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
         }
         element.setProperty("binary", binary);
         if (!remoteDB) {
-          Assert.assertTrue(accountClusterIds.contains(element.getIdentity().getClusterId()));
+          Assert.assertTrue(accountCollectionIds.contains(element.getIdentity().getCollectionId()));
         }
         session.commit();
       }
@@ -442,16 +442,16 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     createAnimalRaceClass();
     createWhizClass();
 
-    if (session.getClusterIdByName("csv") == -1) {
-      session.addCluster("csv");
+    if (session.getCollectionIdByName("csv") == -1) {
+      session.addCollection("csv");
     }
 
-    if (session.getClusterIdByName("flat") == -1) {
-      session.addCluster("flat");
+    if (session.getCollectionIdByName("flat") == -1) {
+      session.addCollection("flat");
     }
 
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addCluster("binary");
+    if (session.getCollectionIdByName("binary") == -1) {
+      session.addCollection("binary");
     }
   }
 

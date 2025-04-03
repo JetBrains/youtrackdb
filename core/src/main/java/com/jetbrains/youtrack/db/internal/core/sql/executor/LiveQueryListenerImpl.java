@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -233,6 +234,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
     return where.matchesFilters(record, ctx);
   }
 
+  @Nullable
   private static ResultInternal copy(DatabaseSessionInternal db, Result item) {
     if (item == null) {
       return null;

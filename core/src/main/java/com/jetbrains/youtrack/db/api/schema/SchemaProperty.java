@@ -163,7 +163,6 @@ public interface SchemaProperty {
    *              <ul>
    *                <li>UNIQUE: Doesn't allow duplicates
    *                <li>NOTUNIQUE: Allow duplicates
-   *                <li>FULLTEXT: Indexes single word for full text search
    *              </ul>
    */
   String createIndex(final INDEX_TYPE iType);

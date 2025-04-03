@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class FrontendTransactionIndexChangesList
     implements List<TransactionIndexEntry> {
@@ -281,6 +282,7 @@ public class FrontendTransactionIndexChangesList
     this.ridToNodes.clear();
   }
 
+  @Nullable
   @Override
   public TransactionIndexEntry get(int index) {
     if (index < 0 || index >= size) {
@@ -307,6 +309,7 @@ public class FrontendTransactionIndexChangesList
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   @Override
   public TransactionIndexEntry remove(int index) {
     if (index < 0 || index >= size) {

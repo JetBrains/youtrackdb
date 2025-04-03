@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 /**
  * Provides a default password authenticator.
@@ -107,6 +108,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
 

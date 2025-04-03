@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrBlock;
+import javax.annotation.Nullable;
 
 public class SecurityEngine {
 
@@ -68,6 +69,7 @@ public class SecurityEngine {
     return SQLBooleanExpression.FALSE;
   }
 
+  @Nullable
   private static SQLBooleanExpression getPredicateForFunction(
       DatabaseSessionInternal session,
       SecurityShared security,
@@ -99,6 +101,7 @@ public class SecurityEngine {
     return result;
   }
 
+  @Nullable
   private static SQLBooleanExpression getPredicateForProperty(
       DatabaseSessionInternal session,
       SecurityShared security,
@@ -133,6 +136,7 @@ public class SecurityEngine {
     return result;
   }
 
+  @Nullable
   private static SQLBooleanExpression getPredicateForClass(
       DatabaseSessionInternal session,
       SecurityShared security,

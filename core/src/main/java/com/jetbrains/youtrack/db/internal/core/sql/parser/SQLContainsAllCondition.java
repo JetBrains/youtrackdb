@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLContainsAllCondition extends SQLBooleanExpression {
 
@@ -333,6 +334,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();

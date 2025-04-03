@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 
 /**
  * Default strategy that checks the record version number: if the current update has a version
@@ -34,6 +35,7 @@ public class VersionRecordConflictStrategy implements RecordConflictStrategy {
 
   public static final String NAME = "version";
 
+  @Nullable
   @Override
   public byte[] onUpdate(
       Storage storage,

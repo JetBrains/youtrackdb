@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -36,6 +37,7 @@ public class FilterOptimizer {
     filter.setRootCondition(optimize(filter.getRootCondition(), indexMatch));
   }
 
+  @Nullable
   private SQLFilterCondition optimize(
       SQLFilterCondition condition, IndexSearchResult indexMatch) {
     if (condition == null) {

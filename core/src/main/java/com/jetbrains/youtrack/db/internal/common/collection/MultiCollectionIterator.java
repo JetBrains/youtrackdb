@@ -24,8 +24,8 @@ import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.iterator.LazyWrapperIterator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -126,6 +126,11 @@ public class MultiCollectionIterator<T>
     skipped = 0;
   }
 
+  @Override
+  public boolean isResetable() {
+    return true;
+  }
+
   public MultiCollectionIterator<T> add(final Object iValue) {
     if (iValue != null) {
       if (sourcesIterator != null) {
@@ -141,17 +146,14 @@ public class MultiCollectionIterator<T>
   public int size() {
     // SUM ALL THE COLLECTION SIZES
     var size = 0;
-    final var totSources = sources.size();
-    for (var i = 0; i < totSources; ++i) {
-      final var o = sources.get(i);
-
+    for (var o : sources) {
       if (o != null) {
         if (o instanceof Collection<?>) {
           size += ((Collection<?>) o).size();
         } else if (o instanceof Map<?, ?>) {
           size += ((Map<?, ?>) o).size();
-        } else if (o instanceof Sizeable) {
-          size += ((Sizeable) o).size();
+        } else if (o instanceof Sizeable sizeable && sizeable.isSizeable()) {
+          size += sizeable.size();
         } else if (o.getClass().isArray()) {
           size += Array.getLength(o);
         } else if (o instanceof Iterator<?> && o instanceof Resettable) {
@@ -166,6 +168,25 @@ public class MultiCollectionIterator<T>
       }
     }
     return size;
+  }
+
+  @Override
+  public boolean isSizeable() {
+    // SUM ALL THE COLLECTION SIZES
+    var size = 0;
+    for (var o : sources) {
+      if (o != null) {
+        if (o instanceof Sizeable sizeable) {
+          if (!sizeable.isSizeable()) {
+            return false;
+          }
+        } else if (o instanceof Iterator<?>) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   @Override
@@ -206,13 +227,8 @@ public class MultiCollectionIterator<T>
       if (o != null) {
         if (o instanceof Set<?> || o instanceof RidBag) {
           // OK
-        } else if (o instanceof LazyWrapperIterator) {
-          if (!((LazyWrapperIterator) o).canUseMultiValueDirectly()) {
-            return false;
-          }
-        } else {
-          return false;
-        }
+        } else
+          return o instanceof RelationsIteratorAbstract<?, ?>;
       }
     }
 
@@ -223,8 +239,8 @@ public class MultiCollectionIterator<T>
   public boolean contains(final Object value) {
     for (var o : sources) {
       if (o != null) {
-        if (o instanceof LazyWrapperIterator) {
-          o = ((LazyWrapperIterator) o).getMultiValue();
+        if (o instanceof RelationsIteratorAbstract<?, ?> bidirectionalLinkIterator) {
+          o = bidirectionalLinkIterator.getMultiValue();
         }
 
         if (o instanceof Collection<?>) {

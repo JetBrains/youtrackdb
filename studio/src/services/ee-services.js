@@ -90,7 +90,7 @@ ee.factory('CommandLogApi', ["$http", "$resource", function ($http, $resource) {
 }]);
 
 
-ee.factory('Cluster', ["$http", "$resource", "$q", function ($http, $resource, $q) {
+ee.factory('Collection', ["$http", "$resource", "$q", function ($http, $resource, $q) {
 
 
   var resource = $resource('');
@@ -892,10 +892,10 @@ ee.factory('HaCommand', ["$http", "$resource", "$q", function ($http, $resource,
     return deferred.promise;
   }
 
-  resource.syncCluster = function (server, database, cluster) {
+  resource.syncCollection = function (server, database, collection) {
 
     var deferred = $q.defer();
-    var url = API + 'distributed/syncCluster/' + database + '/' + cluster;
+    var url = API + 'distributed/syncCollection/' + database + '/' + collection;
     if (server) {
       url += '?node=' + server;
     }

@@ -41,20 +41,10 @@ import java.util.Set;
  */
 public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract {
 
-  public static final String KEYWORD_FROM = "FROM";
-  public static final String KEYWORD_LET = "LET";
-  public static final String KEYWORD_WHERE = "WHERE";
-  public static final String KEYWORD_LIMIT = "LIMIT";
-  public static final String KEYWORD_SKIP = "SKIP";
-  public static final String KEYWORD_OFFSET = "OFFSET";
   public static final String KEYWORD_TIMEOUT = "TIMEOUT";
-  public static final String KEYWORD_RETURN = "RETURN";
-  public static final String KEYWORD_KEY = "key";
-  public static final String KEYWORD_RID = "rid";
-  public static final String CLUSTER_PREFIX = "CLUSTER:";
+  public static final String COLLECTION_PREFIX = "COLLECTION:";
   public static final String CLASS_PREFIX = "CLASS:";
   public static final String INDEX_PREFIX = "INDEX:";
-  public static final String KEYWORD_UNSAFE = "UNSAFE";
 
   public static final String INDEX_VALUES_PREFIX = "INDEXVALUES:";
   public static final String INDEX_VALUES_ASC_PREFIX = "INDEXVALUESASC:";
@@ -63,8 +53,6 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
   public static final String METADATA_PREFIX = "METADATA:";
   public static final String METADATA_SCHEMA = "SCHEMA";
   public static final String METADATA_INDEXMGR = "INDEXMANAGER";
-  public static final String METADATA_STORAGE = "STORAGE";
-  public static final String METADATA_DATABASE = "DATABASE";
 
   public static final String DEFAULT_PARAM_USER = "$user";
 
@@ -137,43 +125,43 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
 
   }
 
-  protected Set<String> getInvolvedClustersOfClasses(final Collection<String> iClassNames,
+  protected Set<String> getInvolvedCollectionsOfClasses(final Collection<String> iClassNames,
       DatabaseSessionInternal db) {
-    final Set<String> clusters = new HashSet<String>();
+    final Set<String> collections = new HashSet<String>();
 
     for (var clazz : iClassNames) {
       final var cls = db.getMetadata().getImmutableSchemaSnapshot().getClass(clazz);
       if (cls != null) {
-        for (var clId : cls.getPolymorphicClusterIds()) {
-          // FILTER THE CLUSTER WHERE THE USER HAS THE RIGHT ACCESS
-          if (clId > -1 && checkClusterAccess(db, db.getClusterNameById(clId))) {
-            clusters.add(db.getClusterNameById(clId).toLowerCase(Locale.ENGLISH));
+        for (var clId : cls.getPolymorphicCollectionIds()) {
+          // FILTER THE COLLECTION WHERE THE USER HAS THE RIGHT ACCESS
+          if (clId > -1 && checkCollectionAccess(db, db.getCollectionNameById(clId))) {
+            collections.add(db.getCollectionNameById(clId).toLowerCase(Locale.ENGLISH));
           }
         }
       }
     }
 
-    return clusters;
+    return collections;
   }
 
-  protected Set<String> getInvolvedClustersOfClusters(DatabaseSessionInternal db,
-      final Collection<String> iClusterNames) {
-    final Set<String> clusters = new HashSet<String>();
+  protected Set<String> getInvolvedCollectionsOfCollections(DatabaseSessionInternal db,
+      final Collection<String> iCollectionNames) {
+    final Set<String> collections = new HashSet<String>();
 
-    for (var cluster : iClusterNames) {
-      final var c = cluster.toLowerCase(Locale.ENGLISH);
-      // FILTER THE CLUSTER WHERE THE USER HAS THE RIGHT ACCESS
-      if (checkClusterAccess(db, c)) {
-        clusters.add(c);
+    for (var collection : iCollectionNames) {
+      final var c = collection.toLowerCase(Locale.ENGLISH);
+      // FILTER THE COLLECTION WHERE THE USER HAS THE RIGHT ACCESS
+      if (checkCollectionAccess(db, c)) {
+        collections.add(c);
       }
     }
 
-    return clusters;
+    return collections;
   }
 
-  protected static Set<String> getInvolvedClustersOfIndex(DatabaseSessionInternal db,
+  protected static Set<String> getInvolvedCollectionsOfIndex(DatabaseSessionInternal db,
       final String iIndexName) {
-    final Set<String> clusters = new HashSet<String>();
+    final Set<String> collections = new HashSet<String>();
 
     final var metadata = db.getMetadata();
     final var idx = metadata.getIndexManagerInternal().getIndex(db, iIndexName);
@@ -183,25 +171,25 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
       if (clazz != null) {
         final var cls = metadata.getImmutableSchemaSnapshot().getClass(clazz);
         if (cls != null) {
-          for (var clId : cls.getClusterIds()) {
-            final var clName = db.getClusterNameById(clId);
+          for (var clId : cls.getCollectionIds()) {
+            final var clName = db.getCollectionNameById(clId);
             if (clName != null) {
-              clusters.add(clName.toLowerCase(Locale.ENGLISH));
+              collections.add(clName.toLowerCase(Locale.ENGLISH));
             }
           }
         }
       }
     }
 
-    return clusters;
+    return collections;
   }
 
-  protected boolean checkClusterAccess(final DatabaseSessionInternal db,
-      final String iClusterName) {
+  protected boolean checkCollectionAccess(final DatabaseSessionInternal db,
+      final String iCollectionName) {
     return db.getCurrentUser() == null
         || db.getCurrentUser()
         .checkIfAllowed(db,
-            Rule.ResourceGeneric.CLUSTER, iClusterName, getSecurityOperationType())
+            Rule.ResourceGeneric.COLLECTION, iCollectionName, getSecurityOperationType())
         != null;
   }
 

@@ -19,10 +19,11 @@
 package com.jetbrains.youtrack.db.internal.server.plugin;
 
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Map;
 
 
 public interface ServerPluginConfigurable {
-  EntityImpl getConfig();
+  Map<String, Object> getConfig();
 
   void changeConfig(EntityImpl entity);
 }

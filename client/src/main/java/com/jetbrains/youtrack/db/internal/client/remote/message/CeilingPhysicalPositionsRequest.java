@@ -34,13 +34,13 @@ import java.io.IOException;
 public class CeilingPhysicalPositionsRequest
     implements BinaryRequest<CeilingPhysicalPositionsResponse> {
 
-  private int clusterId;
+  private int collectionId;
   private PhysicalPosition physicalPosition;
   private int limit;
 
-  public CeilingPhysicalPositionsRequest(int clusterId, PhysicalPosition physicalPosition,
+  public CeilingPhysicalPositionsRequest(int collectionId, PhysicalPosition physicalPosition,
       int limit) {
-    this.clusterId = clusterId;
+    this.collectionId = collectionId;
     this.physicalPosition = physicalPosition;
     this.limit = limit;
   }
@@ -51,8 +51,8 @@ public class CeilingPhysicalPositionsRequest
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(clusterId);
-    network.writeLong(physicalPosition.clusterPosition);
+    network.writeInt(collectionId);
+    network.writeLong(physicalPosition.collectionPosition);
     network.writeInt(limit);
   }
 
@@ -60,7 +60,7 @@ public class CeilingPhysicalPositionsRequest
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.clusterId = channel.readInt();
+    this.collectionId = channel.readInt();
     this.physicalPosition = new PhysicalPosition(channel.readLong());
     this.limit = channel.readInt();
   }
@@ -79,8 +79,8 @@ public class CeilingPhysicalPositionsRequest
     return ChannelBinaryProtocol.REQUEST_POSITIONS_CEILING;
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
   public int getLimit() {

@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
 
@@ -50,6 +51,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
     return super.authenticate(session, info);
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(DatabaseSessionInternal session, String username,
       String password) {
@@ -81,6 +83,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
     return user;
   }
 
+  @Nullable
   @Override
   public SecurityUser getUser(String username, DatabaseSessionInternal session) {
     return null;

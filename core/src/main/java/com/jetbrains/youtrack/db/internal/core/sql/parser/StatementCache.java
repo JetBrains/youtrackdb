@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This class is an LRU cache for already parsed SQL statement executors. It stores itself in the
@@ -113,6 +114,7 @@ public class StatementCache {
    * @return the corresponding executor
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
+  @Nullable
   protected static SQLStatement parse(String statement, DatabaseSessionInternal session)
       throws CommandSQLParsingException {
     try {
@@ -168,6 +170,7 @@ public class StatementCache {
    * @return the corresponding executor
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
+  @Nullable
   protected static SQLServerStatement parseServerStatement(String statement)
       throws CommandSQLParsingException {
     try {

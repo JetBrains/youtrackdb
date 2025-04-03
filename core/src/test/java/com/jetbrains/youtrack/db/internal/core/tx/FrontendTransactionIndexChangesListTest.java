@@ -45,20 +45,20 @@ public class FrontendTransactionIndexChangesListTest {
             FrontendTransactionIndexChanges.OPERATION.PUT));
     Assert.assertEquals(4, list.size());
 
-    Assert.assertEquals(2, list.get(2).getValue().getIdentity().getClusterPosition());
+    Assert.assertEquals(2, list.get(2).getValue().getIdentity().getCollectionPosition());
 
     list.remove(list.get(2));
     Assert.assertEquals(3, list.size());
-    Assert.assertEquals(3, list.get(2).getValue().getIdentity().getClusterPosition());
+    Assert.assertEquals(3, list.get(2).getValue().getIdentity().getCollectionPosition());
 
     list.remove(list.get(0));
     Assert.assertEquals(2, list.size());
-    Assert.assertEquals(3, list.get(1).getValue().getIdentity().getClusterPosition());
+    Assert.assertEquals(3, list.get(1).getValue().getIdentity().getCollectionPosition());
 
     list.add(
         temp.createEntryInternal(new RecordId(12, 4),
             FrontendTransactionIndexChanges.OPERATION.PUT));
     Assert.assertEquals(3, list.size());
-    Assert.assertEquals(4, list.get(2).getValue().getIdentity().getClusterPosition());
+    Assert.assertEquals(4, list.get(2).getValue().getIdentity().getCollectionPosition());
   }
 }

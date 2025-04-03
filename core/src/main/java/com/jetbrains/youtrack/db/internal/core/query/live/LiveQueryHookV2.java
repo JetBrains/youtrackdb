@@ -244,6 +244,7 @@ public class LiveQueryHookV2 {
    * @param ops
    * @return
    */
+  @Nullable
   private static Set<String> calculateProjections(LiveQueryOps ops) {
     Set<String> result = new HashSet<>();
     if (ops == null || ops.subscribers == null) {
@@ -267,6 +268,7 @@ public class LiveQueryHookV2 {
     return result;
   }
 
+  @Nullable
   private static LiveQueryOp prevousUpdate(List<LiveQueryOp> list, EntityImpl entity) {
     for (var liveQueryOp : list) {
       if (liveQueryOp.originalEntity == entity) {

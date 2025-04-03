@@ -3,13 +3,13 @@ package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.multivalue.
 public final class MultiValueEntry implements Comparable<MultiValueEntry> {
 
   public final long id;
-  public final int clusterId;
-  public final long clusterPosition;
+  public final int collectionId;
+  public final long collectionPosition;
 
-  MultiValueEntry(final long id, final int clusterId, final long clusterPosition) {
+  MultiValueEntry(final long id, final int collectionId, final long collectionPosition) {
     this.id = id;
-    this.clusterId = clusterId;
-    this.clusterPosition = clusterPosition;
+    this.collectionId = collectionId;
+    this.collectionPosition = collectionPosition;
   }
 
   @Override
@@ -19,11 +19,11 @@ public final class MultiValueEntry implements Comparable<MultiValueEntry> {
       return result;
     }
 
-    result = Integer.compare(clusterId, o.clusterId);
+    result = Integer.compare(collectionId, o.collectionId);
     if (result != 0) {
       return result;
     }
 
-    return Long.compare(clusterPosition, o.clusterPosition);
+    return Long.compare(collectionPosition, o.collectionPosition);
   }
 }

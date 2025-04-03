@@ -40,32 +40,26 @@ public class MessageHelperTest {
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open("testIdentifiable", "admin", "admin");
-    var id = db.getClusterIdByName("V");
     try {
+      db.createClass("Test");
+      db.begin();
+      var firstRecord = db.newEntity("Test");
+      db.commit();
+
       var channel = new MockChannel();
+      db.begin();
       var doc = ((EntityImpl) db.newEntity("Test"));
       var bags = new RidBag(db);
-      bags.add(new RecordId(id, 0));
+      bags.add(firstRecord.getIdentity());
       doc.setProperty("bag", bags);
-      doc.setClassNameWithoutPropertiesPostProcessing("Test");
-      final RecordId iIdentity = new RecordId(id, 1);
-      final var rec1 = (RecordAbstract) doc;
-      rec1.setIdentity(iIdentity);
-      final var rec = (RecordAbstract) doc;
-      rec.setVersion(1);
+      db.commit();
 
-      MessageHelper.writeIdentifiable(null,
-          channel, doc);
+      MessageHelper.writeIdentifiable(db, channel, doc);
       channel.close();
 
-      var newDoc =
-          (EntityImpl)
-              MessageHelper.readIdentifiable(db,
+      var rid =  MessageHelper.readIdentifiable(db,
                   channel, RecordSerializerNetworkFactory.current());
-
-      assertThat(newDoc.getSchemaClassName()).isEqualTo("Test");
-      assertThat((RidBag) newDoc.getProperty("bag")).hasSize(1);
-
+      assertThat(rid).isEqualTo(doc.getIdentity());
       Assert.assertTrue(
           db.getTransactionInternal().getRecordOperationsInternal()
               .isEmpty());

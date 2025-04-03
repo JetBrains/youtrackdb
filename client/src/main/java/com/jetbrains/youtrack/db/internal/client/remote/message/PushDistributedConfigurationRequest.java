@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -53,6 +54,7 @@ public class PushDistributedConfigurationRequest
     return remote.executeUpdateDistributedConfig(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

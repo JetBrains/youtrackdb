@@ -20,10 +20,10 @@ public class BinaryTokenPayloadDeserializer implements TokenPayloadDeserializer 
       payload.setDatabaseType(base.getDbType(pos));
     }
 
-    var cluster = input.readShort();
+    var collection = input.readShort();
     var position = input.readLong();
-    if (cluster != -1 && position != -1) {
-      payload.setUserRid(new RecordId(cluster, position));
+    if (collection != -1 && position != -1) {
+      payload.setUserRid(new RecordId(collection, position));
     }
     payload.setExpiry(input.readLong());
     payload.setServerUser(input.readBoolean());

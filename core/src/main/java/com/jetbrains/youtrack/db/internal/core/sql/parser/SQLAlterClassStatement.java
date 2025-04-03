@@ -39,7 +39,7 @@ public class SQLAlterClassStatement extends DDLStatement {
   public SQLIdentifier customKey;
   public SQLExpression customValue;
 
-  // only to manage 'round-robin' as a cluster selection strategy (not a valid identifier)
+  // only to manage 'round-robin' as a collection selection strategy (not a valid identifier)
   protected String customString;
 
   protected boolean unsafe;

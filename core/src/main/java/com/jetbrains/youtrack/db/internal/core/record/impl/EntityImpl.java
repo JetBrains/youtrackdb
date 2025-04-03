@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -39,6 +40,7 @@ import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -47,6 +49,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
@@ -91,6 +94,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.collections4.IterableUtils;
 
 /**
  * Entity representation to handle values dynamically. Can be used in schema-less, schema-mixed and
@@ -123,6 +127,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public PropertyAccess propertyAccess;
   public PropertyEncryption propertyEncryption;
 
+  private boolean propertyConversionInProgress = false;
+
   /**
    * Internal constructor used on unmarshalling.
    */
@@ -141,7 +147,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     setup();
 
-    this.recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
+    this.recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
   }
 
   /**
@@ -342,7 +348,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public <RET> RET getProperty(final @Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
 
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       return null;
     }
 
@@ -388,7 +394,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public Blob getBlob(String propertyName) {
+  public Blob getBlob(@Nonnull String propertyName) {
     var property = getProperty(propertyName);
 
     return switch (property) {
@@ -523,7 +529,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public RID getLink(@Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       return null;
     }
 
@@ -654,7 +660,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
 
-    if (!filterPropertyAccess(propertyName)) {
+    if (!isPropertyAccessible(propertyName)) {
       throw new SecurityException("Property " + propertyName + " is not accessible");
     }
   }
@@ -665,7 +671,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     if (value == null) {
       value = new EntityEmbeddedListImpl<>(this);
-      setProperty(name, value, PropertyType.EMBEDDEDLIST);
+      return (EmbeddedList<T>) setProperty(name, value, PropertyType.EMBEDDEDLIST);
     }
 
     return value;
@@ -693,8 +699,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name) {
     var value = new EntityEmbeddedListImpl<T>(this);
-    setProperty(name, value, PropertyType.EMBEDDEDLIST);
-    return value;
+    return (EmbeddedList<T>) setProperty(name, value, PropertyType.EMBEDDEDLIST);
   }
 
   @Nonnull
@@ -708,8 +713,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedList<T> newEmbeddedList(@Nonnull String name, @Nonnull Collection<T> source) {
     var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
-    setProperty(name, value, PropertyType.EMBEDDEDLIST);
-    return value;
+    return (EmbeddedList<T>) setProperty(name, value, PropertyType.EMBEDDEDLIST);
   }
 
   @Nonnull
@@ -729,7 +733,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Unsupported type: " + componentType);
     }
 
-    var value =  (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
+    var value = (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
@@ -813,7 +817,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var value = this.<EmbeddedSet<T>>getProperty(name);
     if (value == null) {
       value = new EntityEmbeddedSetImpl<>(this);
-      setProperty(name, value, PropertyType.EMBEDDEDSET);
+      return (EmbeddedSet<T>) setProperty(name, value, PropertyType.EMBEDDEDSET);
     }
 
     return value;
@@ -840,8 +844,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name) {
     var value = new EntityEmbeddedSetImpl<T>(this);
-    setProperty(name, value, PropertyType.EMBEDDEDSET);
-    return value;
+    return (EmbeddedSet<T>) setProperty(name, value, PropertyType.EMBEDDEDSET);
   }
 
   @Nonnull
@@ -854,8 +857,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> EmbeddedSet<T> newEmbeddedSet(@Nonnull String name, @Nonnull Collection<T> source) {
     var value = (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(source, session);
-    setProperty(name, value, PropertyType.EMBEDDEDSET);
-    return value;
+    return (EmbeddedSet<T>) setProperty(name, value, PropertyType.EMBEDDEDSET);
   }
 
   @Nonnull
@@ -871,7 +873,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var value = this.<Map<String, T>>getProperty(name);
     if (value == null) {
       value = new EntityEmbeddedMapImpl<>(this);
-      setProperty(name, value, PropertyType.EMBEDDEDMAP);
+      return (Map<String, T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
     }
 
     return value;
@@ -898,8 +900,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
     var value = new EntityEmbeddedMapImpl<T>(this);
-    setProperty(name, value, PropertyType.EMBEDDEDMAP);
-    return value;
+    return (Map<String, T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
 
@@ -913,8 +914,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
     var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
-    setProperty(name, value, PropertyType.EMBEDDEDMAP);
-    return value;
+    return (EmbeddedMap<T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
   @Nonnull
@@ -930,7 +930,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var value = this.<LinkList>getProperty(name);
     if (value == null) {
       value = new EntityLinkListImpl(this);
-      setProperty(name, value, PropertyType.LINKLIST);
+      return (LinkList) setProperty(name, value, PropertyType.LINKLIST);
     }
 
     return value;
@@ -939,16 +939,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public LinkList newLinkList(@Nonnull String name) {
     var value = new EntityLinkListImpl(this);
-    setProperty(name, value, PropertyType.LINKLIST);
-    return value;
+    return (LinkList) setProperty(name, value, PropertyType.LINKLIST);
   }
 
   @Nonnull
-  public LinkList newLinkList(@Nonnull String name, Collection<Identifiable> source) {
+  public LinkList newLinkList(@Nonnull String name, Collection<? extends Identifiable> source) {
     var value = new EntityLinkListImpl(this);
     value.addAll(source);
-    setProperty(name, value, PropertyType.LINKLIST);
-    return value;
+    return (LinkList) setProperty(name, value, PropertyType.LINKLIST);
   }
 
   @Nonnull
@@ -956,7 +954,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var value = this.<EntityLinkSetImpl>getProperty(name);
     if (value == null) {
       value = new EntityLinkSetImpl(this);
-      setProperty(name, value, PropertyType.LINKSET);
+      return (LinkSet) setProperty(name, value, PropertyType.LINKSET);
     }
 
     return value;
@@ -965,43 +963,39 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nonnull
   public LinkSet newLinkSet(@Nonnull String name) {
     var value = new EntityLinkSetImpl(this);
-    setProperty(name, value, PropertyType.LINKSET);
-    return value;
+    return (LinkSet) setProperty(name, value, PropertyType.LINKSET);
   }
 
   @Nonnull
-  public LinkSet newLinkSet(@Nonnull String name, Collection<Identifiable> source) {
+  public LinkSet newLinkSet(@Nonnull String name, Collection<? extends Identifiable> source) {
     var value = new EntityLinkSetImpl(this);
     value.addAll(source);
-    setProperty(name, value, PropertyType.LINKSET);
-    return value;
+    return (LinkSet) setProperty(name, value, PropertyType.LINKSET);
   }
 
   @Nonnull
-  public Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name) {
-    var value = this.<Map<String, Identifiable>>getProperty(name);
+  public LinkMap getOrCreateLinkMap(@Nonnull String name) {
+    var value = this.<LinkMap>getProperty(name);
     if (value == null) {
       value = new EntityLinkMapIml(this);
-      setProperty(name, value, PropertyType.LINKMAP);
+      return (LinkMap) setProperty(name, value, PropertyType.LINKMAP);
     }
 
     return value;
   }
 
   @Nonnull
-  public Map<String, Identifiable> newLinkMap(@Nonnull String name) {
+  public LinkMap newLinkMap(@Nonnull String name) {
     var value = new EntityLinkMapIml(this);
-    setProperty(name, value, PropertyType.LINKMAP);
-    return value;
+    return (LinkMap) setProperty(name, value, PropertyType.LINKMAP);
   }
 
   @Nonnull
-  public Map<String, Identifiable> newLinkMap(@Nonnull String name,
-      Map<String, Identifiable> source) {
+  public LinkMap newLinkMap(@Nonnull String name,
+      Map<String, ? extends Identifiable> source) {
     var value = new EntityLinkMapIml(this);
     value.putAll(source);
-    setProperty(name, value, PropertyType.LINKMAP);
-    return value;
+    return (LinkMap) setProperty(name, value, PropertyType.LINKMAP);
   }
 
   public void setPropertyInternal(String name, Object value) {
@@ -1053,7 +1047,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var fromFields = new HashMap<>(from.properties);
-    var sameCluster = from.recordId.getClusterId() == recordId.getClusterId();
+    var sameCollection = from.recordId.getCollectionId() == recordId.getCollectionId();
     var excludeSet = new HashSet<String>();
 
     if (exclude.length > 0) {
@@ -1078,12 +1072,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
         if (fromValue != null && currentValue == null) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+              copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
         } else if (fromValue == null && currentValue != null) {
           setPropertyInternal(propertyName, null, currentEntry.type);
         } else if (fromValue.getClass() != currentValue.getClass()) {
           setPropertyInternal(propertyName,
-              copyRidBagIfNecessary(session, fromValue, sameCluster),
+              copyRidBagIfNecessary(session, fromValue, sameCollection),
               fromType);
         } else {
           if (!(currentValue instanceof RidBag ridBag)) {
@@ -1095,12 +1089,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
               if (!Objects.equals(fromType, currentEntry.type)) {
                 setPropertyInternal(propertyName,
                     copyRidBagIfNecessary(session,
-                        copyRidBagIfNecessary(session, fromValue, sameCluster), sameCluster),
+                        copyRidBagIfNecessary(session, fromValue, sameCollection), sameCollection),
                     fromType);
               }
             } else {
               setPropertyInternal(propertyName,
-                  copyRidBagIfNecessary(session, fromValue, sameCluster), fromType);
+                  copyRidBagIfNecessary(session, fromValue, sameCollection), fromType);
             }
           }
         }
@@ -1109,12 +1103,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * All tree based ridbags are partitioned by clusters, so if we move entity to another cluster we
+   * All tree based ridbags are partitioned by collections, so if we move entity to another collection we
    * need to copy ridbags to avoid inconsistency.
    */
   private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
-      boolean sameCluster) {
-    if (sameCluster) {
+      boolean sameCollection) {
+    if (sameCollection) {
       return value;
     }
 
@@ -1141,11 +1135,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param propertyValue The property value
    * @param type          Forced type (not auto-determined)
    */
-  public void setProperty(@Nonnull String propertyName, Object propertyValue,
+  public Object setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
     validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue,
+    return setPropertyInternal(propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(type));
   }
 
@@ -1169,12 +1163,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public void setPropertyInternal(String name, Object value, @Nullable PropertyTypeInternal type) {
-    setPropertyInternal(name, value, type, null);
+  public Object setPropertyInternal(String name, Object value,
+      @Nullable PropertyTypeInternal type) {
+    return setPropertyInternal(name, value, type, null);
   }
 
 
-  public void setPropertyInternal(String name, Object value, PropertyTypeInternal type,
+  public Object setPropertyInternal(String name, Object value, PropertyTypeInternal type,
       PropertyTypeInternal linkedType) {
     checkForBinding();
 
@@ -1257,10 +1252,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (propertyType == oldType) {
           if (value instanceof byte[]
               && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
-            return;
+            return value;
           }
           if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
-            return;
+            return value;
           }
         }
       } catch (Exception e) {
@@ -1297,6 +1292,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     setDirty();
+    return value;
   }
 
   private void preprocessRemovedValue(Object oldValue) {
@@ -1429,7 +1425,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       EntityImpl iRecord)
       throws ValidationException {
     iRecord.checkForBinding();
-    iRecord = iRecord;
 
     var security = session.getSharedContext().getSecurity();
 
@@ -1814,13 +1809,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) propertyValue;
       final var rid = identifiable.getIdentity();
-      if (!schemaClass.hasPolymorphicClusterId(rid.getClusterId())) {
+      if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
         // COULD BE PARTIAL
         SchemaClass cls;
-        var clusterId = rid.getClusterId();
-        if (clusterId != RID.CLUSTER_ID_INVALID) {
-          cls = schema.getClassByClusterId(rid.getClusterId());
+        var collectionId = rid.getCollectionId();
+        if (collectionId != RID.COLLECTION_ID_INVALID) {
+          cls = schema.getClassByCollectionId(rid.getCollectionId());
         } else if (identifiable instanceof EntityImpl entity) {
           cls = entity.getImmutableSchemaClass(session);
         } else {
@@ -2754,6 +2749,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   @Override
   public void setDirty() {
+    if (propertyConversionInProgress) {
+      return;
+    }
+
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
     checkForProperties();
@@ -3481,98 +3480,105 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (properties == null) {
       return;
     }
+    propertyConversionInProgress = true;
+    try {
 
-    for (var propertyEntry : properties.entrySet()) {
-      var entry = propertyEntry.getValue();
-      final var propertyValue = entry.value;
-      if (propertyValue instanceof RidBag) {
-        if (isEmbedded()) {
-          throw new DatabaseException(session.getDatabaseName(),
-              "RidBag are supported only at entity root");
+      for (var propertyEntry : properties.entrySet()) {
+        var entry = propertyEntry.getValue();
+        final var propertyValue = entry.value;
+        if (propertyValue instanceof RidBag) {
+          if (isEmbedded()) {
+            throw new DatabaseException(session.getDatabaseName(),
+                "RidBag are supported only at entity root");
+          }
+          ((RidBag) propertyValue).checkAndConvert();
         }
-        ((RidBag) propertyValue).checkAndConvert();
-      }
-      if (!(propertyValue instanceof Collection<?>)
-          && !(propertyValue instanceof Map<?, ?>)
-          && !(propertyValue instanceof EntityImpl)) {
-        continue;
-      }
+        if (!(propertyValue instanceof Collection<?>)
+            && !(propertyValue instanceof Map<?, ?>)
+            && !(propertyValue instanceof EntityImpl)) {
+          continue;
+        }
 
-      if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
-        ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
-        continue;
-      }
+        if (propertyValue instanceof EntityImpl && ((EntityImpl) propertyValue).isEmbedded()) {
+          ((EntityImpl) propertyValue).checkAllMultiValuesAreTrackedVersions();
+          continue;
+        }
 
-      var propertyType = entry.type;
-      if (propertyType == null) {
-        SchemaClass clazz = getImmutableSchemaClass(session);
-        if (clazz != null) {
-          final var prop = clazz.getProperty(propertyEntry.getKey());
-          propertyType =
-              prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
+        var propertyType = entry.type;
+        if (propertyType == null) {
+          SchemaClass clazz = getImmutableSchemaClass(session);
+          if (clazz != null) {
+            final var prop = clazz.getProperty(propertyEntry.getKey());
+            propertyType =
+                prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
+          }
+        }
+        if (propertyType == null) {
+          propertyType = PropertyTypeInternal.getTypeByValue(propertyValue);
+        }
+
+        switch (propertyType) {
+          case EMBEDDEDLIST:
+            if (propertyValue instanceof List<?>
+                && !(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case EMBEDDEDSET:
+            if (propertyValue instanceof Set<?>
+                && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
+                      + propertyValue.getClass());
+
+            }
+            break;
+          case EMBEDDEDMAP:
+            if (propertyValue instanceof Map<?, ?>
+                && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKLIST:
+            if (propertyValue instanceof List<?>
+                && !(propertyValue instanceof EntityLinkListImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKSET:
+            if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityLinkSetImpl)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKMAP:
+            if (propertyValue instanceof Map<?, ?>
+                && !(propertyValue instanceof EntityLinkMapIml)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          case LINKBAG:
+            if (!(propertyValue instanceof RidBag)) {
+              throw new DatabaseException(session.getDatabaseName(),
+                  "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
+                      + propertyValue.getClass());
+            }
+            break;
+          default:
+            break;
         }
       }
-      if (propertyType == null) {
-        propertyType = PropertyTypeInternal.getTypeByValue(propertyValue);
-      }
-
-      switch (propertyType) {
-        case EMBEDDEDLIST:
-          if (propertyValue instanceof List<?>
-              && !(propertyValue instanceof EntityEmbeddedListImpl<?>)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedList but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case EMBEDDEDSET:
-          if (propertyValue instanceof Set<?>
-              && !(propertyValue instanceof EntityEmbeddedSetImpl<?>)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedSet but is "
-                    + propertyValue.getClass());
-
-          }
-          break;
-        case EMBEDDEDMAP:
-          if (propertyValue instanceof Map<?, ?>
-              && !(propertyValue instanceof EntityEmbeddedMapImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be TrackedMap but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKLIST:
-          if (propertyValue instanceof List<?> && !(propertyValue instanceof EntityLinkListImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkList but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKSET:
-          if (propertyValue instanceof Set<?> && !(propertyValue instanceof EntityLinkSetImpl)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkSet but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKMAP:
-          if (propertyValue instanceof Map<?, ?> && !(propertyValue instanceof EntityLinkMapIml)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be LinkMap but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        case LINKBAG:
-          if (!(propertyValue instanceof RidBag)) {
-            throw new DatabaseException(session.getDatabaseName(),
-                "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
-                    + propertyValue.getClass());
-          }
-          break;
-        default:
-          break;
-      }
+    } finally {
+      propertyConversionInProgress = false;
     }
   }
 
@@ -3628,7 +3634,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private boolean filterPropertyAccess(final String property) {
+  private boolean isPropertyAccessible(final String property) {
     return propertyAccess == null || propertyAccess.isReadable(property);
   }
 
@@ -3647,6 +3653,110 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForProperties();
     return properties == null ? new HashSet<>() : properties.entrySet();
+  }
+
+  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
+    checkForBinding();
+    if (direction == Direction.BOTH) {
+      return IterableUtils.chainedIterable(
+          getEntities(Direction.OUT, linkNames),
+          getEntities(Direction.IN, linkNames));
+    } else {
+      var links = getBidirectionalLinksInternal(direction, linkNames);
+      return new BidirectionalLinksIterable<>(links, direction);
+    }
+  }
+
+  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(
+      Direction direction, String... linkNames) {
+    checkForBinding();
+    if (direction == Direction.BOTH) {
+      return IterableUtils.chainedIterable(
+          getBidirectionalLinks(Direction.OUT, linkNames),
+          getBidirectionalLinks(Direction.IN, linkNames));
+    } else {
+      return getBidirectionalLinksInternal(direction, linkNames);
+    }
+  }
+
+  protected Iterable<? extends Relation<Entity>> getBidirectionalLinksInternal(
+      Direction direction, String... linkNames) {
+    if (linkNames == null || linkNames.length == 0) {
+      var propertyNames = getPropertyNames();
+      var linkCandidates = new ArrayList<String>(propertyNames.size());
+
+      for (var propertyName : propertyNames) {
+        var propertyType = getPropertyTypeInternal(propertyName);
+        if (propertyType != null && propertyType.isLink()) {
+          linkCandidates.add(propertyName);
+        }
+      }
+
+      linkNames = linkCandidates.toArray(new String[0]);
+    }
+    var iterables = new ArrayList<Iterable<LightweightRelationImpl<Entity>>>(
+        linkNames.length);
+    Object fieldValue;
+
+    for (var linkName : linkNames) {
+      if (!isPropertyAccessible(linkName)) {
+        return Collections.emptyList();
+      }
+
+      String propertyName;
+      if (direction == Direction.OUT) {
+        propertyName = linkName;
+      } else {
+        propertyName = OPPOSITE_LINK_CONTAINER_PREFIX + linkName;
+      }
+
+      fieldValue = getPropertyInternal(propertyName);
+      if (fieldValue != null) {
+        switch (fieldValue) {
+          case Identifiable identifiable -> {
+            if (identifiable instanceof Entity entity && entity.isEmbedded()) {
+              throw new IllegalArgumentException("Embedded entities are not supported");
+            }
+            var coll = Collections.singleton(identifiable);
+            iterables.add(
+                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
+                    session,
+                    coll, 1, coll));
+          }
+          case EntityLinkSetImpl set -> iterables.add(
+              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                  set, -1, set));
+          case EntityLinkListImpl list -> iterables.add(
+              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
+                  list, -1, list));
+          case RidBag bag -> iterables.add(
+              new EntityRelationsIterable(
+                  this, new Pair<>(direction, linkName), linkNames, session,
+                  bag, -1, bag));
+          case EntityLinkMapIml map -> {
+            var values = map.values();
+            iterables.add(
+                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
+                    session,
+                    values, -1, values));
+          }
+
+          default -> {
+            throw new IllegalArgumentException(
+                "Unsupported property type: " + getPropertyType(propertyName));
+          }
+        }
+      }
+    }
+
+    if (iterables.size() == 1) {
+      return iterables.getFirst();
+    } else if (iterables.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    //noinspection unchecked
+    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
   public List<Entry<String, EntityEntry>> getFilteredEntries() {
@@ -3676,10 +3786,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void fetchClassName(DatabaseSessionInternal session) {
-    if (recordId.getClusterId() >= 0) {
+    if (recordId.getCollectionId() >= 0) {
       final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
       if (schema != null) {
-        var clazz = schema.getClassByClusterId(recordId.getClusterId());
+        var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {
           className = clazz.getName();
         }
@@ -3807,16 +3917,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       var value = entityEntry.value;
       entityEntry.disableTracking(this, value);
-    }
-  }
-
-  private void addAllMultiValueChangeListeners() {
-    if (properties == null) {
-      return;
-    }
-
-    for (final var property : properties.entrySet()) {
-      property.getValue().enableTracking(this);
     }
   }
 

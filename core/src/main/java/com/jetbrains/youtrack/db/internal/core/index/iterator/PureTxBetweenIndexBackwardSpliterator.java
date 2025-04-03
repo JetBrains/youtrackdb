@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChange
 import java.util.Comparator;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public class PureTxBetweenIndexBackwardSpliterator implements Spliterator<RawPair<Object, RID>> {
 
@@ -72,6 +73,7 @@ public class PureTxBetweenIndexBackwardSpliterator implements Spliterator<RawPai
     return true;
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<Object, RID>> trySplit() {
     return null;

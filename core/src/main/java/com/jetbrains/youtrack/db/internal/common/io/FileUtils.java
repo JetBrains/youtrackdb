@@ -37,6 +37,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 public class FileUtils {
 
@@ -162,6 +163,7 @@ public class FileUtils {
     }
   }
 
+  @Nullable
   public static String getPath(final String iPath) {
     if (iPath == null) {
       return null;

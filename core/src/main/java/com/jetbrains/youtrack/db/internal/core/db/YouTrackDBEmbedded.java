@@ -47,7 +47,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
 import java.io.File;
@@ -74,6 +74,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang.NullArgumentException;
 
 /**
@@ -207,6 +208,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Nullable
   private ExecutorService newIoExecutor() {
     if (getBoolConfig(GlobalConfiguration.EXECUTOR_POOL_IO_ENABLED)) {
       var ioSize = excutorMaxSize(GlobalConfiguration.EXECUTOR_POOL_IO_MAX_SIZE);
@@ -1084,9 +1086,9 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
             for (var cf : db.listFiles()) {
               var fileName = cf.getName();
               if (fileName.equals("database.ocf")
-                  || (fileName.startsWith(ClusterBasedStorageConfiguration.COMPONENT_NAME)
+                  || (fileName.startsWith(CollectionBasedStorageConfiguration.COMPONENT_NAME)
                   && fileName.endsWith(
-                  ClusterBasedStorageConfiguration.DATA_FILE_EXTENSION))) {
+                  CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))) {
                 found.found(db.getName());
                 break;
               }
@@ -1188,6 +1190,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
           } else {
             LogManager.instance()
                 .warn(this, " Cancelled execution of task, YouTrackDB instance is closed");
+            //noinspection ReturnOfNull
             return null;
           }
         });

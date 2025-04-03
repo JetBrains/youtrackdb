@@ -40,6 +40,7 @@ import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 
 /**
  * Handles Multi-value types such as Arrays, Collections and Maps. It recognizes special YouTrackDB
@@ -90,8 +91,8 @@ public class MultiValue {
       return 0;
     }
 
-    if (iObject instanceof Sizeable) {
-      return ((Sizeable) iObject).size();
+    if (iObject instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      return sizeable.size();
     }
 
     if (!isMultiValue(iObject)) {
@@ -126,6 +127,7 @@ public class MultiValue {
    * @param iObject Multi-value object (array, collection or map)
    * @return The first item if any
    */
+  @Nullable
   public static Object getFirstValue(final Object iObject) {
     if (iObject == null) {
       return null;
@@ -161,6 +163,7 @@ public class MultiValue {
    * @param iObject Multi-value object (array, collection or map)
    * @return The last item if any
    */
+  @Nullable
   public static Object getLastValue(final Object iObject) {
     if (iObject == null) {
       return null;
@@ -205,6 +208,7 @@ public class MultiValue {
    * @param iIndex  integer as the position requested
    * @return The first item if any
    */
+  @Nullable
   public static Object getValue(final Object iObject, final int iIndex) {
     if (iObject == null) {
       return null;
@@ -248,16 +252,16 @@ public class MultiValue {
         for (var i = 0; it.hasNext(); ++i) {
           final var o = it.next();
           if (i == iIndex) {
-            if (it instanceof Resettable) {
-              ((Resettable) it).reset();
+            if (it instanceof Resettable resettable && resettable.isResetable()) {
+              resettable.reset();
             }
 
             return o;
           }
         }
 
-        if (it instanceof Resettable) {
-          ((Resettable) it).reset();
+        if (it instanceof Resettable resettable && resettable.isResetable()) {
+          resettable.reset();
         }
       }
     } catch (RuntimeException e) {
@@ -292,6 +296,7 @@ public class MultiValue {
    *
    * @param iObject Multi-value object (array, collection or map)
    */
+  @Nullable
   public static Iterable<Object> getMultiValueIterable(final Object iObject) {
     if (iObject == null) {
       return null;
@@ -322,6 +327,7 @@ public class MultiValue {
    *
    * @param iObject Multi-value object (array, collection or map)
    */
+  @Nullable
   public static Iterator<?> getMultiValueIterator(final Object iObject) {
     if (iObject == null) {
       return null;
@@ -430,6 +436,11 @@ public class MultiValue {
                 @Override
                 public int size() {
                   return collection.size();
+                }
+
+                @Override
+                public boolean isSizeable() {
+                  return true;
                 }
               };
         } else {
@@ -555,6 +566,11 @@ public class MultiValue {
                 public int size() {
                   return collection.size();
                 }
+
+                @Override
+                public boolean isSizeable() {
+                  return true;
+                }
               };
         } else {
           coll = (DataContainer<Object>) iObject;
@@ -679,8 +695,8 @@ public class MultiValue {
 
   private static void batchRemove(Collection<Object> coll, Iterator<?> it) {
     int approximateRemainingSize;
-    if (it instanceof Sizeable) {
-      approximateRemainingSize = ((Sizeable) it).size();
+    if (it instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      approximateRemainingSize = sizeable.size();
     } else {
       approximateRemainingSize = -1;
     }
@@ -721,6 +737,7 @@ public class MultiValue {
     return array(iValue, iClass, null);
   }
 
+  @Nullable
   public static <T> T[] array(
       final Object iValue,
       final Class<? extends T> iClass,
@@ -849,8 +866,8 @@ public class MultiValue {
         set.add(((Iterator<?>) o).next());
       }
 
-      if (o instanceof Resettable) {
-        ((Resettable) o).reset();
+      if (o instanceof Resettable resettable && resettable.isResetable()) {
+        resettable.reset();
       }
 
       return set;

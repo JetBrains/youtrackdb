@@ -39,10 +39,10 @@ public class ChannelBinaryProtocol {
   public static final byte REQUEST_DB_COUNTRECORDS = 9;
   public static final byte REQUEST_DB_REOPEN = 17;
 
-  public static final byte REQUEST_CLUSTER_ADD = 10;
-  public static final byte REQUEST_CLUSTER_DROP = 11;
-  public static final byte REQUEST_CLUSTER_COUNT = 12;
-  public static final byte REQUEST_CLUSTER_DATARANGE = 13;
+  public static final byte REQUEST_COLLECTION_ADD = 10;
+  public static final byte REQUEST_COLLECTION_DROP = 11;
+  public static final byte REQUEST_COLLECTION_COUNT = 12;
+  public static final byte REQUEST_COLLECTION_DATARANGE = 13;
 
   public static final byte REQUEST_INCREMENTAL_BACKUP = 27; // since 2.2
 
@@ -58,7 +58,7 @@ public class ChannelBinaryProtocol {
   public static final byte REQUEST_POSITIONS_FLOOR = 39; // since 1.3.0
 
   public static final byte REQUEST_COUNT = 40; // DEPRECATED: USE
-  // REQUEST_CLUSTER_COUNT
+  // REQUEST_COLLECTION_COUNT
 
   public static final byte REQUEST_COMMAND = 41;
   public static final byte REQUEST_POSITIONS_CEILING = 42; // since 1.3.0
@@ -86,7 +86,7 @@ public class ChannelBinaryProtocol {
   public static final byte REQUEST_OK_PUSH = 90;
 
   // DISTRIBUTED
-  public static final byte REQUEST_CLUSTER = 92; // SINCE 1.0
+  public static final byte REQUEST_COLLECTION = 92; // SINCE 1.0
   // Lock + sync
   public static final byte REQUEST_DB_FREEZE = 94; // SINCE 1.1.0
   public static final byte REQUEST_DB_RELEASE = 95; // SINCE 1.1.0

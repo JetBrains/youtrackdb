@@ -77,8 +77,8 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
           buffer.putInt(rids.size());
 
           for (final var rid : rids) {
-            buffer.putLong(rid.getClusterPosition());
-            buffer.putInt(rid.getClusterId());
+            buffer.putLong(rid.getCollectionPosition());
+            buffer.putInt(rid.getCollectionId());
           }
         } else {
           throw new IllegalStateException(
@@ -102,10 +102,10 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
 
       final var recordOperationMetadata = new RecordOperationMetadata();
       for (var i = 0; i < collectionsSize; i++) {
-        final var clusterPosition = buffer.getLong();
-        final var clusterId = buffer.getInt();
+        final var collectionPosition = buffer.getLong();
+        final var collectionId = buffer.getInt();
 
-        recordOperationMetadata.addRid(new RecordId(clusterId, clusterPosition));
+        recordOperationMetadata.addRid(new RecordId(collectionId, collectionPosition));
       }
 
       atomicOperationMetadataMap.put(recordOperationMetadata.getKey(), recordOperationMetadata);

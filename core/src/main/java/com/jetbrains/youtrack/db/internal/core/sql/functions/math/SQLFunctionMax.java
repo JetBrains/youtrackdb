@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
+import javax.annotation.Nullable;
 
 /**
  * Compute the maximum value for a field. Uses the context to save the last maximum number. When
@@ -39,6 +40,7 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
     super(NAME, 1, -1);
   }
 
+  @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
   public Object execute(
       Object iThis,

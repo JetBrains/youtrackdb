@@ -89,12 +89,12 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public void removeCluster(DatabaseSessionInternal session, String clusterName) {
+  public void removeCollection(DatabaseSessionInternal session, String collectionName) {
     acquireExclusiveLock();
     try {
-      if (clustersToIndex.remove(clusterName)) {
+      if (collectionsToIndex.remove(collectionName)) {
         session.executeInTx(
-            transaction -> remove(session, "_CLUSTER:" + storage.getClusterIdByName(clusterName)));
+            transaction -> remove(session, "_COLLECTION:" + storage.getCollectionIdByName(collectionName)));
       }
     } finally {
       releaseExclusiveLock();

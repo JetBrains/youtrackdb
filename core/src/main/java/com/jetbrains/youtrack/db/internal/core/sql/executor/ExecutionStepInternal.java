@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * Execution Steps are the building blocks of a query execution plan
@@ -57,11 +58,11 @@ public interface ExecutionStepInternal extends ExecutionStep {
     return spaces + getClass().getSimpleName();
   }
 
-  default String getName() {
+  default @Nonnull String getName() {
     return getClass().getSimpleName();
   }
 
-  default String getType() {
+  default @Nonnull String getType() {
     return getClass().getSimpleName();
   }
 
@@ -73,6 +74,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
     return "<local>";
   }
 
+  @Nonnull
   default List<ExecutionStep> getSubSteps() {
     return Collections.emptyList();
   }

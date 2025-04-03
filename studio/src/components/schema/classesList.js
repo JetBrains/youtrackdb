@@ -39,12 +39,12 @@ let SchemaClassesController = function(
       .triggerHandler("input");
   };
 
-  ctrl.clusterStrategies = Database.getClusterSelection();
+  ctrl.collectionStrategies = Database.getCollectionSelection();
 
   ctrl.links = {
     linkClasses: Database.getOWikiFor("Schema.html#class"),
-    linkClusterSelection: Database.getOWikiFor("Cluster-Selection.html"),
-    linkClusters: Database.getOWikiFor("Tutorial-Clusters.html"),
+    linkCollectionSelection: Database.getOWikiFor("Collection-Selection.html"),
+    linkCollections: Database.getOWikiFor("Tutorial-Collections.html"),
     linkInheritance: Database.getOWikiFor("Inheritance.html")
   };
   ctrl.openClass = function(clazz) {
@@ -144,19 +144,19 @@ let SchemaClassesController = function(
     );
   };
 
-  ctrl.setClusterStrategy = function(clazz) {
+  ctrl.setCollectionStrategy = function(clazz) {
     SchemaService.alterClass(
       ctrl.database,
       {
         clazz: clazz.name,
-        name: "clusterSelection",
-        value: clazz.clusterSelection
+        name: "collectionSelection",
+        value: clazz.collectionSelection
       },
       ctrl.strict
     )
       .then(() => {
         let noti = S(
-          "Cluster selection strategy for the class {{name}} has been changed to {{clusterSelection}}"
+          "Collection selection strategy for the class {{name}} has been changed to {{collectionSelection}}"
         ).template(clazz).s;
         Notification.push({ content: noti });
       })

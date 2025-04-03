@@ -44,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * IN operator.
@@ -59,6 +60,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
@@ -85,7 +87,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       if (inParams instanceof LegacyResultSet) { // manage IN (subquery)
         Set newInParams = new HashSet();
         for (var o : inParams) {
-          if (o instanceof EntityImpl entity && entity.getIdentity().getClusterId() < -1) {
+          if (o instanceof EntityImpl entity && entity.getIdentity().getCollectionId() < -1) {
             var fieldNames = entity.propertyNames();
             if (fieldNames.length == 1) {
               newInParams.add(entity.getProperty(fieldNames[0]));
@@ -177,6 +179,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     final Iterable<?> ridCollection;
@@ -205,6 +208,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return rids == null ? null : Collections.min(rids);
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     final Iterable<?> ridCollection;
@@ -300,6 +304,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return iLeft.equals(iRight);
   }
 
+  @Nullable
   protected List<RID> addRangeResults(final Iterable<?> ridCollection, final int ridSize) {
     if (ridCollection == null) {
       return null;

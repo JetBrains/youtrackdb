@@ -21,7 +21,6 @@ import static org.junit.Assert.assertNotNull;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -36,7 +35,6 @@ import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -468,7 +466,7 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryCustomFunction() {
-    SQLEngine.getInstance()
+    SQLEngine
         .registerFunction(
             "bigger",
             new SQLFunctionAbstract("bigger", 2, 2) {
@@ -514,7 +512,7 @@ public class SQLFunctionsTest extends BaseDBTest {
     }
     session.commit();
 
-    SQLEngine.getInstance().unregisterFunction("bigger");
+    SQLEngine.unregisterFunction("bigger");
   }
 
   @Test

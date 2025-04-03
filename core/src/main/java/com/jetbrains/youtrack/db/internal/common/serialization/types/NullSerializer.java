@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
+import javax.annotation.Nullable;
 
 /**
  * Serializes and deserializes null values.
@@ -43,6 +44,7 @@ public class NullSerializer implements BinarySerializer<Object> {
     // nothing to serialize
   }
 
+  @Nullable
   public Object deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     // nothing to deserialize
@@ -68,6 +70,7 @@ public class NullSerializer implements BinarySerializer<Object> {
       Object... hints) {
   }
 
+  @Nullable
   public Object deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return null;
@@ -81,6 +84,7 @@ public class NullSerializer implements BinarySerializer<Object> {
     return 0;
   }
 
+  @Nullable
   @Override
   public Object preprocess(BinarySerializerFactory serializerFactory, Object value,
       Object... hints) {
@@ -98,6 +102,7 @@ public class NullSerializer implements BinarySerializer<Object> {
   /**
    * {@inheritDoc}
    */
+  @Nullable
   @Override
   public Object deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       ByteBuffer buffer) {
@@ -107,6 +112,7 @@ public class NullSerializer implements BinarySerializer<Object> {
   /**
    * {@inheritDoc}
    */
+  @Nullable
   @Override
   public Object deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       int offset, ByteBuffer buffer) {
@@ -131,6 +137,7 @@ public class NullSerializer implements BinarySerializer<Object> {
   /**
    * {@inheritDoc}
    */
+  @Nullable
   @Override
   public Object deserializeFromByteBufferObject(
       BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,

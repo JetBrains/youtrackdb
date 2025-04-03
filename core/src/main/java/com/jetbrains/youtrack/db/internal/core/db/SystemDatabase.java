@@ -90,7 +90,7 @@ public class SystemDatabase {
       var config =
           YouTrackDBConfig.builder()
               .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-              .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+              .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
               .build();
       var type = DatabaseType.DISK;
       if (context.isMemoryOnly()) {

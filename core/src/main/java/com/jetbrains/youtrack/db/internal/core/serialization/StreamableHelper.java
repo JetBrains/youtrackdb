@@ -30,6 +30,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.io.Serializable;
+import javax.annotation.Nullable;
 
 /**
  * Helper class to serialize Streamable objects.
@@ -99,6 +100,7 @@ public class StreamableHelper {
     }
   }
 
+  @Nullable
   public static Object fromStream(final DataInput in) throws IOException {
     Object object = null;
 

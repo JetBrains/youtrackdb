@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Evaluates a complex expression.
@@ -41,6 +42,7 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iRecord,
@@ -76,6 +78,7 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     return "eval(<expression>)";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

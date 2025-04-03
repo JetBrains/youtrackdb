@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class BinaryTokenSerializer implements TokenMetaInfo {
 
@@ -78,6 +79,7 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
     return token;
   }
 
+  @Nullable
   protected static String readString(DataInputStream input) throws IOException {
     var s = input.readShort();
     if (s >= 0) {

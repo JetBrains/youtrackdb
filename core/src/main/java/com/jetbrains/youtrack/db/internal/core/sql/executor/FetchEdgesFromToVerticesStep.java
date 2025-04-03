@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -20,6 +21,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -27,7 +29,7 @@ import java.util.stream.StreamSupport;
 public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private final SQLIdentifier targetClass;
-  private final SQLIdentifier targetCluster;
+  private final SQLIdentifier targetCollection;
   private final String fromAlias;
   private final String toAlias;
 
@@ -35,12 +37,12 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       String fromAlias,
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.targetClass = targetClass;
-    this.targetCluster = targetCluster;
+    this.targetCollection = targetCollection;
     this.fromAlias = fromAlias;
     this.toAlias = toAlias;
   }
@@ -85,10 +87,11 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
                 false)
             .filter((e) -> filterResult(db, e, toList))
             .map(
-                (edge) -> (Result) new ResultInternal(db, edge))
+                (edge) -> (Result) new ResultInternal(db, (EdgeInternal) edge))
             .iterator());
   }
 
+  @Nullable
   private Set<RID> loadTo(DatabaseSessionInternal session) {
     Object toValues = null;
 
@@ -139,7 +142,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private boolean filterResult(DatabaseSessionInternal db, Edge edge, Set<RID> toList) {
     if (toList == null || toList.contains(edge.getTo().getIdentity())) {
-      return matchesClass(db, edge) && matchesCluster(edge);
+      return matchesClass(db, edge) && matchesCollection(edge);
     }
     return true;
   }
@@ -160,15 +163,15 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     }
   }
 
-  private boolean matchesCluster(Edge edge) {
-    if (targetCluster == null) {
+  private boolean matchesCollection(Edge edge) {
+    if (targetCollection == null) {
       return true;
     }
     if (edge.isStateful()) {
       var statefulEdge = edge.asStatefulEdge();
-      var clusterId = statefulEdge.getIdentity().getClusterId();
-      var clusterName = ctx.getDatabaseSession().getClusterNameById(clusterId);
-      return clusterName.equals(targetCluster.getStringValue());
+      var collectionId = statefulEdge.getIdentity().getCollectionId();
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      return collectionName.equals(targetCollection.getStringValue());
     }
 
     return false;
@@ -192,8 +195,8 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     if (targetClass != null) {
       result += "\n" + spaces + "       (target class " + targetClass + ")";
     }
-    if (targetCluster != null) {
-      result += "\n" + spaces + "       (target cluster " + targetCluster + ")";
+    if (targetCollection != null) {
+      result += "\n" + spaces + "       (target collection " + targetCollection + ")";
     }
     return result;
   }
@@ -206,6 +209,6 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new FetchEdgesFromToVerticesStep(
-        fromAlias, toAlias, targetClass, targetCluster, ctx, profilingEnabled);
+        fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled);
   }
 }

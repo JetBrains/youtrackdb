@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.command.script.transformer;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultSets;
@@ -11,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.resultset.ResultSetTransformer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,6 +19,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.graalvm.polyglot.Value;
 
 /**
@@ -69,7 +70,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
           var hostObject = v.getArrayElement(i).asHostObject();
           if (hostObject instanceof Identifiable identifiable) {
             array.add(new ResultInternal(db, identifiable));
-          } else if (hostObject instanceof Edge edge) {
+          } else if (hostObject instanceof EdgeInternal edge) {
             array.add((new ResultInternal(db, edge)));
           } else {
             array.add(toResult(db, hostObject));
@@ -119,6 +120,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return transformer.transform(db, value);
   }
 
+  @Nullable
   public ResultTransformer getTransformer(final Class clazz) {
     if (clazz != null) {
       for (var entry : transformers.entrySet()) {

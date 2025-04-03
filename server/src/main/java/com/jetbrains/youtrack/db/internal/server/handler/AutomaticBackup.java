@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginConfigurable;
@@ -45,8 +46,10 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimerTask;
@@ -59,10 +62,10 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AutomaticBackup extends ServerPluginAbstract implements ServerPluginConfigurable {
 
-  private EntityImpl configuration;
+  private Map<String, Object> configuration;
 
-  private final Set<OAutomaticBackupListener> listeners =
-      Collections.newSetFromMap(new ConcurrentHashMap<OAutomaticBackupListener, Boolean>());
+  private final Set<AutomaticBackupListener> listeners =
+      Collections.newSetFromMap(new ConcurrentHashMap<AutomaticBackupListener, Boolean>());
 
   public enum VARIABLES {
     DBNAME,
@@ -93,9 +96,9 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       final ServerParameterConfiguration[] iParams) {
     serverInstance = iServer;
 
-    configuration = new EntityImpl(null);
+    configuration = new HashMap<>();
     for (var param : iParams) {
-      if (param.name.equalsIgnoreCase("config") && param.value.trim().length() > 0) {
+      if (param.name.equalsIgnoreCase("config") && !param.value.trim().isEmpty()) {
         configFile = param.value.trim();
 
         final var f = new File(SystemVariableResolver.resolveSystemVariables(configFile));
@@ -109,27 +112,27 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
 
         // LEGACY <v2.2: CONVERT ALL SETTINGS IN JSON
       } else if (param.name.equalsIgnoreCase("enabled")) {
-        configuration.setProperty("enabled", Boolean.parseBoolean(param.value));
+        configuration.put("enabled", Boolean.parseBoolean(param.value));
       } else if (param.name.equalsIgnoreCase("delay")) {
-        configuration.setProperty("delay", param.value);
+        configuration.put("delay", param.value);
       } else if (param.name.equalsIgnoreCase("firstTime")) {
-        configuration.setProperty("firstTime", param.value);
+        configuration.put("firstTime", param.value);
       } else if (param.name.equalsIgnoreCase("target.directory")) {
-        configuration.setProperty("targetDirectory", param.value);
-      } else if (param.name.equalsIgnoreCase("db.include") && param.value.trim().length() > 0) {
-        configuration.setProperty("dbInclude", param.value);
-      } else if (param.name.equalsIgnoreCase("db.exclude") && param.value.trim().length() > 0) {
-        configuration.setProperty("dbExclude", param.value);
+        configuration.put("targetDirectory", param.value);
+      } else if (param.name.equalsIgnoreCase("db.include") && !param.value.trim().isEmpty()) {
+        configuration.put("dbInclude", param.value);
+      } else if (param.name.equalsIgnoreCase("db.exclude") && !param.value.trim().isEmpty()) {
+        configuration.put("dbExclude", param.value);
       } else if (param.name.equalsIgnoreCase("target.fileName")) {
-        configuration.setProperty("targetFileName", param.value);
+        configuration.put("targetFileName", param.value);
       } else if (param.name.equalsIgnoreCase("bufferSize")) {
-        configuration.setProperty("bufferSize", Integer.parseInt(param.value));
+        configuration.put("bufferSize", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("compressionLevel")) {
-        configuration.setProperty("compressionLevel", Integer.parseInt(param.value));
+        configuration.put("compressionLevel", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("mode")) {
-        configuration.setProperty("mode", param.value);
+        configuration.put("mode", param.value);
       } else if (param.name.equalsIgnoreCase("exportOptions")) {
-        configuration.setProperty("exportOptions", param.value);
+        configuration.put("exportOptions", param.value);
       }
     }
 
@@ -287,8 +290,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       // READ THE FILE
       try {
         final var configurationContent = IOUtils.readFileAsString(f);
-        configuration = new EntityImpl(null);
-        configuration.updateFromJSON(configurationContent);
+        configuration = JSONSerializerJackson.mapFromJson(configurationContent);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new ConfigurationException((String) null,
@@ -303,7 +305,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       try {
         f.getParentFile().mkdirs();
         f.createNewFile();
-        IOUtils.writeFile(f, configuration.toJSON("prettyPrint"));
+        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configuration));
 
         LogManager.instance()
             .info(this, "Automatic Backup: migrated configuration to file '%s'", f);
@@ -318,8 +320,9 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
     }
 
     // PARSE THE JSON FILE
-    for (var settingName : configuration.propertyNames()) {
-      final var settingValue = configuration.getProperty(settingName);
+    for (var entry : configuration.entrySet()) {
+      var settingName = entry.getKey();
+      final var settingValue = entry.getValue();
       final var settingValueAsString = settingValue != null ? settingValue.toString() : null;
 
       if (settingName.equalsIgnoreCase("enabled")) {
@@ -370,8 +373,8 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
 
   private String[] getDbsList(String settingName, String settingValueAsString) {
     String[] included = null;
-    var val = configuration.getProperty(settingName);
-    if (val instanceof Collection dbs) {
+    var val = configuration.get(settingName);
+    if (val instanceof Collection<?> dbs) {
       included = new String[dbs.size()];
       var i = 0;
       for (var o : dbs) {
@@ -379,7 +382,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
         i++;
       }
     } else {
-      if (settingValueAsString.trim().length() > 0) {
+      if (!settingValueAsString.trim().isEmpty()) {
         included = settingValueAsString.split(",");
       }
     }
@@ -458,7 +461,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
   }
 
   @Override
-  public EntityImpl getConfig() {
+  public Map<String, Object> getConfig() {
     return configuration;
   }
 
@@ -467,15 +470,15 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
   public void changeConfig(EntityImpl entity) {
   }
 
-  public void registerListener(OAutomaticBackupListener listener) {
+  public void registerListener(AutomaticBackupListener listener) {
     listeners.add(listener);
   }
 
-  public void unregisterListener(OAutomaticBackupListener listener) {
+  public void unregisterListener(AutomaticBackupListener listener) {
     listeners.remove(listener);
   }
 
-  public interface OAutomaticBackupListener {
+  public interface AutomaticBackupListener {
 
     void onBackupCompleted(String database);
 

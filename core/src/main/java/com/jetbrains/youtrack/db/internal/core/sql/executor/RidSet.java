@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Special implementation of Java Set&lt;RID&gt; to efficiently handle memory and performance. It
@@ -16,7 +17,7 @@ public class RidSet implements Set<RID> {
   protected static int INITIAL_BLOCK_SIZE = 4096;
 
   /*
-   * cluster / offset / bitmask
+   * collection / offset / bitmask
    * eg. inserting #12:0 you will have content[12][0][0] = 1
    * eg. inserting #12:(63*maxArraySize + 1) you will have content[12][1][0] = 1
    *
@@ -65,9 +66,9 @@ public class RidSet implements Set<RID> {
     if (identifiable == null) {
       throw new IllegalArgumentException();
     }
-    var cluster = identifiable.getClusterId();
-    var position = identifiable.getClusterPosition();
-    if (cluster < 0 || position < 0) {
+    var collection = identifiable.getCollectionId();
+    var position = identifiable.getCollectionPosition();
+    if (collection < 0 || position < 0) {
       return negatives.contains(identifiable);
     }
     var positionByte = (position / 63);
@@ -75,24 +76,24 @@ public class RidSet implements Set<RID> {
     var block = (int) (positionByte / maxArraySize);
     var blockPositionByteInt = (int) (positionByte % maxArraySize);
 
-    if (content.length <= cluster) {
+    if (content.length <= collection) {
       return false;
     }
-    if (content[cluster] == null) {
+    if (content[collection] == null) {
       return false;
     }
-    if (content[cluster].length <= block) {
+    if (content[collection].length <= block) {
       return false;
     }
-    if (content[cluster][block] == null) {
+    if (content[collection][block] == null) {
       return false;
     }
-    if (content[cluster][block].length <= blockPositionByteInt) {
+    if (content[collection][block].length <= blockPositionByteInt) {
       return false;
     }
 
     var currentMask = 1L << positionBit;
-    var existed = content[cluster][block][blockPositionByteInt] & currentMask;
+    var existed = content[collection][block][blockPositionByteInt] & currentMask;
 
     return existed > 0L;
   }
@@ -107,6 +108,7 @@ public class RidSet implements Set<RID> {
     return new Object[0];
   }
 
+  @Nullable
   @Override
   public <T> T[] toArray(T[] a) {
     return null;
@@ -117,9 +119,9 @@ public class RidSet implements Set<RID> {
     if (identifiable == null) {
       throw new IllegalArgumentException();
     }
-    var cluster = identifiable.getClusterId();
-    var position = identifiable.getClusterPosition();
-    if (cluster < 0 || position < 0) {
+    var collection = identifiable.getCollectionId();
+    var position = identifiable.getCollectionPosition();
+    if (collection < 0 || position < 0) {
       return negatives.add(identifiable);
     }
     var positionByte = (position / 63);
@@ -127,44 +129,44 @@ public class RidSet implements Set<RID> {
     var block = (int) (positionByte / maxArraySize);
     var blockPositionByteInt = (int) (positionByte % maxArraySize);
 
-    if (content.length <= cluster) {
+    if (content.length <= collection) {
       var oldContent = content;
-      content = new long[cluster + 1][][];
+      content = new long[collection + 1][][];
       System.arraycopy(oldContent, 0, content, 0, oldContent.length);
     }
-    if (content[cluster] == null) {
-      content[cluster] = createClusterArray(block, blockPositionByteInt);
+    if (content[collection] == null) {
+      content[collection] = createCollectionArray(block, blockPositionByteInt);
     }
 
-    if (content[cluster].length <= block) {
-      content[cluster] = expandClusterBlocks(content[cluster], block, blockPositionByteInt);
+    if (content[collection].length <= block) {
+      content[collection] = expandCollectionBlocks(content[collection], block, blockPositionByteInt);
     }
-    if (content[cluster][block] == null) {
-      content[cluster][block] =
-          expandClusterArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
+    if (content[collection][block] == null) {
+      content[collection][block] =
+          expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
     }
-    if (content[cluster][block].length <= blockPositionByteInt) {
-      content[cluster][block] = expandClusterArray(content[cluster][block], blockPositionByteInt);
+    if (content[collection][block].length <= blockPositionByteInt) {
+      content[collection][block] = expandCollectionArray(content[collection][block], blockPositionByteInt);
     }
 
-    var original = content[cluster][block][blockPositionByteInt];
+    var original = content[collection][block][blockPositionByteInt];
     var currentMask = 1L << positionBit;
-    var existed = content[cluster][block][blockPositionByteInt] & currentMask;
-    content[cluster][block][blockPositionByteInt] = original | currentMask;
+    var existed = content[collection][block][blockPositionByteInt] & currentMask;
+    content[collection][block][blockPositionByteInt] = original | currentMask;
     if (existed == 0L) {
       size++;
     }
     return existed == 0L;
   }
 
-  private static long[][] expandClusterBlocks(long[][] longs, int block, int blockPositionByteInt) {
+  private static long[][] expandCollectionBlocks(long[][] longs, int block, int blockPositionByteInt) {
     var result = new long[block + 1][];
     System.arraycopy(longs, 0, result, 0, longs.length);
-    result[block] = expandClusterArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
+    result[block] = expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
     return result;
   }
 
-  private static long[][] createClusterArray(int block, int positionByteInt) {
+  private static long[][] createCollectionArray(int block, int positionByteInt) {
     var currentSize = INITIAL_BLOCK_SIZE;
     while (currentSize <= positionByteInt) {
       currentSize *= 2;
@@ -178,7 +180,7 @@ public class RidSet implements Set<RID> {
     return result;
   }
 
-  private static long[] expandClusterArray(long[] original, int positionByteInt) {
+  private static long[] expandCollectionArray(long[] original, int positionByteInt) {
     var currentSize = original.length;
     while (currentSize <= positionByteInt) {
       currentSize *= 2;
@@ -200,9 +202,9 @@ public class RidSet implements Set<RID> {
     if (identifiable == null) {
       throw new IllegalArgumentException();
     }
-    var cluster = identifiable.getClusterId();
-    var position = identifiable.getClusterPosition();
-    if (cluster < 0 || position < 0) {
+    var collection = identifiable.getCollectionId();
+    var position = identifiable.getCollectionPosition();
+    if (collection < 0 || position < 0) {
       return negatives.remove(o);
     }
     var positionByte = (position / 63);
@@ -210,24 +212,24 @@ public class RidSet implements Set<RID> {
     var block = (int) (positionByte / maxArraySize);
     var blockPositionByteInt = (int) (positionByte % maxArraySize);
 
-    if (content.length <= cluster) {
+    if (content.length <= collection) {
       return false;
     }
-    if (content[cluster] == null) {
+    if (content[collection] == null) {
       return false;
     }
-    if (content[cluster].length <= block) {
+    if (content[collection].length <= block) {
       return false;
     }
-    if (content[cluster][block].length <= blockPositionByteInt) {
+    if (content[collection][block].length <= blockPositionByteInt) {
       return false;
     }
 
-    var original = content[cluster][block][blockPositionByteInt];
+    var original = content[collection][block][blockPositionByteInt];
     var currentMask = 1L << positionBit;
-    var existed = content[cluster][block][blockPositionByteInt] & currentMask;
+    var existed = content[collection][block][blockPositionByteInt] & currentMask;
     currentMask = ~currentMask;
-    content[cluster][block][blockPositionByteInt] = original & currentMask;
+    content[collection][block][blockPositionByteInt] = original & currentMask;
     if (existed > 0) {
       size--;
     }

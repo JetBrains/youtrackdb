@@ -93,57 +93,57 @@ enum STATUS {
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
-  Set<String> getClusterNames();
+  Set<String> getCollectionNames();
 
-  Collection<? extends StorageCluster> getClusterInstances();
+  Collection<? extends StorageCollection> getCollectionInstances();
 
   /**
-   * Add a new cluster into the storage.
+   * Add a new collection into the storage.
    *
-   * @param iClusterName name of the cluster
+   * @param iCollectionName name of the collection
    */
-  int addCluster(DatabaseSessionInternal database, String iClusterName, Object... iParameters);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName, Object... iParameters);
 
   /**
-   * Add a new cluster into the storage.
+   * Add a new collection into the storage.
    *
-   * @param iClusterName name of the cluster
-   * @param iRequestedId requested id of the cluster
+   * @param iCollectionName name of the collection
+   * @param iRequestedId requested id of the collection
    */
-  int addCluster(DatabaseSessionInternal database, String iClusterName, int iRequestedId);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
 
-  boolean dropCluster(DatabaseSessionInternal session, String iClusterName);
+  boolean dropCollection(DatabaseSessionInternal session, String iCollectionName);
 
-  String getClusterName(DatabaseSessionInternal database, final int clusterId);
+  String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
-  boolean setClusterAttribute(final int id, StorageCluster.ATTRIBUTES attribute, Object value);
+  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute, Object value);
 
   /**
-   * Drops a cluster.
+   * Drops a collection.
    *
    * @param database
-   * @param iId      id of the cluster to delete
+   * @param iId      id of the collection to delete
    * @return true if has been removed, otherwise false
    */
-  boolean dropCluster(DatabaseSessionInternal database, int iId);
+  boolean dropCollection(DatabaseSessionInternal database, int iId);
 
-  String getClusterNameById(final int clusterId);
+  String getCollectionNameById(final int collectionId);
 
-  long getClusterRecordsSizeById(final int clusterId);
+  long getCollectionRecordsSizeById(final int collectionId);
 
-  long getClusterRecordsSizeByName(final String clusterName);
+  long getCollectionRecordsSizeByName(final String collectionName);
 
-  String getClusterRecordConflictStrategy(final int clusterId);
+  String getCollectionRecordConflictStrategy(final int collectionId);
 
-  boolean isSystemCluster(final int clusterId);
+  boolean isSystemCollection(final int collectionId);
 
-  long count(DatabaseSessionInternal session, int iClusterId);
+  long count(DatabaseSessionInternal session, int iCollectionId);
 
-  long count(DatabaseSessionInternal session, int iClusterId, boolean countTombstones);
+  long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones);
 
-  long count(DatabaseSessionInternal session, int[] iClusterIds);
+  long count(DatabaseSessionInternal session, int[] iCollectionIds);
 
-  long count(DatabaseSessionInternal session, int[] iClusterIds, boolean countTombstones);
+  long count(DatabaseSessionInternal session, int[] iCollectionIds, boolean countTombstones);
 
   /**
    * Returns the size of the database.
@@ -159,9 +159,9 @@ enum STATUS {
    */
   long countRecords(DatabaseSessionInternal session);
 
-  int getClusterIdByName(String iClusterName);
+  int getCollectionIdByName(String iCollectionName);
 
-  String getPhysicalClusterNameById(int iClusterId);
+  String getPhysicalCollectionNameById(int iCollectionId);
 
   boolean checkForRecordValidity(PhysicalPosition ppos);
 
@@ -176,16 +176,16 @@ enum STATUS {
 
   void synch();
 
-  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int clusterId,
+  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int clusterId,
+  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int clusterId,
+  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int clusterId,
+  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int collectionId,
       PhysicalPosition physicalPosition, int limit);
 
   /**
@@ -202,7 +202,7 @@ enum STATUS {
 
   boolean isRemote();
 
-  boolean isAssigningClusterIds();
+  boolean isAssigningCollectionIds();
 
   BTreeCollectionManager getSBtreeCollectionManager();
 
@@ -249,9 +249,9 @@ enum STATUS {
 
   void setLocaleCountry(String localeCountry);
 
-  void setClusterSelection(String clusterSelection);
+  void setCollectionSelection(String collectionSelection);
 
-  void setMinimumClusters(int minimumClusters);
+  void setMinimumCollections(int minimumCollections);
 
   void setValidation(boolean validation);
 
@@ -263,7 +263,7 @@ enum STATUS {
 
   void clearProperties();
 
-  int[] getClustersIds(Set<String> filterClusters);
+  int[] getCollectionsIds(Set<String> filterCollections);
 
   default boolean isIcrementalBackupRunning() {
     return false;

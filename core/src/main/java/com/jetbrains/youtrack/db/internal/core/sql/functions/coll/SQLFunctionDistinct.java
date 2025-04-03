@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Keeps items only once removing duplicates
@@ -39,6 +40,7 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

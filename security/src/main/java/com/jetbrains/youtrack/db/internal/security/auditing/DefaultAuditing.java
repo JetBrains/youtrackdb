@@ -311,7 +311,7 @@ public class DefaultAuditing
   }
 
   @Deprecated
-  public static String getClusterName(final String dbName) {
+  public static String getCollectionName(final String dbName) {
     return dbName + "_auditing";
   }
 

@@ -33,7 +33,7 @@
       -Dindex.flushAfterCreate=false
       -Dyoutrackdb.storage.makeFullCheckpointAfterCreate=false
       -Dstorage.makeFullCheckpointAfterOpen=false
-      -Dstorage.makeFullCheckpointAfterClusterCreate=false
+      -Dstorage.makeFullCheckpointAfterCollectionCreate=false
       -Dstorage.wal.syncOnPageFlush=false
       -Dstorage.configuration.syncOnUpdate=false
       -Ddb.makeFullCheckpointOnIndexChange=false

@@ -59,6 +59,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener> {
 
@@ -201,6 +202,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return startUp(false);
   }
 
+  @Nullable
   public static YouTrackDBEnginesManager startUp(boolean insideWebContainer) {
     initLock.lock();
     try {
@@ -447,6 +449,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * @return the obtained engine instance or {@code null} if no such engine known or the engine is
    * not running.
    */
+  @Nullable
   public Engine getEngineIfRunning(final String engineName) {
     engineLock.readLock().lock();
     try {

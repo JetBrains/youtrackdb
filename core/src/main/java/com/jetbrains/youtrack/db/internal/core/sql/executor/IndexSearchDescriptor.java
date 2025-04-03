@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsCompareOperator;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInCondition;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -136,13 +137,11 @@ public class IndexSearchDescriptor {
 
     for (var i = 0; i < conditions.size(); i++) {
       var item = conditions.get(i);
-      if (item instanceof SQLBinaryCondition) {
-        if (((SQLBinaryCondition) item).getOperator() instanceof SQLEqualsCompareOperator) {
-          conditionItems.add(((SQLBinaryCondition) item).getLeft().toString());
-        } else if (i != conditions.size() - 1) {
-          return false;
-        }
-
+      if (item instanceof SQLBinaryCondition cond
+          && cond.getOperator() instanceof SQLEqualsCompareOperator) {
+        conditionItems.add(cond.getLeft().toString());
+      } else if (item instanceof SQLInCondition) {
+        return false;
       } else if (i != conditions.size() - 1) {
         return false;
       }

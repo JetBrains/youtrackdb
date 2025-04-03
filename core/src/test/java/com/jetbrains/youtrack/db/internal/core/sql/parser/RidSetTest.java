@@ -86,7 +86,7 @@ public class RidSetTest extends ParserTestAbstract {
   }
 
   @Test
-  public void testBigClusterId() {
+  public void testBigCollectionId() {
     var set = new RidSet();
     RID rid = new RecordId(1200, 100);
     Assert.assertFalse(set.contains(rid));
@@ -97,7 +97,7 @@ public class RidSetTest extends ParserTestAbstract {
   }
 
   @Test
-  public void testBigClusterPosition() {
+  public void testBigCollectionPosition() {
     var set = new RidSet();
     RID rid = new RecordId(12, 200L * 1000 * 1000);
     Assert.assertFalse(set.contains(rid));
@@ -111,24 +111,24 @@ public class RidSetTest extends ParserTestAbstract {
   public void testIterator() {
 
     Set<RID> set = new RidSet();
-    var clusters = 100;
-    var idsPerCluster = 10;
+    var collections = 100;
+    var idsPerCollection = 10;
 
-    for (var cluster = 0; cluster < clusters; cluster++) {
-      for (long id = 0; id < idsPerCluster; id++) {
-        set.add(new RecordId(cluster, id));
+    for (var collection = 0; collection < collections; collection++) {
+      for (long id = 0; id < idsPerCollection; id++) {
+        set.add(new RecordId(collection, id));
       }
     }
     var iterator = set.iterator();
 
     System.out.println("stating");
     var begin = System.currentTimeMillis();
-    for (var cluster = 0; cluster < clusters; cluster++) {
-      for (long id = 0; id < idsPerCluster; id++) {
+    for (var collection = 0; collection < collections; collection++) {
+      for (long id = 0; id < idsPerCollection; id++) {
         Assert.assertTrue(iterator.hasNext());
         var next = iterator.next();
         Assert.assertNotNull(next);
-        //        Assert.assertEquals(new RecordId(cluster, id), next);
+        //        Assert.assertEquals(new RecordId(collection, id), next);
       }
     }
     System.out.println("elapsed: " + (System.currentTimeMillis() - begin));
@@ -142,17 +142,17 @@ public class RidSetTest extends ParserTestAbstract {
     Set<RID> set = new RidSet();
 
     var offset = (((long) Integer.MAX_VALUE)) * 63;
-    long idsPerCluster = 10;
+    long idsPerCollection = 10;
 
-    var cluster = 1;
-    for (long id = 0; id < idsPerCluster; id++) {
-      var rid = new RecordId(cluster, offset + id);
+    var collection = 1;
+    for (long id = 0; id < idsPerCollection; id++) {
+      var rid = new RecordId(collection, offset + id);
       set.add(rid);
       control.add(rid);
     }
     var iterator = set.iterator();
 
-    for (long id = 0; id < idsPerCluster; id++) {
+    for (long id = 0; id < idsPerCollection; id++) {
       Assert.assertTrue(iterator.hasNext());
       var next = iterator.next();
       Assert.assertNotNull(next);

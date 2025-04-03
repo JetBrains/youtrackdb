@@ -103,16 +103,18 @@ public class StringsTest extends BaseDBTest {
 
   @Test
   public void testDocumentSelfReference() {
-    var document = ((EntityImpl) session.newEntity());
+    session.begin();
+    var document = session.newEntity();
     document.setProperty("selfref", document);
 
-    var docTwo = ((EntityImpl) session.newEntity());
+    var docTwo = session.newEntity();
     docTwo.setProperty("ref", document);
     document.setProperty("ref", docTwo);
 
     var value = document.toString();
 
     Assert.assertEquals(value,
-        "O{selfref:<recursion:rid=#-1:-1>,ref:O{ref:<recursion:rid=#-1:-1>}}");
+        "O#7:-2{ref:#7:-3,selfref:#7:-2} v0");
+    session.commit();
   }
 }

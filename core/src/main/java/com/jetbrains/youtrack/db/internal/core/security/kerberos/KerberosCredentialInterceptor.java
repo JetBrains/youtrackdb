@@ -28,6 +28,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.PrivilegedAction;
 import java.util.Base64;
+import javax.annotation.Nullable;
 import javax.security.auth.Subject;
 import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
@@ -171,6 +172,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
     }
   }
 
+  @Nullable
   private String getServiceTicket(
       final Subject subject, final String principal, final String servicePrincipalName) {
     try {
@@ -215,6 +217,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
             Subject.doAs(
                 subject,
                 new PrivilegedAction<byte[]>() {
+                  @Nullable
                   public byte[] run() {
                     try {
                       var token = new byte[0];

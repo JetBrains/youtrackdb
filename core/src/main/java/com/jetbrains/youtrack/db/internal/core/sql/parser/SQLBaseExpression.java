@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBaseExpression extends SQLMathExpression {
 
@@ -182,6 +183,7 @@ public class SQLBaseExpression extends SQLMathExpression {
     return identifier.estimateIndexedFunction(target, context, operator, right);
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -274,6 +276,7 @@ public class SQLBaseExpression extends SQLMathExpression {
     return Optional.empty();
   }
 
+  @Nullable
   @Override
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (identifier == null) {

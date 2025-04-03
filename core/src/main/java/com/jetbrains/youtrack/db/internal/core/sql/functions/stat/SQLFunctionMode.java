@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Compute the mode (or multimodal) value for a field. The scores in the field's distribution that
@@ -63,6 +64,7 @@ public class SQLFunctionMode extends SQLFunctionAbstract {
     return getResult();
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return maxElems.isEmpty() ? null : maxElems;

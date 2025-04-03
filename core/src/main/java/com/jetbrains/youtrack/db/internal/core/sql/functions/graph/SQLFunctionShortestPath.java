@@ -14,7 +14,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterable;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinksIterable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionMathAbstract;
@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Shortest path algorithm to find the shortest path from one node to another node in a directed
@@ -249,6 +250,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
   }
 
+  @Nullable
   private Integer integer(Object fromObject) {
     if (fromObject == null) {
       return null;
@@ -268,6 +270,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
   /**
    * @return
    */
+  @Nullable
   private Boolean toBoolean(Object fromObject) {
     if (fromObject == null) {
       return null;
@@ -286,13 +289,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
   /**
    * get adjacent vertices and edges
-   *
-   * @param srcVertex
-   * @param direction
-   * @param types
-   * @return
    */
-  private RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
+  private static RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
       Vertex srcVertex, Direction direction, String... types) {
     if (direction == Direction.BOTH) {
       var vertexIterator = new MultiCollectionIterator<Vertex>();
@@ -309,7 +307,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     } else {
       var edges1 = srcVertex.getEdges(direction, types);
       var edges2 = srcVertex.getEdges(direction, types);
-      return new RawPair<>(new EdgeToVertexIterable(edges1, direction), edges2);
+      //noinspection unchecked,rawtypes
+      return new RawPair<>(new BidirectionalLinksIterable<>((Iterable) edges1, direction), edges2);
     }
   }
 
@@ -320,7 +319,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
    * @param direction
    * @return
    */
-  private RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
+  private static RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
       Vertex srcVertex, Direction direction) {
     return getVerticesAndEdges(srcVertex, direction, (String[]) null);
   }
@@ -330,6 +329,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         + " ]])";
   }
 
+  @Nullable
   protected List<RID> walkLeft(final ShortestPathContext ctx) {
     var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {
@@ -401,6 +401,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return null;
   }
 
+  @Nullable
   protected List<RID> walkRight(final ShortestPathContext ctx) {
     final var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {

@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * @since 18.07.13
@@ -93,6 +94,7 @@ public class RemoteIndexEngine implements IndexEngine {
   public void close() {
   }
 
+  @Nullable
   @Override
   public Object get(DatabaseSessionInternal db, Object key) {
     return null;

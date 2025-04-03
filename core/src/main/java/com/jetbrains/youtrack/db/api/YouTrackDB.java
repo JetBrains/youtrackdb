@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  * YouTrackDB management environment, it allows to connect to an environment and manipulate
@@ -67,6 +68,7 @@ import java.util.Map;
  * </pre>
  */
 public interface YouTrackDB extends AutoCloseable {
+
   /**
    * Open a database
    *
@@ -123,7 +125,10 @@ public interface YouTrackDB extends AutoCloseable {
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
-  void create(String database, DatabaseType type, String... userCredentials);
+  void create(@Nonnull String database, @Nonnull DatabaseType type, String... userCredentials);
+
+  void create(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig youTrackDBConfig, String... userCredentials);
 
   /**
    * Creates a new database without users. In case if you want to create users during creation
@@ -171,7 +176,11 @@ public interface YouTrackDB extends AutoCloseable {
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
-  void createIfNotExists(String database, DatabaseType type, String... userCredentials);
+  void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials);
+
+  void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig config, String... userCredentials);
 
   /**
    * Create a new database without users if not exists. In case if you want to create users during

@@ -45,7 +45,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -380,7 +380,7 @@ public enum PropertyTypeInternal {
         }
         case String s -> {
           var entityImpl = session.newEmbeddedEntity(linkedClass);
-          RecordSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
+          JSONSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
           return entityImpl;
         }
         default -> {
@@ -861,7 +861,7 @@ public enum PropertyTypeInternal {
 
       var identifiable = (Identifiable) value;
       var rid = identifiable.getIdentity();
-      return new RecordId(rid.getClusterId(), rid.getClusterPosition());
+      return new RecordId(rid.getCollectionId(), rid.getCollectionPosition());
     }
 
     @Override

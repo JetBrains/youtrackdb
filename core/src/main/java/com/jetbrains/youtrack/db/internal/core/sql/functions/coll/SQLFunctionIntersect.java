@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * This operator can work as aggregate or inline. If only one argument is passed than aggregates,
@@ -47,6 +48,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     super(NAME, 1, -1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

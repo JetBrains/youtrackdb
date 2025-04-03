@@ -28,6 +28,7 @@ import java.util.IllegalFormatException;
 import java.util.logging.Formatter;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
+import javax.annotation.Nullable;
 
 /**
  * Basic Log formatter.
@@ -92,6 +93,7 @@ public class LogFormatter extends Formatter {
     return AnsiCode.format(buffer.toString(), false);
   }
 
+  @Nullable
   protected String getSourceClassSimpleName(final String iSourceClassName) {
     if (iSourceClassName == null) {
       return null;

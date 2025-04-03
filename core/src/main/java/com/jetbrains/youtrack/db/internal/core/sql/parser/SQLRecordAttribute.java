@@ -15,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class SQLRecordAttribute extends SimpleNode {
 
@@ -80,6 +81,7 @@ public class SQLRecordAttribute extends SimpleNode {
     name = fromResult.getProperty("name");
   }
 
+  @Nullable
   public Object evaluate(Result iCurrentResult, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     if (name.equalsIgnoreCase("@rid")) {
@@ -141,6 +143,7 @@ public class SQLRecordAttribute extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object evaluate(Entity iCurrentRecord, CommandContext ctx) {
     if (iCurrentRecord == null) {
       return null;

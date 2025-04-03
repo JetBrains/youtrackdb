@@ -6,11 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
 public class CastToVertexStep extends AbstractExecutionStep {
-
   public CastToVertexStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
   }

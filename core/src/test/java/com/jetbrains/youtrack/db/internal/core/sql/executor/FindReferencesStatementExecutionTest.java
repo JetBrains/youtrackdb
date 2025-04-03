@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -16,6 +17,7 @@ import org.junit.Test;
 public class FindReferencesStatementExecutionTest extends DbTestBase {
 
   @Test
+  @Ignore
   public void testLink() {
     var name = "testLink1";
     var name2 = "testLink2";

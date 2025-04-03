@@ -13,7 +13,7 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   public int getObjectSize(BinarySerializerFactory serializerFactory, EdgeKey object,
       Object... hints) {
     return LongSerializer.getObjectSize(object.ridBagId)
-        + IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.targetCluster)
+        + IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.targetCollection)
         + LongSerializer.getObjectSize(object.targetPosition);
   }
 
@@ -39,7 +39,7 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   private void doSerialize(EdgeKey object, byte[] stream, int startPosition) {
     startPosition = LongSerializer.serialize(object.ridBagId, stream, startPosition);
     startPosition =
-        IntSerializer.INSTANCE.serializePrimitive(stream, startPosition, object.targetCluster);
+        IntSerializer.INSTANCE.serializePrimitive(stream, startPosition, object.targetCollection);
     LongSerializer.serialize(object.targetPosition, stream, startPosition);
   }
 
@@ -55,13 +55,13 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
     var size = LongSerializer.getObjectSize(stream, startPosition);
     startPosition += size;
 
-    final int targetCluster = IntSerializer.INSTANCE.deserialize(serializerFactory, stream,
+    final int targetCollection = IntSerializer.INSTANCE.deserialize(serializerFactory, stream,
         startPosition);
     size = IntSerializer.INSTANCE.getObjectSize(serializerFactory, stream, startPosition);
     startPosition += size;
 
     final var targetPosition = LongSerializer.deserialize(stream, startPosition);
-    return new EdgeKey(ownerId, targetCluster, targetPosition);
+    return new EdgeKey(ownerId, targetCollection, targetPosition);
   }
 
   @Override
@@ -108,7 +108,7 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, EdgeKey object,
       ByteBuffer buffer, Object... hints) {
     LongSerializer.serialize(object.ridBagId, buffer);
-    IntSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, object.targetCluster,
+    IntSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory, object.targetCollection,
         buffer);
     LongSerializer.serialize(object.targetPosition, buffer);
   }
@@ -117,11 +117,11 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
   public EdgeKey deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       ByteBuffer buffer) {
     final var ownerId = LongSerializer.deserialize(buffer);
-    final int targetCluster = IntSerializer.INSTANCE.deserializeFromByteBufferObject(
+    final int targetCollection = IntSerializer.INSTANCE.deserializeFromByteBufferObject(
         serializerFactory, buffer);
     final var targetPosition = LongSerializer.deserialize(buffer);
 
-    return new EdgeKey(ownerId, targetCluster, targetPosition);
+    return new EdgeKey(ownerId, targetCollection, targetPosition);
   }
 
   @Override
@@ -132,12 +132,12 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
     offset += delta;
 
     delta = IntSerializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
-    final int targetCluster =
+    final int targetCollection =
         IntSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, offset, buffer);
     offset += delta;
 
     final var targetPosition = LongSerializer.deserialize(buffer, offset);
-    return new EdgeKey(ownerId, targetCluster, targetPosition);
+    return new EdgeKey(ownerId, targetCollection, targetPosition);
   }
 
   @Override
@@ -175,14 +175,14 @@ public final class EdgeKeySerializer implements BinarySerializer<EdgeKey> {
     offset += size;
 
     size = IntSerializer.INSTANCE.getObjectSizeInByteBuffer(buffer, walChanges, offset);
-    final int targetCluster =
+    final int targetCollection =
         IntSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer,
             walChanges, offset);
     offset += size;
 
     final var targetPosition = LongSerializer.deserialize(buffer, walChanges, offset);
 
-    return new EdgeKey(ownerId, targetCluster, targetPosition);
+    return new EdgeKey(ownerId, targetCollection, targetPosition);
   }
 
   @Override

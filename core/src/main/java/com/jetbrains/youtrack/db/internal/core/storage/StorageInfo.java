@@ -9,19 +9,19 @@ public interface StorageInfo {
   // MISC
   StorageConfiguration getConfiguration();
 
-  boolean isAssigningClusterIds();
+  boolean isAssigningCollectionIds();
 
-  Set<String> getClusterNames();
+  Set<String> getCollectionNames();
 
-  int getClusters();
+  int getCollections();
 
   String getURL();
 
   RecordConflictStrategy getRecordConflictStrategy();
 
-  int getClusterIdByName(String lowerCase);
+  int getCollectionIdByName(String lowerCase);
 
-  String getPhysicalClusterNameById(int iClusterId);
+  String getPhysicalCollectionNameById(int iCollectionId);
 
   String getName();
 }

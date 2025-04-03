@@ -49,18 +49,18 @@ public class FindReferenceHelper {
     }
 
     if (classList == null || classList.isEmpty()) {
-      for (var clusterName : session.getClusterNames()) {
-        browseCluster(session, iRecordIds, map, clusterName);
+      for (var collectionName : session.getCollectionNames()) {
+        browseCollection(session, iRecordIds, map, collectionName);
       }
     } else {
       final var classes = StringSerializerHelper.smartSplit(classList, ',');
       for (var clazz : classes) {
-        if (clazz.startsWith("CLUSTER:")) {
-          browseCluster(
+        if (clazz.startsWith("COLLECTION:")) {
+          browseCollection(
               session,
               iRecordIds,
               map,
-              clazz.substring(clazz.indexOf("CLUSTER:") + "CLUSTER:".length()));
+              clazz.substring(clazz.indexOf("COLLECTION:") + "COLLECTION:".length()));
         } else {
           browseClass(session, iRecordIds, map, clazz);
         }
@@ -79,12 +79,12 @@ public class FindReferenceHelper {
     return result;
   }
 
-  private static void browseCluster(
+  private static void browseCollection(
       final DatabaseSessionInternal db,
       final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
-      final String iClusterName) {
-    var recordIterator = db.browseCluster(iClusterName);
+      final String iCollectionName) {
+    var recordIterator = db.browseCollection(iCollectionName);
     while (recordIterator.hasNext()) {
       var record = recordIterator.next();
       if (record instanceof EntityImpl) {
@@ -112,8 +112,8 @@ public class FindReferenceHelper {
       throw new CommandExecutionException(session, "Class '" + iClassName + "' was not found");
     }
 
-    for (var i : clazz.getClusterIds()) {
-      browseCluster(session, iSourceRIDs, map, session.getClusterNameById(i));
+    for (var i : clazz.getCollectionIds()) {
+      browseCollection(session, iSourceRIDs, map, session.getCollectionNameById(i));
     }
   }
 

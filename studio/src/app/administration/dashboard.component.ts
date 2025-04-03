@@ -17,7 +17,7 @@ import { PermissionService, WikiService } from "../core/services";
 import {
   DashboardStatsComponent,
   ServerManagementComponent,
-  ClusterManagementComponent,
+  CollectionManagementComponent,
   BackupComponent
 } from "./stats";
 import { ImportManagerComponent } from "./importmanager";
@@ -31,7 +31,7 @@ declare const angular: any;
 const subComponents = {
   stats: DashboardStatsComponent,
   general: ServerManagementComponent,
-  cluster: ClusterManagementComponent,
+  collection: CollectionManagementComponent,
   backup: BackupComponent,
   importers: ImportManagerComponent,
   security: SecurityManagerComponent,

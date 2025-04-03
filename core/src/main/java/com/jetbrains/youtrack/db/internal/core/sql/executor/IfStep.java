@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIfStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLReturnStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -54,6 +55,7 @@ public class IfStep extends AbstractExecutionStep {
     return positivePlan;
   }
 
+  @Nullable
   public ScriptExecutionPlan initNegativePlan(CommandContext ctx) {
     if (negativeStatements != null) {
       if (negativeStatements.size() > 0) {

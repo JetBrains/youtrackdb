@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 import javax.script.Bindings;
 import org.graalvm.polyglot.Value;
 
@@ -54,6 +55,7 @@ public class PolyglotScriptBinding implements Bindings {
     return result;
   }
 
+  @Nullable
   @Override
   public Set<Entry<String, Object>> entrySet() {
     return null;

@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tx;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneIndexType;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngine;
@@ -64,7 +65,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
     try {
       if (value == null) {
         writer.deleteDocuments(engine.deleteQuery(session.getStorage(), key, value));
-      } else if (value.getIdentity().isTemporary()) {
+      } else if (((RecordId) value.getIdentity()).isTemporary()) {
         writer.deleteDocuments(engine.deleteQuery(session.getStorage(), key, value));
       } else {
         deleted.add(value.getIdentity().toString());

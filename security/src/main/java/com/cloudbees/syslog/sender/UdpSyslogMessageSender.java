@@ -24,6 +24,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 
 /**
  * Syslog message sender over UDP.
@@ -117,6 +118,7 @@ public class UdpSyslogMessageSender extends AbstractSyslogMessageSender {
     this.syslogServerPort = syslogServerPort;
   }
 
+  @Nullable
   public String getSyslogServerHostname() {
     var inetAddress = syslogServerHostnameReference.get();
     return inetAddress == null ? null : inetAddress.getHostName();

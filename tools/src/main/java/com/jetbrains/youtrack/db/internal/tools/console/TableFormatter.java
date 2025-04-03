@@ -280,9 +280,9 @@ public class TableFormatter {
     final var value = new StringBuilder("[");
     for (var i = 0; iterator.hasNext(); i++) {
       if (i >= maxMultiValueEntries) {
-        if (iterator instanceof Sizeable) {
+        if (iterator instanceof Sizeable sizeable && sizeable.isSizeable()) {
           value.append("(size=");
-          value.append(((Sizeable) iterator).size());
+          value.append(sizeable.size());
           value.append(")");
         } else {
           value.append("(more)");

@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Server configuration manager. It manages the youtrackdb-server-config.xml file.
@@ -109,6 +110,7 @@ public class ServerConfigurationManager {
     configurationLoader.save(configuration);
   }
 
+  @Nullable
   public ServerUserConfiguration getUser(final String iServerUserName) {
     if (iServerUserName == null || iServerUserName.length() == 0) {
       throw new IllegalArgumentException("User name is null or empty");

@@ -29,29 +29,31 @@ public class SQLExistsSystemUserStatement extends SQLSimpleExecServerStatement {
     var systemDb = ctx.getServer().getSystemDatabase();
     var res = systemDb.executeWithDB(
         (db) -> {
-          var result = new ResultInternal(db);
-          result.setProperty("operation", "exists system user");
-          if (name != null) {
-            result.setProperty("name", name.getStringValue());
-          } else {
-            result.setProperty("name", nameParam.getValue(ctx.getInputParameters()));
-          }
-          List<Object> params = new ArrayList<>();
-          if (name != null) {
-            params.add(name.getStringValue());
-          } else {
-            params.add(nameParam.getValue(ctx.getInputParameters()));
-          }
-          // INSERT INTO OUser SET
-
-          try (var rs = db.execute("SELECT FROM OUser WHERE name = ?", params.toArray())) {
-            if (rs.hasNext()) {
-              result.setProperty("exists", true);
+          return db.computeInTx(transaction -> {
+            var result = new ResultInternal(db);
+            result.setProperty("operation", "exists system user");
+            if (name != null) {
+              result.setProperty("name", name.getStringValue());
             } else {
-              result.setProperty("exists", false);
+              result.setProperty("name", nameParam.getValue(ctx.getInputParameters()));
             }
-          }
-          return result.detach();
+            List<Object> params = new ArrayList<>();
+            if (name != null) {
+              params.add(name.getStringValue());
+            } else {
+              params.add(nameParam.getValue(ctx.getInputParameters()));
+            }
+            // INSERT INTO OUser SET
+
+            try (var rs = db.execute("SELECT FROM OUser WHERE name = ?", params.toArray())) {
+              if (rs.hasNext()) {
+                result.setProperty("exists", true);
+              } else {
+                result.setProperty("exists", false);
+              }
+            }
+            return result.detach();
+          });
         });
 
     return ExecutionStream.singleton(res);

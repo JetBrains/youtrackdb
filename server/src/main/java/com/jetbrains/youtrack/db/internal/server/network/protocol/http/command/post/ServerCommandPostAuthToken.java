@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.TokenHandler;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -142,7 +142,7 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         HttpUtils.STATUS_BADREQ_CODE,
         HttpUtils.STATUS_BADREQ_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        RecordSerializerJackson.mapToJson(error),
+        JSONSerializerJackson.mapToJson(error),
         null);
   }
 

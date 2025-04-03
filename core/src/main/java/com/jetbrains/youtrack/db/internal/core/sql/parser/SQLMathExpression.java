@@ -26,6 +26,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLMathExpression extends SimpleNode {
 
@@ -74,6 +75,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.multiply(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -114,6 +116,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.divide(right, RoundingMode.HALF_UP);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -148,6 +151,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.remainder(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -188,6 +192,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.add(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
@@ -272,21 +277,25 @@ public class SQLMathExpression extends SimpleNode {
         return left << right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -306,21 +315,25 @@ public class SQLMathExpression extends SimpleNode {
         return left >> right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -340,21 +353,25 @@ public class SQLMathExpression extends SimpleNode {
         return left >>> right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -384,11 +401,13 @@ public class SQLMathExpression extends SimpleNode {
         return apply(left.longValue(), right.longValue());
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
           return null;
@@ -407,21 +426,25 @@ public class SQLMathExpression extends SimpleNode {
         return left ^ right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
@@ -452,21 +475,25 @@ public class SQLMathExpression extends SimpleNode {
         return left | right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
           return null;
@@ -505,6 +532,7 @@ public class SQLMathExpression extends SimpleNode {
       }
     };
 
+    @Nullable
     private static Long toLong(Object left) {
       if (left instanceof Number) {
         return ((Number) left).longValue();
@@ -531,6 +559,7 @@ public class SQLMathExpression extends SimpleNode {
 
     public abstract Number apply(BigDecimal left, BigDecimal right);
 
+    @Nullable
     public Object apply(Object left, Object right) {
       if (left == null) {
         return right;
@@ -647,6 +676,7 @@ public class SQLMathExpression extends SimpleNode {
     return true;
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (childExpressions == null || operators == null) {
       return null;
@@ -668,6 +698,7 @@ public class SQLMathExpression extends SimpleNode {
     return calculateWithOpPriority(iCurrentRecord, ctx);
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (childExpressions == null || operators == null) {
       return null;
@@ -747,6 +778,7 @@ public class SQLMathExpression extends SimpleNode {
     return iterateOnPriorities(valuesStack, operatorsStack);
   }
 
+  @Nullable
   private Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
     while (true) {
       if (values.size() == 0) {
@@ -953,6 +985,7 @@ public class SQLMathExpression extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -1071,6 +1104,7 @@ public class SQLMathExpression extends SimpleNode {
     return Optional.empty();
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
@@ -1245,6 +1279,7 @@ public class SQLMathExpression extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();
     if (this.childExpressions != null) {

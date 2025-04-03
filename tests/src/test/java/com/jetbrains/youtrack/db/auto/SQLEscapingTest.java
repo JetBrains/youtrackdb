@@ -34,9 +34,9 @@ public class SQLEscapingTest extends BaseDBTest {
   //  public void testEscaping() {
   //    database.getMetadata().getSchema().createClass("Thing");
   //
-  //    List result = database.command(new CommandSQL("select from cluster:internal")).execute();
+  //    List result = database.command(new CommandSQL("select from collection:internal")).execute();
   //
-  //    List result0 = database.command(new CommandSQL("select from cluster:internal where
+  //    List result0 = database.command(new CommandSQL("select from collection:internal where
   // \"\\u005C\\u005C\" = \"\\u005C\\u005C\"")).execute();
   //    Assert.assertEquals(result.size(), result0.size());
   //
@@ -48,7 +48,7 @@ public class SQLEscapingTest extends BaseDBTest {
   // \"\\\\\"")).execute();
   //    Assert.assertEquals("\\", document1.field("value"));
   //
-  //    List list1 = database.command(new CommandSQL("select from cluster:internal where
+  //    List list1 = database.command(new CommandSQL("select from collection:internal where
   // \"\\u005C\\u005C\" == \"\\\\\"")).execute();
   //    Assert.assertEquals(result.size(), list1.size());
   //
@@ -61,7 +61,7 @@ public class SQLEscapingTest extends BaseDBTest {
   //    }
   //
   //    try {
-  //      List list2 = database.command(new CommandSQL("select from cluster:internal where
+  //      List list2 = database.command(new CommandSQL("select from collection:internal where
   // \"\\u005C\" == \"\\\"")).execute();
   //      Assert.assertTrue(false);
   //    } catch (Exception e) {
@@ -69,7 +69,7 @@ public class SQLEscapingTest extends BaseDBTest {
   //    }
   //
   //    try {
-  //      List list3 = database.command(new CommandSQL("select from cluster:internal where \"\\\"
+  //      List list3 = database.command(new CommandSQL("select from collection:internal where \"\\\"
   // == \"\\u005C\"")).execute();
   //      Assert.assertTrue(false);
   //    } catch (Exception e) {

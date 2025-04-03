@@ -19,6 +19,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -31,6 +32,7 @@ public class SQLMethodIndexOf extends AbstractSQLMethod {
     super(NAME, 1, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

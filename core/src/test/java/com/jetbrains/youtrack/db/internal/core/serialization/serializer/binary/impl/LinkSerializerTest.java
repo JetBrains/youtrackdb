@@ -35,7 +35,7 @@ public class LinkSerializerTest {
 
   private static final int FIELD_SIZE = ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE;
   byte[] stream = new byte[FIELD_SIZE];
-  private static final int clusterId = 5;
+  private static final int collectionId = 5;
   private static final long position = 100500L;
   private static RecordId OBJECT;
 
@@ -44,7 +44,7 @@ public class LinkSerializerTest {
 
   @BeforeClass
   public static void beforeClass() {
-    OBJECT = new RecordId(clusterId, position);
+    OBJECT = new RecordId(collectionId, position);
     linkSerializer = new LinkSerializer();
     serializerFactory = BinarySerializerFactory.create(
         BinarySerializerFactory.currentBinaryFormatVersion());

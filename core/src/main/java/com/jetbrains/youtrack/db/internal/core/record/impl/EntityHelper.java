@@ -55,6 +55,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Helper class to manage documents.
@@ -115,6 +116,7 @@ public class EntityHelper {
     return getFieldValue(db, value, iFieldName, context);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public static <RET> RET getFieldValue(
       DatabaseSessionInternal session, Object value, final String iFieldName,
@@ -602,6 +604,7 @@ public class EntityHelper {
     return true;
   }
 
+  @Nullable
   protected static Object getIndexPart(final CommandContext iContext, final String indexPart) {
     Object index = indexPart;
     if (indexPart.indexOf(',') == -1
@@ -621,6 +624,7 @@ public class EntityHelper {
     return index;
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   protected static Object filterItem(
       DatabaseSessionInternal db, final String iConditionFieldName,
@@ -668,6 +672,7 @@ public class EntityHelper {
    * @param iKey Field(s) to retrieve. If are multiple fields, then the dot must be used as
    *             separator
    */
+  @Nullable
   @SuppressWarnings("unchecked")
   public static Object getMapEntry(DatabaseSessionInternal session, final Map<String, ?> iMap,
       final Object iKey) {
@@ -701,6 +706,7 @@ public class EntityHelper {
     }
   }
 
+  @Nullable
   public static Object getIdentifiableValue(@Nonnull DatabaseSessionInternal session,
       final Identifiable current,
       final String iFieldName) {
@@ -725,6 +731,7 @@ public class EntityHelper {
     }
   }
 
+  @Nullable
   public static Object getRecordAttribute(DatabaseSessionInternal session, Identifiable current,
       String iFieldName) {
     if (!iFieldName.isEmpty()) {
@@ -736,9 +743,9 @@ public class EntityHelper {
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID)) {
           return current.getIdentity();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_ID)) {
-          return current.getIdentity().getClusterId();
+          return current.getIdentity().getCollectionId();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_RID_POS)) {
-          return current.getIdentity().getClusterPosition();
+          return current.getIdentity().getCollectionPosition();
         } else if (iFieldName.equalsIgnoreCase(ATTRIBUTE_VERSION)) {
           if (current instanceof RecordAbstract recordAbstract) {
             return recordAbstract.getVersion();
@@ -779,6 +786,7 @@ public class EntityHelper {
     }
   }
 
+  @Nullable
   public static Object evaluateFunction(
       final Object currentValue, final String iFunction, final CommandContext iContext) {
     if (currentValue == null) {

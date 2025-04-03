@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLContainsValueCondition extends SQLBooleanExpression {
 
@@ -250,6 +251,7 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();

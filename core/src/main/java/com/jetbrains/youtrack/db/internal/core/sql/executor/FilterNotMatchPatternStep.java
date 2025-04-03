@@ -6,6 +6,8 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class FilterNotMatchPatternStep extends AbstractExecutionStep {
 
@@ -26,6 +28,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
     return resultSet.filter(this::filterMap);
   }
 
+  @Nullable
   private Result filterMap(Result result, CommandContext ctx) {
     if (!matchesPattern(result, ctx)) {
       return result;
@@ -72,6 +75,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
     return plan;
   }
 
+  @Nonnull
   @Override
   public List<ExecutionStep> getSubSteps() {
     //noinspection unchecked,rawtypes

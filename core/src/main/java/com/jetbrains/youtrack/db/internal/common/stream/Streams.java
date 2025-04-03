@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 public class Streams {
 
@@ -100,6 +101,7 @@ public class Streams {
       return true;
     }
 
+    @Nullable
     @Override
     public Spliterator<T> trySplit() {
       return null;

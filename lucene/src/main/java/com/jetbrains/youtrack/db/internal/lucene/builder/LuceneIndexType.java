@@ -31,6 +31,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import javax.annotation.Nullable;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.DoubleDocValuesField;
 import org.apache.lucene.document.DoublePoint;
@@ -59,13 +60,14 @@ public class LuceneIndexType {
 
   public static Field createField(
       final String fieldName, final Object value, final Field.Store store /*,Field.Index index*/) {
-    // metadata fields: _CLASS, _CLUSTER
-    if (fieldName.startsWith("_CLASS") || fieldName.startsWith("_CLUSTER")) {
+    // metadata fields: _CLASS, _COLLECTION
+    if (fieldName.startsWith("_CLASS") || fieldName.startsWith("_COLLECTION")) {
       return new StringField(fieldName, value.toString(), store);
     }
     return new TextField(fieldName, value.toString(), Field.Store.YES);
   }
 
+  @Nullable
   public static String extractId(Document doc) {
     var value = doc.get(RID_HASH);
     if (value != null) {

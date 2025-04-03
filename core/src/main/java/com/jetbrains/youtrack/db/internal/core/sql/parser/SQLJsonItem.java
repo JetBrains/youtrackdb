@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -47,6 +48,7 @@ public class SQLJsonItem {
     right.toGenericStatement(builder);
   }
 
+  @Nullable
   public String getLeftValue() {
     if (leftString != null) {
       return leftString;

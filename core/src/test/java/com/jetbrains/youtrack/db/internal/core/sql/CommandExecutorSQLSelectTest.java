@@ -139,12 +139,12 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         .close();
     session.commit();
 
-    session.execute("CREATE class TestMultipleClusters").close();
+    session.execute("CREATE class TestMultipleCollections").close();
 
     session.begin();
-    session.execute("insert into TestMultipleClusters set name = 'aaa'").close();
-    session.execute("insert into TestMultipleClusters set name = 'foo'").close();
-    session.execute("insert into TestMultipleClusters set name = 'bar'").close();
+    session.execute("insert into TestMultipleCollections set name = 'aaa'").close();
+    session.execute("insert into TestMultipleCollections set name = 'foo'").close();
+    session.execute("insert into TestMultipleCollections set name = 'bar'").close();
     session.commit();
 
     session.execute("CREATE class TestUrl").close();
@@ -182,7 +182,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.commit();
 
     // /*** from issue #2743
-    Schema schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     if (!schema.existsClass("alphabet")) {
       schema.createClass("alphabet", 1);
     }
@@ -1584,10 +1584,10 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testConcatenateNamedParams() {
     // issue #5572
     var results =
-        session.query("select from TestMultipleClusters where name like :p1 + '%'", "fo");
+        session.query("select from TestMultipleCollections where name like :p1 + '%'", "fo");
     assertEquals(1, results.stream().count());
 
-    results = session.query("select from TestMultipleClusters where name like :p1 ", "fo");
+    results = session.query("select from TestMultipleCollections where name like :p1 ", "fo");
     assertEquals(0, results.stream().count());
   }
 
@@ -1649,18 +1649,18 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   @Test
-  public void testOrderByRidDescMultiCluster() {
+  public void testOrderByRidDescMultiCollection() {
     // issue #6694
-    var clazz = session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCluster");
+    var clazz = session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCollection");
 
     for (var i = 0; i < 100; i++) {
       session.begin();
-      session.execute("insert into TestOrderByRidDescMultiCluster set foo = " + i).close();
+      session.execute("insert into TestOrderByRidDescMultiCollection set foo = " + i).close();
       session.commit();
     }
 
     var results =
-        session.query("SELECT from TestOrderByRidDescMultiCluster order by @rid desc").stream()
+        session.query("SELECT from TestOrderByRidDescMultiCollection order by @rid desc").stream()
             .collect(Collectors.toList());
     assertEquals(100, results.size());
     Result lastDoc = null;
@@ -1672,7 +1672,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     }
 
     results =
-        session.query("SELECT from TestOrderByRidDescMultiCluster order by @rid asc").stream()
+        session.query("SELECT from TestOrderByRidDescMultiCollection order by @rid asc").stream()
             .toList();
     assertEquals(100, results.size());
     lastDoc = null;

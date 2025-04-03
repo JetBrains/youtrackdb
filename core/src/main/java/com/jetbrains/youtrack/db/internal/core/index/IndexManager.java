@@ -89,7 +89,7 @@ public interface IndexManager {
    * @param iName             - name of index
    * @param iType             - index type. Specified by plugged index factories.
    * @param indexDefinition   metadata that describes index structure
-   * @param clusterIdsToIndex ids of clusters that index should track for changes.
+   * @param collectionIdsToIndex ids of collections that index should track for changes.
    * @param progressListener  listener to track task progress.
    * @param metadata          document with additional properties that can be used by index engine.
    * @return a newly created index instance
@@ -98,7 +98,7 @@ public interface IndexManager {
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       final ProgressListener progressListener,
       Map<String, Object> metadata);
 
@@ -110,7 +110,7 @@ public interface IndexManager {
    * @param iName             name of index
    * @param iType             index type. Specified by plugged index factories.
    * @param indexDefinition   metadata that describes index structure
-   * @param clusterIdsToIndex ids of clusters that index should track for changes.
+   * @param collectionIdsToIndex ids of collections that index should track for changes.
    * @param progressListener  listener to track task progress.
    * @param metadata          document with additional properties that can be used by index engine.
    * @param algorithm         tip to an index factory what algorithm to use
@@ -120,7 +120,7 @@ public interface IndexManager {
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       final ProgressListener progressListener,
       Map<String, Object> metadata,
       String algorithm);
@@ -236,26 +236,26 @@ public interface IndexManager {
   boolean autoRecreateIndexesAfterCrash();
 
   /**
-   * Adds a cluster to tracked cluster list of specified index.
+   * Adds a collection to tracked collection list of specified index.
    *
    * <p>IMPORTANT! Only for internal usage.
    *
    * @param session
-   * @param clusterName cluster to add.
+   * @param collectionName collection to add.
    * @param indexName   name of index.
    */
-  void addClusterToIndex(DatabaseSession session, String clusterName, String indexName);
+  void addCollectionToIndex(DatabaseSession session, String collectionName, String indexName);
 
   /**
-   * Removes a cluster from tracked cluster list of specified index.
+   * Removes a collection from tracked collection list of specified index.
    *
    * <p>IMPORTANT! Only for internal usage.
    *
    * @param session
-   * @param clusterName cluster to remove.
+   * @param collectionName collection to remove.
    * @param indexName   name of index.
    */
-  void removeClusterFromIndex(DatabaseSession session, String clusterName, String indexName);
+  void removeCollectionFromIndex(DatabaseSession session, String collectionName, String indexName);
 
   /**
    * Saves index manager data.

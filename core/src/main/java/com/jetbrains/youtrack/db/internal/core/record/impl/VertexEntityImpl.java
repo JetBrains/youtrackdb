@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -24,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.commons.collections4.IterableUtils;
 
 public class VertexEntityImpl extends EntityImpl implements Vertex {
@@ -134,7 +137,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
     } else {
       var edges = getEdgesInternal(direction, type);
-      return new EdgeToVertexIterable(edges, direction);
+      //noinspection rawtypes,unchecked
+      return new BidirectionalLinksIterable<Vertex>(edges, direction);
     }
   }
 
@@ -268,7 +272,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public Iterable<Edge> getEdges(Direction direction, String... labels) {
     checkForBinding();
-    return getEdgesInternal(direction, labels);
+    //noinspection unchecked,rawtypes
+    return (Iterable) getEdgesInternal(direction, labels);
   }
 
   @Override
@@ -276,7 +281,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return RECORD_TYPE;
   }
 
-  private Iterable<Edge> getEdgesInternal(Direction direction, String[] labels) {
+  @Override
+  protected Iterable<Relation<Entity>> getBidirectionalLinksInternal(
+      Direction direction, String... linkNames) {
+    //noinspection unchecked,rawtypes
+    return IterableUtils.chainedIterable(
+        super.getBidirectionalLinksInternal(direction, linkNames),
+        (Iterable) getEdgesInternal(direction, linkNames));
+  }
+
+  private Iterable<EdgeInternal> getEdgesInternal(Direction direction, String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     labels = resolveAliases(session, schema, labels);
     Collection<String> fieldNames = null;
@@ -295,10 +309,10 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       fieldNames = calculatePropertyNames(false, true);
     }
 
-    var iterables = new ArrayList<Iterable<Edge>>(fieldNames.size());
+    var iterables = new ArrayList<Iterable<EdgeInternal>>(fieldNames.size());
     for (var fieldName : fieldNames) {
       final var connection =
-          getConnection(session, schema, direction, fieldName, labels);
+          getConnection(schema, direction, fieldName, labels);
       if (connection == null)
       // SKIP THIS FIELD
       {
@@ -312,23 +326,22 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       if (fieldValue != null) {
         switch (fieldValue) {
           case Identifiable identifiable -> {
-            var coll = Collections.singleton(fieldValue);
+            var coll = Collections.singleton(identifiable);
             iterables.add(
-                new EdgeIterator(this, coll, coll.iterator(), connection, labels, 1, session));
+                new EdgeIterable(this, connection, labels, session, coll, 1, coll));
           }
-          case Collection<?> coll ->
-            // CREATE LAZY Iterable AGAINST COLLECTION FIELD
-              iterables.add(
-                  new EdgeIterator(this, coll, coll.iterator(), connection, labels, -1, session));
+          case EntityLinkSetImpl set -> iterables.add(
+              new EdgeIterable(this, connection, labels, session,
+                  set, -1, set));
+          case EntityLinkListImpl list -> iterables.add(
+              new EdgeIterable(this, connection, labels, session,
+                  list, -1, list));
           case RidBag bag -> iterables.add(
-              new EdgeIterator(
-                  this,
-                  fieldValue,
-                  bag.iterator(),
-                  connection,
-                  labels,
-                  bag.size(), session));
+              new EdgeIterable(
+                  this, connection, labels, session, bag, -1, bag));
           default -> {
+            throw new IllegalArgumentException(
+                "Unsupported property type: " + getPropertyType(fieldName));
           }
         }
       }
@@ -344,6 +357,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
+  @Nullable
   private static ArrayList<String> getEdgeFieldNames(
       DatabaseSessionInternal db, Schema schema, final Direction iDirection, String... classNames) {
     if (classNames == null)
@@ -390,8 +404,9 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return result;
   }
 
+  @Nullable
   public static Pair<Direction, String> getConnection(
-      DatabaseSessionInternal db, final Schema schema,
+      final Schema schema,
       final Direction direction,
       final String fieldName,
       String... classNames) {
@@ -612,6 +627,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
+  @Nullable
   private static String[] resolveAliases(DatabaseSessionInternal db, Schema schema,
       String[] labels) {
     if (labels == null) {

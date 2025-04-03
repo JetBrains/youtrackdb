@@ -14,8 +14,7 @@
 package com.jetbrains.youtrack.db.internal.spatial;
 
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
@@ -138,7 +137,7 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
   protected EmbeddedEntity loadMultiPolygon() throws IOException {
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-    var map = RecordSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
 

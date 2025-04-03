@@ -37,14 +37,13 @@ import java.util.Set;
  */
 public interface MetadataInternal extends Metadata {
 
-  Set<String> SYSTEM_CLUSTER =
+  Set<String> SYSTEM_COLLECTION =
       Collections.unmodifiableSet(
           new HashSet<String>(
               Arrays.asList(
                   SecurityUserImpl.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   Role.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   Identity.CLASS_NAME.toLowerCase(Locale.ENGLISH),
-                  Security.RESTRICTED_CLASSNAME.toLowerCase(Locale.ENGLISH),
                   Function.CLASS_NAME.toLowerCase(Locale.ENGLISH),
                   "internal")));
 

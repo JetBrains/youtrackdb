@@ -46,6 +46,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public abstract class StringSerializerHelper {
 
@@ -75,6 +76,7 @@ public abstract class StringSerializerHelper {
   public static final char COLLECTION_SEPARATOR = ',';
   public static final String SKIPPED_VALUE = "[SKIPPED VALUE]";
 
+  @Nullable
   public static Object fieldTypeFromStream(
       DatabaseSessionInternal db, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
@@ -1348,6 +1350,7 @@ public abstract class StringSerializerHelper {
   /**
    * Returns the binary representation of a content. If it's a String a Base64 decoding is applied.
    */
+  @Nullable
   public static byte[] getBinaryContent(final Object iValue) {
     if (iValue == null) {
       return null;

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLArrayConcatExpression extends SimpleNode {
 
@@ -44,6 +45,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     this.childExpressions.add(elem);
   }
 
+  @Nullable
   public static Object apply(Object left, Object right, DatabaseSessionInternal session) {
     if (left == null && right == null) {
       return null;
@@ -215,6 +217,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();
     for (var exp : childExpressions) {

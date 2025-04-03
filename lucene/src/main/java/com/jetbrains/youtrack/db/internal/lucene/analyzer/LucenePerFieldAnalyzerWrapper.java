@@ -47,7 +47,7 @@ public class LucenePerFieldAnalyzerWrapper extends DelegatingAnalyzerWrapper {
     this.fieldAnalyzers.put(RID, new KeywordAnalyzer());
     this.fieldAnalyzers.put(LuceneIndexType.RID_HASH, new KeywordAnalyzer());
     this.fieldAnalyzers.put("_CLASS", new KeywordAnalyzer());
-    this.fieldAnalyzers.put("_CLUSTER", new KeywordAnalyzer());
+    this.fieldAnalyzers.put("_COLLECTION", new KeywordAnalyzer());
     this.fieldAnalyzers.put("_JSON", new KeywordAnalyzer());
   }
 

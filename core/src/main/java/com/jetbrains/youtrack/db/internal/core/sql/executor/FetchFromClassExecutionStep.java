@@ -18,6 +18,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -35,24 +36,24 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   public FetchFromClassExecutionStep(
       String className,
-      Set<String> clusters,
+      Set<String> collections,
       CommandContext ctx,
       Boolean ridOrder,
       boolean profilingEnabled) {
-    this(className, clusters, null, ctx, ridOrder, profilingEnabled);
+    this(className, collections, null, ctx, ridOrder, profilingEnabled);
   }
 
   /**
    * iterates over a class and its subclasses
    *
    * @param className the class name
-   * @param clusters  if present (it can be null), filter by only these clusters
+   * @param collections  if present (it can be null), filter by only these collections
    * @param ctx       the query context
    * @param ridOrder  true to sort by RID asc, false to sort by RID desc, null for no sort.
    */
   public FetchFromClassExecutionStep(
       String className,
-      Set<String> clusters,
+      Set<String> collections,
       QueryPlanningInfo planningInfo,
       CommandContext ctx,
       Boolean ridOrder,
@@ -68,30 +69,30 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
 
     var clazz = loadClassFromSchema(className, ctx);
-    var classClusters = clazz.getPolymorphicClusterIds();
-    var filteredClassClusters = new IntArrayList();
+    var classCollections = clazz.getPolymorphicCollectionIds();
+    var filteredClassCollections = new IntArrayList();
 
-    for (var clusterId : classClusters) {
-      var clusterName = ctx.getDatabaseSession().getClusterNameById(clusterId);
-      if (clusters == null || clusters.contains(clusterName)) {
-        filteredClassClusters.add(clusterId);
+    for (var collectionId : classCollections) {
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      if (collections == null || collections.contains(collectionName)) {
+        filteredClassCollections.add(collectionId);
       }
     }
-    var clusterIds = new int[filteredClassClusters.size() + 1];
-    for (var i = 0; i < filteredClassClusters.size(); i++) {
-      clusterIds[i] = filteredClassClusters.getInt(i);
+    var collectionIds = new int[filteredClassCollections.size() + 1];
+    for (var i = 0; i < filteredClassCollections.size(); i++) {
+      collectionIds[i] = filteredClassCollections.getInt(i);
     }
-    clusterIds[clusterIds.length - 1] = -1; // temporary cluster, data in tx
+    collectionIds[collectionIds.length - 1] = -1; // temporary collection, data in tx
 
-    sortClusers(clusterIds);
-    for (var clusterId : clusterIds) {
-      if (clusterId > 0) {
+    sortClusers(collectionIds);
+    for (var collectionId : collectionIds) {
+      if (collectionId > 0) {
         var step =
-            new FetchFromClusterExecutionStep(clusterId, planningInfo, ctx, profilingEnabled);
+            new FetchFromCollectionExecutionStep(collectionId, planningInfo, ctx, profilingEnabled);
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
         }
         subSteps.add(step);
       } else {
@@ -99,9 +100,9 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
         var step =
             new FetchTemporaryFromTxStep(ctx, className, profilingEnabled);
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
         }
         subSteps.add(step);
       }
@@ -118,16 +119,16 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     return clazz;
   }
 
-  private void sortClusers(int[] clusterIds) {
+  private void sortClusers(int[] collectionIds) {
     if (orderByRidAsc) {
-      Arrays.sort(clusterIds);
+      Arrays.sort(collectionIds);
     } else if (orderByRidDesc) {
-      Arrays.sort(clusterIds);
+      Arrays.sort(collectionIds);
       // revert order
-      for (var i = 0; i < clusterIds.length / 2; i++) {
-        var old = clusterIds[i];
-        clusterIds[i] = clusterIds[clusterIds.length - 1 - i];
-        clusterIds[clusterIds.length - 1 - i] = old;
+      for (var i = 0; i < collectionIds.length / 2; i++) {
+        var old = collectionIds[i];
+        collectionIds[i] = collectionIds[collectionIds.length - 1 - i];
+        collectionIds[collectionIds.length - 1 - i] = old;
       }
     }
   }
@@ -229,6 +230,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
   }
 
+  @Nonnull
   @Override
   public List<ExecutionStep> getSubSteps() {
     return subSteps;

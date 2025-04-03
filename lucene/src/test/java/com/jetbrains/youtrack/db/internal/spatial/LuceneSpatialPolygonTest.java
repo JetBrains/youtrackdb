@@ -15,8 +15,7 @@ package com.jetbrains.youtrack.db.internal.spatial;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +67,7 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     session.begin();
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("germany.json");
 
-    var map = RecordSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
 

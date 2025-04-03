@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * @since 03/11/14
@@ -187,6 +188,7 @@ public class ImmutableRole implements SecurityRole {
     return policies;
   }
 
+  @Nullable
   @Override
   public SecurityPolicy getPolicy(DatabaseSession session, String resource) {
     if (policies == null) {

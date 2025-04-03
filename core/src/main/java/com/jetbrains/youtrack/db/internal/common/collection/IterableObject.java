@@ -51,6 +51,11 @@ public class IterableObject<T> implements Iterable<T>, Resettable, Iterator<T> {
   }
 
   @Override
+  public boolean isResetable() {
+    return true;
+  }
+
+  @Override
   public boolean hasNext() {
     return !alreadyRead;
   }

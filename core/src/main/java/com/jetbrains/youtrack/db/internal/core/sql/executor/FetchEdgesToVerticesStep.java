@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -25,19 +26,19 @@ import java.util.stream.StreamSupport;
 public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
 
   private final String toAlias;
-  private final SQLIdentifier targetCluster;
+  private final SQLIdentifier targetCollection;
   private final SQLIdentifier targetClass;
 
   public FetchEdgesToVerticesStep(
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.toAlias = toAlias;
     this.targetClass = targetClass;
-    this.targetCluster = targetCluster;
+    this.targetCollection = targetCollection;
   }
 
   @Override
@@ -94,28 +95,27 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
       var vertex = ((Entity) from).asVertex();
-      assert vertex != null;
       var edges = vertex.getEdges(Direction.IN);
       Stream<Result> stream =
           StreamSupport.stream(edges.spliterator(), false)
-              .filter((edge) -> matchesClass(session, edge) && matchesCluster(edge))
-              .map(e -> new ResultInternal(session, e));
+              .filter((edge) -> matchesClass(session, edge) && matchesCollection(edge))
+              .map(e -> new ResultInternal(session, (EdgeInternal) e));
       return ExecutionStream.resultIterator(stream.iterator());
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);
     }
   }
 
-  private boolean matchesCluster(Edge edge) {
-    if (targetCluster == null) {
+  private boolean matchesCollection(Edge edge) {
+    if (targetCollection == null) {
       return true;
     }
     if (edge.isStateful()) {
       var statefulEdge = edge.asStatefulEdge();
 
-      var clusterId = statefulEdge.getIdentity().getClusterId();
-      var clusterName = ctx.getDatabaseSession().getClusterNameById(clusterId);
-      return clusterName.equals(targetCluster.getStringValue());
+      var collectionId = statefulEdge.getIdentity().getCollectionId();
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      return collectionName.equals(targetCollection.getStringValue());
     }
 
     return false;
@@ -139,8 +139,8 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     if (targetClass != null) {
       result += "\n" + spaces + "       (target class " + targetClass + ")";
     }
-    if (targetCluster != null) {
-      result += "\n" + spaces + "       (target cluster " + targetCluster + ")";
+    if (targetCollection != null) {
+      result += "\n" + spaces + "       (target collection " + targetCollection + ")";
     }
     return result;
   }

@@ -2,6 +2,7 @@
   <profile version="1.0">
     <option name="myName" value="youtrackdb" />
     <inspection_tool class="AbstractClassWithOnlyOneDirectInheritor" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AutoCloseableResource" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="BooleanMethodIsAlwaysInverted" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="CallToSimpleGetterInClass" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="ignoreGetterCallsOnOtherObjects" value="false" />
@@ -34,7 +35,7 @@
       <option name="checkDivision" value="false" />
     </inspection_tool>
     <inspection_tool class="NotNullFieldNotInitialized" enabled="true" level="WARNING" enabled_by_default="false">
-      <scope name="Production" level="ERROR" enabled="true" editorAttributes="ERRORS_ATTRIBUTES" />
+      <scope name="Production" level="WARNING" enabled="true" editorAttributes="WARNING_ATTRIBUTES" />
     </inspection_tool>
     <inspection_tool class="NullableProblems" enabled="true" level="WARNING" enabled_by_default="false">
       <scope name="Production" level="WARNING" enabled="true" editorAttributes="WARNING_ATTRIBUTES">

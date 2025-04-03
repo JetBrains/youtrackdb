@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 public class JSONReader {
 
@@ -103,6 +104,7 @@ public class JSONReader {
     return readString(iUntil, iInclude, DEFAULT_JUMP, null);
   }
 
+  @Nullable
   public String readString(
       final char[] iUntil, final boolean iInclude, final char[] iJumpChars, final char[] iSkipChars)
       throws IOException, ParseException {
@@ -117,6 +119,7 @@ public class JSONReader {
     return value;
   }
 
+  @Nullable
   public String readString(
       final char[] iUntil,
       final boolean iInclude,
@@ -142,6 +145,7 @@ public class JSONReader {
    * @throws IOException
    * @throws ParseException
    */
+  @Nullable
   public Pair<String, Map<String, RidSet>> readRecordString(int maxRidbagSizeLazyImport)
       throws IOException, ParseException {
     var ridbags =

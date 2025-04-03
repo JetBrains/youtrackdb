@@ -65,10 +65,10 @@ public class SQLMethodAsSet extends AbstractSQLMethod {
 
     if (ioResult instanceof Iterator<?>) {
       final Set<Object> set;
-      if (ioResult instanceof Sizeable) {
-        set = new LinkedHashSet<Object>(((Sizeable) ioResult).size());
+      if (ioResult instanceof Sizeable sizeable && sizeable.isSizeable()) {
+        set = new LinkedHashSet<>(sizeable.size());
       } else {
-        set = new LinkedHashSet<Object>();
+        set = new LinkedHashSet<>();
       }
 
       for (var iter = (Iterator<Object>) ioResult; iter.hasNext(); ) {

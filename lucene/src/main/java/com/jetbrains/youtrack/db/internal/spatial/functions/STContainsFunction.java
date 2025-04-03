@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderContains;
 import java.util.Collection;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -37,6 +38,7 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -68,6 +70,7 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
     return true;
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

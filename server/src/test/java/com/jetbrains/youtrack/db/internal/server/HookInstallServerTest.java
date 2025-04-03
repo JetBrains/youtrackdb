@@ -29,7 +29,7 @@ public class HookInstallServerTest {
   public static class MyHook extends EntityHookAbstract {
 
     public MyHook(DatabaseSession session) {
-      super(session);
+      super();
     }
 
     @Override

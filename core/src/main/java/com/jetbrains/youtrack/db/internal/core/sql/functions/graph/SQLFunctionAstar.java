@@ -40,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * A*'s algorithm describes how to find the cheapest path from one node to another node in a
@@ -215,6 +216,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     return toVertex(neighborEdge.getFrom(), db);
   }
 
+  @Nullable
   private static Vertex toVertex(Identifiable outVertex, DatabaseSessionInternal db) {
     if (outVertex == null) {
       return null;

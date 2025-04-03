@@ -32,6 +32,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /**
  * Original Lock Manager implementation that uses a concurrent linked hash map to store one entry
@@ -114,6 +115,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
     return acquireLock(iResourceId, iLockType, acquireTimeout);
   }
 
+  @Nullable
   public Lock acquireLock(final T iResourceId, final LOCK iLockType, long iTimeout) {
     if (!enabled) {
       return null;
@@ -367,6 +369,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
     }
   }
 
+  @Nullable
   protected Lock[] acquireLockInBatch(T[] values, final boolean exclusiveMode) {
     if (values == null || values.length == 0) {
       return null;

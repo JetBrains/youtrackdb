@@ -19,6 +19,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.method;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Returns the first characters from the beginning of the string.
@@ -36,6 +37,7 @@ public class SQLMethodLeft extends AbstractSQLMethod {
     return "left(<characters>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

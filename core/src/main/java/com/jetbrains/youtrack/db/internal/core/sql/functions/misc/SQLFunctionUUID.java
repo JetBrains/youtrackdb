@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 /**
  * Generates a UUID as a 128-bits value using the Leach-Salz variant. For more information look at:
@@ -57,6 +58,7 @@ public class SQLFunctionUUID extends SQLFunctionAbstract {
     return "uuid()";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

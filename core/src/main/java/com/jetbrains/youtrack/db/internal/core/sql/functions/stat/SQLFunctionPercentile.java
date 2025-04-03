@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Computes the percentile for a field. Nulls are ignored in the calculation.
@@ -47,6 +48,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
     super(iName, iMaxParams, iMaxParams);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -92,6 +94,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
     }
   }
 
+  @Nullable
   private Object evaluate(List<Number> iValues) {
     if (iValues.isEmpty()) { // result set is empty
       return null;

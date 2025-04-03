@@ -67,11 +67,11 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
       final String iName,
       final String iType,
       final IndexDefinition indexDefinition,
-      final int[] clusterIdsToIndex,
+      final int[] collectionIdsToIndex,
       final ProgressListener progressListener,
       final Map<String, Object> metadata) {
     return delegate.createIndex(
-        session, iName, iType, indexDefinition, clusterIdsToIndex, progressListener, metadata);
+        session, iName, iType, indexDefinition, collectionIdsToIndex, progressListener, metadata);
   }
 
   @Override
@@ -79,7 +79,7 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
       final String iName,
       final String iType,
       final IndexDefinition iIndexDefinition,
-      final int[] iClusterIdsToIndex,
+      final int[] iCollectionIdsToIndex,
       final ProgressListener progressListener,
       final Map<String, Object> metadata,
       final String algorithm) {
@@ -88,7 +88,7 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
         iName,
         iType,
         iIndexDefinition,
-        iClusterIdsToIndex,
+        iCollectionIdsToIndex,
         progressListener,
         metadata,
         algorithm);
@@ -154,14 +154,14 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
   }
 
   @Override
-  public void addClusterToIndex(DatabaseSession session, String clusterName, String indexName) {
-    delegate.addClusterToIndex((DatabaseSessionInternal) session, clusterName, indexName);
+  public void addCollectionToIndex(DatabaseSession session, String collectionName, String indexName) {
+    delegate.addCollectionToIndex((DatabaseSessionInternal) session, collectionName, indexName);
   }
 
   @Override
-  public void removeClusterFromIndex(DatabaseSession session, String clusterName,
+  public void removeCollectionFromIndex(DatabaseSession session, String collectionName,
       String indexName) {
-    delegate.removeClusterFromIndex((DatabaseSessionInternal) session, clusterName, indexName);
+    delegate.removeCollectionFromIndex((DatabaseSessionInternal) session, collectionName, indexName);
   }
 
   @Override

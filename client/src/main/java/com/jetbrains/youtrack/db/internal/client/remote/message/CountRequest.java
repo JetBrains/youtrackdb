@@ -32,11 +32,11 @@ import java.io.IOException;
 
 public final class CountRequest implements BinaryRequest<CountResponse> {
 
-  private int[] clusterIds;
+  private int[] collectionIds;
   private boolean countTombstones;
 
-  public CountRequest(int[] iClusterIds, boolean countTombstones) {
-    this.clusterIds = iClusterIds;
+  public CountRequest(int[] iCollectionIds, boolean countTombstones) {
+    this.collectionIds = iCollectionIds;
     this.countTombstones = countTombstones;
   }
 
@@ -46,9 +46,9 @@ public final class CountRequest implements BinaryRequest<CountResponse> {
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeShort((short) clusterIds.length);
-    for (var iClusterId : clusterIds) {
-      network.writeShort((short) iClusterId);
+    network.writeShort((short) collectionIds.length);
+    for (var iCollectionId : collectionIds) {
+      network.writeShort((short) iCollectionId);
     }
 
     network.writeByte(countTombstones ? (byte) 1 : (byte) 0);
@@ -58,26 +58,26 @@ public final class CountRequest implements BinaryRequest<CountResponse> {
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    int nclusters = channel.readShort();
-    clusterIds = new int[nclusters];
-    for (var i = 0; i < clusterIds.length; i++) {
-      clusterIds[i] = channel.readShort();
+    int ncollections = channel.readShort();
+    collectionIds = new int[ncollections];
+    for (var i = 0; i < collectionIds.length; i++) {
+      collectionIds[i] = channel.readShort();
     }
     countTombstones = channel.readByte() != 0;
   }
 
   @Override
   public byte getCommand() {
-    return ChannelBinaryProtocol.REQUEST_CLUSTER_COUNT;
+    return ChannelBinaryProtocol.REQUEST_COLLECTION_COUNT;
   }
 
   @Override
   public String getDescription() {
-    return "Count cluster entities";
+    return "Count collection entities";
   }
 
-  public int[] getClusterIds() {
-    return clusterIds;
+  public int[] getCollectionIds() {
+    return collectionIds;
   }
 
   public boolean isCountTombstones() {
@@ -91,6 +91,6 @@ public final class CountRequest implements BinaryRequest<CountResponse> {
 
   @Override
   public BinaryResponse execute(BinaryRequestExecutor executor) {
-    return executor.executeCountCluster(this);
+    return executor.executeCountCollection(this);
   }
 }

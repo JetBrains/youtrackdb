@@ -67,9 +67,11 @@ public class TransactionAtomicTest extends BaseDBTest {
     db2.commit();
 
     db1.activateOnCurrentThread();
+    db1.begin();
     var activeTx = db1.getActiveTransaction();
     record1 = activeTx.load(record1);
     Assert.assertEquals(record1.getProperty("value"), "This is the third version");
+    db1.commit();
     db1.close();
 
     db2.activateOnCurrentThread();
@@ -81,8 +83,8 @@ public class TransactionAtomicTest extends BaseDBTest {
   @Test
   public void testMVCC() throws IOException {
 
-    var doc = ((EntityImpl) session.newEntity("Account"));
     session.begin();
+    var doc = ((EntityImpl) session.newEntity("Account"));
     doc.setProperty("version", 0);
 
     session.commit();
@@ -152,7 +154,7 @@ public class TransactionAtomicTest extends BaseDBTest {
           .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     }
 
-    Assert.assertEquals(session.countClusterElements("Fruit"), 0);
+    Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
 
     try {
       session.begin();
@@ -168,13 +170,13 @@ public class TransactionAtomicTest extends BaseDBTest {
 
       session.commit();
 
-      Assert.assertEquals(apple.getIdentity().getClusterId(), fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(orange.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(banana.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
-      Assert.assertEquals(kumquat.getIdentity().getClusterId(),
-          fruitClass.getClusterIds()[0]);
+      Assert.assertEquals(apple.getIdentity().getCollectionId(), fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(orange.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(banana.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
+      Assert.assertEquals(kumquat.getIdentity().getCollectionId(),
+          fruitClass.getCollectionIds()[0]);
 
       Assert.fail();
 
@@ -183,6 +185,6 @@ public class TransactionAtomicTest extends BaseDBTest {
       session.rollback();
     }
 
-    Assert.assertEquals(session.countClusterElements("Fruit"), 0);
+    Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
   }
 }

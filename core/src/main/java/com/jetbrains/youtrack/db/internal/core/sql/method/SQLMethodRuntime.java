@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
+import javax.annotation.Nullable;
 
 /**
  * Wraps function managing the binding of parameters.
@@ -66,6 +67,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
    * @param iContext
    * @return
    */
+  @Nullable
   public Object execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -148,6 +150,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
     return transformValue(iCurrentRecord, iContext, functionResult);
   }
 
+  @Nullable
   @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {

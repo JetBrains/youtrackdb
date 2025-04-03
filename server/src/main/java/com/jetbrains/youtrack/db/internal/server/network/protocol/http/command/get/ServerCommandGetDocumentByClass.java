@@ -48,7 +48,7 @@ public class ServerCommandGetDocumentByClass extends ServerCommandAuthenticatedD
       if (db.getMetadata().getImmutableSchemaSnapshot().getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
-      final var rid = db.getClusterIdByName(urlParts[2]) + ":" + urlParts[3];
+      final var rid = db.getCollectionIdByName(urlParts[2]) + ":" + urlParts[3];
       try {
         rec = db.load(new RecordId(rid));
       } catch (RecordNotFoundException e) {

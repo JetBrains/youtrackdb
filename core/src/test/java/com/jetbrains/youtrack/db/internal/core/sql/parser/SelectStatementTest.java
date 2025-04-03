@@ -320,7 +320,7 @@ public class SelectStatementTest {
   public void testEscape2() {
     try {
       var result =
-          checkWrongSyntax("select from cluster:internal where \"\\u005C\" = \"\\u005C\" ");
+          checkWrongSyntax("select from collection:internal where \"\\u005C\" = \"\\u005C\" ");
       fail();
     } catch (Error e) {
 
@@ -461,7 +461,7 @@ public class SelectStatementTest {
         "select from Foo where (a=2 and b=3 and (a = 4 and (b=5 and d lucene 'foo')))) or select"
             + " from Foo where (a=2 and b=3 and (a = 4 and (b=5 and d lucene 'foo'))))");
 
-    checkWrongSyntax("select from cluster:foo where a lucene 'b'");
+    checkWrongSyntax("select from collection:foo where a lucene 'b'");
     checkWrongSyntax("select from #12:0 where a lucene 'b'");
     checkWrongSyntax("select from [#12:0, #12:1] where a lucene 'b'");
   }
@@ -583,12 +583,12 @@ public class SelectStatementTest {
     checkRightSyntax("select `matches` from foo where `matches` = 'bar'");
     checkRightSyntax("select `key` from foo where `key` = 'bar'");
     checkRightSyntax("select `instanceof` from foo where `instanceof` = 'bar'");
-    checkRightSyntax("select `cluster` from foo where `cluster` = 'bar'");
+    checkRightSyntax("select `collection` from foo where `collection` = 'bar'");
 
-    checkRightSyntax("select `foo-bar` from foo where `cluster` = 'bar'");
+    checkRightSyntax("select `foo-bar` from foo where `collection` = 'bar'");
 
-    checkWrongSyntax("select `cluster from foo where `cluster` = 'bar'");
-    checkWrongSyntax("select `cluster from foo where cluster` = 'bar'");
+    checkWrongSyntax("select `collection from foo where `collection` = 'bar'");
+    checkWrongSyntax("select `collection from foo where collection` = 'bar'");
   }
 
   @Test

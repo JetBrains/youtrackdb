@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * this class is only used by the query executor to store pre-calculated values and store them in a
@@ -80,6 +81,7 @@ public class SQLValueExpression extends SQLExpression {
     return false;
   }
 
+  @Nullable
   public SQLValueExpression getExpandContent() {
     return null;
   }
@@ -136,6 +138,7 @@ public class SQLValueExpression extends SQLExpression {
     return false;
   }
 
+  @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
@@ -166,6 +169,7 @@ public class SQLValueExpression extends SQLExpression {
     return true;
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return null;
   }

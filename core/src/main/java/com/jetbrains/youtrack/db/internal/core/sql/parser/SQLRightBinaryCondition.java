@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLRightBinaryCondition extends SimpleNode {
 
@@ -77,6 +78,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, Object elementToFilter, CommandContext ctx) {
     if (elementToFilter == null) {
       return null;
@@ -102,6 +104,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, Object elementToFilter,
       CommandContext ctx) {
     if (elementToFilter == null) {

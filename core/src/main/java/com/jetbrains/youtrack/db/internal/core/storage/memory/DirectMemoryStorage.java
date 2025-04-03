@@ -38,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.zip.ZipOutputStream;
+import javax.annotation.Nullable;
 
 /**
  * @since 7/9/14
@@ -153,6 +154,7 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     }
   }
 
+  @Nullable
   @Override
   protected LogSequenceNumber copyWALToIncrementalBackup(
       final ZipOutputStream zipOutputStream, final long startSegment) {
@@ -164,11 +166,13 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     return false;
   }
 
+  @Nullable
   @Override
   protected File createWalTempDirectory() {
     return null;
   }
 
+  @Nullable
   @Override
   protected WriteAheadLog createWalFromIBUFiles(
       final File directory,

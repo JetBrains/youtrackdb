@@ -25,12 +25,10 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -45,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SchemaImmutableClass implements SchemaClassInternal {
 
@@ -68,9 +67,9 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final Map<String, SchemaPropertyInternal> properties;
   private Map<String, SchemaProperty> allPropertiesMap;
   private Collection<SchemaProperty> allProperties;
-  private final ClusterSelectionStrategy clusterSelection;
-  private final int[] clusterIds;
-  private final int[] polymorphicClusterIds;
+  private final CollectionSelectionStrategy collectionSelection;
+  private final int[] collectionIds;
+  private final int[] polymorphicCollectionIds;
   private final Collection<String> baseClassesNames;
   private final List<String> superClassesNames;
 
@@ -82,10 +81,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final List<SchemaImmutableClass> superClasses;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
   private Collection<SchemaImmutableClass> subclasses;
-  private boolean restricted;
   private boolean isVertexType;
   private boolean isEdgeType;
-  private boolean triggered;
   private boolean function;
   private boolean scheduler;
   private boolean sequence;
@@ -111,9 +108,9 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
     name = oClass.getName(session);
     streamAbleName = oClass.getStreamableName(session);
-    clusterSelection = oClass.getClusterSelection(session);
-    clusterIds = oClass.getClusterIds(session);
-    polymorphicClusterIds = oClass.getPolymorphicClusterIds(session);
+    collectionSelection = oClass.getCollectionSelection(session);
+    collectionIds = oClass.getCollectionIds(session);
+    polymorphicCollectionIds = oClass.getPolymorphicCollectionIds(session);
 
     baseClassesNames = new ArrayList<>();
     for (var baseClass : oClass.getSubclasses(session)) {
@@ -158,10 +155,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
       this.allProperties = Collections.unmodifiableCollection(allProperties);
       this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
-      this.restricted = isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME);
       this.isVertexType = isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
       this.isEdgeType = isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
-      this.triggered = isSubClassOf(ClassTrigger.CLASSNAME);
       this.function = isSubClassOf(FunctionLibraryImpl.CLASSNAME);
       this.scheduler = isSubClassOf(ScheduledEvent.CLASS_NAME);
       this.sequence = isSubClassOf(DBSequence.CLASS_NAME);
@@ -323,24 +318,24 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public int getClusterForNewInstance(final EntityImpl entity) {
-    return clusterSelection.getCluster(entity.getBoundedToSession(), this, entity);
+  public int getCollectionForNewInstance(final EntityImpl entity) {
+    return collectionSelection.getCollection(entity.getBoundedToSession(), this, entity);
   }
 
 
   @Override
-  public int[] getClusterIds() {
-    return clusterIds;
+  public int[] getCollectionIds() {
+    return collectionIds;
   }
 
 
-  public ClusterSelectionStrategy getClusterSelection() {
-    return clusterSelection;
+  public CollectionSelectionStrategy getCollectionSelection() {
+    return collectionSelection;
   }
 
   @Override
-  public int[] getPolymorphicClusterIds() {
-    return Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length);
+  public int[] getPolymorphicCollectionIds() {
+    return Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length);
   }
 
   public ImmutableSchema getSchema() {
@@ -395,12 +390,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
     if (isPolymorphic) {
       return session
-          .countClusterElements(
-              SchemaClassImpl.readableClusters(session, polymorphicClusterIds, name));
+          .countCollectionElements(
+              SchemaClassImpl.readableCollections(session, polymorphicCollectionIds, name));
     }
 
     return session
-        .countClusterElements(SchemaClassImpl.readableClusters(session, clusterIds, name));
+        .countCollectionElements(SchemaClassImpl.readableCollections(session, collectionIds, name));
   }
 
   @Override
@@ -706,13 +701,13 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean hasClusterId(int clusterId) {
-    return Arrays.binarySearch(clusterIds, clusterId) >= 0;
+  public boolean hasCollectionId(int collectionId) {
+    return Arrays.binarySearch(collectionIds, collectionId) >= 0;
   }
 
   @Override
-  public boolean hasPolymorphicClusterId(final int clusterId) {
-    return Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0;
+  public boolean hasPolymorphicCollectionId(final int collectionId) {
+    return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
   }
 
 
@@ -744,20 +739,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
-  public boolean isRestricted() {
-    return restricted;
-  }
-
   public boolean isEdgeType() {
     return isEdgeType;
   }
 
   public boolean isVertexType() {
     return isVertexType;
-  }
-
-  public boolean isTriggered() {
-    return triggered;
   }
 
   public boolean isFunction() {
@@ -803,6 +790,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return false;
   }
 
+  @Nullable
   @Override
   public DatabaseSession getBoundToSession() {
     return null;

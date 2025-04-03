@@ -681,10 +681,10 @@ public class MatchExecutionPlanner {
 
     Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
     Map<String, String> aliasClasses = new LinkedHashMap<>();
-    Map<String, String> aliasClusters = new LinkedHashMap<>();
+    Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
     for (var expr : this.matchExpressions) {
-      addAliases(expr, aliasFilters, aliasClasses, aliasClusters, aliasRids, ctx);
+      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids, ctx);
     }
 
     this.aliasFilters = aliasFilters;
@@ -710,13 +710,13 @@ public class MatchExecutionPlanner {
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
-      Map<String, String> aliasClusters,
+      Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
-    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasClusters, aliasRids, context);
+    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasClusters, aliasRids, context);
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
       }
     }
   }
@@ -725,7 +725,7 @@ public class MatchExecutionPlanner {
       SQLMatchFilter matchFilter,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
-      Map<String, String> aliasClusters,
+      Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
     var alias = matchFilter.getAlias();
@@ -765,19 +765,19 @@ public class MatchExecutionPlanner {
         }
       }
 
-      var clusterName = matchFilter.getClusterName(context);
-      if (clusterName != null) {
-        var previousCluster = aliasClusters.get(alias);
-        if (previousCluster == null) {
-          aliasClusters.put(alias, clusterName);
-        } else if (!previousCluster.equalsIgnoreCase(clusterName)) {
+      var collectionName = matchFilter.getCollectionName(context);
+      if (collectionName != null) {
+        var previousCollection = aliasCollections.get(alias);
+        if (previousCollection == null) {
+          aliasCollections.put(alias, collectionName);
+        } else if (!previousCollection.equalsIgnoreCase(collectionName)) {
           throw new CommandExecutionException(context.getDatabaseSession(),
               "Invalid expression for alias "
                   + alias
-                  + " cannot be of both clusters "
-                  + previousCluster
+                  + " cannot be of both collections "
+                  + previousCollection
                   + " and "
-                  + clusterName);
+                  + collectionName);
         }
       }
 

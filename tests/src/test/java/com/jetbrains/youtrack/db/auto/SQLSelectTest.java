@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -576,12 +576,12 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryWhereRidDirectMatching() {
     session.begin();
-    var clusterId = session.getMetadata().getSchema().getClass("ORole").getClusterIds()[0];
-    var positions = getValidPositions(clusterId);
+    var collectionId = session.getMetadata().getSchema().getClass("ORole").getCollectionIds()[0];
+    var positions = getValidPositions(collectionId);
 
     var result =
         executeQuery(
-            "select * from OUser where roles contains #" + clusterId + ":" + positions.getFirst(),
+            "select * from OUser where roles contains #" + collectionId + ":" + positions.getFirst(),
             session);
 
     Assert.assertEquals(result.size(), 1);
@@ -811,18 +811,18 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryRecordTargetRid() {
     session.begin();
-    var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    var positions = getValidPositions(profileClusterId);
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var positions = getValidPositions(profileCollectionId);
 
     var result =
-        executeQuery("select from " + profileClusterId + ":" + positions.getFirst());
+        executeQuery("select from " + profileCollectionId + ":" + positions.getFirst());
 
     Assert.assertEquals(result.size(), 1);
 
     for (var d : result) {
       Assert.assertEquals(
-          d.getIdentity().toString(), "#" + profileClusterId + ":" + positions.getFirst());
+          d.getIdentity().toString(), "#" + profileCollectionId + ":" + positions.getFirst());
     }
     session.commit();
   }
@@ -830,18 +830,18 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryRecordTargetRids() {
     session.begin();
-    var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    var positions = getValidPositions(profileClusterId);
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var positions = getValidPositions(profileCollectionId);
 
     var result =
         executeQuery(
             " select from ["
-                + profileClusterId
+                + profileCollectionId
                 + ":"
                 + positions.get(0)
                 + ", "
-                + profileClusterId
+                + profileCollectionId
                 + ":"
                 + positions.get(1)
                 + "]",
@@ -850,9 +850,9 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 2);
 
     Assert.assertEquals(
-        result.get(0).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(0));
+        result.get(0).getIdentity().toString(), "#" + profileCollectionId + ":" + positions.get(0));
     Assert.assertEquals(
-        result.get(1).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(1));
+        result.get(1).getIdentity().toString(), "#" + profileCollectionId + ":" + positions.get(1));
     session.commit();
   }
 
@@ -860,20 +860,20 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void queryRecordAttribRid() {
     session.begin();
 
-    var profileClusterId =
-        session.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    var postions = getValidPositions(profileClusterId);
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var postions = getValidPositions(profileCollectionId);
 
     var result =
         executeQuery(
-            "select from Profile where @rid = #" + profileClusterId + ":" + postions.getFirst(),
+            "select from Profile where @rid = #" + profileCollectionId + ":" + postions.getFirst(),
             session);
 
     Assert.assertEquals(result.size(), 1);
 
     for (var d : result) {
       Assert.assertEquals(
-          d.getIdentity().toString(), "#" + profileClusterId + ":" + postions.getFirst());
+          d.getIdentity().toString(), "#" + profileCollectionId + ":" + postions.getFirst());
     }
     session.commit();
   }
@@ -977,12 +977,14 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryBetween() {
+    session.begin();
     var result = executeQuery("select * from account where nr between 10 and 20");
 
     for (var record : result) {
       Assert.assertTrue(
           ((Integer) record.getProperty("nr")) >= 10 && ((Integer) record.getProperty("nr")) <= 20);
     }
+    session.commit();
   }
 
   @Test
@@ -1284,9 +1286,9 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryWithTwoRidInWhere() {
     session.begin();
-    var clusterId = session.getClusterIdByName("profile");
+    var collectionId = session.getCollectionIdByName("profile");
 
-    var positions = getValidPositions(clusterId);
+    var positions = getValidPositions(collectionId);
 
     final long minPos;
     final long maxPos;
@@ -1301,21 +1303,21 @@ public class SQLSelectTest extends AbstractSelectTest {
     var resultset =
         executeQuery(
             "select @rid.trim() as oid, name from Profile where (@rid in [#"
-                + clusterId
+                + collectionId
                 + ":"
                 + positions.get(5)
                 + "] or @rid in [#"
-                + clusterId
+                + collectionId
                 + ":"
                 + positions.get(25)
                 + "]) AND @rid > ? LIMIT 10000",
             session,
-            new RecordId(clusterId, minPos));
+            new RecordId(collectionId, minPos));
 
     Assert.assertEquals(resultset.size(), 1);
 
     Assert.assertEquals(resultset.getFirst().getProperty("oid"),
-        new RecordId(clusterId, maxPos).toString());
+        new RecordId(collectionId, maxPos).toString());
     session.commit();
   }
 
@@ -1411,8 +1413,8 @@ public class SQLSelectTest extends AbstractSelectTest {
     RID secondPlaceId = secondPlace.getIdentity();
     RID famousPlaceId = famousPlace.getIdentity();
     // if one of these two asserts fails, the test will be meaningless.
-    Assert.assertTrue(secondPlaceId.getClusterId() < famousPlaceId.getClusterId());
-    Assert.assertTrue(secondPlaceId.getClusterPosition() > famousPlaceId.getClusterPosition());
+    Assert.assertTrue(secondPlaceId.getCollectionId() < famousPlaceId.getCollectionId());
+    Assert.assertTrue(secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
 
     var result =
         executeQuery(
@@ -1478,21 +1480,21 @@ public class SQLSelectTest extends AbstractSelectTest {
   }
 
   @Test
-  public void testMultipleClustersWithPagination() {
-    session.getMetadata().getSchema().createClass("PersonMultipleClusters");
+  public void testMultipleCollectionsWithPagination() {
+    session.getMetadata().getSchema().createClass("PersonMultipleCollections");
     try {
       Set<String> names =
           new HashSet<>(Arrays.asList("Luca", "Jill", "Sara", "Tania", "Gianluca", "Marco"));
       for (var n : names) {
         session.begin();
-        EntityImpl entity = ((EntityImpl) session.newEntity("PersonMultipleClusters"));
+        EntityImpl entity = ((EntityImpl) session.newEntity("PersonMultipleCollections"));
         entity.setProperty("First", n);
 
         session.commit();
       }
 
       session.begin();
-      var query = "select from PersonMultipleClusters where @rid > ? limit 2";
+      var query = "select from PersonMultipleCollections where @rid > ? limit 2";
       var resultset = executeQuery(query, new ChangeableRecordId());
 
       while (!resultset.isEmpty()) {
@@ -1510,7 +1512,7 @@ public class SQLSelectTest extends AbstractSelectTest {
       session.commit();
 
     } finally {
-      session.getMetadata().getSchema().dropClass("PersonMultipleClusters");
+      session.getMetadata().getSchema().dropClass("PersonMultipleCollections");
     }
   }
 
@@ -1543,40 +1545,40 @@ public class SQLSelectTest extends AbstractSelectTest {
     }
   }
 
-  private List<Long> getValidPositions(int clusterId) {
+  private List<Long> getValidPositions(int collectionId) {
     final List<Long> positions = new ArrayList<>();
 
-    final RecordIteratorCluster<EntityImpl> iteratorCluster =
-        session.browseCluster(session.getClusterNameById(clusterId));
+    final RecordIteratorCollection<EntityImpl> iteratorCollection =
+        session.browseCollection(session.getCollectionNameById(collectionId));
 
     for (var i = 0; i < 100; i++) {
-      if (!iteratorCluster.hasNext()) {
+      if (!iteratorCollection.hasNext()) {
         break;
       }
 
-      var doc = iteratorCluster.next();
-      positions.add(doc.getIdentity().getClusterPosition());
+      var doc = iteratorCollection.next();
+      positions.add(doc.getIdentity().getCollectionPosition());
     }
     return positions;
   }
 
   @Test
-  public void testBinaryClusterSelect() {
-    session.execute("create blob cluster binarycluster").close();
+  public void testBinaryCollectionSelect() {
+    session.execute("create blob collection binarycollection").close();
     session.reload();
     session.begin();
     session.newBlob(new byte[]{1, 2, 3});
     session.commit();
 
-    var result = session.query("select from cluster:binarycluster");
+    var result = session.query("select from collection:binarycollection");
 
     Assert.assertEquals(result.stream().count(), 1);
 
     session.begin();
-    session.execute("delete from cluster:binarycluster").close();
+    session.execute("delete from collection:binarycollection").close();
     session.commit();
 
-    result = session.query("select from cluster:binarycluster");
+    result = session.query("select from collection:binarycollection");
 
     Assert.assertEquals(result.stream().count(), 0);
   }

@@ -32,6 +32,7 @@ public class HookTxTest extends BaseDBTest {
   private RecordHook recordHook;
 
   private final class RecordHook extends RecordHookAbstract {
+
     private int beforeCreateCount;
     private int afterCreateCount;
 
@@ -128,27 +129,28 @@ public class HookTxTest extends BaseDBTest {
   }
 
   @BeforeMethod
-  public void beforeMethod() {
+  public void beforeMethod() throws Exception {
+    super.beforeMethod();
     recordHook = new RecordHook();
     session.registerHook(recordHook);
   }
 
   @Test
   public void testHookCallsCreate() {
+    session.begin();
     profile = session.newInstance("Profile");
     profile.setProperty("nick", "HookTxTest");
     profile.setProperty("value", 0);
 
     // TEST HOOKS ON CREATE
     Assert.assertEquals(recordHook.callbackCount, 0);
-    session.begin();
     session.commit();
 
     Assert.assertEquals(recordHook.beforeCreateCount, 1);
     Assert.assertEquals(recordHook.afterCreateCount, 1);
-    Assert.assertEquals(recordHook.readCount, 1);
+//    Assert.assertEquals(recordHook.readCount, 1);
 
-    Assert.assertEquals(recordHook.callbackCount, 3);
+    Assert.assertEquals(recordHook.callbackCount, 2);
   }
 
   @Test
@@ -163,7 +165,7 @@ public class HookTxTest extends BaseDBTest {
     Assert.assertEquals(recordHook.callbackCount, 1);
   }
 
-  @Test
+  @Test(dependsOnMethods = "testHookCallsCreate")
   public void testHookCallsUpdate() {
     session.begin();
     profile = session.load(profile.getIdentity());

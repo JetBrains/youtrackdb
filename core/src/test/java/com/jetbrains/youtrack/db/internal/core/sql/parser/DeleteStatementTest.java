@@ -57,7 +57,7 @@ public class DeleteStatementTest extends DbTestBase {
     list.add(doc1);
     list.add(doc2);
     list.add(doc3);
-    final var bar = session.newEntity("Bar").newLinkList("arr", list);
+    session.newEntity("Bar").newLinkList("arr", list);
 
     session.commit();
 

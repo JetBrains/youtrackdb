@@ -22,7 +22,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -41,8 +41,8 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
- * If some of the tests start to fail then check cluster number in queries, e.g #7:1. It can be
- * because the order of clusters could be affected due to adding or removing cluster from storage.
+ * If some of the tests start to fail then check collection number in queries, e.g #7:1. It can be
+ * because the order of collections could be affected due to adding or removing collection from storage.
  */
 @Test
 public class SQLInsertTest extends BaseDBTest {
@@ -64,7 +64,7 @@ public class SQLInsertTest extends BaseDBTest {
       session.getMetadata().getSchema().createClass("Address");
     }
 
-    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds()[0];
+    var addressId = session.getMetadata().getSchema().getClass("Address").getCollectionIds()[0];
 
     for (var i = 0; i < 30; i++) {
       session.begin();
@@ -132,7 +132,7 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void insertWithWildcards() {
-    var addressId = session.getMetadata().getSchema().getClass("Address").getClusterIds()[0];
+    var addressId = session.getMetadata().getSchema().getClass("Address").getCollectionIds()[0];
 
     var positions = getValidPositions(addressId);
 
@@ -182,6 +182,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     Assert.assertNotNull(doc);
@@ -192,6 +193,7 @@ public class SQLInsertTest extends BaseDBTest {
         ((Identifiable) doc.getProperty("location")).getIdentity(),
         new RecordId(addressId, positions.get(3)));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
+    session.commit();
   }
 
   @Test
@@ -375,18 +377,18 @@ public class SQLInsertTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "insertOperator")
-  public void insertCluster() {
+  public void insertCollection() {
     session.begin();
     var doc =
         session
             .execute(
-                "insert into Account cluster anotherdefault (id, title) values (10, 'NoSQL"
+                "insert into Account collection anotherdefault (id, title) values (10, 'NoSQL"
                     + " movement')").stream().findFirst().orElseThrow().asEntityOrNull();
     session.commit();
 
     Assert.assertNotNull(doc);
     Assert.assertEquals(
-        doc.getIdentity().getClusterId(), session.getClusterIdByName("anotherdefault"));
+        doc.getIdentity().getCollectionId(), session.getCollectionIdByName("anotherdefault"));
     Assert.assertEquals(doc.getSchemaClassName(), "Account");
   }
 
@@ -442,6 +444,7 @@ public class SQLInsertTest extends BaseDBTest {
 
     Assert.assertEquals(inserted, 2);
 
+    session.begin();
     var result =
         session.query("select from UserCopy").toList();
 
@@ -451,6 +454,7 @@ public class SQLInsertTest extends BaseDBTest {
       EntityImpl entity = ((EntityImpl) r.asEntityOrNull());
       Assert.assertNotEquals(entity.getProperty("name"), "admin");
     }
+    session.commit();
   }
 
   @Test(expectedExceptions = ValidationException.class)
@@ -763,7 +767,7 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    session.delete(result.asRecord());
+    session.delete(session.load(result.getIdentity()));
     session.commit();
 
     Assert.assertTrue(found);
@@ -860,22 +864,22 @@ public class SQLInsertTest extends BaseDBTest {
   }
 
   @Test
-  public void testInsertWithClusterAsFieldName() {
+  public void testInsertWithCollectionAsFieldName() {
     var c = session.getMetadata().getSchema()
-        .getOrCreateClass("InsertWithClusterAsFieldName");
+        .getOrCreateClass("InsertWithCollectionAsFieldName");
 
     session.begin();
     session
-        .execute("INSERT INTO InsertWithClusterAsFieldName ( `cluster` ) values ( 'foo' )")
+        .execute("INSERT INTO InsertWithCollectionAsFieldName ( `collection` ) values ( 'foo' )")
         .close();
     session.commit();
 
     var result =
-        session.query("SELECT FROM InsertWithClusterAsFieldName").stream()
+        session.query("SELECT FROM InsertWithCollectionAsFieldName").stream()
             .collect(Collectors.toList());
 
     Assert.assertEquals(result.size(), 1);
-    Assert.assertEquals(result.getFirst().getProperty("cluster"), "foo");
+    Assert.assertEquals(result.getFirst().getProperty("collection"), "foo");
   }
 
   @Test
@@ -902,19 +906,19 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(((BigDecimal) o).intValue(), 5);
   }
 
-  private List<Long> getValidPositions(int clusterId) {
+  private List<Long> getValidPositions(int collectionId) {
     session.begin();
     final List<Long> positions = new ArrayList<Long>();
 
-    final RecordIteratorCluster<?> iteratorCluster =
-        session.browseCluster(session.getClusterNameById(clusterId));
+    final RecordIteratorCollection<?> iteratorCollection =
+        session.browseCollection(session.getCollectionNameById(collectionId));
 
     for (var i = 0; i < 100; i++) {
-      if (!iteratorCluster.hasNext()) {
+      if (!iteratorCollection.hasNext()) {
         break;
       }
-      var doc = iteratorCluster.next();
-      positions.add(doc.getIdentity().getClusterPosition());
+      var doc = iteratorCollection.next();
+      positions.add(doc.getIdentity().getCollectionPosition());
     }
     session.commit();
     return positions;

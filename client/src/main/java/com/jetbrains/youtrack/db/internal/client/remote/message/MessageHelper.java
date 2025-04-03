@@ -129,7 +129,7 @@ public class MessageHelper {
       channel.writeInt(previousPositions.length);
 
       for (final var physicalPosition : previousPositions) {
-        channel.writeLong(physicalPosition.clusterPosition);
+        channel.writeLong(physicalPosition.collectionPosition);
         channel.writeInt(physicalPosition.recordSize);
         channel.writeVersion(physicalPosition.recordVersion);
       }
@@ -148,7 +148,7 @@ public class MessageHelper {
       for (var i = 0; i < physicalPositions.length; i++) {
         final var position = new PhysicalPosition();
 
-        position.clusterPosition = network.readLong();
+        position.collectionPosition = network.readLong();
         position.recordSize = network.readInt();
         position.recordVersion = network.readVersion();
 
@@ -158,41 +158,41 @@ public class MessageHelper {
     return physicalPositions;
   }
 
-  public static RawPair<String[], int[]> readClustersArray(final ChannelDataInput network)
+  public static RawPair<String[], int[]> readCollectionsArray(final ChannelDataInput network)
       throws IOException {
     final int tot = network.readShort();
-    final var clusterNames = new String[tot];
-    final var clusterIds = new int[tot];
+    final var collectionNames = new String[tot];
+    final var collectionIds = new int[tot];
 
     for (var i = 0; i < tot; ++i) {
-      var clusterName = network.readString().toLowerCase(Locale.ENGLISH);
-      final int clusterId = network.readShort();
-      clusterNames[i] = clusterName;
-      clusterIds[i] = clusterId;
+      var collectionName = network.readString().toLowerCase(Locale.ENGLISH);
+      final int collectionId = network.readShort();
+      collectionNames[i] = collectionName;
+      collectionIds[i] = collectionId;
     }
 
-    return new RawPair<>(clusterNames, clusterIds);
+    return new RawPair<>(collectionNames, collectionIds);
   }
 
-  public static void writeClustersArray(
-      ChannelDataOutput channel, RawPair<String[], int[]> clusters, int protocolVersion)
+  public static void writeCollectionsArray(
+      ChannelDataOutput channel, RawPair<String[], int[]> collections, int protocolVersion)
       throws IOException {
-    final var clusterNames = clusters.first;
-    final var clusterIds = clusters.second;
+    final var collectionNames = collections.first;
+    final var collectionIds = collections.second;
 
-    channel.writeShort((short) clusterNames.length);
+    channel.writeShort((short) collectionNames.length);
 
-    for (var i = 0; i < clusterNames.length; i++) {
-      channel.writeString(clusterNames[i]);
-      channel.writeShort((short) clusterIds[i]);
+    for (var i = 0; i < collectionNames.length; i++) {
+      channel.writeString(collectionNames[i]);
+      channel.writeShort((short) collectionIds[i]);
     }
   }
 
   public static void writeTransactionEntry(
       final DataOutput iNetwork, final NetworkRecordOperation txEntry) throws IOException {
     iNetwork.writeByte(txEntry.getType());
-    iNetwork.writeInt(txEntry.getId().getClusterId());
-    iNetwork.writeLong(txEntry.getId().getClusterPosition());
+    iNetwork.writeInt(txEntry.getId().getCollectionId());
+    iNetwork.writeLong(txEntry.getId().getCollectionPosition());
     iNetwork.writeLong(txEntry.getDirtyCounter());
     iNetwork.writeByte(txEntry.getRecordType());
 
@@ -247,9 +247,9 @@ public class MessageHelper {
       throws IOException {
     var result = new NetworkRecordOperation();
     result.setType(iNetwork.readByte());
-    var clusterId = iNetwork.readInt();
-    var clusterPosition = iNetwork.readLong();
-    result.setId(new RecordId(clusterId, clusterPosition));
+    var collectionId = iNetwork.readInt();
+    var collectionPosition = iNetwork.readLong();
+    result.setId(new RecordId(collectionId, collectionPosition));
     result.setDirtyCounter(iNetwork.readLong());
     result.setRecordType(iNetwork.readByte());
 
@@ -302,6 +302,7 @@ public class MessageHelper {
     return entry;
   }
 
+  @Nullable
   public static Identifiable readIdentifiable(
       DatabaseSessionInternal session, final ChannelDataInput network, RecordSerializer serializer)
       throws IOException {

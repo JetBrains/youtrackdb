@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.Base64;
+import javax.annotation.Nullable;
 
 /**
  * Encode a string in various format (only base64 for now)
@@ -42,6 +43,7 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       Result iCurrentRecord,

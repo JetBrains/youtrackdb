@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -159,6 +160,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     return searchForIndex(ctx, className);
   }
 
+  @Nullable
   private static LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
     var db = ctx.getDatabaseSession();
     var dbMetadata = db.getMetadata();

@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class PushIndexManagerRequest implements BinaryPushRequest<BinaryPushResponse> {
 
@@ -29,6 +30,7 @@ public class PushIndexManagerRequest implements BinaryPushRequest<BinaryPushResp
     return pushHandler.executeUpdateIndexManager(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

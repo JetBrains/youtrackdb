@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * @since 03/11/14
@@ -92,6 +93,7 @@ public class ImmutableUser implements SecurityUser {
     return role;
   }
 
+  @Nullable
   public SecurityRole checkIfAllowed(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       final String resourceSpecific,

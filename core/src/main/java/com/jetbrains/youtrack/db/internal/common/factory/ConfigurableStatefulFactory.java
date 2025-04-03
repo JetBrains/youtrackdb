@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Configurable stateful factory. New instances are created when newInstance() is called, invoking
@@ -62,6 +63,7 @@ public class ConfigurableStatefulFactory<K, V> {
     return newInstanceOfDefaultClass();
   }
 
+  @Nullable
   public V newInstanceOfDefaultClass() {
     if (defaultClass != null) {
       try {

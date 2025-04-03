@@ -410,8 +410,9 @@ public interface DatabaseSession extends AutoCloseable {
    * Registers a hook to listen all events for Records.
    *
    * @param iHookImpl RecordHook implementation
+   * @return
    */
-  void registerHook(@Nonnull RecordHook iHookImpl);
+  RecordHook registerHook(@Nonnull RecordHook iHookImpl);
 
   /**
    * Unregisters a previously registered hook.
@@ -489,7 +490,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkList newLinkList(int size);
 
-  LinkList newLinkList(Collection<Identifiable> source);
+  LinkList newLinkList(Collection<? extends Identifiable> source);
 
   <T> EmbeddedSet<T> newEmbeddedSet();
 
@@ -501,7 +502,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkSet newLinkSet(int size);
 
-  LinkSet newLinkSet(Collection<Identifiable> source);
+  LinkSet newLinkSet(Collection<? extends Identifiable> source);
 
   <V> Map<String, V> newEmbeddedMap();
 
@@ -513,7 +514,7 @@ public interface DatabaseSession extends AutoCloseable {
 
   Map<String, Identifiable> newLinkMap(int size);
 
-  Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source);
+  Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source);
 
   enum ATTRIBUTES {
     DATEFORMAT,

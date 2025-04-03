@@ -21,8 +21,8 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
 import java.io.File;
 import java.util.Locale;
@@ -118,24 +118,24 @@ public class SQLCommandsTest extends BaseDBTest {
         entity.getProperty("script"));
   }
 
-  public void testClusterRename() {
+  public void testCollectionRename() {
     if (session.getURL().startsWith("memory:")) {
       return;
     }
 
-    var names = session.getClusterNames();
-    Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    var names = session.getCollectionNames();
+    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    session.execute("create cluster testClusterRename").close();
+    session.execute("create collection testCollectionRename").close();
 
-    names = session.getClusterNames();
-    Assert.assertTrue(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    names = session.getCollectionNames();
+    Assert.assertTrue(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    session.execute("alter cluster testClusterRename name testClusterRename42").close();
-    names = session.getClusterNames();
+    session.execute("alter collection testCollectionRename name testCollectionRename42").close();
+    names = session.getCollectionNames();
 
-    Assert.assertTrue(names.contains("testClusterRename42".toLowerCase(Locale.ENGLISH)));
-    Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    Assert.assertTrue(names.contains("testCollectionRename42".toLowerCase(Locale.ENGLISH)));
+    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
     if (!remoteDB && databaseType.equals(DatabaseType.DISK)) {
       var storagePath = session.getStorage().getConfiguration().getDirectory();
@@ -147,13 +147,13 @@ public class SQLCommandsTest extends BaseDBTest {
           new File(
               storagePath,
               wowCache.nativeFileNameById(
-                  wowCache.fileIdByName("testClusterRename42" + PaginatedCluster.DEF_EXTENSION)));
+                  wowCache.fileIdByName("testCollectionRename42" + PaginatedCollection.DEF_EXTENSION)));
       var mapFile =
           new File(
               storagePath,
               wowCache.nativeFileNameById(
                   wowCache.fileIdByName(
-                      "testClusterRename42" + ClusterPositionMap.DEF_EXTENSION)));
+                      "testCollectionRename42" + CollectionPositionMap.DEF_EXTENSION)));
 
       Assert.assertTrue(dataFile.exists());
       Assert.assertTrue(mapFile.exists());

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -77,8 +78,9 @@ public interface Entity extends DBRecord, Result {
    * @param propertyName the property name
    * @param value        the property value
    * @param propertyType Forced type (not auto-determined)
+   * @return
    */
-  void setProperty(@Nonnull String propertyName, @Nullable Object value,
+  Object setProperty(@Nonnull String propertyName, @Nullable Object value,
       @Nonnull PropertyType propertyType);
 
   void setProperty(@Nonnull String propertyName, @Nullable Object value,
@@ -231,19 +233,19 @@ public interface Entity extends DBRecord, Result {
   LinkList newLinkList(@Nonnull String name);
 
   @Nonnull
-  LinkList newLinkList(@Nonnull String name, Collection<Identifiable> source);
+  LinkList newLinkList(@Nonnull String name, Collection<? extends Identifiable> source);
 
   @Nonnull
   LinkSet newLinkSet(@Nonnull String name);
 
   @Nonnull
-  LinkSet newLinkSet(@Nonnull String name, Collection<Identifiable> source);
+  LinkSet newLinkSet(@Nonnull String name, Collection<? extends Identifiable> source);
 
   @Nonnull
-  Map<String, Identifiable> newLinkMap(@Nonnull String name);
+  LinkMap newLinkMap(@Nonnull String name);
 
   @Nonnull
-  Map<String, Identifiable> newLinkMap(@Nonnull String name, Map<String, Identifiable> source);
+  LinkMap newLinkMap(@Nonnull String name, Map<String, ? extends Identifiable> source);
 
   @Nonnull
   <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name);
@@ -271,7 +273,7 @@ public interface Entity extends DBRecord, Result {
   LinkSet getOrCreateLinkSet(@Nonnull String name);
 
   @Nonnull
-  Map<String, Identifiable> getOrCreateLinkMap(@Nonnull String name);
+  LinkMap getOrCreateLinkMap(@Nonnull String name);
 
   /**
    * Remove a property

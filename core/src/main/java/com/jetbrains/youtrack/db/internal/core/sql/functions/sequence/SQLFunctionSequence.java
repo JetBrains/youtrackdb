@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Returns a sequence by name.
@@ -49,6 +50,7 @@ public class SQLFunctionSequence extends SQLFunctionConfigurableAbstract {
     return result;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

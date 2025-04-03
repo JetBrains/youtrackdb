@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySeria
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -45,6 +46,7 @@ public class MockSerializer implements BinarySerializer<EntityImpl> {
       int startPosition, Object... hints) {
   }
 
+  @Nullable
   @Override
   public EntityImpl deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
@@ -72,6 +74,7 @@ public class MockSerializer implements BinarySerializer<EntityImpl> {
       int startPosition, Object... hints) {
   }
 
+  @Nullable
   @Override
   public EntityImpl deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
@@ -84,6 +87,7 @@ public class MockSerializer implements BinarySerializer<EntityImpl> {
     return 0;
   }
 
+  @Nullable
   @Override
   public EntityImpl preprocess(BinarySerializerFactory serializerFactory, EntityImpl value,
       Object... hints) {
@@ -95,12 +99,14 @@ public class MockSerializer implements BinarySerializer<EntityImpl> {
       EntityImpl object, ByteBuffer buffer, Object... hints) {
   }
 
+  @Nullable
   @Override
   public EntityImpl deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       ByteBuffer buffer) {
     return null;
   }
 
+  @Nullable
   @Override
   public EntityImpl deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       int offset, ByteBuffer buffer) {
@@ -119,6 +125,7 @@ public class MockSerializer implements BinarySerializer<EntityImpl> {
     return 0;
   }
 
+  @Nullable
   @Override
   public EntityImpl deserializeFromByteBufferObject(
       BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,

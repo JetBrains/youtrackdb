@@ -43,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * @since 6/24/14
@@ -78,6 +79,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   /**
    * {@inheritDoc}
    */
+  @Nullable
   @Override
   public Path getRootDirectory() {
     return null;
@@ -181,6 +183,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  @Nullable
   @Override
   public CacheEntry loadForWrite(
       final long fileId,
@@ -199,6 +202,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
+  @Nullable
   @Override
   public CacheEntry loadForRead(
       final long fileId,
@@ -223,6 +227,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return loadForRead(extFileId, pageIndex, writeCache, verifyChecksums);
   }
 
+  @Nullable
   private CacheEntry doLoad(final long fileId, final long pageIndex) {
     final var intId = extractFileId(fileId);
 
@@ -619,6 +624,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return firstIntId == secondIntId;
   }
 
+  @Nullable
   @Override
   public String restoreFileById(final long fileId) {
     return null;

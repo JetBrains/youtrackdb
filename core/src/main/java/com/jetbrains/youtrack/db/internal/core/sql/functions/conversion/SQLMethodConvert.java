@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 /**
  * Converts a value to another type in Java or YouTrackDB's supported types.
@@ -39,6 +40,7 @@ public class SQLMethodConvert extends AbstractSQLMethod {
     return "convert(<type>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

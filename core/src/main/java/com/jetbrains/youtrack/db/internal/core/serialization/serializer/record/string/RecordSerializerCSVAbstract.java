@@ -54,6 +54,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 @SuppressWarnings({"unchecked", "serial"})
 public abstract class RecordSerializerCSVAbstract extends RecordSerializerStringAbstract {
@@ -69,6 +70,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
    * @param iLinked       Can be an instance of RID or a Record<?>
    * @return
    */
+  @Nullable
   private static Identifiable linkToStream(
       DatabaseSessionInternal session, final StringWriter buffer, final EntityImpl iParentRecord,
       Object iLinked) {
@@ -125,6 +127,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     return resultRid;
   }
 
+  @Nullable
   public Object fieldFromStream(
       DatabaseSessionInternal session, final RecordAbstract iSourceRecord,
       final PropertyTypeInternal iType,
@@ -261,6 +264,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     }
   }
 
+  @Nullable
   public static Map<String, Object> embeddedMapFromStream(
       DatabaseSessionInternal session, final EntityImpl iSourceDocument,
       final PropertyTypeInternal iLinkedType,
@@ -626,6 +630,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(StringSerializerHelper.MAP_END);
   }
 
+  @Nullable
   public Object embeddedCollectionFromStream(
       DatabaseSessionInternal session, final EntityImpl e,
       final PropertyTypeInternal iType,

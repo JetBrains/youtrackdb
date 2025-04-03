@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.iterator;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 
 /**
  * Empty iterator against Object.
@@ -34,6 +35,7 @@ public class EmptyIterator<T> implements Iterator<T> {
     return false;
   }
 
+  @Nullable
   public T next() {
     return null;
   }

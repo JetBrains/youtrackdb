@@ -24,7 +24,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
 
     var size = ShortSerializer.SHORT_SIZE + ByteSerializer.BYTE_SIZE;
 
-    final var zeroBits = Long.numberOfLeadingZeros(r.getClusterPosition());
+    final var zeroBits = Long.numberOfLeadingZeros(r.getCollectionPosition());
     final var zerosTillFullByte = zeroBits & 7;
     final var numberSize = 8 - (zeroBits - zerosTillFullByte) / 8;
     size += numberSize;
@@ -45,27 +45,27 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       int startPosition, Object... hints) {
     final var r = rid.getIdentity();
 
-    final var zeroBits = Long.numberOfLeadingZeros(r.getClusterPosition());
+    final var zeroBits = Long.numberOfLeadingZeros(r.getCollectionPosition());
     final var zerosTillFullByte = zeroBits & 7;
     final var numberSize = 8 - (zeroBits - zerosTillFullByte) / 8;
 
-    short2bytes((short) r.getClusterId(), stream, startPosition);
+    short2bytes((short) r.getCollectionId(), stream, startPosition);
     startPosition += ShortSerializer.SHORT_SIZE;
 
     stream[startPosition] = (byte) numberSize;
     startPosition++;
 
-    var clusterPosition = r.getClusterPosition();
+    var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      stream[startPosition + i] = (byte) ((0xFF) & clusterPosition);
-      clusterPosition = clusterPosition >>> 8;
+      stream[startPosition + i] = (byte) ((0xFF) & collectionPosition);
+      collectionPosition = collectionPosition >>> 8;
     }
   }
 
   @Override
   public Identifiable deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
-    final int cluster = bytes2short(stream, startPosition);
+    final int collection = bytes2short(stream, startPosition);
     startPosition += ShortSerializer.SHORT_SIZE;
 
     final int numberSize = stream[startPosition];
@@ -76,7 +76,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       position = position | ((long) (0xFF & stream[startPosition + i]) << (i * 8));
     }
 
-    return new RecordId(cluster, position);
+    return new RecordId(collection, position);
   }
 
   @Override
@@ -100,27 +100,27 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       Object... hints) {
     final var r = rid.getIdentity();
 
-    ShortSerializer.INSTANCE.serializeNative((short) r.getClusterId(), stream, startPosition);
+    ShortSerializer.INSTANCE.serializeNative((short) r.getCollectionId(), stream, startPosition);
     startPosition += ShortSerializer.SHORT_SIZE;
 
-    final var zeroBits = Long.numberOfLeadingZeros(r.getClusterPosition());
+    final var zeroBits = Long.numberOfLeadingZeros(r.getCollectionPosition());
     final var zerosTillFullByte = zeroBits & 7;
     final var numberSize = 8 - (zeroBits - zerosTillFullByte) / 8;
 
     stream[startPosition] = (byte) numberSize;
     startPosition++;
 
-    var clusterPosition = r.getClusterPosition();
+    var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      stream[startPosition + i] = (byte) ((0xFF) & clusterPosition);
-      clusterPosition = clusterPosition >>> 8;
+      stream[startPosition + i] = (byte) ((0xFF) & collectionPosition);
+      collectionPosition = collectionPosition >>> 8;
     }
   }
 
   @Override
   public Identifiable deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
-    final int cluster = ShortSerializer.INSTANCE.deserializeNativeObject(serializerFactory, stream,
+    final int collection = ShortSerializer.INSTANCE.deserializeNativeObject(serializerFactory, stream,
         startPosition);
     startPosition += ShortSerializer.SHORT_SIZE;
 
@@ -132,7 +132,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       position = position | ((long) (0xFF & stream[startPosition + i]) << (i * 8));
     }
 
-    return new RecordId(cluster, position);
+    return new RecordId(collection, position);
   }
 
   @Override
@@ -153,9 +153,9 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
   public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory,
       Identifiable rid, ByteBuffer buffer, Object... hints) {
     final var r = rid.getIdentity();
-    buffer.putShort((short) r.getClusterId());
+    buffer.putShort((short) r.getCollectionId());
 
-    final var zeroBits = Long.numberOfLeadingZeros(r.getClusterPosition());
+    final var zeroBits = Long.numberOfLeadingZeros(r.getCollectionPosition());
     final var zerosTillFullByte = zeroBits & 7;
     final var numberSize = 8 - (zeroBits - zerosTillFullByte) / 8;
 
@@ -163,10 +163,10 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
 
     final var number = new byte[numberSize];
 
-    var clusterPosition = r.getClusterPosition();
+    var collectionPosition = r.getCollectionPosition();
     for (var i = 0; i < numberSize; i++) {
-      number[i] = (byte) ((0xFF) & clusterPosition);
-      clusterPosition = clusterPosition >>> 8;
+      number[i] = (byte) ((0xFF) & collectionPosition);
+      collectionPosition = collectionPosition >>> 8;
     }
 
     buffer.put(number);
@@ -175,7 +175,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
   @Override
   public Identifiable deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       ByteBuffer buffer) {
-    final int cluster = buffer.getShort();
+    final int collection = buffer.getShort();
 
     final int numberSize = buffer.get();
     final var number = new byte[numberSize];
@@ -186,13 +186,13 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       position = position | ((long) (0xFF & number[i]) << (i * 8));
     }
 
-    return new RecordId(cluster, position);
+    return new RecordId(collection, position);
   }
 
   @Override
   public Identifiable deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
       int offset, ByteBuffer buffer) {
-    final int cluster = buffer.getShort(offset);
+    final int collection = buffer.getShort(offset);
     offset += Short.BYTES;
 
     final int numberSize = buffer.get(offset);
@@ -206,7 +206,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       position = position | ((long) (0xFF & number[i]) << (i * 8));
     }
 
-    return new RecordId(cluster, position);
+    return new RecordId(collection, position);
   }
 
   @Override
@@ -229,7 +229,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
   public Identifiable deserializeFromByteBufferObject(
       BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
       int offset) {
-    final int cluster = walChanges.getShortValue(buffer, offset);
+    final int collection = walChanges.getShortValue(buffer, offset);
     offset += ShortSerializer.SHORT_SIZE;
 
     final int numberSize = walChanges.getByteValue(buffer, offset);
@@ -242,7 +242,7 @@ public class CompactedLinkSerializer implements BinarySerializer<Identifiable> {
       position = position | ((long) (0xFF & number[i]) << (i * 8));
     }
 
-    return new RecordId(cluster, position);
+    return new RecordId(collection, position);
   }
 
   @Override

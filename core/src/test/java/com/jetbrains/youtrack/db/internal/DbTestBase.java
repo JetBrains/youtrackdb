@@ -62,11 +62,17 @@ public class DbTestBase {
       pool.close();
     }
 
-    context.create(this.databaseName, dbType,
+    var config = createConfig();
+    context.create(this.databaseName, dbType, config,
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
-    pool = context.cachedPool(this.databaseName, adminUser, adminPassword);
+    pool = context.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
-    session = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd");
+    session = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd",
+        config);
+  }
+
+  protected YouTrackDBConfig createConfig() {
+    return YouTrackDBConfig.builder().build();
   }
 
   public static String embeddedDBUrl(Class<?> testClass) {

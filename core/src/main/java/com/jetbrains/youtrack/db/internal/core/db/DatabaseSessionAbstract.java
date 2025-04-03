@@ -75,7 +75,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedExcep
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -84,7 +84,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableCl
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
@@ -98,7 +97,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
@@ -291,18 +290,18 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(final int[] iClusterIds) {
+  public long countCollectionElements(final int[] iCollectionIds) {
     assert assertIfNotActive();
-    return countClusterElements(iClusterIds, false);
+    return countCollectionElements(iCollectionIds, false);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(final int iClusterId) {
+  public long countCollectionElements(final int iCollectionId) {
     assert assertIfNotActive();
-    return countClusterElements(iClusterId, false);
+    return countCollectionElements(iCollectionId, false);
   }
 
   /**
@@ -447,14 +446,18 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   /**
    * {@inheritDoc}
+   *
+   * @return
    */
-  public void registerHook(final @Nonnull RecordHook iHookImpl) {
+  public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     checkOpenness();
     assert assertIfNotActive();
 
     if (!hooks.contains(iHookImpl)) {
       hooks.add(iHookImpl);
     }
+
+    return iHookImpl;
   }
 
   /**
@@ -544,7 +547,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
    */
   public void callbackHooks(final TYPE type, final RecordAbstract record) {
     assert assertIfNotActive();
-    if (record == null || hooks.isEmpty() || record.getIdentity().getClusterId() == 0) {
+    if (record == null || hooks.isEmpty() || record.getIdentity().getCollectionId() == 0) {
       return;
     }
 
@@ -609,59 +612,41 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public int getClusters() {
+  public int getCollections() {
     assert assertIfNotActive();
-    return getStorageInfo().getClusters();
+    return getStorageInfo().getCollections();
   }
 
   @Override
-  public boolean existsCluster(final String iClusterName) {
+  public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
-    return getStorageInfo().getClusterNames().contains(iClusterName.toLowerCase(Locale.ENGLISH));
+    return getStorageInfo().getCollectionNames().contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
-  public Collection<String> getClusterNames() {
+  public Collection<String> getCollectionNames() {
     assert assertIfNotActive();
-    return getStorageInfo().getClusterNames();
+    return getStorageInfo().getCollectionNames();
   }
 
   @Override
-  public int getClusterIdByName(final String iClusterName) {
-    if (iClusterName == null) {
+  public int getCollectionIdByName(final String iCollectionName) {
+    if (iCollectionName == null) {
       return -1;
     }
 
     assert assertIfNotActive();
-    return getStorageInfo().getClusterIdByName(iClusterName.toLowerCase(Locale.ENGLISH));
+    return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
-  public String getClusterNameById(final int iClusterId) {
-    if (iClusterId < 0) {
+  public String getCollectionNameById(final int iCollectionId) {
+    if (iCollectionId < 0) {
       return null;
     }
 
     assert assertIfNotActive();
-    return getStorageInfo().getPhysicalClusterNameById(iClusterId);
-  }
-
-  public void checkForClusterPermissions(final String iClusterName) {
-    assert assertIfNotActive();
-    // CHECK FOR ORESTRICTED
-    final var classes =
-        getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(iClusterName, this);
-
-    for (var c : classes) {
-      if (c.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
-        throw new SecurityException(getDatabaseName(),
-            "Class '"
-                + c.getName()
-                + "' cannot be truncated because has record level security enabled (extends '"
-                + SecurityShared.RESTRICTED_CLASSNAME
-                + "')");
-      }
-    }
+    return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
   }
 
   @Override
@@ -748,7 +733,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
       @Nonnull RecordId recordId) {
     assert assertIfNotActive();
 
@@ -770,7 +755,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
       @Nonnull RecordId recordId) {
     assert assertIfNotActive();
 
@@ -826,14 +811,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
-      int clusterId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId) {
     assert assertIfNotActive();
     checkOpenness();
 
-    var firstPosition = getStorage().ceilingPhysicalPositions(this, clusterId,
+    var firstPosition = getStorage().ceilingPhysicalPositions(this, collectionId,
         new PhysicalPosition(0), 1);
-    var firstTxRid = currentTx.getFirstRid(clusterId);
+    var firstTxRid = currentTx.getFirstRid(collectionId);
 
     if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
       return null;
@@ -843,9 +828,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     if (firstPosition == null || firstPosition.length == 0) {
       firstRid = firstTxRid;
     } else if (firstTxRid == null) {
-      firstRid = new RecordId(clusterId, firstPosition[0].clusterPosition);
-    } else if (firstPosition[0].clusterPosition < firstTxRid.getClusterPosition()) {
-      firstRid = new RecordId(clusterId, firstPosition[0].clusterPosition);
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
+    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
     } else {
       firstRid = firstTxRid;
     }
@@ -877,14 +862,14 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
-      int clusterId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId) {
     assert assertIfNotActive();
     checkOpenness();
 
-    var lastPosition = getStorage().floorPhysicalPositions(this, clusterId,
+    var lastPosition = getStorage().floorPhysicalPositions(this, collectionId,
         new PhysicalPosition(Long.MAX_VALUE), 1);
-    var lastTxRid = currentTx.getLastRid(clusterId);
+    var lastTxRid = currentTx.getLastRid(collectionId);
 
     if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
       return null;
@@ -894,9 +879,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     if (lastPosition == null || lastPosition.length == 0) {
       lastRid = lastTxRid;
     } else if (lastTxRid == null) {
-      lastRid = new RecordId(clusterId, lastPosition[0].clusterPosition);
-    } else if (lastPosition[0].clusterPosition > lastTxRid.getClusterPosition()) {
-      lastRid = new RecordId(clusterId, lastPosition[0].clusterPosition);
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
+    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
     } else {
       lastRid = lastTxRid;
     }
@@ -935,9 +920,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     getMetadata().makeThreadLocalSchemaSnapshot();
     try {
       checkSecurity(
-          Rule.ResourceGeneric.CLUSTER,
+          Rule.ResourceGeneric.COLLECTION,
           Role.PERMISSION_READ,
-          getClusterNameById(rid.getClusterId()));
+          getCollectionNameById(rid.getCollectionId()));
       // SEARCH IN LOCAL TX
       var txInternal = getTransactionInternal();
       if (txInternal.isDeletedInTx(rid)) {
@@ -1045,7 +1030,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       assert record.getSession() == this;
 
       if (fetchPreviousRid) {
-        var previousTxRid = currentTx.getPreviousRidInCluster(rid);
+        var previousTxRid = currentTx.getPreviousRidInCollection(rid);
 
         if (previousRid == null) {
           if (previousTxRid != null) {
@@ -1061,7 +1046,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       }
 
       if (fetchNextRid) {
-        var nextTxRid = currentTx.getNextRidInCluster(rid);
+        var nextTxRid = currentTx.getNextRidInCollection(rid);
 
         if (nextRid == null) {
           if (nextTxRid != null) {
@@ -1089,8 +1074,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
             new DatabaseException(getDatabaseName(),
                 "Error on retrieving record "
                     + rid
-                    + " (cluster: "
-                    + getStorage().getPhysicalClusterNameById(rid.getClusterId())
+                    + " (collection: "
+                    + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
                     + ")"),
             t, getDatabaseName());
       }
@@ -1121,17 +1106,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   private RecordId fetchNextRid(RecordId rid) {
     RecordId nextRid;
     while (true) {
-      var higherPositions = getStorage().higherPhysicalPositions(this, rid.getClusterId(),
-          new PhysicalPosition(rid.getClusterPosition()), 1);
-      var txNextRid = currentTx.getNextRidInCluster(rid);
+      var higherPositions = getStorage().higherPhysicalPositions(this, rid.getCollectionId(),
+          new PhysicalPosition(rid.getCollectionPosition()), 1);
+      var txNextRid = currentTx.getNextRidInCollection(rid);
 
       if (higherPositions != null && higherPositions.length > 0) {
         if (txNextRid == null) {
-          nextRid = new RecordId(rid.getClusterId(), higherPositions[0].clusterPosition);
-        } else if (higherPositions[0].clusterPosition > txNextRid.getClusterPosition()) {
+          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
+        } else if (higherPositions[0].collectionPosition > txNextRid.getCollectionPosition()) {
           nextRid = txNextRid;
         } else {
-          nextRid = new RecordId(rid.getClusterId(), higherPositions[0].clusterPosition);
+          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
         }
       } else {
         nextRid = txNextRid;
@@ -1157,16 +1142,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     RecordId previousRid;
 
     while (true) {
-      var lowerPositions = getStorage().lowerPhysicalPositions(this, rid.getClusterId(),
-          new PhysicalPosition(rid.getClusterPosition()), 1);
-      var txPreviousRid = currentTx.getPreviousRidInCluster(rid);
+      var lowerPositions = getStorage().lowerPhysicalPositions(this, rid.getCollectionId(),
+          new PhysicalPosition(rid.getCollectionPosition()), 1);
+      var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
       if (lowerPositions != null && lowerPositions.length > 0) {
         if (txPreviousRid == null) {
-          previousRid = new RecordId(rid.getClusterId(), lowerPositions[0].clusterPosition);
-        } else if (lowerPositions[0].clusterPosition < txPreviousRid.getClusterPosition()) {
+          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
+        } else if (lowerPositions[0].collectionPosition < txPreviousRid.getCollectionPosition()) {
           previousRid = txPreviousRid;
         } else {
-          previousRid = new RecordId(rid.getClusterId(), lowerPositions[0].clusterPosition);
+          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
         }
       } else {
         previousRid = txPreviousRid;
@@ -1186,17 +1171,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return previousRid;
   }
 
-  public int assignAndCheckCluster(DBRecord record) {
+  public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
-    if (!getStorageInfo().isAssigningClusterIds()) {
-      return RID.CLUSTER_ID_INVALID;
+    if (!getStorageInfo().isAssigningCollectionIds()) {
+      return RID.COLLECTION_ID_INVALID;
     }
 
     var rid = (RecordId) record.getIdentity();
     SchemaClassInternal schemaClass = null;
-    // if cluster id is not set yet try to find it out
-    if (rid.getClusterId() <= RID.CLUSTER_ID_INVALID) {
+    // if collection id is not set yet try to find it out
+    if (rid.getCollectionId() <= RID.COLLECTION_ID_INVALID) {
       if (record instanceof EntityImpl entity) {
         schemaClass = entity.getImmutableSchemaClass(this);
         if (schemaClass != null) {
@@ -1207,24 +1192,24 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
                     + " and cannot be saved");
           }
 
-          return schemaClass.getClusterForNewInstance((EntityImpl) record);
+          return schemaClass.getCollectionForNewInstance((EntityImpl) record);
         } else {
           throw new DatabaseException(getDatabaseName(),
-              "Cannot save (1) entity " + record + ": no class or cluster defined");
+              "Cannot save (1) entity " + record + ": no class or collection defined");
         }
       } else {
         if (record instanceof RecordBytes) {
-          var blobs = getBlobClusterIds();
+          var blobs = getBlobCollectionIds();
           if (blobs.length == 0) {
             throw new DatabaseException(getDatabaseName(),
-                "Cannot save blob (2) " + record + ": no cluster defined");
+                "Cannot save blob (2) " + record + ": no collection defined");
           } else {
             return blobs[ThreadLocalRandom.current().nextInt(blobs.length)];
           }
 
         } else {
           throw new DatabaseException(getDatabaseName(),
-              "Cannot save (3) entity " + record + ": no class or cluster defined");
+              "Cannot save (3) entity " + record + ": no class or collection defined");
         }
       }
     } else {
@@ -1232,32 +1217,32 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
       }
     }
-    // If the cluster id was set check is validity
-    if (rid.getClusterId() > RID.CLUSTER_ID_INVALID) {
+    // If the collection id was set check is validity
+    if (rid.getCollectionId() > RID.COLLECTION_ID_INVALID) {
       if (schemaClass != null) {
-        var messageClusterName = getClusterNameById(rid.getClusterId());
-        checkRecordClass(schemaClass, messageClusterName, rid);
-        if (!schemaClass.hasClusterId(rid.getClusterId())) {
+        var messageCollectionName = getCollectionNameById(rid.getCollectionId());
+        checkRecordClass(schemaClass, messageCollectionName, rid);
+        if (!schemaClass.hasCollectionId(rid.getCollectionId())) {
           throw new IllegalArgumentException(
-              "Cluster name '"
-                  + messageClusterName
+              "Collection name '"
+                  + messageCollectionName
                   + "' (id="
-                  + rid.getClusterId()
+                  + rid.getCollectionId()
                   + ") is not configured to store the class '"
                   + schemaClass.getName()
                   + "', valid are "
-                  + Arrays.toString(schemaClass.getClusterIds()));
+                  + Arrays.toString(schemaClass.getCollectionIds()));
         }
       }
     }
 
-    var clusterId = rid.getClusterId();
-    if (clusterId < 0) {
+    var collectionId = rid.getCollectionId();
+    if (collectionId < 0) {
       throw new DatabaseException(getDatabaseName(),
-          "Impossible to set cluster for record " + record + " class : " + schemaClass);
+          "Impossible to set collection for record " + record + " class : " + schemaClass);
     }
 
-    return clusterId;
+    return collectionId;
   }
 
   public Transaction begin() {
@@ -1340,10 +1325,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public EntityImpl newInternalInstance() {
     assert assertIfNotActive();
 
-    var clusterId = getClusterIdByName(MetadataDefault.CLUSTER_INTERNAL_NAME);
+    var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
     var rid = new ChangeableRecordId();
 
-    rid.setClusterId(clusterId);
+    rid.setCollectionId(collectionId);
 
     var entity = new EntityImpl(this, rid);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -1424,13 +1409,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
-    return (T) RecordSerializerJackson.fromString(this, json);
+    return (T) JSONSerializerJackson.fromString(this, json);
   }
 
   @Override
   public Entity createOrLoadEntityFromJson(String json) {
     assert assertIfNotActive();
-    var result = RecordSerializerJackson.fromString(this, json);
+    var result = JSONSerializerJackson.fromString(this, json);
 
     if (result instanceof Entity) {
       return (Entity) result;
@@ -1581,12 +1566,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     EntityImpl inEntity;
 
     var outEntityModified = false;
-    if (checkDeletedInTx(toVertex)) {
+    if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
     }
 
-    if (checkDeletedInTx(inVertex)) {
+    if (getTransactionInternal().isDeletedInTx(inVertex.getIdentity())) {
       throw new RecordNotFoundException(getDatabaseName(),
           inVertex.getIdentity(), "The vertex " + inVertex.getIdentity() + " has been deleted");
     }
@@ -1645,24 +1630,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return edge;
   }
 
-  private boolean checkDeletedInTx(Vertex currentVertex) {
-    RID id;
-    var transaction1 = getActiveTransaction();
-    if (!transaction1.load(currentVertex).exists()) {
-      var transaction = getActiveTransaction();
-      id = transaction.load(currentVertex).getIdentity();
-    } else {
-      return false;
-    }
-
-    final var oper = getTransactionInternal().getRecordEntry(id);
-    if (oper == null) {
-      return id.isTemporary();
-    } else {
-      return oper.type == RecordOperation.DELETED;
-    }
-  }
-
   /**
    * {@inheritDoc}
    */
@@ -1705,12 +1672,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
    * {@inheritDoc}
    */
   @Override
-  public <REC extends RecordAbstract> RecordIteratorCluster<REC> browseCluster(
-      final String iClusterName) {
+  public <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
+      final String iCollectionName) {
     assert assertIfNotActive();
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, Role.PERMISSION_READ, iClusterName);
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
-    return new RecordIteratorCluster<>(this, getClusterIdByName(iClusterName), true);
+    return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
   }
 
   /**
@@ -2002,12 +1969,12 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     initialized = false;
   }
 
-  public void checkSecurity(final int operation, final Identifiable record, String cluster) {
+  public void checkSecurity(final int operation, final Identifiable record, String collection) {
     assert assertIfNotActive();
-    if (cluster == null) {
-      cluster = getClusterNameById(record.getIdentity().getClusterId());
+    if (collection == null) {
+      collection = getCollectionNameById(record.getIdentity().getCollectionId());
     }
-    checkSecurity(Rule.ResourceGeneric.CLUSTER, operation, cluster);
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, operation, collection);
 
     if (record instanceof EntityImpl) {
       var clazzName = ((EntityImpl) record).getSchemaClassName();
@@ -2062,19 +2029,19 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   protected void checkRecordClass(
-      final SchemaClass recordClass, final String iClusterName, final RecordId rid) {
+      final SchemaClass recordClass, final String iCollectionName, final RecordId rid) {
     assert assertIfNotActive();
 
-    final var clusterIdClass =
-        metadata.getImmutableSchemaSnapshot().getClassByClusterId(rid.getClusterId());
-    if (recordClass == null && clusterIdClass != null
-        || clusterIdClass == null && recordClass != null
-        || (recordClass != null && !recordClass.equals(clusterIdClass))) {
+    final var collectionIdClass =
+        metadata.getImmutableSchemaSnapshot().getClassByCollectionId(rid.getCollectionId());
+    if (recordClass == null && collectionIdClass != null
+        || collectionIdClass == null && recordClass != null
+        || (recordClass != null && !recordClass.equals(collectionIdClass))) {
       throw new IllegalArgumentException(
-          "Record saved into cluster '"
-              + iClusterName
+          "Record saved into collection '"
+              + iCollectionName
               + "' should be saved with class '"
-              + clusterIdClass
+              + collectionIdClass
               + "' but has been created with class '"
               + recordClass
               + "'");
@@ -2102,9 +2069,9 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return true;
   }
 
-  public int[] getBlobClusterIds() {
+  public int[] getBlobCollectionIds() {
     assert assertIfNotActive();
-    return getMetadata().getSchema().getBlobClusters().toIntArray();
+    return getMetadata().getSchema().getBlobCollections().toIntArray();
   }
 
 
@@ -2192,16 +2159,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public boolean isClusterEdge(int cluster) {
+  public boolean isCollectionEdge(int collection) {
     assert assertIfNotActive();
-    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
+    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
     return clazz != null && clazz.isEdgeType();
   }
 
   @Override
-  public boolean isClusterVertex(int cluster) {
+  public boolean isCollectionVertex(int collection) {
     assert assertIfNotActive();
-    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
+    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
     return clazz != null && clazz.isVertexType();
   }
 
@@ -2526,7 +2493,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public LinkList newLinkList(Collection<Identifiable> source) {
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
     var list = new EntityLinkListImpl(this, source.size());
     list.addAll(source);
     return list;
@@ -2558,7 +2525,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public LinkSet newLinkSet(Collection<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     var linkSet = new EntityLinkSetImpl(source.size(), this);
     linkSet.addAll(source);
     return linkSet;
@@ -2590,7 +2557,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
     var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
     return linkMap;

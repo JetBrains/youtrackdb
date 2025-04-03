@@ -103,17 +103,17 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     }
   }
 
-  public void testRidBagClusterDistribution() {
+  public void testRidBagCollectionDistribution() {
     if (session.getStorage().getType().equals(EngineRemote.NAME)
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
 
-    final var clusterIdOne = session.addCluster("clusterOne");
+    final var collectionIdOne = session.addCollection("collectionOne");
 
-    var docClusterOne = ((EntityImpl) session.newEntity());
-    var ridBagClusterOne = new RidBag(session);
-    docClusterOne.setProperty("ridBag", ridBagClusterOne);
+    var docCollectionOne = ((EntityImpl) session.newEntity());
+    var ridBagCollectionOne = new RidBag(session);
+    docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
 
     session.begin();
 
@@ -127,7 +127,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     final var fileId =
         wowCache.fileIdByName(
             BTreeCollectionManagerShared.FILE_NAME_PREFIX
-                + clusterIdOne
+                + collectionIdOne
                 + BTreeCollectionManagerShared.FILE_EXTENSION);
     final var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
@@ -276,7 +276,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
 
     session.commit();
 
-    final var clusterId = session.addCluster("ridBagDeleteTest");
+    final var collectionId = session.addCollection("ridBagDeleteTest");
 
     var testDocument = crateTestDeleteDoc(realDoc);
     session.freeze();
@@ -288,7 +288,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
         new File(
             directory,
             BTreeCollectionManagerShared.FILE_NAME_PREFIX
-                + clusterId
+                + collectionId
                 + BTreeCollectionManagerShared.FILE_EXTENSION);
     var testRidBagSize = testRidBagFile.length();
 
@@ -308,7 +308,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
         new File(
             directory,
             BTreeCollectionManagerShared.FILE_NAME_PREFIX
-                + clusterId
+                + collectionId
                 + BTreeCollectionManagerShared.FILE_EXTENSION);
 
     Assert.assertEquals(testRidBagFile.length(), testRidBagSize);

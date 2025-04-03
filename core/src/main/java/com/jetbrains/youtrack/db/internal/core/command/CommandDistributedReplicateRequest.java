@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.command;
 
 /**
- * Interface to know if the command must be distributed in clustered scenario.
+ * Interface to know if the command must be distributed in collectioned scenario.
  */
 public interface CommandDistributedReplicateRequest {
 }

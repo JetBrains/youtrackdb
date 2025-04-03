@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegac
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegacyImpl;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
@@ -85,11 +86,13 @@ public class LuceneWithinOperator extends QueryTargetOperator {
             (rid) -> new RawPair<>(new SpatialCompositeKey(keyParams).setContext(iContext), rid));
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

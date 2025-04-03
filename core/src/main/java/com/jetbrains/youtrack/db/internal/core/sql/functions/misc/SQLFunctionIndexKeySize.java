@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * returns the number of keys for an index
@@ -35,6 +36,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
       final Result iCurrentRecord,

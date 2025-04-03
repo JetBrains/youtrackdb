@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -135,7 +135,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       session.executeInTx(transaction -> {
         try {
           exportInfo();
-          exportClusters();
+          exportCollections();
           exportSchema();
           exportRecords();
           exportIndexDefinitions();
@@ -172,31 +172,31 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     jsonGenerator.writeFieldName("records");
     jsonGenerator.writeStartArray();
 
-    var exportedClusters = 0;
-    var maxClusterId = getMaxClusterId();
-    for (var i = 0; exportedClusters <= maxClusterId; ++i) {
-      var clusterName = session.getClusterNameById(i);
+    var exportedCollections = 0;
+    var maxCollectionId = getMaxCollectionId();
+    for (var i = 0; exportedCollections <= maxCollectionId; ++i) {
+      var collectionName = session.getCollectionNameById(i);
 
-      exportedClusters++;
+      exportedCollections++;
 
-      long clusterExportedRecordsTot = 0;
-      if (clusterName != null) {
-        // CHECK IF THE CLUSTER IS INCLUDED
-        clusterExportedRecordsTot = session.countClusterElements(clusterName);
+      long collectionExportedRecordsTot = 0;
+      if (collectionName != null) {
+        // CHECK IF THE COLLECTION IS INCLUDED
+        collectionExportedRecordsTot = session.countCollectionElements(collectionName);
       }
 
       listener.onMessage(
-          "\n- Cluster "
-              + (clusterName != null ? "'" + clusterName + "'" : "NULL")
+          "\n- Collection "
+              + (collectionName != null ? "'" + collectionName + "'" : "NULL")
               + " (id="
               + i
               + ")...");
 
-      long clusterExportedRecordsCurrent = 0;
-      if (clusterName != null) {
+      long collectionExportedRecordsCurrent = 0;
+      if (collectionName != null) {
         RecordAbstract rec = null;
         try {
-          var it = session.browseCluster(clusterName);
+          var it = session.browseCollection(collectionName);
 
           while (it.hasNext()) {
             rec = it.next();
@@ -209,8 +209,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
             }
 
             if (exportRecord(
-                clusterExportedRecordsTot, clusterExportedRecordsCurrent, rec, brokenRids)) {
-              clusterExportedRecordsCurrent++;
+                collectionExportedRecordsTot, collectionExportedRecordsCurrent, rec, brokenRids)) {
+              collectionExportedRecordsCurrent++;
             }
           }
         } catch (YTIOException e) {
@@ -245,10 +245,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       }
 
       listener.onMessage(
-          "OK (records=" + clusterExportedRecordsCurrent + "/" + clusterExportedRecordsTot + ")");
+          "OK (records=" + collectionExportedRecordsCurrent + "/" + collectionExportedRecordsTot + ")");
 
-      totalExportedRecords += clusterExportedRecordsCurrent;
-      totalFoundRecords += clusterExportedRecordsTot;
+      totalExportedRecords += collectionExportedRecordsCurrent;
+      totalFoundRecords += collectionExportedRecordsTot;
     }
     jsonGenerator.writeEndArray();
 
@@ -303,14 +303,14 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     }
   }
 
-  private int getMaxClusterId() {
-    var totalCluster = -1;
-    for (var clusterName : session.getClusterNames()) {
-      if (session.getClusterIdByName(clusterName) > totalCluster) {
-        totalCluster = session.getClusterIdByName(clusterName);
+  private int getMaxCollectionId() {
+    var totalCollection = -1;
+    for (var collectionName : session.getCollectionNames()) {
+      if (session.getCollectionIdByName(collectionName) > totalCollection) {
+        totalCollection = session.getCollectionIdByName(collectionName);
       }
     }
-    return totalCluster;
+    return totalCollection;
   }
 
   @Override
@@ -324,37 +324,37 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     }
   }
 
-  private void exportClusters() throws IOException {
-    listener.onMessage("\nExporting clusters...");
+  private void exportCollections() throws IOException {
+    listener.onMessage("\nExporting collections...");
 
-    jsonGenerator.writeFieldName("clusters");
+    jsonGenerator.writeFieldName("collections");
     jsonGenerator.writeStartArray();
-    var exportedClusters = 0;
+    var exportedCollections = 0;
 
-    var maxClusterId = getMaxClusterId();
+    var maxCollectionId = getMaxCollectionId();
 
-    for (var clusterId = 0; clusterId <= maxClusterId; ++clusterId) {
+    for (var collectionId = 0; collectionId <= maxCollectionId; ++collectionId) {
 
-      final var clusterName = session.getClusterNameById(clusterId);
+      final var collectionName = session.getCollectionNameById(collectionId);
 
-      // exclude removed clusters
-      if (clusterName == null) {
+      // exclude removed collections
+      if (collectionName == null) {
         continue;
       }
 
-      // CHECK IF THE CLUSTER IS INCLUDED
+      // CHECK IF THE COLLECTION IS INCLUDED
       jsonGenerator.writeStartObject();
       jsonGenerator.writeFieldName("name");
-      jsonGenerator.writeString(clusterName);
+      jsonGenerator.writeString(collectionName);
 
       jsonGenerator.writeFieldName("id");
-      jsonGenerator.writeNumber(clusterId);
+      jsonGenerator.writeNumber(collectionId);
 
-      exportedClusters++;
+      exportedCollections++;
       jsonGenerator.writeEndObject();
     }
 
-    listener.onMessage("OK (" + exportedClusters + " clusters)");
+    listener.onMessage("OK (" + exportedCollections + " collections)");
 
     jsonGenerator.writeEndArray();
   }
@@ -418,10 +418,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
         jsonGenerator.writeStringField("algorithm", index.getAlgorithm());
       }
 
-      if (!index.getClusters().isEmpty()) {
-        jsonGenerator.writeArrayFieldStart("clustersToIndex");
-        for (var cluster : index.getClusters()) {
-          jsonGenerator.writeString(cluster);
+      if (!index.getCollections().isEmpty()) {
+        jsonGenerator.writeArrayFieldStart("collectionsToIndex");
+        for (var collection : index.getCollections()) {
+          jsonGenerator.writeString(collection);
         }
         jsonGenerator.writeEndArray();
       }
@@ -438,7 +438,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       final var metadata = index.getMetadata();
       if (metadata != null) {
         jsonGenerator.writeFieldName("metadata");
-        RecordSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
+        JSONSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
       }
 
       jsonGenerator.writeEndObject();
@@ -456,9 +456,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
     //noinspection deprecation
     jsonGenerator.writeNumberField("version", schema.getVersion());
-    jsonGenerator.writeArrayFieldStart("blob-clusters");
-    for (var clusterId : session.getBlobClusterIds()) {
-      jsonGenerator.writeNumber(clusterId);
+    jsonGenerator.writeArrayFieldStart("blob-collections");
+    for (var collectionId : session.getBlobCollectionIds()) {
+      jsonGenerator.writeNumber(collectionId);
     }
     jsonGenerator.writeEndArray();
 
@@ -474,9 +474,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
         jsonGenerator.writeStringField("name", cls.getName());
 
-        jsonGenerator.writeArrayFieldStart("cluster-ids");
-        for (var clusterId : cls.getClusterIds()) {
-          jsonGenerator.writeNumber(clusterId);
+        jsonGenerator.writeArrayFieldStart("collection-ids");
+        for (var collectionId : cls.getCollectionIds()) {
+          jsonGenerator.writeNumber(collectionId);
         }
         jsonGenerator.writeEndArray();
 
@@ -580,7 +580,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     if (rec != null) {
       try {
         final var format = "version,class,type,keepTypes,internal,markEmbeddedEntities";
-        RecordSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
+        JSONSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;
         recordNum++;

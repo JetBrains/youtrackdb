@@ -40,7 +40,7 @@ public class ConsoleDatabaseAppTest {
       app.open("test", "admin", "admin");
 
       var db = (DatabaseSessionInternal) app.getCurrentDatabaseSession();
-      db.addBlobCluster("blobTest");
+      db.addBlobCollection("blobTest");
 
       db.begin();
       var record = db.newBlob("blobContent".getBytes());
@@ -207,7 +207,7 @@ public class ConsoleDatabaseAppTest {
             + "config;\n"
             + "list classes;\n"
             + "list properties;\n"
-            + "list clusters;\n"
+            + "list collections;\n"
             + "list indexes;\n"
             + "info class OUser;\n"
             + "info property OUser.name;\n"
@@ -232,12 +232,10 @@ public class ConsoleDatabaseAppTest {
             + "create vertex V set name = 'bar';\n"
             + "commit;\n"
             + "begin;\n"
-            + "traverse out() from V;\n"
             + "create edge from (select from V where name = 'foo') to (select from V where name ="
             + " 'bar');\n"
             + "commit;\n"
             + "begin;\n"
-            + "traverse out() from V;\n"
             + "profile storage off;\n"
             + "repair database -v;\n"
             + "commit;\n";
@@ -278,7 +276,7 @@ public class ConsoleDatabaseAppTest {
             + "config;\n"
             + "list classes;\n"
             + "list properties;\n"
-            + "list clusters;\n"
+            + "list collections;\n"
             + "list indexes;\n"
             + "info class OUser;\n"
             + "info property OUser.name;\n"
@@ -298,8 +296,6 @@ public class ConsoleDatabaseAppTest {
             + "rollback;\n"
             + "create vertex V set name = 'foo';\n"
             + "create vertex V set name = 'bar';\n"
-            + "traverse out() from V;\n"
-
             //    builder.append("create edge from (select from V where name = 'foo') to (select
             // from V
             // where name = 'bar');\n");

@@ -23,7 +23,7 @@ public class MetadataOnlyTest {
         new YouTrackDBImpl(
             DbTestBase.embeddedDBUrl(getClass()),
             YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_CLUSTERS_COUNT, 1)
+                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
                 .build());
     youTrackDb.execute(
         "create database testMetadataOnly disk users (admin identified by 'admin' role admin)");

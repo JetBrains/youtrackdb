@@ -50,10 +50,10 @@ public class ClassIteratorTest extends DbTestBase {
   }
 
   @Test
-  public void testDescendentOrderIteratorWithMultipleClusters() throws Exception {
+  public void testDescendentOrderIteratorWithMultipleCollections() throws Exception {
     var personClass = (SchemaClassInternal) session.getMetadata().getSchema().getClass("Person");
 
-    // empty old cluster but keep it attached
+    // empty old collection but keep it attached
     personClass.truncate();
     for (var name : names) {
       createPerson("Person", name);
@@ -72,13 +72,13 @@ public class ClassIteratorTest extends DbTestBase {
   }
 
   @Test
-  public void testMultipleClusters() throws Exception {
-    session.getMetadata().getSchema().createClass("PersonMultipleClusters", 4);
+  public void testMultipleCollections() throws Exception {
+    session.getMetadata().getSchema().createClass("PersonMultipleCollections", 4);
     for (var name : names) {
-      createPerson("PersonMultipleClusters", name);
+      createPerson("PersonMultipleCollections", name);
     }
 
-    final var personIter = new RecordIteratorClass(session, "PersonMultipleClusters", true, true);
+    final var personIter = new RecordIteratorClass(session, "PersonMultipleCollections", true, true);
 
     var docNum = new int[1];
 

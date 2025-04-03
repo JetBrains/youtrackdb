@@ -13,13 +13,16 @@ import javax.annotation.Nullable;
  *
  */
 public interface ExecutionStep {
-
+  @Nonnull
   String getName();
 
+  @Nonnull
   String getType();
 
+  @Nullable
   String getDescription();
 
+  @Nonnull
   List<ExecutionStep> getSubSteps();
 
   /**
@@ -38,11 +41,10 @@ public interface ExecutionStep {
     result.setProperty("type", getType());
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, getClass().getName());
     result.setProperty("cost", getCost());
+    getSubSteps();
     result.setProperty(
         "subSteps",
-        getSubSteps() == null
-            ? null
-            : getSubSteps().stream().map(x -> x.toResult(db)).collect(Collectors.toList()));
+        getSubSteps().stream().map(x -> x.toResult(db)).collect(Collectors.toList()));
     result.setProperty("description", getDescription());
     return result;
   }

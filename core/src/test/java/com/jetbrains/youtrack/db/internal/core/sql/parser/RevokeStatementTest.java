@@ -7,7 +7,7 @@ public class RevokeStatementTest extends ParserTestAbstract {
   @Test
   public void testPlain() {
     checkRightSyntax("revoke UPDATE on database.class.Person from admin");
-    checkRightSyntax("REVOKE CREATE on database.cluster.Person FROM admin");
+    checkRightSyntax("REVOKE CREATE on database.collection.Person FROM admin");
     checkRightSyntax("revoke UPDATE on database.class.* from admin");
     checkRightSyntax("revoke DELETE on database.class.* from admin");
     checkRightSyntax("revoke NONE on database.class.* from admin");

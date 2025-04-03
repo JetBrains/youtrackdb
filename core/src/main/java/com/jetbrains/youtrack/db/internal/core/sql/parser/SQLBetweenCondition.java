@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBetweenCondition extends SQLBooleanExpression {
 
@@ -241,6 +242,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();

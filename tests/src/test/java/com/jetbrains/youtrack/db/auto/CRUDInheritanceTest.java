@@ -96,11 +96,11 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"queryPerSuperType", "testCreate"})
   public void deleteFirst() {
-    // DELETE ALL THE RECORD IN THE CLUSTER
+    // DELETE ALL THE RECORD IN THE COLLECTION
     session.begin();
-    var companyClusterIterator = session.browseClass("Company");
-    while (companyClusterIterator.hasNext() ) {
-      var obj = companyClusterIterator.next();
+    var companyCollectionIterator = session.browseClass("Company");
+    while (companyCollectionIterator.hasNext() ) {
+      var obj = companyCollectionIterator.next();
       if (obj.<Integer>getProperty("id") == 1) {
         session.delete(obj);
         break;

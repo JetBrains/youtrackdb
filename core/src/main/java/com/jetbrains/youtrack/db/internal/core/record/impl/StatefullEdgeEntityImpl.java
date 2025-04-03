@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -44,10 +45,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   @Override
   public boolean isLabeled(@Nonnull String[] labels) {
-    if (labels == null) {
-      return true;
-    }
-
     if (labels.length == 0) {
       return true;
     }
@@ -70,6 +67,11 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return false;
   }
 
+  @Override
+  public Vertex getEntity(@Nonnull Direction dir) {
+    return getVertex(dir);
+  }
+
 
   @Nullable
   @Override
@@ -83,7 +85,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByCollectionId(rid.getCollectionId()).isVertexType()) {
       return rid;
     }
 
@@ -116,7 +118,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByCollectionId(rid.getCollectionId()).isVertexType()) {
       return rid;
     }
 
@@ -128,6 +130,17 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return false;
   }
 
+  @Nonnull
+  @Override
+  public Entity asEntity() {
+    return this;
+  }
+
+  @Override
+  public String label() {
+    var typeClass = getImmutableSchemaClass(session);
+    return typeClass.getName();
+  }
 
   @Override
   public @Nonnull List<String> getPropertyNames() {
@@ -175,5 +188,28 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public byte getRecordType() {
     return RECORD_TYPE;
+  }
+
+  @Nullable
+  @Override
+  public Vertex fromEntity() {
+    return getFrom();
+  }
+
+  @Nullable
+  @Override
+  public Vertex toEntity() {
+    return getTo();
+  }
+
+  @Override
+  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
+    throw new UnsupportedOperationException("Operation not supported for edges");
+  }
+
+  @Override
+  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(Direction direction,
+      String... linkNames) {
+    throw new UnsupportedOperationException("Operation not supported for edges");
   }
 }

@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.p
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post.ServerCommandPostUploadSingleFile;
 import java.io.IOException;
 import java.net.Socket;
+import javax.annotation.Nullable;
 
 public class NetworkProtocolHttpDb extends NetworkProtocolHttpAbstract {
 
@@ -71,6 +72,7 @@ public class NetworkProtocolHttpDb extends NetworkProtocolHttpAbstract {
     return "http";
   }
 
+  @Nullable
   @Override
   public BinaryRequestExecutor executor(ClientConnection connection) {
     return null;

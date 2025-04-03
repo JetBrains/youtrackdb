@@ -44,33 +44,33 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Test
   public void testTransactionOptimisticRollback() {
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addBlobCluster("binary");
+    if (session.getCollectionIdByName("binary") == -1) {
+      session.addBlobCollection("binary");
     }
 
-    var rec = session.countClusterElements("binary");
+    var rec = session.countCollectionElements("binary");
 
     session.begin();
 
     session.newBlob("This is the first version".getBytes());
     session.rollback();
 
-    Assert.assertEquals(session.countClusterElements("binary"), rec);
+    Assert.assertEquals(session.countCollectionElements("binary"), rec);
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticRollback")
   public void testTransactionOptimisticCommitInternal() {
 
     session.begin();
-    final var blocClusterIds = session.getBlobClusterIds();
-    var tot = session.countClusterElements(blocClusterIds);
+    final var blocCollectionIds = session.getBlobCollectionIds();
+    var tot = session.countCollectionElements(blocCollectionIds);
     session.commit();
 
     session.begin();
     session.newBlob("This is the first version".getBytes());
     session.commit();
 
-    Assert.assertEquals(session.countClusterElements(blocClusterIds), tot + 1);
+    Assert.assertEquals(session.countCollectionElements(blocCollectionIds), tot + 1);
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
@@ -119,8 +119,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionOptimisticConcurrentException")
   public void testTransactionOptimisticCacheMgmt1Db() throws IOException {
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addBlobCluster("binary");
+    if (session.getCollectionIdByName("binary") == -1) {
+      session.addBlobCollection("binary");
     }
 
     session.begin();
@@ -151,8 +151,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionOptimisticCacheMgmt1Db")
   public void testTransactionOptimisticCacheMgmt2Db() throws IOException {
-    if (session.getClusterIdByName("binary") == -1) {
-      session.addBlobCluster("binary");
+    if (session.getCollectionIdByName("binary") == -1) {
+      session.addBlobCollection("binary");
     }
 
     var db2 = acquireSession();

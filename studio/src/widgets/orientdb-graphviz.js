@@ -33,20 +33,20 @@ let OrientGraph = (function () {
     var self = this;
     this.selected = null;
     this.dragNode = null;
-    this.clusterClass = initClusterClass();
+    this.collectionClass = initCollectionClass();
     this.classesInCanvas = {vertices: [], edges: []};
 
 
     this.changer = initChanger();
 
-    function initClusterClass() {
+    function initCollectionClass() {
       var ctoc = {};
       if (self.metadata) {
         if (self.metadata.classes) {
           self.metadata.classes.forEach(function (c) {
             c.isVertex = discoverVertex(c.name);
-            c.clusters.forEach(function (cluster) {
-              ctoc[cluster] = c;
+            c.collections.forEach(function (collection) {
+              ctoc[collection] = c;
             })
           });
         }
@@ -582,8 +582,8 @@ let OrientGraph = (function () {
         return d.source['@class'];
       }
       else {
-        var cluster = d["@rid"].replace("#", "").split(":")[0];
-        var cfg = self.clusterClass[cluster];
+        var collection = d["@rid"].replace("#", "").split(":")[0];
+        var cfg = self.collectionClass[collection];
         return cfg ? cfg.name : null;
       }
     }
@@ -1438,7 +1438,7 @@ let OrientGraph = (function () {
         return !(elem['in'] && elem['out']) && elem['@rid'];
       } else {
         var cid = elem.replace("#", "").split(":")[0];
-        var cfg = self.clusterClass[cid];
+        var cfg = self.collectionClass[cid];
 
         if (cfg) return cfg.isVertex;
       }
@@ -2135,8 +2135,8 @@ let OrientGraph = (function () {
             if (!v1) {
               v1 = new OVertex(self, elem['in']);
               self.addVertex(v1);
-              var cluster = elem["in"].replace("#", "").split(":")[0];
-              var cfg = self.clusterClass[cluster];
+              var collection = elem["in"].replace("#", "").split(":")[0];
+              var cfg = self.collectionClass[collection];
               if (cfg) {
                 if (self.classesInCanvas.indexOf(cfg.name) == -1) {
                   self.classesInCanvas.push(cfg.name);
@@ -2147,8 +2147,8 @@ let OrientGraph = (function () {
             if (!v2) {
               v2 = new OVertex(self, elem['out']);
               self.addVertex(v2);
-              var cluster = elem["out"].replace("#", "").split(":")[0];
-              var cfg = self.clusterClass[cluster];
+              var collection = elem["out"].replace("#", "").split(":")[0];
+              var cfg = self.collectionClass[collection];
               if (cfg) {
                 if (self.classesInCanvas.indexOf(cfg.name) == -1) {
                   self.classesInCanvas.push(cfg.name);
@@ -2208,8 +2208,8 @@ let OrientGraph = (function () {
                       if (!v1) {
                         return;
                       }
-                      var cluster = rid.replace("#", "").split(":")[0];
-                      var cfg = self.clusterClass[cluster];
+                      var collection = rid.replace("#", "").split(":")[0];
+                      var cfg = self.collectionClass[collection];
                       if (cfg) {
                         if (self.classesInCanvas.indexOf(cfg.name) == -1) {
                           self.classesInCanvas.push(cfg.name);

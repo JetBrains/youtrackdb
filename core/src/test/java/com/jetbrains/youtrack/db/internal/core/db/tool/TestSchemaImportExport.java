@@ -113,7 +113,7 @@ public class TestSchemaImportExport extends DbTestBase {
         (DatabaseSessionInternal)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
-      clazz.addSuperClass(db.getMetadata().getSchema().getClass("ORestricted"));
+      clazz.addSuperClass(db.getMetadata().getSchema().getClass("O"));
       clazz.addSuperClass(db.getMetadata().getSchema().getClass("OIdentity"));
 
       var exp = new DatabaseExport(db, output, new MockOutputListener());
@@ -139,7 +139,7 @@ public class TestSchemaImportExport extends DbTestBase {
 
       var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
       Assert.assertTrue(clas1.isSubClassOf("OIdentity"));
-      Assert.assertTrue(clas1.isSubClassOf("ORestricted"));
+      Assert.assertTrue(clas1.isSubClassOf("O"));
     } finally {
       context.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }

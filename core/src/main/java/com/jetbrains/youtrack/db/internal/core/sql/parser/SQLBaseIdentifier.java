@@ -15,6 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBaseIdentifier extends SimpleNode {
 
@@ -54,6 +55,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (levelZero != null) {
       return levelZero.execute(iCurrentRecord, ctx);
@@ -64,6 +66,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (levelZero != null) {
       return levelZero.execute(iCurrentRecord, ctx);
@@ -105,6 +108,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -362,6 +366,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return suffix == null ? null : suffix.getCollate(currentRecord, ctx);
   }

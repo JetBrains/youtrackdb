@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderDWithin;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -34,6 +35,7 @@ public class STDWithinFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 3, 3);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -54,6 +56,7 @@ public class STDWithinFunction extends SpatialFunctionAbstractIndexable {
     return factory.operation().isWithInDistance(shape, shape1, distance.doubleValue());
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

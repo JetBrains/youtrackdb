@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderDistanceSphere;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.distance.DistanceUtils;
 
 /**
@@ -37,6 +38,7 @@ public class STDistanceSphereFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
@@ -63,6 +65,7 @@ public class STDistanceSphereFunction extends SpatialFunctionAbstractIndexable {
     return docDistInKM * 1000;
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

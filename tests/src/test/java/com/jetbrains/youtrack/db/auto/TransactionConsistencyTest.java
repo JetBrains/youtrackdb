@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.ArrayUtils;
@@ -93,9 +92,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
-      var activeTx1 = database1.getActiveTransaction();
-      vDocA_db1 = activeTx1.load(vDocA_db1);
+      database1.begin();
       var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
       vDocB_db1 = activeTx.load(vDocB_db1);
 
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
@@ -103,6 +102,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
       // Following updates should failed and reverted.
       vDocA_version = vDocA_db1.getVersion();
       vDocB_version = vDocB_db1.getVersion();
+      database1.commit();
 
       // Update docB in db2 transaction context -> should be rollbacked.
       database2.activateOnCurrentThread();
@@ -123,6 +123,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.activateOnCurrentThread();
     database2 = acquireSession();
 
+    database2.begin();
     EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
     Assert.assertEquals(vDocA_db2.getProperty(NAME), "docA_v3");
     Assert.assertEquals(vDocA_db2.getVersion(), vDocA_version);
@@ -131,6 +132,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     EntityImpl vDocB_db2 = database2.load(vDocB_Rid);
     Assert.assertEquals(vDocB_db2.getProperty(NAME), "docB");
     Assert.assertEquals(vDocB_db2.getVersion(), vDocB_version);
+    database2.commit();
 
     database2.close();
   }
@@ -139,10 +141,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void test4RollbackWithPin() {
     database1 = acquireSession();
 
+    database1.begin();
     // Create docA.
     EntityImpl vDocA_db1 = database1.newInstance();
     vDocA_db1.setProperty(NAME, "docA");
-    database1.begin();
     database1.commit();
 
     // Keep the IDs.
@@ -165,9 +167,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
+      database1.begin();
       var activeTx = database1.getActiveTransaction();
       vDocA_db1 = activeTx.load(vDocA_db1);
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
+      database1.commit();
 
       // Will throw ConcurrentModificationException
       database2.activateOnCurrentThread();
@@ -185,9 +189,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.close();
     database2 = acquireSession();
 
+    database2.begin();
     // docB should be in the last state : "docA_v3"
     EntityImpl vDocB_db2 = database2.load(vDocA_Rid);
     Assert.assertEquals(vDocB_db2.getProperty(NAME), "docA_v3");
+    database2.commit();
 
     database1.activateOnCurrentThread();
     database1.close();
@@ -200,10 +206,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void test3RollbackWithCopyCacheStrategy() {
     database1 = acquireSession();
 
+    database1.begin();
     // Create docA.
     EntityImpl vDocA_db1 = database1.newInstance();
     vDocA_db1.setProperty(NAME, "docA");
-    database1.begin();
     database1.commit();
 
     // Keep the IDs.
@@ -227,9 +233,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
         Assert.fail("Should not failed here...");
       }
 
+      database1.begin();
       var activeTx = database1.getActiveTransaction();
       vDocA_db1 = activeTx.load(vDocA_db1);
       Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
+      database1.commit();
 
       // Will throw ConcurrentModificationException
       database2.activateOnCurrentThread();
@@ -247,9 +255,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.close();
     database2 = acquireSession();
 
+    database2.begin();
     // docB should be in the last state : "docA_v3"
     EntityImpl vDocB_db2 = database2.load(vDocA_Rid);
     Assert.assertEquals(vDocB_db2.getProperty(NAME), "docA_v3");
+    database2.commit();
 
     database1.activateOnCurrentThread();
     database1.close();
@@ -303,43 +313,43 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var jack = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Jack")
         .setPropertyInChain("surname", "Bauer");
 
-    EntityImpl entity2 = jack.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity2.getProperty("following"))
-        .add(kim);
-    EntityImpl entity1 = kim.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity1.getProperty("following"))
-        .add(teri);
-    EntityImpl entity = teri.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity.getProperty("following"))
-        .add(jack);
+    jack.getOrCreateLinkSet("following").add(kim);
+    kim.getOrCreateLinkSet("following").add(teri);
+    teri.getOrCreateLinkSet("following").add(jack);
 
     session.commit();
 
     session.close();
     session = acquireSession();
 
+    session.begin();
     EntityImpl loadedJack = session.load(jack.getIdentity());
-
     var jackLastVersion = loadedJack.getVersion();
+    session.commit();
+
     session.begin();
     var activeTx3 = session.getActiveTransaction();
     loadedJack = activeTx3.load(loadedJack);
     loadedJack.setProperty("occupation", "agent");
-
     session.commit();
+
+    session.begin();
     var activeTx2 = session.getActiveTransaction();
     Assert.assertTrue(jackLastVersion != activeTx2.<EntityImpl>load(loadedJack).getVersion());
 
     loadedJack = session.load(jack.getIdentity());
     var activeTx1 = session.getActiveTransaction();
     Assert.assertTrue(jackLastVersion != activeTx1.<EntityImpl>load(loadedJack).getVersion());
+    session.commit();
 
     session.close();
 
     session = acquireSession();
+    session.begin();
     loadedJack = session.load(jack.getIdentity());
     var activeTx = session.getActiveTransaction();
     Assert.assertTrue(jackLastVersion != activeTx.<EntityImpl>load(loadedJack).getVersion());
+    session.commit();
     session.close();
   }
 
@@ -364,26 +374,29 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     session.begin();
 
-    var kim = ((EntityImpl) session.newEntity("MyProfile")).setPropertyInChain("name", "Kim")
+    var kim = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Kim")
         .setPropertyInChain("surname", "Bauer");
-    var teri = ((EntityImpl) session.newEntity("MyProfile")).setPropertyInChain("name", "Teri")
+    var teri = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Teri")
         .setPropertyInChain("surname", "Bauer");
-    var jack = ((EntityImpl) session.newEntity("MyProfile")).setPropertyInChain("name", "Jack")
+    var jack = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Jack")
         .setPropertyInChain("surname", "Bauer");
 
-    var myedge = ((EntityImpl) session.newEntity("MyEdge")).setPropertyInChain("in", kim)
+    var myedge = ((EntityImpl) session.newEntity("MyEdge"))
+        .setPropertyInChain("in", kim)
         .setPropertyInChain("out", jack);
 
-    EntityImpl entity1 = kim.setPropertyInChain("out", new HashSet<RID>());
-    ((HashSet<EntityImpl>) entity1.getProperty("out")).add(myedge);
-    EntityImpl entity = jack.setPropertyInChain("in", new HashSet<RID>());
-    ((HashSet<EntityImpl>) entity.getProperty("in")).add(myedge);
+    kim.getOrCreateLinkSet("out").add(myedge);
+    jack.getOrCreateLinkSet("in").add(myedge);
 
     session.commit();
 
+    session.begin();
     var result = session.execute("select from MyProfile ");
-
     Assert.assertTrue(result.stream().findAny().isPresent());
+    session.commit();
   }
 
   @SuppressWarnings("unchecked")
@@ -391,47 +404,42 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void loadRecordTest() {
     session.begin();
 
-    var kim = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Kim")
+    var kim = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Kim")
         .setPropertyInChain("surname", "Bauer");
-    var teri = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Teri")
+    var teri = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Teri")
         .setPropertyInChain("surname", "Bauer");
-    var jack = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Jack")
+    var jack = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Jack")
         .setPropertyInChain("surname", "Bauer");
-    var chloe = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Chloe")
+    var chloe = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Chloe")
         .setPropertyInChain("surname", "O'Brien");
 
-    EntityImpl entity3 = jack.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity3.getProperty("following"))
-        .add(kim);
-    EntityImpl entity2 = kim.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity2.getProperty("following"))
-        .add(teri);
-    EntityImpl entity1 = teri.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity1.getProperty("following"))
-        .add(jack);
-    ((HashSet<EntityImpl>) teri.getProperty("following")).add(kim);
-    EntityImpl entity = chloe.setPropertyInChain("following", new HashSet<EntityImpl>());
-    ((HashSet<EntityImpl>) entity.getProperty("following"))
-        .add(jack);
-    ((HashSet<EntityImpl>) chloe.getProperty("following")).add(teri);
-    ((HashSet<EntityImpl>) chloe.getProperty("following")).add(kim);
+    jack.getOrCreateLinkSet("following").add(kim);
+    kim.getOrCreateLinkSet("following").add(teri);
+    teri.getOrCreateLinkSet("following").addAll(List.of(jack, kim));
+    chloe.getOrCreateLinkSet("following").addAll(List.of(jack, teri, kim));
 
     var schema = session.getSchema();
-    var profileClusterIds =
-        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getClusterIds()));
+    var profileCollectionIds =
+        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getCollectionIds()));
 
     session.commit();
 
     Assert.assertListContainsObject(
-        profileClusterIds, jack.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, jack.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, kim.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, kim.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, teri.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, teri.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, chloe.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, chloe.getIdentity().getCollectionId(), "Collection id not found");
 
+    session.begin();
     session.load(chloe.getIdentity());
+    session.commit();
   }
 
   @Test
@@ -464,7 +472,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
-      Assert.assertEquals(session.countClusterElements("MyFruit"), 0);
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
 
       System.out.println(
           "[testTransactionPopulateDelete] Populating chunk "
@@ -508,7 +516,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
-      Assert.assertEquals(session.countClusterElements("MyFruit"), 0);
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
     }
 
     System.out.println("[testTransactionPopulateDelete] End of the test");
@@ -575,18 +583,18 @@ public class TransactionConsistencyTest extends BaseDBTest {
       session.createEdgeClass("Sees");
     }
 
+    session.begin();
     // Commenting out the transaction will result in the test succeeding.
     var foo = session.newVertex("Foo");
     foo.setProperty("prop", "test1");
-    session.begin();
     session.commit();
 
+    session.begin();
     // Comment out these two lines and the test will succeed. The issue appears to be related to
     // an edge
     // connecting a deleted vertex during a transaction
     var bar = session.newVertex("Bar");
     bar.setProperty("prop", "test1");
-    session.begin();
     session.commit();
 
     session.begin();
@@ -597,8 +605,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var sees = session.newStatefulEdge(foo, bar, "Sees");
     session.commit();
 
+    session.begin();
     var foos = session.query("select * from Foo").stream().toList();
     Assert.assertEquals(foos.size(), 1);
+    session.commit();
 
     session.begin();
     Entity identifiable = foos.getFirst().asEntityOrNull();
@@ -636,8 +646,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
       person.setPropertyInChain("name", Character.toString((char) ('A' + i)));
       person.setPropertyInChain("surname", Character.toString((char) ('A' + (i % 3))));
       person.setProperty("myversion", 0);
-      person.setProperty("in", new HashSet<EntityImpl>());
-      person.setProperty("out", new HashSet<EntityImpl>());
+      person.getOrCreateLinkSet("in");
+      person.getOrCreateLinkSet("out");
 
       if (i >= 1) {
         var edge = ((EntityImpl) session.newEntity("TREdge"));
@@ -654,8 +664,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     final var result1 = session.execute("select from TRPerson");
     Assert.assertEquals(result1.stream().count(), cnt);
+    session.commit();
 
     try {
       session.executeInTx(
@@ -667,8 +679,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
               person.setProperty("name", Character.toString((char) ('a' + i)));
               person.setProperty("surname", Character.toString((char) ('a' + (i % 3))));
               person.setProperty("myversion", 0);
-              person.setProperty("in", new HashSet<EntityImpl>());
-              person.setProperty("out", new HashSet<EntityImpl>());
+              person.getOrCreateLinkSet("in");
+              person.getOrCreateLinkSet("out");
 
               if (i >= 1) {
                 var edge = ((EntityImpl) session.newEntity("TREdge"));
@@ -703,9 +715,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
       Assert.assertTrue(true);
     }
 
+    session.begin();
     final var result2 = session.execute("select from TRPerson");
     Assert.assertNotNull(result2);
     Assert.assertEquals(result2.stream().count(), cnt);
+    session.commit();
   }
 
   @Test
@@ -741,9 +755,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
   @SuppressWarnings("unused")
   @Test
   public void testRollbackWithRemove() {
+    session.begin();
     var account = session.newEntity("Account");
     account.setProperty("name", "John Grisham");
-    session.begin();
     account = account;
     session.commit();
 
@@ -756,13 +770,12 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var address2 = session.newEntity("Address");
     address2.setProperty("street", "Via Veneto");
 
-    List<Entity> addresses = new ArrayList<>();
+    final var addresses = session.newLinkList();
     addresses.add(address1);
     addresses.add(address2);
 
     account.setProperty("addresses", addresses);
 
-    account = account;
     session.commit();
 
     session.begin();
@@ -784,6 +797,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     session.rollback(); // rollback the transaction
 
+    session.begin();
     var activeTx = session.getActiveTransaction();
     account = activeTx.load(account);
     Assert.assertEquals(
@@ -802,6 +816,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     }
 
     Assert.assertEquals(bookCount, 2); // this fails, only 1 entry in the datastore :(
+    session.commit();
   }
 
   public void testTransactionsCache() {
@@ -809,12 +824,12 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Schema schema = session.getMetadata().getSchema();
     var classA = schema.createClass("TransA");
     classA.createProperty("name", PropertyType.STRING);
-    var doc = ((EntityImpl) session.newEntity(classA));
-    doc.setProperty("name", "test1");
 
     session.begin();
-
+    var doc = ((EntityImpl) session.newEntity(classA));
+    doc.setProperty("name", "test1");
     session.commit();
+
     RID orid = doc.getIdentity();
     session.begin();
     Assert.assertTrue(session.getTransactionInternal().isActive());
@@ -828,8 +843,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
     // There is NO SAVE!
     session.commit();
 
+    session.begin();
     var transaction = session.getActiveTransaction();
     doc = transaction.load(orid);
     Assert.assertEquals(doc.getProperty("name"), "test2");
+    session.commit();
   }
 }

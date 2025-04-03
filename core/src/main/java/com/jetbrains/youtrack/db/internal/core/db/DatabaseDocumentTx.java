@@ -41,7 +41,7 @@ import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
@@ -274,8 +274,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int assignAndCheckCluster(DBRecord record) {
-    return internal.assignAndCheckCluster(record);
+  public int assignAndCheckCollection(DBRecord record) {
+    return internal.assignAndCheckCollection(record);
   }
 
   @Override
@@ -292,34 +292,34 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCluster(
-      int clusterId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId) {
     checkOpenness();
-    return internal.loadFirstRecordAndNextRidInCluster(clusterId);
+    return internal.loadFirstRecordAndNextRidInCollection(collectionId);
   }
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCluster(
-      int clusterId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId) {
     checkOpenness();
-    return internal.loadLastRecordAndPreviousRidInCluster(clusterId);
+    return internal.loadLastRecordAndPreviousRidInCollection(collectionId);
   }
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCluster(
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
       @Nonnull RecordId recordId) {
     checkOpenness();
-    return internal.loadRecordAndNextRidInCluster(recordId);
+    return internal.loadRecordAndNextRidInCollection(recordId);
   }
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCluster(
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
       @Nonnull RecordId recordId) {
     checkOpenness();
-    return internal.loadRecordAndPreviousRidInCluster(recordId);
+    return internal.loadRecordAndPreviousRidInCollection(recordId);
   }
 
   @Nonnull
@@ -366,9 +366,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void registerHook(@Nonnull RecordHook iHookImpl) {
+  public RecordHook registerHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.registerHook(iHookImpl);
+
+    return iHookImpl;
   }
 
 
@@ -725,9 +727,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
+  public RecordIteratorCollection<EntityImpl> browseCollection(String iCollectionName) {
     checkOpenness();
-    return internal.browseCluster(iClusterName);
+    return internal.browseCollection(iCollectionName);
   }
 
   @Override
@@ -763,9 +765,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void checkSecurity(int operation, Identifiable record, String cluster) {
+  public void checkSecurity(int operation, Identifiable record, String collection) {
     checkOpenness();
-    internal.checkSecurity(operation, record, cluster);
+    internal.checkSecurity(operation, record, collection);
   }
 
   @Override
@@ -939,45 +941,45 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int getClusters() {
+  public int getCollections() {
     checkOpenness();
-    return internal.getClusters();
+    return internal.getCollections();
   }
 
   @Override
-  public boolean existsCluster(String iClusterName) {
+  public boolean existsCollection(String iCollectionName) {
     checkOpenness();
-    return internal.existsCluster(iClusterName);
+    return internal.existsCollection(iCollectionName);
   }
 
   @Override
-  public Collection<String> getClusterNames() {
+  public Collection<String> getCollectionNames() {
     checkOpenness();
-    return internal.getClusterNames();
+    return internal.getCollectionNames();
   }
 
   @Override
-  public int getClusterIdByName(String iClusterName) {
+  public int getCollectionIdByName(String iCollectionName) {
     checkOpenness();
-    return internal.getClusterIdByName(iClusterName);
+    return internal.getCollectionIdByName(iCollectionName);
   }
 
   @Override
-  public String getClusterNameById(int iClusterId) {
+  public String getCollectionNameById(int iCollectionId) {
     checkOpenness();
-    return internal.getClusterNameById(iClusterId);
+    return internal.getCollectionNameById(iCollectionId);
   }
 
   @Override
-  public long getClusterRecordSizeByName(String iClusterName) {
+  public long getCollectionRecordSizeByName(String iCollectionName) {
     checkOpenness();
-    return internal.getClusterRecordSizeByName(iClusterName);
+    return internal.getCollectionRecordSizeByName(iCollectionName);
   }
 
   @Override
-  public long getClusterRecordSizeById(int iClusterId) {
+  public long getCollectionRecordSizeById(int iCollectionId) {
     checkOpenness();
-    return internal.getClusterRecordSizeById(iClusterId);
+    return internal.getCollectionRecordSizeById(iCollectionId);
   }
 
   @Override
@@ -986,75 +988,75 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void truncateCluster(String clusterName) {
+  public void truncateCollection(String collectionName) {
     checkOpenness();
-    internal.truncateCluster(clusterName);
+    internal.truncateCollection(collectionName);
   }
 
   @Override
-  public long countClusterElements(int iCurrentClusterId) {
+  public long countCollectionElements(int iCurrentCollectionId) {
     checkOpenness();
-    return internal.countClusterElements(iCurrentClusterId);
+    return internal.countCollectionElements(iCurrentCollectionId);
   }
 
   @Override
-  public long countClusterElements(int iCurrentClusterId, boolean countTombstones) {
+  public long countCollectionElements(int iCurrentCollectionId, boolean countTombstones) {
     checkOpenness();
-    return internal.countClusterElements(iCurrentClusterId, countTombstones);
+    return internal.countCollectionElements(iCurrentCollectionId, countTombstones);
   }
 
   @Override
-  public long countClusterElements(int[] iClusterIds) {
+  public long countCollectionElements(int[] iCollectionIds) {
     checkOpenness();
-    return internal.countClusterElements(iClusterIds);
+    return internal.countCollectionElements(iCollectionIds);
   }
 
   @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
+  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     checkOpenness();
-    return internal.countClusterElements(iClusterIds, countTombstones);
+    return internal.countCollectionElements(iCollectionIds, countTombstones);
   }
 
   @Override
-  public long countClusterElements(String iClusterName) {
+  public long countCollectionElements(String iCollectionName) {
     checkOpenness();
-    return internal.countClusterElements(iClusterName);
+    return internal.countCollectionElements(iCollectionName);
   }
 
   @Override
-  public int addCluster(String iClusterName, Object... iParameters) {
+  public int addCollection(String iCollectionName, Object... iParameters) {
     checkOpenness();
-    return internal.addCluster(iClusterName, iParameters);
+    return internal.addCollection(iCollectionName, iParameters);
   }
 
   @Override
-  public int addBlobCluster(String iClusterName, Object... iParameters) {
+  public int addBlobCollection(String iCollectionName, Object... iParameters) {
     checkOpenness();
-    return internal.addBlobCluster(iClusterName, iParameters);
+    return internal.addBlobCollection(iCollectionName, iParameters);
   }
 
   @Override
-  public int[] getBlobClusterIds() {
+  public int[] getBlobCollectionIds() {
     checkOpenness();
-    return internal.getBlobClusterIds();
+    return internal.getBlobCollectionIds();
   }
 
   @Override
-  public int addCluster(String iClusterName, int iRequestedId) {
+  public int addCollection(String iCollectionName, int iRequestedId) {
     checkOpenness();
-    return internal.addCluster(iClusterName, iRequestedId);
+    return internal.addCollection(iCollectionName, iRequestedId);
   }
 
   @Override
-  public boolean dropCluster(String iClusterName) {
+  public boolean dropCollection(String iCollectionName) {
     checkOpenness();
-    return internal.dropCluster(iClusterName);
+    return internal.dropCollection(iCollectionName);
   }
 
   @Override
-  public boolean dropCluster(int iClusterId) {
+  public boolean dropCollection(int iCollectionId) {
     checkOpenness();
-    return internal.dropCluster(iClusterId);
+    return internal.dropCollection(iCollectionId);
   }
 
   @Override
@@ -1196,7 +1198,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkList newLinkList(Collection<Identifiable> source) {
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkList(source);
   }
@@ -1232,7 +1234,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkSet newLinkSet(Collection<Identifiable> source) {
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);
   }
@@ -1268,7 +1270,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, Identifiable> source) {
+  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkMap(source);
   }
@@ -1383,10 +1385,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.setPrefetchRecords(prefetchRecords);
   }
 
-  public void checkForClusterPermissions(String name) {
-    checkOpenness();
-    internal.checkForClusterPermissions(name);
-  }
 
   @Override
   public ResultSet runScript(String language, String script, Object... args)
@@ -1414,15 +1412,15 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public boolean isClusterVertex(int cluster) {
+  public boolean isCollectionVertex(int collection) {
     checkOpenness();
-    return internal.isClusterVertex(cluster);
+    return internal.isCollectionVertex(collection);
   }
 
   @Override
-  public boolean isClusterEdge(int cluster) {
+  public boolean isCollectionEdge(int collection) {
     checkOpenness();
-    return internal.isClusterEdge(cluster);
+    return internal.isCollectionEdge(collection);
   }
 
   @Override
@@ -1433,8 +1431,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
 
   @Override
-  public void beforeCreateOperations(RecordAbstract recordAbstract, String clusterName) {
-    internal.beforeCreateOperations(recordAbstract, clusterName);
+  public void beforeCreateOperations(RecordAbstract recordAbstract, String collectionName) {
+    internal.beforeCreateOperations(recordAbstract, collectionName);
   }
 
   @Override
@@ -1443,8 +1441,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeDeleteOperations(RecordAbstract recordAbstract, java.lang.String clusterName) {
-    internal.beforeDeleteOperations(recordAbstract, clusterName);
+  public void beforeDeleteOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+    internal.beforeDeleteOperations(recordAbstract, collectionName);
   }
 
   @Override
@@ -1453,8 +1451,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeUpdateOperations(RecordAbstract recordAbstract, java.lang.String clusterName) {
-    internal.beforeUpdateOperations(recordAbstract, clusterName);
+  public void beforeUpdateOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+    internal.beforeUpdateOperations(recordAbstract, collectionName);
   }
 
   @Override
@@ -1478,8 +1476,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public String getClusterName(@Nonnull DBRecord record) {
-    return internal.getClusterName(record);
+  public String getCollectionName(@Nonnull DBRecord record) {
+    return internal.getCollectionName(record);
   }
 
   @Override
@@ -1498,18 +1496,18 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public boolean dropClusterInternal(int clusterId) {
-    return internal.dropClusterInternal(clusterId);
+  public boolean dropCollectionInternal(int collectionId) {
+    return internal.dropCollectionInternal(collectionId);
   }
 
   @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
-    return internal.getClusterRecordConflictStrategy(clusterId);
+  public String getCollectionRecordConflictStrategy(int collectionId) {
+    return internal.getCollectionRecordConflictStrategy(collectionId);
   }
 
   @Override
-  public int[] getClustersIds(@Nonnull Set<String> filterClusters) {
-    return internal.getClustersIds(filterClusters);
+  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
+    return internal.getCollectionsIds(filterCollections);
   }
 
   @Override
@@ -1518,8 +1516,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public long truncateClusterInternal(String name) {
-    return internal.truncateClusterInternal(name);
+  public long truncateCollectionInternal(String name) {
+    return internal.truncateCollectionInternal(name);
   }
 
   @Override

@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
@@ -12,11 +13,10 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
-/**
- *
- */
+
 public class MatchEdgeTraverser {
 
   protected Result sourceRecord;
@@ -40,6 +40,7 @@ public class MatchEdgeTraverser {
     return downstream.hasNext(ctx);
   }
 
+  @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);
     if (!downstream.hasNext(ctx)) {
@@ -47,18 +48,18 @@ public class MatchEdgeTraverser {
     }
     var endPointAlias = getEndpointAlias();
     var nextR = downstream.next(ctx);
-    Identifiable nextElement = nextR.asEntity();
-    var prevValue = sourceRecord.getProperty(endPointAlias);
-    if (prevValue != null && !equals(prevValue, nextElement)) {
+    var session = ctx.getDatabaseSession();
+    var prevValue = ResultInternal.toResult(sourceRecord.getProperty(endPointAlias), session);
+
+    if (prevValue != null && !Objects.equals(nextR, prevValue)) {
       return null;
     }
 
-    var db = ctx.getDatabaseSession();
-    var result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     for (var prop : sourceRecord.getPropertyNames()) {
       result.setProperty(prop, sourceRecord.getProperty(prop));
     }
-    result.setProperty(endPointAlias, toResult(db, nextElement));
+    result.setProperty(endPointAlias, nextR);
     if (edge.edge.item.getFilter().getDepthAlias() != null) {
       result.setProperty(edge.edge.item.getFilter().getDepthAlias(),
           ((ResultInternal) nextR).getMetadata("$depth"));
@@ -69,24 +70,6 @@ public class MatchEdgeTraverser {
           ((ResultInternal) nextR).getMetadata("$matchPath"));
     }
     return result;
-  }
-
-  protected static boolean equals(Object prevValue, Identifiable nextElement) {
-    if (prevValue instanceof Result result) {
-      if (result.isEntity()) {
-        prevValue = result.asEntity();
-      } else {
-        prevValue = null;
-      }
-    }
-    if (nextElement instanceof Result result) {
-      if (result.isEntity()) {
-        nextElement = result.asEntity();
-      } else {
-        nextElement = null;
-      }
-    }
-    return prevValue != null && prevValue.equals(nextElement);
   }
 
   protected static Object toResult(DatabaseSessionInternal db, Identifiable nextElement) {
@@ -107,30 +90,28 @@ public class MatchEdgeTraverser {
   protected void init(CommandContext ctx) {
     if (downstream == null) {
       var startingElem = sourceRecord.getProperty(getStartingPointAlias());
-      if (startingElem instanceof Result result) {
-        if (result.isEntity()) {
-          startingElem = result.asEntity();
-        } else {
-          startingElem = null;
-        }
+      if (!(startingElem instanceof Result)) {
+        startingElem = ResultInternal.toResultInternal(startingElem, ctx.getDatabaseSession());
       }
-      downstream = executeTraversal(ctx, this.item, (Identifiable) startingElem, 0, null);
+
+      downstream = executeTraversal(ctx, this.item, (Result) startingElem, 0, null);
     }
   }
+
 
   protected ExecutionStream executeTraversal(
       CommandContext iCommandContext,
       SQLMatchPathItem item,
-      Identifiable startingPoint,
+      Result startingPoint,
       int depth,
-      List<Identifiable> pathToHere) {
-
+      List<Result> pathToHere) {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
     Integer maxDepth = null;
     String className = null;
-    Integer clusterId = null;
     SQLRid targetRid = null;
+
+    var session = iCommandContext.getDatabaseSession();
     if (item.getFilter() != null) {
       filter = getTargetFilter(item);
       whileCondition = item.getFilter().getWhileCondition();
@@ -147,12 +128,12 @@ public class MatchEdgeTraverser {
       var queryResult = traversePatternEdge(startingPoint, iCommandContext);
       final var theFilter = filter;
       final var theClassName = className;
-      final var theClusterId = clusterId;
       final var theTargetRid = targetRid;
       return queryResult.filter(
           (next, ctx) ->
               filter(
-                  iCommandContext, theFilter, theClassName, theClusterId, theTargetRid, next, ctx));
+                  iCommandContext, theFilter, theClassName, theTargetRid, next,
+                  ctx));
     } else { // in this case also zero level (starting point) is considered and traversal depth is
       // given by the while condition
       List<Result> result = new ArrayList<>();
@@ -162,13 +143,18 @@ public class MatchEdgeTraverser {
 
       if (matchesFilters(iCommandContext, filter, startingPoint)
           && matchesClass(iCommandContext, className, startingPoint)
-          && matchesCluster(clusterId, startingPoint)
           && matchesRid(iCommandContext, targetRid, startingPoint)) {
-        var rs = new ResultInternal(iCommandContext.getDatabaseSession(), startingPoint);
         // set traversal depth in the metadata
+        ResultInternal rs;
+        if (startingPoint instanceof ResultInternal resultInternal) {
+          rs = resultInternal;
+        } else {
+          rs = ResultInternal.toResultInternal(startingPoint, session, null);
+        }
         rs.setMetadata("$depth", depth);
         // set traversal path in the metadata
-        rs.setMetadata("$matchPath", pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
+        rs.setMetadata("$matchPath",
+            pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
         // add the result to the list
         result.add(rs);
       }
@@ -180,23 +166,21 @@ public class MatchEdgeTraverser {
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
         while (queryResult.hasNext(iCommandContext)) {
-          var origin = queryResult.next(iCommandContext);
+          var origin = ResultInternal.toResult(queryResult.next(iCommandContext), session);
           //          if(origin.equals(startingPoint)){
           //            continue;
           //          }
           // TODO consider break strategies (eg. re-traverse nodes)
 
-          List<Identifiable> newPath = new ArrayList<>();
+          List<Result> newPath = new ArrayList<>();
           if (pathToHere != null) {
             newPath.addAll(pathToHere);
           }
 
-          assert origin.isEntity();
-          var elem = origin.asEntity();
-          newPath.add(elem);
+          newPath.add(origin);
 
           var subResult =
-              executeTraversal(iCommandContext, item, elem, depth + 1, newPath);
+              executeTraversal(iCommandContext, item, origin, depth + 1, newPath);
           while (subResult.hasNext(iCommandContext)) {
             var sub = subResult.next(iCommandContext);
             result.add(sub);
@@ -213,7 +197,6 @@ public class MatchEdgeTraverser {
       CommandContext iCommandContext,
       final SQLWhereClause theFilter,
       final String theClassName,
-      final Integer theClusterId,
       final SQLRid theTargetRid,
       Result next,
       CommandContext ctx) {
@@ -223,14 +206,10 @@ public class MatchEdgeTraverser {
       matched.setProperty(
           getStartingPointAlias(), sourceRecord.getProperty(getStartingPointAlias()));
     }
-    assert next.isEntity();
-
-    var elem = next.asEntity();
-    iCommandContext.setVariable("$currentMatch", elem);
-    if (matchesFilters(iCommandContext, theFilter, elem)
-        && matchesClass(iCommandContext, theClassName, elem)
-        && matchesCluster(theClusterId, elem)
-        && matchesRid(iCommandContext, theTargetRid, elem)) {
+    iCommandContext.setVariable("$currentMatch", next);
+    if (matchesFilters(iCommandContext, theFilter, next)
+        && matchesClass(iCommandContext, theClassName, next)
+        && matchesRid(iCommandContext, theTargetRid, next)) {
       ctx.setVariable("$currentMatch", previousMatch);
       return next;
     } else {
@@ -253,23 +232,13 @@ public class MatchEdgeTraverser {
   }
 
   private static boolean matchesClass(
-      CommandContext context, String className, Identifiable origin) {
+      CommandContext context, String className, Result origin) {
     if (className == null) {
       return true;
     }
 
     var session = context.getDatabaseSession();
-    EntityImpl entity = null;
-    if (origin instanceof EntityImpl EntityImpl) {
-      entity = EntityImpl;
-    } else if (origin != null) {
-      var transaction = session.getActiveTransaction();
-      var record = transaction.load(origin);
-      if (record instanceof EntityImpl EntityImpl) {
-        entity = EntityImpl;
-      }
-    }
-
+    var entity = (EntityImpl) origin.asEntityOrNull();
     if (entity != null) {
       var clazz = entity.getImmutableSchemaClass(session);
       if (clazz == null) {
@@ -277,25 +246,12 @@ public class MatchEdgeTraverser {
       }
       return clazz.isSubClassOf(className);
     }
+
     return false;
   }
 
-  private static boolean matchesCluster(
-      Integer clusterId, Identifiable origin) {
-    if (clusterId == null) {
-      return true;
-    }
-    if (origin == null) {
-      return false;
-    }
-
-    if (origin.getIdentity() == null) {
-      return false;
-    }
-    return clusterId.equals(origin.getIdentity().getClusterId());
-  }
-
-  private boolean matchesRid(CommandContext iCommandContext, SQLRid rid, Identifiable origin) {
+  private static boolean matchesRid(CommandContext iCommandContext, SQLRid rid,
+      Result origin) {
     if (rid == null) {
       return true;
     }
@@ -306,18 +262,19 @@ public class MatchEdgeTraverser {
     if (origin.getIdentity() == null) {
       return false;
     }
+
     return origin.getIdentity().equals(rid.toRecordId(origin, iCommandContext));
   }
 
-  protected boolean matchesFilters(
-      CommandContext iCommandContext, SQLWhereClause filter, Identifiable origin) {
+  protected static boolean matchesFilters(
+      CommandContext iCommandContext, SQLWhereClause filter, Result origin) {
     return filter == null || filter.matchesFilters(origin, iCommandContext);
   }
 
   // TODO refactor this method to receive the item.
 
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
     var prevCurrent = iCommandContext.getVariable("$current");
     iCommandContext.setVariable("$current", startingPoint);
@@ -328,16 +285,14 @@ public class MatchEdgeTraverser {
       iCommandContext.setVariable("$current", prevCurrent);
     }
 
-    if (qR == null) {
-      return ExecutionStream.empty();
-    }
-    if (qR instanceof Identifiable) {
-      return ExecutionStream.singleton(new ResultInternal(
-          iCommandContext.getDatabaseSession(), (Identifiable) qR));
-    }
-    if (qR instanceof Iterable) {
-      return ExecutionStream.iterator(((Iterable) qR).iterator());
-    }
-    return ExecutionStream.empty();
+    return switch (qR) {
+      case null -> ExecutionStream.empty();
+      case Identifiable identifiable -> ExecutionStream.singleton(new ResultInternal(
+          iCommandContext.getDatabaseSession(), identifiable));
+      case Relation<?> bidirectionalLink -> ExecutionStream.singleton(new ResultInternal(
+          iCommandContext.getDatabaseSession(), bidirectionalLink));
+      case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
+      default -> ExecutionStream.empty();
+    };
   }
 }

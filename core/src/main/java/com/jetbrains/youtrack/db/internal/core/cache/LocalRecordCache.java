@@ -48,7 +48,7 @@ public class LocalRecordCache extends AbstractRecordCache {
   public void updateRecord(final RecordAbstract record, DatabaseSessionInternal session) {
     assert !record.isUnloaded();
     var rid = record.getIdentity();
-    if (rid.getClusterId() != excludedCluster
+    if (rid.getCollectionId() != excludedCollection
         && !rid.isTemporary()
         && rid.isValidPosition()
         && !record.isDirty()

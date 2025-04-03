@@ -26,7 +26,7 @@ public interface StorageConfiguration {
 
   String getSchemaRecordId();
 
-  int getMinimumClusters();
+  int getMinimumCollections();
 
   boolean isStrictSql();
 
@@ -47,7 +47,7 @@ public interface StorageConfiguration {
 
   List<StorageEntryConfiguration> getProperties();
 
-  String getClusterSelection();
+  String getCollectionSelection();
 
   String getConflictStrategy();
 
@@ -72,7 +72,7 @@ public interface StorageConfiguration {
   @Nullable
   String getDirectory();
 
-  List<StorageClusterConfiguration> getClusters();
+  List<StorageCollectionConfiguration> getCollections();
 
   String getCreatedAtVersion();
 

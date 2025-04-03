@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * Transforms a value to datetime. If the conversion is not possible, null is returned.
@@ -40,6 +41,7 @@ public class SQLMethodAsDateTime extends AbstractSQLMethod {
     return "asDatetime()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

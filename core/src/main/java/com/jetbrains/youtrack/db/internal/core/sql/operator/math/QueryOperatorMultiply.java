@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import java.math.BigDecimal;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * MULTIPLY "*" operator.
@@ -40,6 +41,7 @@ public class QueryOperatorMultiply extends QueryOperator {
     super("*", 10, false);
   }
 
+  @Nullable
   @Override
   public Object evaluateRecord(
       final Result iRecord,
@@ -80,6 +82,7 @@ public class QueryOperatorMultiply extends QueryOperator {
     return null;
   }
 
+  @Nullable
   public static BigDecimal toBigDecimal(Number number) {
     if (number instanceof BigDecimal) {
       return (BigDecimal) number;
@@ -103,6 +106,7 @@ public class QueryOperatorMultiply extends QueryOperator {
     return null;
   }
 
+  @Nullable
   public static Class getMaxPrecisionClass(Number l, Number r) {
     var lClass = l.getClass();
     var rClass = r.getClass();
@@ -140,11 +144,13 @@ public class QueryOperatorMultiply extends QueryOperator {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

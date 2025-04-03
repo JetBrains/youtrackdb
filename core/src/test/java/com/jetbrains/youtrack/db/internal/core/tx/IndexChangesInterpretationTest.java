@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
@@ -142,10 +141,10 @@ public class IndexChangesInterpretationTest {
     }
 
     return entry.getOperation() == OPERATION.PUT
-        ? "p" + entry.getValue().getIdentity().getClusterPosition()
+        ? "p" + entry.getValue().getIdentity().getCollectionPosition()
         : entry.getValue() == null
             ? "d"
-            : "r" + entry.getValue().getIdentity().getClusterPosition();
+            : "r" + entry.getValue().getIdentity().getCollectionPosition();
   }
 
   private static boolean entryEquals(TransactionIndexEntry a, TransactionIndexEntry b) {

@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataI
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -79,6 +80,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
     return executor.executeSubscribeLiveQuery(this);
   }
 
+  @Nullable
   @Override
   public String getDescription() {
     return null;

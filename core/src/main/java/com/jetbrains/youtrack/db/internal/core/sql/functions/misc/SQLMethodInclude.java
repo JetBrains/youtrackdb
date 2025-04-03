@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Filter the content by including only some fields. If the content is a entity, then creates a copy
@@ -82,6 +83,7 @@ public class SQLMethodInclude extends AbstractSQLMethod {
     return "Syntax error: include([<field-name>][,]*)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,

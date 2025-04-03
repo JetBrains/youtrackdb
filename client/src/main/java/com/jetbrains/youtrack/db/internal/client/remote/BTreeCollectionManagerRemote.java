@@ -69,7 +69,7 @@ public class BTreeCollectionManagerRemote
   }
 
   protected EdgeBTree<RID, Integer> createEdgeTree(
-      AtomicOperation atomicOperation, final int clusterId) {
+      AtomicOperation atomicOperation, final int collectionId) {
     throw new UnsupportedOperationException(
         "Creation of SB-Tree from remote storage is not allowed");
   }
@@ -134,9 +134,9 @@ public class BTreeCollectionManagerRemote
 
   @Override
   public LinkBagPointer createSBTree(
-      int clusterId, AtomicOperation atomicOperation, UUID ownerUUID,
+      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) throws IOException {
-    var tree = createEdgeTree(atomicOperation, clusterId);
+    var tree = createEdgeTree(atomicOperation, collectionId);
     return tree.getCollectionPointer();
   }
 
@@ -166,7 +166,7 @@ public class BTreeCollectionManagerRemote
   public void clear() {
   }
 
-  void clearClusterCache(final long fileId, String fileName) {
+  void clearCollectionCache(final long fileId, String fileName) {
   }
 
   int size() {

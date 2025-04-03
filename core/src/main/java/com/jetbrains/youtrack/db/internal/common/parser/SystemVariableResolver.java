@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.common.parser;
 
+import javax.annotation.Nullable;
+
 /**
  * Resolve system variables embedded in a String.
  */
@@ -45,6 +47,7 @@ public class SystemVariableResolver implements VariableParserListener {
     return resolveVariable(variable, null);
   }
 
+  @Nullable
   public static String resolveVariable(final String variable, final String iDefault) {
     if (variable == null) {
       return null;

@@ -63,7 +63,7 @@ import javax.annotation.Nullable;
 public class HelperClasses {
 
   public static final String CHARSET_UTF_8 = "UTF-8";
-  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   public static final long MILLISEC_PER_DAY = 86400000;
 
   public static class Tuple<T1, T2> {
@@ -168,12 +168,12 @@ public class HelperClasses {
 
   @Nullable
   public static RecordId readOptimizedLink(final BytesContainer bytes, boolean justRunThrough) {
-    var clusterId = VarIntSerializer.readAsInteger(bytes);
-    var clusterPos = VarIntSerializer.readAsLong(bytes);
+    var collectionId = VarIntSerializer.readAsInteger(bytes);
+    var collectionPos = VarIntSerializer.readAsLong(bytes);
     if (justRunThrough) {
       return null;
     } else {
-      return new RecordId(clusterId, clusterPos);
+      return new RecordId(collectionId, collectionPos);
     }
   }
 
@@ -238,20 +238,20 @@ public class HelperClasses {
     if (!rid.isPersistent()) {
       rid = session.refreshRid(rid);
     }
-    if (rid.getClusterId() < 0) {
+    if (rid.getCollectionId() < 0) {
       throw new DatabaseException(session.getDatabaseName(),
           "Impossible to serialize invalid link " + link.getIdentity());
     }
 
-    final var pos = VarIntSerializer.write(bytes, rid.getClusterId());
-    VarIntSerializer.write(bytes, rid.getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
 
     return pos;
   }
 
   public static int writeNullLink(final BytesContainer bytes) {
-    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
     return pos;
   }
 
@@ -314,7 +314,9 @@ public class HelperClasses {
 
   public static int writeLinkMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final Map<Object, Identifiable> map) {
-    final var fullPos = VarIntSerializer.write(bytes, map.size());
+    final var fullPos = bytes.alloc(1);
+
+    VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -328,6 +330,11 @@ public class HelperClasses {
 
   public static Map<String, Identifiable> readLinkMap(
       final BytesContainer bytes, final RecordElement owner, boolean justRunThrough) {
+    var version = bytes.bytes[bytes.offset++];
+    if (version != 0) {
+      throw new SerializationException("Invalid version of link map");
+    }
+
     var size = VarIntSerializer.readAsInteger(bytes);
     EntityLinkMapIml result = null;
     if (!justRunThrough) {
@@ -422,8 +429,8 @@ public class HelperClasses {
 
   public static void writeLinkOptimized(final BytesContainer bytes, Identifiable link) {
     var id = link.getIdentity();
-    VarIntSerializer.write(bytes, id.getClusterId());
-    VarIntSerializer.write(bytes, id.getClusterPosition());
+    VarIntSerializer.write(bytes, id.getCollectionId());
+    VarIntSerializer.write(bytes, id.getCollectionPosition());
   }
 
   public static RidBag readLinkBag(DatabaseSessionInternal db, BytesContainer bytes) {
@@ -459,10 +466,10 @@ public class HelperClasses {
 
   private static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
       final BytesContainer bytes) {
-    RID rid =
+    var rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    if (rid.isTemporary()) {
-      rid = db.refreshRid(rid);
+    if (!rid.isPersistent()) {
+      rid = (RecordId) db.refreshRid(rid);
     }
 
     return rid;
@@ -472,7 +479,7 @@ public class HelperClasses {
       final BytesContainer bytes) {
     RID rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    if (rid.isTemporary()) {
+    if (!rid.isPersistent()) {
       try {
         rid = session.refreshRid(rid);
       } catch (RecordNotFoundException rnf) {

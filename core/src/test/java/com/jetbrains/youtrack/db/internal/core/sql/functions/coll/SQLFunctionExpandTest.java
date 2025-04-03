@@ -112,7 +112,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
       final var a3 = session.newEntity(aClass);
       a3.setProperty("name", "a3");
-      a3.getOrCreateEmbeddedList("mapProp");
+      a3.getOrCreateEmbeddedMap("mapProp");
 
       final var a4 = session.newEntity(aClass);
       a4.setProperty("name", "a4");

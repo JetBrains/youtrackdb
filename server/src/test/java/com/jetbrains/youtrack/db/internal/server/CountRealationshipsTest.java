@@ -19,7 +19,7 @@ import org.junit.Test;
  */
 public class CountRealationshipsTest {
 
-  private static final String SERVER_DIRECTORY = "./target/cluster";
+  private static final String SERVER_DIRECTORY = "./target/collection";
   private YouTrackDBServer server;
   private YouTrackDB youTrackDB;
 

@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * @since 10/21/14
@@ -269,6 +270,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     return type.getPublicPropertyType();
   }
 
+  @Nullable
   @Override
   public SchemaClass getLinkedClass() {
     if (linkedClassName == null) {
@@ -290,6 +292,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   @Override
   public PropertyType getLinkedType() {
     if (linkedType == null) {
@@ -498,6 +501,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     return this.allIndexes;
   }
 
+  @Nullable
   @Override
   public DatabaseSession getBoundToSession() {
     return null;

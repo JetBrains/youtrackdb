@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
@@ -79,6 +80,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     return Collections.emptyList();
   }
 
+  @Nullable
   public String getClassName() {
     return null;
   }
@@ -87,6 +89,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     return createValue(session, params != null ? params.toArray() : null);
   }
 
+  @Nullable
   public Object createValue(DatabaseSessionInternal session, final Object... params) {
     if (params == null || params.length == 0) {
       return null;

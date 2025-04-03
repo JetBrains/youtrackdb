@@ -62,11 +62,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   private static final String CHARSET_UTF_8 = "UTF-8";
-  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   private static final long MILLISEC_PER_DAY = 86400000;
 
   public RecordSerializerNetworkV0() {
@@ -319,6 +320,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     }
   }
 
+  @Nullable
   protected PropertyTypeInternal readOType(final BytesContainer bytes) {
     var res = readByte(bytes);
     if (res == -1) {
@@ -506,6 +508,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
   }
 
+  @Nullable
   private Collection<?> readEmbeddedCollection(
       DatabaseSessionInternal db, final BytesContainer bytes, final Collection<Object> found,
       final RecordElement owner) {
@@ -527,6 +530,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return null;
   }
 
+  @Nullable
   private PropertyTypeInternal getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
       PropertyTypeInternal type, String key) {
     if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
@@ -721,8 +725,8 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   private int writeNullLink(final BytesContainer bytes) {
-    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
     return pos;
   }
 
@@ -733,8 +737,8 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       rid = session.refreshRid(rid);
     }
 
-    final var pos = VarIntSerializer.write(bytes, rid.getClusterId());
-    VarIntSerializer.write(bytes, rid.getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
     return pos;
   }
 

@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -35,8 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -69,6 +69,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Nullable
   public RecordOperation txEntry;
+  public boolean processingInCallback = false;
 
   public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
     recordId = new ChangeableRecordId();
@@ -180,6 +181,13 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   private void incrementDirtyCounterAndRegisterInTx() {
+    if (processingInCallback) {
+      throw new IllegalStateException(
+          "Cannot set dirty in callback processing. "
+              + "If called this method in beforeCallbackXXX method, "
+              + "please move this call to afterCallbackXX method.");
+    }
+
     dirty++;
 
     assert txEntry == null || dirty >= txEntry.recordBeforeCallBackDirtyCounter + 1;
@@ -189,14 +197,16 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     //either record is not registered in transaction or callbacks were called on previous version of record
     //or record changes are not sent to client side for remote storage
+    var tx = session.getTransactionInternal();
     if (txEntry == null || dirty == txEntry.recordBeforeCallBackDirtyCounter + 1
         || dirty == txEntry.dirtyCounterOnClientSide + 1) {
       if (!isEmbedded()) {
-        var tx = session.getTransactionInternal();
         tx.addRecordOperation(this, RecordOperation.UPDATED);
+        assert session.getTransactionInternal().isScheduledForCallbackProcessing(
+            recordId);
       }
     } else {
-      assert ((FrontendTransactionImpl) session.getTransactionInternal()).isScheduledForCallbackProcessing(
+      assert session.getTransactionInternal().isScheduledForCallbackProcessing(
           recordId);
     }
   }
@@ -207,26 +217,26 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
-    RecordSerializerJackson.fromString(getSession(),
+    JSONSerializerJackson.fromString(getSession(),
         iSource, this);
     // nothing change
     return (RET) this;
   }
 
   public void updateFromJSON(final @Nonnull String iSource) {
-    RecordSerializerJackson.fromString(getSession(), iSource, this);
+    JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
-    return (RET) RecordSerializerJackson.fromString(getSession(), iSource, this);
+    return (RET) JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();
     IOUtils.copyStream(iContentResult, out);
-    RecordSerializerJackson.fromString(getSession(), out.toString(), this);
+    JSONSerializerJackson.fromString(getSession(), out.toString(), this);
     return (RET) this;
   }
 
@@ -239,7 +249,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public String toJSON(final @Nonnull String format) {
     checkForBinding();
 
-    return RecordSerializerJackson
+    return JSONSerializerJackson
         .toString(getSession(), this, new StringWriter(1024),
             format)
         .toString();
@@ -370,6 +380,10 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
+      case Result result when result.isRecord() -> {
+        var resultRecord = result.asRecord();
+        return equals(resultRecord);
+      }
       case null, default -> {
         return false;
       }
@@ -399,7 +413,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
     }
 
-    recordId.setClusterAndPosition(rid.getClusterId(), rid.getClusterPosition());
+    recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
 
     recordVersion = version;
     status = STATUS.LOADED;
@@ -437,17 +451,17 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return true;
   }
 
-  public final RecordAbstract setIdentity(final int clusterId, final long clusterPosition) {
-    assert assertIfAlreadyLoaded(new RecordId(clusterId, clusterPosition));
+  public final RecordAbstract setIdentity(final int collectionId, final long collectionPosition) {
+    assert assertIfAlreadyLoaded(new RecordId(collectionId, collectionPosition));
 
-    recordId.setClusterAndPosition(clusterId, clusterPosition);
+    recordId.setCollectionAndPosition(collectionId, collectionPosition);
     return this;
   }
 
   public final RecordAbstract setIdentity(RID recordId) {
     assert assertIfAlreadyLoaded(recordId);
 
-    this.recordId.setClusterAndPosition(recordId.getClusterId(), recordId.getClusterPosition());
+    this.recordId.setCollectionAndPosition(recordId.getCollectionId(), recordId.getCollectionPosition());
 
     return this;
   }

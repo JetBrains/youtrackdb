@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import javax.annotation.Nullable;
 
 /**
  * Represents a context variable as value in the query condition.
@@ -37,6 +38,7 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
     super(session, iQueryToParse, iName.substring(1));
   }
 
+  @Nullable
   public Object getValue(
       final Result iRecord, Object iCurrentResult, final CommandContext iContext) {
     if (iContext == null) {

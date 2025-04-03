@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPagina
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import javax.annotation.Nullable;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 

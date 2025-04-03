@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Iterator;
 import java.util.function.Consumer;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -75,6 +76,7 @@ public class IteratorResultSet implements ResultSet {
     return false;
   }
 
+  @Nullable
   @Override
   public ResultSet trySplit() {
     return null;
@@ -91,7 +93,7 @@ public class IteratorResultSet implements ResultSet {
   }
 
   @Override
-  public void forEachRemaining(Consumer<? super Result> action) {
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
     }

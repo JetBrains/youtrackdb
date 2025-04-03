@@ -37,8 +37,8 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
- * If some of the tests start to fail then check cluster number in queries, e.g #7:1. It can be
- * because the order of clusters could be affected due to adding or removing cluster from storage.
+ * If some of the tests start to fail then check collection number in queries, e.g #7:1. It can be
+ * because the order of collections could be affected due to adding or removing collection from storage.
  */
 @Test
 public class SQLUpdateTest extends BaseDBTest {

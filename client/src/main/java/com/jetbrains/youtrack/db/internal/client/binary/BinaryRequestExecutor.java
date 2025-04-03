@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.binary;
 
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
@@ -12,7 +12,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
@@ -79,11 +79,11 @@ public interface BinaryRequestExecutor {
 
   BinaryResponse executeCountRecords(CountRecordsRequest request);
 
-  BinaryResponse executeCountCluster(CountRequest request);
+  BinaryResponse executeCountCollection(CountRequest request);
 
-  BinaryResponse executeAddCluster(AddClusterRequest request);
+  BinaryResponse executeAddCollection(AddCollectionRequest request);
 
-  BinaryResponse executeDropCluster(DropClusterRequest request);
+  BinaryResponse executeDropCollection(DropCollectionRequest request);
 
   BinaryResponse executeGetRecordMetadata(GetRecordMetadataRequest request);
 

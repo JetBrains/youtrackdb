@@ -42,7 +42,7 @@ public class AbstractClassTest extends BaseDBTest {
     abstractPerson.createProperty("name", PropertyType.STRING);
 
     Assert.assertTrue(abstractPerson.isAbstract());
-    Assert.assertEquals(abstractPerson.getClusterIds().length, 1);
+    Assert.assertEquals(abstractPerson.getCollectionIds().length, 1);
   }
 
   @Test

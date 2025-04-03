@@ -57,7 +57,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
 
     json.writeAttribute(session, "abstract", cls.isAbstract());
     json.writeAttribute(session, "strictmode", cls.isStrictMode());
-    json.writeAttribute(session, "clusters", cls.getClusterIds());
+    json.writeAttribute(session, "collections", cls.getCollectionIds());
     if (cls instanceof SchemaClassImpl) {
       final var custom = ((SchemaClassImpl) cls).getCustomInternal(session);
       if (custom != null && !custom.isEmpty()) {
@@ -189,14 +189,14 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       }
       json.endCollection();
 
-      json.beginCollection(session, "clusterSelectionStrategies");
-      var clusterSelectionStrategies =
+      json.beginCollection(session, "collectionSelectionStrategies");
+      var collectionSelectionStrategies =
           session.getMetadata()
               .getImmutableSchemaSnapshot()
-              .getClusterSelectionFactory()
+              .getCollectionSelectionFactory()
               .getRegisteredNames();
       var j = 0;
-      for (var strategy : clusterSelectionStrategies) {
+      for (var strategy : collectionSelectionStrategies) {
         json.write((j > 0 ? "," : "") + "\"" + strategy + "\"");
         j++;
       }
@@ -226,20 +226,20 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         json.endCollection();
       }
 
-      if (session.getClusterNames() != null) {
-        json.beginCollection(session, "clusters");
-        for (var clusterName : session.getClusterNames()) {
-          final var clusterId = session.getClusterIdByName(clusterName);
-          if (clusterId < 0) {
+      if (session.getCollectionNames() != null) {
+        json.beginCollection(session, "collections");
+        for (var collectionName : session.getCollectionNames()) {
+          final var collectionId = session.getCollectionIdByName(collectionName);
+          if (collectionId < 0) {
             continue;
           }
           try {
-            final var conflictStrategy = session.getClusterRecordConflictStrategy(clusterId);
+            final var conflictStrategy = session.getCollectionRecordConflictStrategy(collectionId);
 
             json.beginObject();
-            json.writeAttribute(session, "id", clusterId);
-            json.writeAttribute(session, "name", clusterName);
-            json.writeAttribute(session, "records", session.countClusterElements(clusterId));
+            json.writeAttribute(session, "id", collectionId);
+            json.writeAttribute(session, "name", collectionName);
+            json.writeAttribute(session, "records", session.countCollectionElements(collectionId));
             json.writeAttribute(session, "conflictStrategy", conflictStrategy);
             json.writeAttribute(session, "size", "-");
             json.writeAttribute(session, "filled", "-");
@@ -287,8 +287,8 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
           new Object[]{"name", "charSet", "value", configuration.getCharset()},
           new Object[]{"name", "timezone", "value", configuration.getTimeZone().getID()},
           new Object[]{"name", "definitionVersion", "value", configuration.getVersion()},
-          new Object[]{"name", "clusterSelection", "value", configuration.getClusterSelection()},
-          new Object[]{"name", "minimumClusters", "value", configuration.getMinimumClusters()},
+          new Object[]{"name", "collectionSelection", "value", configuration.getCollectionSelection()},
+          new Object[]{"name", "minimumCollections", "value", configuration.getMinimumCollections()},
           new Object[]{"name", "conflictStrategy", "value", configuration.getConflictStrategy()});
       json.endCollection();
 

@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 public final class LinkBagBTree extends DurableComponent {
   private static final int MAX_PATH_LENGTH =
@@ -213,6 +214,7 @@ public final class LinkBagBTree extends DurableComponent {
         });
   }
 
+  @Nullable
   public EdgeKey firstKey() {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -304,6 +306,7 @@ public final class LinkBagBTree extends DurableComponent {
     }
   }
 
+  @Nullable
   public EdgeKey lastKey() {
     atomicOperationsManager.acquireReadLock(this);
     try {

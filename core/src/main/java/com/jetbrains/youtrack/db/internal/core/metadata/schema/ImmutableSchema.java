@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.ClusterSelectionFactory;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.CollectionSelectionFactory;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -42,29 +42,30 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * @since 10/21/14
  */
 public class ImmutableSchema implements SchemaInternal {
 
-  private final Int2ObjectOpenHashMap<SchemaClass> clustersToClasses;
+  private final Int2ObjectOpenHashMap<SchemaClass> collectionsToClasses;
   private final Map<String, SchemaClassInternal> classes;
-  private final IntSet blogClusters;
+  private final IntSet blogCollections;
 
   public final int version;
   private final RID identity;
   private final List<GlobalProperty> properties;
-  private final ClusterSelectionFactory clusterSelectionFactory;
+  private final CollectionSelectionFactory collectionSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
 
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
       @Nonnull DatabaseSessionInternal session) {
     version = schemaShared.getVersion();
     identity = schemaShared.getIdentity(session);
-    clusterSelectionFactory = schemaShared.getClusterSelectionFactory();
+    collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
-    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
     classes = new HashMap<>(schemaShared.getClasses(session).size());
 
     for (var oClass : schemaShared.getClasses(session)) {
@@ -72,8 +73,8 @@ public class ImmutableSchema implements SchemaInternal {
 
       classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 
-      for (var clusterId : immutableClass.getClusterIds()) {
-        clustersToClasses.put(clusterId, immutableClass);
+      for (var collectionId : immutableClass.getCollectionIds()) {
+        collectionsToClasses.put(collectionId, immutableClass);
       }
     }
 
@@ -84,7 +85,7 @@ public class ImmutableSchema implements SchemaInternal {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blogClusters = schemaShared.getBlobClusters(session);
+    this.blogCollections = schemaShared.getBlobCollections(session);
 
     var indexManager = session.getMetadata().getIndexManagerInternal();
     var internalIndexes = indexManager.getIndexes(session);
@@ -143,19 +144,19 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iClusterIds) {
+  public SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iCollectionIds) {
     throw new UnsupportedOperationException();
   }
 
   @Nonnull
   @Override
-  public SchemaClass createClass(@Nonnull String className, int clusters,
+  public SchemaClass createClass(@Nonnull String className, int collections,
       @Nonnull SchemaClass... superClasses) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaClass createClass(String className, int[] clusterIds, SchemaClass... superClasses) {
+  public SchemaClass createClass(String className, int[] collectionIds, SchemaClass... superClasses) {
     throw new UnsupportedOperationException();
   }
 
@@ -199,6 +200,7 @@ public class ImmutableSchema implements SchemaInternal {
     return getClassInternal(iClassName);
   }
 
+  @Nullable
   @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     if (iClassName == null) {
@@ -258,14 +260,14 @@ public class ImmutableSchema implements SchemaInternal {
     return new RecordId(identity);
   }
 
-  public Set<SchemaClass> getClassesRelyOnCluster(String clusterName,
+  public Set<SchemaClass> getClassesRelyOnCollection(String collectionName,
       DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    final var clusterId = session.getClusterIdByName(clusterName);
+    final var collectionId = session.getCollectionIdByName(collectionName);
     final Set<SchemaClass> result = new HashSet<SchemaClass>();
     for (SchemaClass c : classes.values()) {
-      if (ArrayUtils.contains(c.getPolymorphicClusterIds(), clusterId)) {
+      if (ArrayUtils.contains(c.getPolymorphicCollectionIds(), collectionId)) {
         result.add(c);
       }
     }
@@ -274,16 +276,17 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public ClusterSelectionFactory getClusterSelectionFactory() {
-    return clusterSelectionFactory;
+  public CollectionSelectionFactory getCollectionSelectionFactory() {
+    return collectionSelectionFactory;
   }
 
   @Override
-  public SchemaClass getClassByClusterId(int clusterId) {
-    return clustersToClasses.get(clusterId);
+  public SchemaClass getClassByCollectionId(int collectionId) {
+    return collectionsToClasses.get(collectionId);
   }
 
 
+  @Nullable
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
     if (id >= properties.size()) {
@@ -302,7 +305,7 @@ public class ImmutableSchema implements SchemaInternal {
     throw new UnsupportedOperationException();
   }
 
-  public IntSet getBlobClusters() {
-    return blogClusters;
+  public IntSet getBlobCollections() {
+    return blogCollections;
   }
 }

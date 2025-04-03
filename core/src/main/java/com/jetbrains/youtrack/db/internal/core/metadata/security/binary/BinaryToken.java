@@ -52,9 +52,11 @@ public class BinaryToken implements Token {
             return new SecurityUserImpl(session, result);
           }
         } catch (RecordNotFoundException e) {
+          //noinspection ReturnOfNull
           return null;
         }
       }
+      //noinspection ReturnOfNull
       return null;
     });
   }

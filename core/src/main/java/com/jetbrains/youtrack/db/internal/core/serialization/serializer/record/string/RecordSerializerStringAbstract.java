@@ -40,6 +40,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 @SuppressWarnings("serial")
 public abstract class RecordSerializerStringAbstract {
@@ -48,6 +49,7 @@ public abstract class RecordSerializerStringAbstract {
   private static final String MAX_INTEGER_AS_STRING = String.valueOf(Integer.MAX_VALUE);
   private static final int MAX_INTEGER_DIGITS = MAX_INTEGER_AS_STRING.length();
 
+  @Nullable
   public static Object fieldTypeFromStream(
       DatabaseSessionInternal session, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
@@ -234,6 +236,7 @@ public abstract class RecordSerializerStringAbstract {
    * @param iValue Value to parse
    * @return The closest type recognized
    */
+  @Nullable
   public static PropertyTypeInternal getType(final String iValue) {
     if (iValue.length() == 0) {
       return null;
@@ -360,6 +363,7 @@ public abstract class RecordSerializerStringAbstract {
    * @param iValue Value to parse
    * @return The closest type recognized
    */
+  @Nullable
   public static Object getTypeValue(DatabaseSessionInternal db, final String iValue) {
     if (iValue == null || iValue.equalsIgnoreCase("NULL")) {
       return null;

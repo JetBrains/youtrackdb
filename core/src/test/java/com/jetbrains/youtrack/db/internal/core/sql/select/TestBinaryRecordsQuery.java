@@ -18,7 +18,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
   @Before
   public void beforeTest() throws Exception {
     super.beforeTest();
-    session.addBlobCluster("BlobCluster");
+    session.addBlobCollection("BlobCollection");
   }
 
   @Test

@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable> {
 
@@ -46,6 +47,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     this.path = parentPath.append(iTarget);
   }
 
+  @Nullable
   public Identifiable process() {
     if (target == null) {
       return pop();
@@ -213,11 +215,13 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     return path;
   }
 
+  @Nullable
   public Identifiable drop() {
     command.getContext().pop(null);
     return null;
   }
 
+  @Nullable
   @Override
   public Identifiable pop() {
     command.getContext().pop(target);

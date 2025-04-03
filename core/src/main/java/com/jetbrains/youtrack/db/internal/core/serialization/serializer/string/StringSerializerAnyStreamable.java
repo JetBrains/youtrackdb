@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import java.io.StringWriter;
 import java.util.Base64;
+import javax.annotation.Nullable;
 
 public class StringSerializerAnyStreamable implements StringSerializer {
 
@@ -38,6 +39,7 @@ public class StringSerializerAnyStreamable implements StringSerializer {
    * Re-Create any object if the class has a public constructor that accepts a String as unique
    * parameter.
    */
+  @Nullable
   public Object fromStream(DatabaseSessionInternal session, final String iStream) {
     if (iStream == null || iStream.length() == 0)
     // NULL VALUE

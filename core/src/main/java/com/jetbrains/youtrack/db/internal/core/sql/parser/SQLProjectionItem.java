@@ -10,8 +10,8 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterator;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinkToEntityIterator;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinksIterable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
@@ -145,13 +145,13 @@ public class SQLProjectionItem extends SimpleNode {
       ((RidBag) value).iterator().forEachRemaining(result::add);
       return result;
     }
-    if (value instanceof EdgeToVertexIterable) {
-      value = ((EdgeToVertexIterable) value).iterator();
+    if (value instanceof BidirectionalLinksIterable) {
+      value = ((BidirectionalLinksIterable) value).iterator();
     }
-    if (value instanceof EdgeToVertexIterator) {
+    if (value instanceof BidirectionalLinkToEntityIterator) {
       List<RID> result = new ArrayList<>();
-      while (((EdgeToVertexIterator) value).hasNext()) {
-        var v = ((EdgeToVertexIterator) value).next();
+      while (((BidirectionalLinkToEntityIterator) value).hasNext()) {
+        var v = ((BidirectionalLinkToEntityIterator) value).next();
         if (v != null) {
           result.add(v.getIdentity());
         }
