@@ -22,11 +22,10 @@ public interface EmbeddedTrackedMultiValue<K, V> extends TrackedMultiValue<K, V>
             "Cannot add a non-embedded entity to a embedded data container");
       }
 
-      var owners = getOwnersSet();
-
-      if (owners.contains((RecordElement) entity)) {
+      if (isOneOfOwners((RecordElement) entity)) {
         throw new IllegalStateException(
-            "Cannot add an entity to a embedded data container that already contains it");
+            "Cannot add an entity to a embedded data container as this entity is "
+                + "owner of this container");
       }
     }
 

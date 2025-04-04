@@ -1103,8 +1103,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * All tree based ridbags are partitioned by collections, so if we move entity to another collection we
-   * need to copy ridbags to avoid inconsistency.
+   * All tree based ridbags are partitioned by collections, so if we move entity to another
+   * collection we need to copy ridbags to avoid inconsistency.
    */
   private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
       boolean sameCollection) {
@@ -1969,6 +1969,19 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     return source;
+  }
+
+  public void copyProperties(EntityImpl entity) {
+    for (var propertyName : entity.getPropertyNames()) {
+      var propertyValue = entity.getProperty(propertyName);
+
+      if (propertyValue == null) {
+        setProperty(propertyName, null);
+      } else {
+        var type = PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(propertyName));
+        setProperty(propertyName, type.copy(propertyValue, session));
+      }
+    }
   }
 
   /**

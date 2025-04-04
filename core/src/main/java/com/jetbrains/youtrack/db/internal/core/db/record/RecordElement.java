@@ -94,6 +94,23 @@ public interface RecordElement {
     return result;
   }
 
+  default boolean isOneOfOwners(RecordElement element) {
+    var owner = getOwner();
+    if (owner == null) {
+      return false;
+    }
+
+    while (true) {
+      if (owner == element) {
+        return true;
+      }
+      owner = owner.getOwner();
+      if (owner == null) {
+        return false;
+      }
+    }
+  }
+
   @Nullable
   default DatabaseSessionInternal getSession() {
     if (this instanceof EntityImpl entity) {

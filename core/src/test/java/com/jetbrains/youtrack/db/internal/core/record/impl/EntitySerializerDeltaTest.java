@@ -368,7 +368,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     serializerDelta.deserializeDelta(session, bytes, entity);
 
     List<List<EntityImpl>> checkList = entity.getProperty(fieldName);
-    EntityImpl entity1 = checkList.getFirst().getFirst();
+    var entity1 = checkList.getFirst().getFirst();
     assertEquals("two", entity1.getProperty(variableField));
     session.rollback();
   }
@@ -1005,6 +1005,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
+    var linkList = ridBag.stream().toList();
     session.rollback();
 
     session.begin();
@@ -1012,7 +1013,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
-    assertEquals(ridBag, mergedRidbag);
+    assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
 
@@ -1052,6 +1053,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
+    var linkList = ridBag.stream().toList();
     session.rollback();
 
     session.begin();
@@ -1059,7 +1061,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
-    assertEquals(ridBag, mergedRidbag);
+    assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
 
@@ -1091,6 +1093,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, entity);
+    var linkList = ridBag.stream().toList();
     session.rollback();
 
     session.begin();
@@ -1098,7 +1101,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
     RidBag mergedRidbag = entity.getProperty(fieldName);
-    assertEquals(ridBag, mergedRidbag);
+    assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
 
@@ -1132,6 +1135,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
     var bytes = serializerDelta.serializeDelta(session, doc);
+    var linkList = ridBag.stream().toList();
     session.rollback();
 
     session.begin();
@@ -1139,7 +1143,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
     RidBag mergedRidbag = doc.getProperty(fieldName);
-    assertEquals(ridBag, mergedRidbag);
+    assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
 

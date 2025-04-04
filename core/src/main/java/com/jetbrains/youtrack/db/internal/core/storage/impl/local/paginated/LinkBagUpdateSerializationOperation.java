@@ -31,7 +31,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
-import java.util.NavigableMap;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
@@ -62,8 +61,12 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
     var tree = loadTree();
     changedValues.forEach(entry -> {
       try {
-        var storedCounter = tree.get(entry.first());
+        var rid = entry.first();
+        assert rid.isPersistent();
+
+        var storedCounter = tree.get(rid);
         storedCounter = entry.second().applyTo(storedCounter, maxCounterValue);
+
         if (storedCounter <= 0) {
           tree.remove(atomicOperation, entry.first());
         } else {
