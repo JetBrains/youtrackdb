@@ -92,6 +92,7 @@
       <class name="com.jetbrains.youtrack.db.auto.BetweenConversionTest"/>
       <class name="com.jetbrains.youtrack.db.auto.PreparedStatementTest"/>
       <class name="com.jetbrains.youtrack.db.auto.QueryLocalCacheIntegrationTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.PolymorphicQueryTest"/>
     </classes>
   </test>
   <test name="Parsing">
