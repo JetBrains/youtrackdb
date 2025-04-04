@@ -126,9 +126,9 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDropClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLInsertTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLSelectTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLMetadataTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectGroupByTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>

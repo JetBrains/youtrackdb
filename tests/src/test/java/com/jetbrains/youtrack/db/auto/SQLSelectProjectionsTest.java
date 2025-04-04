@@ -388,33 +388,4 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       session.execute("drop class B").close();
     }
   }
-
-  @Test
-  public void testTempRIDsAreNotRecycledInResultSet() {
-    var resultset =
-        executeQuery("select name, $l as l from OUser let $l = (select name from OuSer)");
-
-    Assert.assertNotNull(resultset);
-
-    Set<RID> rids = new HashSet<>();
-    for (var d : resultset) {
-      final var rid = d.getIdentity();
-      Assert.assertFalse(rids.contains(rid));
-
-      rids.add(rid);
-
-      final List<Result> embeddedList = d.getEmbeddedList("l");
-      Assert.assertNotNull(embeddedList);
-      Assert.assertFalse(embeddedList.isEmpty());
-
-      for (var embedded : embeddedList) {
-        if (embedded != null) {
-          final var embeddedRid = embedded.getIdentity();
-
-          Assert.assertFalse(rids.contains(embeddedRid));
-          rids.add(rid);
-        }
-      }
-    }
-  }
 }

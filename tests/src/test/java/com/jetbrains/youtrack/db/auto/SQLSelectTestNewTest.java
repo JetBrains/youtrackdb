@@ -899,7 +899,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryRecordAttribType() {
     session.begin();
-    var result = executeQuery("select from Profile where @type = 'document'",
+    var result = executeQuery("select from Profile where @type = 'entity'",
         session);
 
     Assert.assertFalse(result.isEmpty());

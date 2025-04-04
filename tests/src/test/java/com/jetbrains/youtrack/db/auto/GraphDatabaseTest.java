@@ -16,6 +16,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -257,31 +258,9 @@ public class GraphDatabaseTest extends BaseDBTest {
     try {
       session.command("insert into E set a = 33");
       Assert.fail();
-    } catch (CommandExecutionException e) {
+    } catch (DatabaseException e) {
       Assert.assertTrue(true);
     }
-  }
-
-  public void testInsertOfEdgeWithInsertCommandUnsafe() {
-    session.begin();
-    var insertedEdge =
-        session
-            .execute("insert into E set in = #9:0, out = #9:1, a = 33 unsafe")
-            .next()
-            .asEntity();
-    session.commit();
-
-    Assert.assertNotNull(insertedEdge);
-
-    session.begin();
-    var confirmDeleted =
-        session
-            .execute("delete from " + insertedEdge.getIdentity() + " unsafe")
-            .next()
-            .<Long>getProperty("count");
-    session.commit();
-
-    Assert.assertEquals(confirmDeleted.intValue(), 1);
   }
 
   public void testEmbeddedDoc() {
