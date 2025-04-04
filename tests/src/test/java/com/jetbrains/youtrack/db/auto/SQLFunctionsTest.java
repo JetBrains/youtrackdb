@@ -15,8 +15,10 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -24,9 +26,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
@@ -40,7 +39,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -80,11 +78,11 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select max(1,2,7,0,-2,3) as max").toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
     for (var r : result) {
-      Assert.assertNotNull(r.getProperty("max"));
+      assertNotNull(r.getProperty("max"));
 
-      Assert.assertEquals(((Number) r.getProperty("max")).intValue(), 7);
+      assertEquals(((Number) r.getProperty("max")).intValue(), 7);
     }
   }
 
@@ -94,10 +92,10 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result = session.execute("select min(id) as min from Account");
 
     var d = result.next();
-    Assert.assertNotNull(d.getProperty("min"));
+    assertNotNull(d.getProperty("min"));
 
-    Assert.assertEquals(((Number) d.getProperty("min")).longValue(), 0L);
-    Assert.assertFalse(result.hasNext());
+    assertEquals(((Number) d.getProperty("min")).longValue(), 0L);
+    assertFalse(result.hasNext());
     result.close();
     session.commit();
   }
@@ -107,11 +105,11 @@ public class SQLFunctionsTest extends BaseDBTest {
     var resultSet =
         session.query("select min(1,2,7,0,-2,3) as min").toList();
 
-    Assert.assertEquals(resultSet.size(), 1);
+    assertEquals(resultSet.size(), 1);
     for (var r : resultSet) {
-      Assert.assertNotNull(r.getProperty("min"));
+      assertNotNull(r.getProperty("min"));
 
-      Assert.assertEquals(((Number) r.getProperty("min")).intValue(), -2);
+      assertEquals(((Number) r.getProperty("min")).intValue(), -2);
     }
   }
 
@@ -120,8 +118,8 @@ public class SQLFunctionsTest extends BaseDBTest {
     session.begin();
     var result = session.execute("select sum(id) as sum from Account");
     var d = result.next();
-    Assert.assertNotNull(d.getProperty("sum"));
-    Assert.assertFalse(result.hasNext());
+    assertNotNull(d.getProperty("sum"));
+    assertFalse(result.hasNext());
     result.close();
     session.commit();
   }
@@ -130,71 +128,10 @@ public class SQLFunctionsTest extends BaseDBTest {
   public void queryCount() {
     var result = session.execute("select count(*) as total from Account");
     var d = result.next();
-    Assert.assertNotNull(d.getProperty("total"));
-    Assert.assertTrue(((Number) d.getProperty("total")).longValue() > 0);
-    Assert.assertFalse(result.hasNext());
+    assertNotNull(d.getProperty("total"));
+    assertTrue(((Number) d.getProperty("total")).longValue() > 0);
+    assertFalse(result.hasNext());
     result.close();
-  }
-
-  public void queryCountExtendsRestricted() {
-    var restricted = session.getMetadata().getSchema().getClass("ORestricted");
-    Assert.assertNotNull(restricted);
-
-    session.getMetadata().getSchema().createClass("QueryCountExtendsRestrictedClass", restricted);
-
-    session.begin();
-    var admin = session.getMetadata().getSecurity().getUser("admin");
-    var reader = session.getMetadata().getSecurity().getUser("reader");
-
-    @SuppressWarnings("deprecation")
-    var byPassRestrictedRole =
-        session
-            .getMetadata()
-            .getSecurity()
-            .createRole("byPassRestrictedRole");
-    byPassRestrictedRole.addRule(session,
-        Rule.ResourceGeneric.BYPASS_RESTRICTED, null, Role.PERMISSION_READ);
-    byPassRestrictedRole.save(session);
-
-    session
-        .getMetadata()
-        .getSecurity()
-        .createUser("superReader", "superReader", "reader", "byPassRestrictedRole");
-
-    var docAdmin = ((EntityImpl) session.newEntity("QueryCountExtendsRestrictedClass"));
-    docAdmin.setProperty(
-        "_allowRead",
-        session.newLinkSet(Set.of(admin.getIdentity().getIdentity())));
-
-    session.commit();
-
-    session.begin();
-    var docReader = ((EntityImpl) session.newEntity("QueryCountExtendsRestrictedClass"));
-    docReader.setProperty("_allowRead", session.newLinkSet(Set.of(reader.getIdentity())));
-
-    session.commit();
-
-    var resultSet =
-        session.query("select count(*) from QueryCountExtendsRestrictedClass").toList();
-    var count = resultSet.getFirst();
-    Assert.assertEquals(count.<Object>getProperty("count(*)"), 2L);
-
-    session.close();
-    //noinspection deprecation
-    session = createSessionInstance();
-
-    resultSet =
-        session.query("select count(*) as count from QueryCountExtendsRestrictedClass").toList();
-    count = resultSet.getFirst();
-    Assert.assertEquals(count.<Object>getProperty("count"), 2L);
-
-    session.close();
-    session = createSessionInstance("superReader", "superReader");
-
-    resultSet =
-        session.query("select count(*) as count from QueryCountExtendsRestrictedClass").toList();
-    count = resultSet.getFirst();
-    Assert.assertEquals(count.<Object>getProperty("count"), 2L);
   }
 
   @Test
@@ -211,10 +148,10 @@ public class SQLFunctionsTest extends BaseDBTest {
     var resultSet =
         session.query("select count(*) as total from Indexed where key > 'one'").toList();
 
-    Assert.assertEquals(resultSet.size(), 1);
+    assertEquals(resultSet.size(), 1);
     for (var result : resultSet) {
-      Assert.assertNotNull(result.getProperty("total"));
-      Assert.assertTrue(((Number) result.getProperty("total")).longValue() > 0);
+      assertNotNull(result.getProperty("total"));
+      assertTrue(((Number) result.getProperty("total")).longValue() > 0);
     }
   }
 
@@ -222,12 +159,12 @@ public class SQLFunctionsTest extends BaseDBTest {
   public void queryDistinct() {
     var resultSet =
         session.query("select distinct(name) as name from City").toList();
-    Assert.assertTrue(resultSet.size() > 1);
+    assertTrue(resultSet.size() > 1);
 
     Set<String> cities = new HashSet<>();
     for (var city : resultSet) {
       String cityName = city.getProperty("name");
-      Assert.assertFalse(cities.contains(cityName));
+      assertFalse(cities.contains(cityName));
       cities.add(cityName);
     }
   }
@@ -237,9 +174,9 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select distinct(name) as dist from City").toList();
 
-    Assert.assertTrue(result.size() > 1);
+    assertTrue(result.size() > 1);
     for (var city : result) {
-      Assert.assertTrue(city.hasProperty("dist"));
+      assertTrue(city.hasProperty("dist"));
     }
   }
 
@@ -251,7 +188,7 @@ public class SQLFunctionsTest extends BaseDBTest {
     result =
         session.query("select unionAll(name) as name from City").toList();
     Collection<Object> citiesFound = result.getFirst().getProperty("name");
-    Assert.assertEquals(citiesFound.size(), count);
+    assertEquals(citiesFound.size(), count);
   }
 
   @Test
@@ -259,14 +196,14 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select set(name) as name from City").toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
 
     Collection<Object> citiesFound = result.getFirst().getProperty("name");
-    Assert.assertTrue(citiesFound.size() > 1);
+    assertTrue(citiesFound.size() > 1);
 
     Set<String> cities = new HashSet<>();
     for (var city : citiesFound) {
-      Assert.assertFalse(cities.contains(city.toString()));
+      assertFalse(cities.contains(city.toString()));
       cities.add(city.toString());
     }
   }
@@ -276,11 +213,11 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select list(name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
     for (var d : result) {
       List<Object> citiesFound = d.getProperty("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+      assertTrue(citiesFound.size() > 1);
     }
   }
 
@@ -290,28 +227,28 @@ public class SQLFunctionsTest extends BaseDBTest {
             .query("select list( 1, 4, 5.00, 'john', map( 'kAA', 'vAA' ) ) as myresult")
             .toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
 
     var document = result.getFirst();
     @SuppressWarnings("rawtypes")
     List myresult = document.getProperty("myresult");
-    Assert.assertNotNull(myresult);
+    assertNotNull(myresult);
 
-    Assert.assertTrue(myresult.remove(Integer.valueOf(1)));
-    Assert.assertTrue(myresult.remove(Integer.valueOf(4)));
-    Assert.assertTrue(myresult.remove(Float.valueOf(5)));
-    Assert.assertTrue(myresult.remove("john"));
+    assertTrue(myresult.remove(Integer.valueOf(1)));
+    assertTrue(myresult.remove(Integer.valueOf(4)));
+    assertTrue(myresult.remove(Float.valueOf(5)));
+    assertTrue(myresult.remove("john"));
 
-    Assert.assertEquals(myresult.size(), 1);
+    assertEquals(myresult.size(), 1);
 
-    Assert.assertTrue(myresult.getFirst() instanceof Map, "The object is: " + myresult.getClass());
+    assertTrue(myresult.getFirst() instanceof Map, "The object is: " + myresult.getClass());
     @SuppressWarnings("rawtypes")
     var map = (Map) myresult.getFirst();
 
     var value = (String) map.get("kAA");
-    Assert.assertEquals(value, "vAA");
+    assertEquals(value, "vAA");
 
-    Assert.assertEquals(map.size(), 1);
+    assertEquals(map.size(), 1);
   }
 
   @Test
@@ -319,11 +256,11 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select set(name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
     for (var d : result) {
       Set<Object> citiesFound = d.getProperty("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+      assertTrue(citiesFound.size() > 1);
     }
   }
 
@@ -332,11 +269,11 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select map(name, country.name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
     for (var d : result) {
       Map<Object, Object> citiesFound = d.getProperty("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+      assertTrue(citiesFound.size() > 1);
     }
   }
 
@@ -345,10 +282,10 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select unionAll(out, in) as edges from V").toList();
 
-    Assert.assertTrue(result.size() > 1);
+    assertTrue(result.size() > 1);
     for (var d : result) {
-      Assert.assertEquals(d.getPropertyNames().size(), 1);
-      Assert.assertTrue(d.hasProperty("edges"));
+      assertEquals(d.getPropertyNames().size(), 1);
+      assertTrue(d.hasProperty("edges"));
     }
   }
 
@@ -360,20 +297,20 @@ public class SQLFunctionsTest extends BaseDBTest {
                 "select MIN(id) as min, max(id) as max, AVG(id) as average, sum(id) as total"
                     + " from Account").toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
     for (var d : result) {
-      Assert.assertNotNull(d.getProperty("min"));
-      Assert.assertNotNull(d.getProperty("max"));
-      Assert.assertNotNull(d.getProperty("average"));
-      Assert.assertNotNull(d.getProperty("total"));
+      assertNotNull(d.getProperty("min"));
+      assertNotNull(d.getProperty("max"));
+      assertNotNull(d.getProperty("average"));
+      assertNotNull(d.getProperty("total"));
 
-      Assert.assertTrue(
+      assertTrue(
           ((Number) d.getProperty("max")).longValue() > ((Number) d.getProperty(
               "average")).longValue());
-      Assert.assertTrue(
+      assertTrue(
           ((Number) d.getProperty("average")).longValue() >= ((Number) d.getProperty(
               "min")).longValue());
-      Assert.assertTrue(
+      assertTrue(
           ((Number) d.getProperty("total")).longValue() >= ((Number) d.getProperty(
               "max")).longValue(),
           "Total " + d.getProperty("total") + " max " + d.getProperty("max"));
@@ -388,9 +325,9 @@ public class SQLFunctionsTest extends BaseDBTest {
                 "select format('%d - %s (%s)', nr, street, type, dummy ) as output from"
                     + " Account").toList();
 
-    Assert.assertTrue(result.size() > 1);
+    assertTrue(result.size() > 1);
     for (var d : result) {
-      Assert.assertNotNull(d.getProperty("output"));
+      assertNotNull(d.getProperty("output"));
     }
   }
 
@@ -399,10 +336,10 @@ public class SQLFunctionsTest extends BaseDBTest {
     session.begin();
     var result = session.execute("select sysdate() as date from Account");
 
-    Assert.assertTrue(result.hasNext());
+    assertTrue(result.hasNext());
     while (result.hasNext()) {
       var d = result.next();
-      Assert.assertNotNull(d.getProperty("date"));
+      assertNotNull(d.getProperty("date"));
     }
     session.commit();
   }
@@ -413,9 +350,9 @@ public class SQLFunctionsTest extends BaseDBTest {
         session.query("select sysdate('dd-MM-yyyy') as date from Account")
             .toList();
 
-    Assert.assertTrue(result.size() > 1);
+    assertTrue(result.size() > 1);
     for (var d : result) {
-      Assert.assertNotNull(d.getProperty("date"));
+      assertNotNull(d.getProperty("date"));
     }
   }
 
@@ -431,7 +368,7 @@ public class SQLFunctionsTest extends BaseDBTest {
         session.execute("update Account set created = date()").next().getProperty("count");
     session.commit();
 
-    Assert.assertEquals(updated, tot);
+    assertEquals(updated, tot);
 
     var pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
     var dateFormat = new SimpleDateFormat(pattern);
@@ -444,7 +381,7 @@ public class SQLFunctionsTest extends BaseDBTest {
                 + pattern
                 + "\")");
 
-    Assert.assertEquals(result.stream().count(), tot);
+    assertEquals(result.stream().count(), tot);
     result =
         session.query(
             "select from Account where created <= date('"
@@ -454,7 +391,7 @@ public class SQLFunctionsTest extends BaseDBTest {
                 + "\")");
     while (result.hasNext()) {
       var d = result.next();
-      Assert.assertNotNull(d.getProperty("created"));
+      assertNotNull(d.getProperty("created"));
     }
   }
 
@@ -506,9 +443,9 @@ public class SQLFunctionsTest extends BaseDBTest {
     var result =
         session.query("select from Account where bigger(id,1000) = 1000").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
     for (var d : result) {
-      Assert.assertTrue((Integer) d.getProperty("id") <= 1000);
+      assertTrue((Integer) d.getProperty("id") <= 1000);
     }
     session.commit();
 
@@ -524,11 +461,11 @@ public class SQLFunctionsTest extends BaseDBTest {
             + "' as numberString from Account ) limit 1";
     var result = session.query(sql).toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
     for (var d : result) {
-      Assert.assertNotNull(d.getProperty("value"));
-      Assert.assertTrue(d.getProperty("value") instanceof Long);
-      Assert.assertEquals(d.<Object>getProperty("value"), moreThanInteger);
+      assertNotNull(d.getProperty("value"));
+      assertTrue(d.getProperty("value") instanceof Long);
+      assertEquals(d.<Object>getProperty("value"), moreThanInteger);
     }
   }
 
@@ -539,12 +476,12 @@ public class SQLFunctionsTest extends BaseDBTest {
             .query("select name, name.hash() as n256, name.hash('sha-512') as n512 from OUser")
             .toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
     for (var d : result) {
       final String name = d.getProperty("name");
 
-      Assert.assertEquals(SecurityManager.createHash(name, "SHA-256"), d.getProperty("n256"));
-      Assert.assertEquals(SecurityManager.createHash(name, "SHA-512"), d.getProperty("n512"));
+      assertEquals(SecurityManager.createHash(name, "SHA-256"), d.getProperty("n256"));
+      assertEquals(SecurityManager.createHash(name, "SHA-512"), d.getProperty("n512"));
     }
   }
 
@@ -556,10 +493,12 @@ public class SQLFunctionsTest extends BaseDBTest {
     }
 
     session.begin();
-    session.newVertex().setProperty("sequence", session.newEmbeddedList(sequence), PropertyType.EMBEDDEDLIST);
+    session.newVertex()
+        .setProperty("sequence", session.newEmbeddedList(sequence), PropertyType.EMBEDDEDLIST);
     var newSequence = new ArrayList<>(sequence);
     newSequence.removeFirst();
-    session.newVertex().setProperty("sequence", session.newEmbeddedList(newSequence), PropertyType.EMBEDDEDLIST);
+    session.newVertex()
+        .setProperty("sequence", session.newEmbeddedList(newSequence), PropertyType.EMBEDDEDLIST);
     session.commit();
 
     var result =
@@ -567,9 +506,9 @@ public class SQLFunctionsTest extends BaseDBTest {
                 "select first(sequence) as first from V where sequence is not null order by first")
             .toList();
 
-    Assert.assertEquals(result.size(), 2);
-    Assert.assertEquals(result.get(0).<Object>getProperty("first"), 0L);
-    Assert.assertEquals(result.get(1).<Object>getProperty("first"), 1L);
+    assertEquals(result.size(), 2);
+    assertEquals(result.get(0).<Object>getProperty("first"), 0L);
+    assertEquals(result.get(1).<Object>getProperty("first"), 1L);
   }
 
   @Test
@@ -593,10 +532,10 @@ public class SQLFunctionsTest extends BaseDBTest {
                 "select last(sequence2) as last from V where sequence2 is not null order by last desc")
             .toList();
 
-    Assert.assertEquals(result.size(), 2);
+    assertEquals(result.size(), 2);
 
-    Assert.assertEquals(result.get(0).<Object>getProperty("last"), 99L);
-    Assert.assertEquals(result.get(1).<Object>getProperty("last"), 98L);
+    assertEquals(result.get(0).<Object>getProperty("last"), 99L);
+    assertEquals(result.get(1).<Object>getProperty("last"), 98L);
   }
 
   @Test
@@ -605,17 +544,9 @@ public class SQLFunctionsTest extends BaseDBTest {
 
     var result = session.query(sql).toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
     for (var d : result) {
-      Assert.assertNotNull(d.getProperty("value"));
-      Assert.assertTrue(d.getProperty("value").getClass().isArray());
-
-      Object[] array = d.getProperty("value");
-
-      Assert.assertEquals(array.length, 3);
-      Assert.assertEquals(array[0], "1");
-      Assert.assertEquals(array[1], "2");
-      Assert.assertEquals(array[2], "3");
+      assertEquals(d.getEmbeddedList("value"), List.of("1", "2", "3"));
     }
   }
 }

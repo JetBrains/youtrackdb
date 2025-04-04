@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
@@ -54,7 +55,7 @@ public class MultiCollectionIterator<T>
   private int skipped = 0;
 
   public MultiCollectionIterator() {
-    sources = new ArrayList<Object>();
+    sources = new ArrayList<>();
   }
 
   public MultiCollectionIterator(final Iterator<? extends Collection<?>> iterator) {
@@ -138,9 +139,25 @@ public class MultiCollectionIterator<T>
             "MultiCollection iterator is in use and new collections cannot be added");
       }
 
+      if (!sources.isEmpty()) {
+        final var isMapMode = isInMapMode();
+        final var valueIsAMap = iValue instanceof Map<?, ?> || iValue instanceof Entry<?, ?>;
+
+        if (isMapMode != valueIsAMap) {
+          throw new IllegalStateException(
+              "Type mismatch. Iterator is in " + (isMapMode ? "map" : "collection") + " mode,"
+                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode"
+          );
+        }
+      }
+
       sources.add(iValue);
     }
     return this;
+  }
+
+  public boolean isInMapMode() {
+    return sources.getFirst() instanceof Map<?, ?> || sources.getFirst() instanceof Entry<?, ?>;
   }
 
   public int size() {
@@ -269,7 +286,13 @@ public class MultiCollectionIterator<T>
             next = ((Iterable) next).iterator();
           }
 
-          if (next instanceof Iterator<?>) {
+          if (next instanceof Map<?, ?> map) {
+            if (!map.isEmpty()) {
+              partialIterator = (Iterator<T>) map.entrySet().iterator();
+              return true;
+            }
+
+          } else if (next instanceof Iterator<?>) {
             if (next instanceof Resettable) {
               ((Resettable) next).reset();
             }

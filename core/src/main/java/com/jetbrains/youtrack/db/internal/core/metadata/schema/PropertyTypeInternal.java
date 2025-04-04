@@ -59,6 +59,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -647,7 +648,8 @@ public enum PropertyTypeInternal {
     }
   },
 
-  EMBEDDEDMAP("EmbeddedMap", 12, EntityEmbeddedMapImpl.class, new Class<?>[]{Map.class}) {
+  EMBEDDEDMAP("EmbeddedMap", 12, EntityEmbeddedMapImpl.class,
+      new Class<?>[]{Map.class, MultiCollectionIterator.class}) {
     @Override
     public Map<String, Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -695,6 +697,12 @@ public enum PropertyTypeInternal {
             ) {
               //noinspection unchecked
               embeddedMap.putAll((Map<String, ?>) map);
+            } else if (element instanceof Map.Entry<?, ?> entry &&
+                entry.getKey() instanceof String &&
+                !(entry.getValue() instanceof Identifiable)
+            ) {
+              //noinspection unchecked
+              embeddedMap.put((((Entry<String, ?>) entry).getKey()), entry.getValue());
             } else {
               throw new DatabaseException(session.getDatabaseName(),
                   conversionErrorMessage(value, this));
@@ -1439,6 +1447,11 @@ public enum PropertyTypeInternal {
   public static PropertyTypeInternal getTypeByValue(Object value) {
     if (value == null) {
       return null;
+    }
+
+    if (value instanceof MultiCollectionIterator<?> it) {
+      // link collections not supported here atm
+      return it.isInMapMode() ? EMBEDDEDMAP : EMBEDDEDLIST;
     }
 
     var clazz = value.getClass();

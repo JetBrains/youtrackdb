@@ -5,11 +5,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
@@ -342,7 +342,11 @@ public class SQLModifier extends SimpleNode {
     if (methodCall != null) {
       // do nothing
     } else if (suffix != null) {
-      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
+
+      if (level == 0) {
+        value = convertLinkedType(value, schemaProperty, session);
+      }
+
       suffix.setValue(target, value, ctx);
     } else if (arrayRange != null) {
       value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
@@ -353,14 +357,8 @@ public class SQLModifier extends SimpleNode {
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
 
-      // allowing linkedType conversion only for non-nested collections (level == 0)
-      final var targetType =
-          level == 0 && schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value) ?
-              PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType()) :
-              null;
-
-      if (targetType != null) {
-        value = targetType.convert(value, session);
+      if (level == 0) {
+        value = convertLinkedType(value, schemaProperty, session);
       }
 
       arraySingleValues.setValue(currentRecord, target, value, ctx);
@@ -368,6 +366,34 @@ public class SQLModifier extends SimpleNode {
       throw new UnsupportedOperationException(
           "SET value on conditional filtering will be supported soon");
     }
+  }
+
+  @Nullable
+  private static Object convertLinkedType(
+      Object value,
+      @Nullable SchemaProperty schemaProperty,
+      DatabaseSessionInternal session) {
+    if (value != null) {
+      PropertyTypeInternal targetType = null;
+
+      if (schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value)) {
+        targetType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+      }
+
+      if (targetType == null) {
+        targetType = PropertyTypeInternal.getTypeByValue(value);
+      }
+
+      if (targetType != null) {
+        value = targetType.convert(value, session);
+      }
+//      else if (value instanceof MultiCollectionIterator<?> it) {
+//        value = it.isInMapMode() ?
+//            it.flushToMap(session.newEmbeddedMap()) :
+//            it.flushToCollection(session.newEmbeddedList());
+//      }
+    }
+    return value;
   }
 
   @Nullable
