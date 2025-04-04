@@ -43,13 +43,13 @@ public class SBTCreateTreeResponse implements BinaryResponse {
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    collenctionPointer = CollectionNetworkSerializer.INSTANCE.readCollectionPointer(network);
+    collenctionPointer = CollectionNetworkSerializer.readCollectionPointer(network);
   }
 
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(channel, collenctionPointer);
+    CollectionNetworkSerializer.writeCollectionPointer(channel, collenctionPointer);
   }
 
   public LinkBagPointer getCollenctionPointer() {

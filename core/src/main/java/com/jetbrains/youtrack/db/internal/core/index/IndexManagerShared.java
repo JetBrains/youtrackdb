@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourc
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -768,7 +768,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     }
 
     final var storage = session.getStorage();
-    if (storage instanceof AbstractPaginatedStorage paginatedStorage) {
+    if (storage instanceof AbstractStorage paginatedStorage) {
       return paginatedStorage.wereDataRestoredAfterOpen()
           && paginatedStorage.wereNonTxOperationsPerformedInPreviousOpen();
     }

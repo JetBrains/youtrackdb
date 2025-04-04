@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 
 /**
@@ -28,5 +28,5 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atom
  */
 public interface RecordSerializationOperation {
 
-  void execute(AtomicOperation atomicOperation, AbstractPaginatedStorage paginatedStorage);
+  void execute(AtomicOperation atomicOperation, AbstractStorage paginatedStorage);
 }

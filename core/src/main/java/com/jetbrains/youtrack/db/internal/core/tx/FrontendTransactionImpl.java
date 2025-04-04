@@ -57,7 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -257,7 +257,7 @@ public class FrontendTransactionImpl implements
       final Object key,
       final Identifiable value) {
     // index changes are tracked on server in case of client-server deployment
-    assert session.getStorage() instanceof AbstractPaginatedStorage;
+    assert session.getStorage() instanceof AbstractStorage;
 
     try {
       var indexEntry = indexEntries.get(iIndexName);

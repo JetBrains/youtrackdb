@@ -3582,7 +3582,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private void internalReset() {
+  protected void internalReset() {
     removeAllCollectionChangeListeners();
     if (properties != null) {
       properties.clear();

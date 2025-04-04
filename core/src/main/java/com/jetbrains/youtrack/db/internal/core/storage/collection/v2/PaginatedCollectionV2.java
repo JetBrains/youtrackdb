@@ -39,7 +39,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPage
 import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.CollectionBrowsePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -84,7 +84,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private RecordConflictStrategy recordConflictStrategy;
 
   public PaginatedCollectionV2(
-      @Nonnull final String name, @Nonnull final AbstractPaginatedStorage storage) {
+      @Nonnull final String name, @Nonnull final AbstractStorage storage) {
     this(
         name,
         DEF_EXTENSION,
@@ -98,7 +98,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final String dataExtension,
       final String cpmExtension,
       final String fsmExtension,
-      final AbstractPaginatedStorage storage) {
+      final AbstractStorage storage) {
     super(storage, name, dataExtension, name + dataExtension);
 
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);

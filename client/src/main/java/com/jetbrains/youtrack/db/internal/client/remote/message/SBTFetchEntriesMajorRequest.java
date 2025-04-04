@@ -62,7 +62,7 @@ public class SBTFetchEntriesMajorRequest<K, V>
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(network, pointer);
+    CollectionNetworkSerializer.writeCollectionPointer(network, pointer);
     network.writeBytes(keyStream);
     network.writeBoolean(inclusive);
     network.writeInt(128);
@@ -72,7 +72,7 @@ public class SBTFetchEntriesMajorRequest<K, V>
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.pointer = CollectionNetworkSerializer.INSTANCE.readCollectionPointer(channel);
+    this.pointer = CollectionNetworkSerializer.readCollectionPointer(channel);
     this.keyStream = channel.readBytes();
     this.inclusive = channel.readBoolean();
     if (protocolVersion >= 21) {

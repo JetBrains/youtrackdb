@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -21,7 +21,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     var oClass = schema.createClass("ClassName");
 
     final var storage = session.getStorage();
-    final var paginatedStorage = (AbstractPaginatedStorage) storage;
+    final var paginatedStorage = (AbstractStorage) storage;
     final var writeCache = paginatedStorage.getWriteCache();
     Assert.assertTrue(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
 

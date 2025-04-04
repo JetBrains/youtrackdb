@@ -36,7 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEng
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.AsyncReadCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +142,7 @@ public class EngineLocalPaginated extends EngineAbstract {
       YouTrackDBInternal context) {
     try {
 
-      return new LocalPaginatedStorage(
+      return new LocalStorage(
           dbName,
           dbName,
           storageId,

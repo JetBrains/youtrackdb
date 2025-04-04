@@ -21,7 +21,7 @@ import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
@@ -676,7 +676,7 @@ public class YouTrackDBEmbeddedTests {
       final var session =
           youTrackDb.open("testUUID", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       assertNotNull(
-          ((AbstractPaginatedStorage) ((DatabaseSessionInternal) session).getStorage())
+          ((AbstractStorage) ((DatabaseSessionInternal) session).getStorage())
               .getUuid());
       session.close();
     }
@@ -691,7 +691,7 @@ public class YouTrackDBEmbeddedTests {
     final var session =
         youTrackDb.open("testPersistentUUID", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var uuid =
-        ((AbstractPaginatedStorage) ((DatabaseSessionInternal) session).getStorage()).getUuid();
+        ((AbstractStorage) ((DatabaseSessionInternal) session).getStorage()).getUuid();
     assertNotNull(uuid);
     session.close();
     youTrackDb.close();
@@ -706,7 +706,7 @@ public class YouTrackDBEmbeddedTests {
         youTrackDb1.open("testPersistentUUID", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     assertEquals(
         uuid,
-        ((AbstractPaginatedStorage) ((DatabaseSessionInternal) session1).getStorage()).getUuid());
+        ((AbstractStorage) ((DatabaseSessionInternal) session1).getStorage()).getUuid());
     session1.close();
     youTrackDb1.drop("testPersistentUUID");
     youTrackDb1.close();

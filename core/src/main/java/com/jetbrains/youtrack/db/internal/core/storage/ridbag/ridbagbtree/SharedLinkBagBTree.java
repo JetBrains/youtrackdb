@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -21,7 +21,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 
-public final class LinkBagBTree extends DurableComponent {
+public final class SharedLinkBagBTree extends DurableComponent {
   private static final int MAX_PATH_LENGTH =
       GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
 
@@ -31,7 +31,7 @@ public final class LinkBagBTree extends DurableComponent {
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
 
-  public LinkBagBTree(final AbstractPaginatedStorage storage, final String name,
+  public SharedLinkBagBTree(final AbstractStorage storage, final String name,
       final String fileExtension) {
     super(storage, name, fileExtension, name + fileExtension);
 
@@ -844,7 +844,7 @@ public final class LinkBagBTree extends DurableComponent {
     }
   }
 
-  public Stream<RawPairObjectInteger<EdgeKey>> iterateEntriesBetween(
+  public Stream<RawPairObjectInteger<EdgeKey>> streamEntriesBetween(
       final EdgeKey keyFrom,
       final boolean fromInclusive,
       final EdgeKey keyTo,
@@ -860,6 +860,31 @@ public final class LinkBagBTree extends DurableComponent {
         } else {
           return StreamSupport.stream(
               iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive), false);
+        }
+      } finally {
+        releaseSharedLock();
+      }
+    } finally {
+      atomicOperationsManager.releaseReadLock(this);
+    }
+  }
+
+  public Spliterator<RawPairObjectInteger<EdgeKey>> spliteratorEntriesBetween(
+      final EdgeKey keyFrom,
+      final boolean fromInclusive,
+      final EdgeKey keyTo,
+      final boolean toInclusive,
+      final boolean ascSortOrder) {
+    atomicOperationsManager.acquireReadLock(this);
+    try {
+      acquireSharedLock();
+      try {
+        if (ascSortOrder) {
+          return
+              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive);
+        } else {
+          return
+              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive);
         }
       } finally {
         releaseSharedLock();
@@ -902,14 +927,14 @@ public final class LinkBagBTree extends DurableComponent {
   public void fetchNextCachePortionForward(SpliteratorForward iter) {
     final EdgeKey lastKey;
     if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().get(iter.getDataCache().size() - 1).first;
+      lastKey = iter.getDataCache().getLast().first;
     } else {
       lastKey = null;
     }
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(LinkBagBTree.this);
+    atomicOperationsManager.acquireReadLock(SharedLinkBagBTree.this);
     try {
       acquireSharedLock();
       try {
@@ -972,7 +997,7 @@ public final class LinkBagBTree extends DurableComponent {
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
     } finally {
-      atomicOperationsManager.releaseReadLock(LinkBagBTree.this);
+      atomicOperationsManager.releaseReadLock(SharedLinkBagBTree.this);
     }
   }
 
@@ -1040,12 +1065,12 @@ public final class LinkBagBTree extends DurableComponent {
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
     } else {
-      lastKey = iter.getDataCache().get(iter.getDataCache().size() - 1).first;
+      lastKey = iter.getDataCache().getLast().first;
     }
 
     iter.clearCache();
 
-    atomicOperationsManager.acquireReadLock(LinkBagBTree.this);
+    atomicOperationsManager.acquireReadLock(SharedLinkBagBTree.this);
     try {
       acquireSharedLock();
       try {
@@ -1107,7 +1132,7 @@ public final class LinkBagBTree extends DurableComponent {
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
     } finally {
-      atomicOperationsManager.releaseReadLock(LinkBagBTree.this);
+      atomicOperationsManager.releaseReadLock(SharedLinkBagBTree.this);
     }
   }
 

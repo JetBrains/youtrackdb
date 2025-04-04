@@ -7,23 +7,27 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectIntImmutablePair;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Map.Entry;
+import java.util.Spliterator;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
+public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integer> {
 
-  private final LinkBagBTree bTree;
+  private final SharedLinkBagBTree bTree;
   private final int intFileId;
   private final long linkBagId;
 
   private final BinarySerializer<RID> keySerializer;
   private final BinarySerializer<Integer> valueSerializer;
 
-  public EdgeBTreeImpl(
-      final LinkBagBTree bTree,
+  public IsolatedLinkBagBTreeImpl(
+      final SharedLinkBagBTree bTree,
       final int intFileId,
       final long linkBagId,
       BinarySerializer<RID> keySerializer,
@@ -75,7 +79,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   @Override
   public void clear(AtomicOperation atomicOperation) {
     try (var stream =
-        bTree.iterateEntriesBetween(
+        bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
@@ -109,7 +113,8 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     final int result;
     result =
         bTree.remove(
-            atomicOperation, new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()));
+            atomicOperation,
+            new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()));
 
     if (result < 0) {
       return null;
@@ -125,7 +130,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
       boolean ascSortOrder,
       RangeResultListener<RID, Integer> listener) {
     try (final var stream =
-        bTree.iterateEntriesBetween(
+        bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
             inclusive,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
@@ -135,11 +140,24 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     }
   }
 
+  @Nonnull
+  @Override
+  public Spliterator<ObjectIntPair<RID>> spliteratorEntriesBetween(@Nonnull RID keyFrom,
+      boolean fromInclusive, @Nonnull RID keyTo, boolean toInclusive, boolean ascSortOrder) {
+    var spliterator = bTree.spliteratorEntriesBetween(
+        new EdgeKey(linkBagId, keyFrom.getCollectionId(), keyFrom.getCollectionPosition()),
+        fromInclusive,
+        new EdgeKey(linkBagId, keyTo.getCollectionId(), keyTo.getCollectionPosition()),
+        toInclusive,
+        ascSortOrder);
+    return new TransformingSpliterator(spliterator);
+  }
+
   @Nullable
   @Override
   public RID firstKey() {
     try (final var stream =
-        bTree.iterateEntriesBetween(
+        bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
@@ -159,7 +177,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
   @Override
   public RID lastKey() {
     try (final var stream =
-        bTree.iterateEntriesBetween(
+        bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
@@ -180,7 +198,7 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     final var size = new ModifiableInteger(0);
 
     try (final var stream =
-        bTree.iterateEntriesBetween(
+        bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
@@ -223,25 +241,6 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
     }
   }
 
-  private static IntArrayList streamToList(
-      final Stream<RawPairObjectInteger<EdgeKey>> stream, int maxValuesToFetch) {
-    if (maxValuesToFetch < 0) {
-      maxValuesToFetch = Integer.MAX_VALUE;
-    }
-
-    final var result = new IntArrayList(Math.max(8, maxValuesToFetch));
-
-    final var limit = maxValuesToFetch;
-    forEachEntry(
-        stream,
-        entry -> {
-          result.add(entry.second);
-          return result.size() < limit;
-        });
-
-    return result;
-  }
-
   private static void listenStream(
       final Stream<RawPairObjectInteger<EdgeKey>> stream,
       final RangeResultListener<RID, Integer> listener) {
@@ -265,5 +264,40 @@ public class EdgeBTreeImpl implements EdgeBTree<RID, Integer> {
                     throw new UnsupportedOperationException();
                   }
                 }));
+  }
+
+
+  private static final class TransformingSpliterator implements
+      Spliterator<ObjectIntPair<RID>> {
+
+    private final Spliterator<RawPairObjectInteger<EdgeKey>> delegate;
+
+    TransformingSpliterator(Spliterator<RawPairObjectInteger<EdgeKey>> delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public boolean tryAdvance(Consumer<? super ObjectIntPair<RID>> action) {
+      return delegate.tryAdvance(pair -> {
+        final var rid = new RecordId(pair.first.targetCollection, pair.first.targetPosition);
+        action.accept(new ObjectIntImmutablePair<>(rid, pair.second));
+      });
+    }
+
+    @Nullable
+    @Override
+    public Spliterator<ObjectIntPair<RID>> trySplit() {
+      return new TransformingSpliterator(delegate.trySplit());
+    }
+
+    @Override
+    public long estimateSize() {
+      return delegate.estimateSize();
+    }
+
+    @Override
+    public int characteristics() {
+      return delegate.characteristics();
+    }
   }
 }

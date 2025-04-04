@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.collection;
 
 import com.jetbrains.youtrack.db.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
 
@@ -23,7 +23,7 @@ public abstract class PaginatedCollection extends DurableComponent implements St
   }
 
   protected PaginatedCollection(
-      final AbstractPaginatedStorage storage,
+      final AbstractStorage storage,
       final String name,
       final String extension,
       final String lockName) {

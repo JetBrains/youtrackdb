@@ -48,7 +48,7 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
   @Override
   public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(network, collectionPointer);
+    CollectionNetworkSerializer.writeCollectionPointer(network, collectionPointer);
     network.writeBytes(keyStream);
   }
 
@@ -56,7 +56,7 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
       int protocolVersion,
       RecordSerializerNetwork serializer)
       throws IOException {
-    this.collectionPointer = CollectionNetworkSerializer.INSTANCE.readCollectionPointer(channel);
+    this.collectionPointer = CollectionNetworkSerializer.readCollectionPointer(channel);
     this.keyStream = channel.readBytes();
   }
 

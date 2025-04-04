@@ -187,7 +187,7 @@ import javax.annotation.Nullable;
 /**
  * @since 28.03.13
  */
-public abstract class AbstractPaginatedStorage
+public abstract class AbstractStorage
     implements CheckpointRequestListener,
     IdentifiableStorage,
     BackgroundExceptionListener,
@@ -296,7 +296,7 @@ public abstract class AbstractPaginatedStorage
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
 
-  public AbstractPaginatedStorage(
+  public AbstractStorage(
       final String name, final String filePath, final int id, YouTrackDBInternal context) {
     this.context = context;
     this.name = checkName(name);
@@ -5384,7 +5384,6 @@ public abstract class AbstractPaginatedStorage
   public final void setSchemaRecordId(final String schemaRecordId) {
     stateLock.readLock().lock();
     try {
-
       checkOpennessAndMigration();
 
       final var storageConfiguration =

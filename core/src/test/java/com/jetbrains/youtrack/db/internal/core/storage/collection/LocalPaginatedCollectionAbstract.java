@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -30,7 +30,7 @@ public abstract class LocalPaginatedCollectionAbstract {
   protected static DatabaseSessionInternal databaseDocumentTx;
   protected static YouTrackDB youTrackDB;
   protected static String dbName;
-  protected static AbstractPaginatedStorage storage;
+  protected static AbstractStorage storage;
   private static AtomicOperationsManager atomicOperationsManager;
 
   @AfterClass

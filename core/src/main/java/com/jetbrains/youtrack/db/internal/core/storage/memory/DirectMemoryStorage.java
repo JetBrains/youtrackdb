@@ -21,15 +21,18 @@
 package com.jetbrains.youtrack.db.internal.core.storage.memory;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -43,7 +46,7 @@ import javax.annotation.Nullable;
 /**
  * @since 7/9/14
  */
-public class DirectMemoryStorage extends AbstractPaginatedStorage {
+public class DirectMemoryStorage extends AbstractStorage {
 
   private static final int ONE_KB = 1024;
 
@@ -89,6 +92,12 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  @Override
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

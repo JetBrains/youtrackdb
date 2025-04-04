@@ -145,18 +145,6 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
-  default Result findFirst() {
-    try {
-      if (hasNext()) {
-        return next();
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
   @Nonnull
   default <R> R findFirstVertex(@Nonnull Function<Vertex, R> function) {
     try {

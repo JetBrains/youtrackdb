@@ -9,22 +9,19 @@ public interface Change {
 
   void increment(int maxCap);
 
-  void decrement();
+  boolean decrement();
 
   int applyTo(Integer value, int maxCap);
+
+  int applyTo(int value, int maxCap);
 
   int getValue();
 
   byte getType();
 
-  /**
-   * Checks if put increment operation can be safely performed.
-   *
-   * @return true if increment operation can be safely performed.
-   */
-  boolean isUndefined();
-
   void applyDiff(int delta);
 
   int serialize(byte[] stream, int offset);
+
+  int clear();
 }

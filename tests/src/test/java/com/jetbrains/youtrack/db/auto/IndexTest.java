@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -33,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -907,11 +906,11 @@ public class IndexTest extends BaseDBTest {
       Assert.assertTrue(streamIterator.hasNext());
 
       var pair = streamIterator.next();
-      key = pair.first;
+      key = pair.first();
 
       session.begin();
       var transaction = session.getActiveTransaction();
-      transaction.load(pair.second).delete();
+      transaction.load(pair.second()).delete();
       session.commit();
     }
 
@@ -1003,7 +1002,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     try (var stream = idx.stream(session)) {
-      Assert.assertEquals(stream.map((pair) -> pair.first).distinct().count(), keys.size());
+      Assert.assertEquals(stream.map((pair) -> pair.first()).distinct().count(), keys.size());
     }
   }
 
@@ -1435,7 +1434,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     final var storageLocalAbstract =
-        (AbstractPaginatedStorage)
+        (AbstractStorage)
             ((DatabaseSessionInternal) session.getUnderlying()).getStorage();
 
     final var writeCache = storageLocalAbstract.getWriteCache();
@@ -1659,10 +1658,10 @@ public class IndexTest extends BaseDBTest {
       try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
         }
       }
     }
@@ -1776,10 +1775,10 @@ public class IndexTest extends BaseDBTest {
       try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
         }
       }
     }
@@ -1881,10 +1880,10 @@ public class IndexTest extends BaseDBTest {
       try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
         }
       }
     }
@@ -1989,10 +1988,10 @@ public class IndexTest extends BaseDBTest {
       try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
         }
       }
     }
@@ -2041,7 +2040,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2073,7 +2072,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2104,7 +2103,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count()
+            stream.map((pair) -> pair.first()).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
@@ -2137,7 +2136,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2169,7 +2168,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2200,7 +2199,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(pair -> pair.first).distinct().count()
+            stream.map(pair -> pair.first()).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }

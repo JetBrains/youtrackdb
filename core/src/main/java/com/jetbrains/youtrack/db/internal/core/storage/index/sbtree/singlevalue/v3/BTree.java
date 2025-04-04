@@ -37,7 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
@@ -116,7 +116,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       @Nonnull final String name,
       final String dataFileExtension,
       final String nullFileExtension,
-      final AbstractPaginatedStorage storage) {
+      final AbstractStorage storage) {
     super(storage, name, dataFileExtension, name + dataFileExtension);
     acquireExclusiveLock();
     try {
@@ -131,7 +131,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       @Nonnull final String name,
       final String dataFileExtension,
       final String nullFileExtension,
-      final AbstractPaginatedStorage storage, BinarySerializerFactory serializerFactory) {
+      final AbstractStorage storage, BinarySerializerFactory serializerFactory) {
     super(storage, name, dataFileExtension, name + dataFileExtension);
     acquireExclusiveLock();
     try {
@@ -1077,7 +1077,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       acquireSharedLock();
       try {
         return StreamSupport.stream(new SpliteratorForward<>(this, null, null, false, false), false)
-            .map((entry) -> entry.first);
+            .map(RawPair::first);
       } finally {
         releaseSharedLock();
       }
@@ -1894,7 +1894,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
     } else {
-      lastKey = iter.getDataCache().getLast().first;
+      lastKey = iter.getDataCache().getLast().first();
     }
 
     iter.getDataCache().clear();
@@ -1969,7 +1969,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   void fetchNextForwardCachePortion(SpliteratorForward<K> iter) {
     final K lastKey;
     if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().getLast().first;
+      lastKey = iter.getDataCache().getLast().first();
     } else {
       lastKey = null;
     }

@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.InputStream;
@@ -397,6 +398,12 @@ public class PostponedEngineStartTest {
         @Override
         public long getSize(DatabaseSessionInternal session) {
           return 0;
+        }
+
+        @Override
+        public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+            String fieldName, RID rid) {
+          return null;
         }
 
         @Override

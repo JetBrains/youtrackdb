@@ -18,8 +18,17 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public void decrement() {
+  public boolean decrement() {
     delta--;
+    if (delta < 0) {
+      throw new IllegalStateException("Delta cannot be negative");
+    }
+    return true;
+  }
+
+  @Override
+  public int clear() {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -39,6 +48,16 @@ public class DiffChange implements Change {
   }
 
   @Override
+  public int applyTo(int value, int maxCap) {
+    var result = Math.min(value + delta, maxCap);
+    if (result < 0) {
+      result = 0;
+    }
+
+    return result;
+  }
+
+  @Override
   public byte getType() {
     return TYPE;
   }
@@ -49,13 +68,11 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public boolean isUndefined() {
-    return delta < 0;
-  }
-
-  @Override
   public void applyDiff(int delta) {
     this.delta += delta;
+    if (this.delta < 0) {
+      throw new IllegalStateException("Delta cannot be negative");
+    }
   }
 
   @Override

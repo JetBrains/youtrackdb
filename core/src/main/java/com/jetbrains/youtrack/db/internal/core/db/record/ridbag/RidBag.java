@@ -40,12 +40,13 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 /**
@@ -58,7 +59,7 @@ import javax.annotation.Nonnull;
  *   <li><b>Embedded</b> stores its content directly to the entity that owns it.<br>
  *       It better fits for cases when only small amount of links are stored to the bag.<br>
  *   <li><b>Tree-based</b> implementation stores its content in a separate data structure called
- *       {@link com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree}.<br>
+ *       {@link IsolatedLinkBagBTree}.<br>
  *       It fits great for cases when you have a huge amount of links.<br>
  * </ul>
  *
@@ -116,14 +117,6 @@ public class RidBag
     this.uuid = uuid;
   }
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, LinkBagPointer pointer,
-      Map<RID, Change> changes, UUID uuid, int size) {
-    this.session = session;
-    initThresholds(session);
-    delegate = new BTreeBasedLinkBag(pointer, changes, session, size, Integer.MAX_VALUE);
-    this.uuid = uuid;
-  }
-
 
   public RidBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
     this.session = session;
@@ -152,8 +145,12 @@ public class RidBag
   }
 
   @Override
-  public void remove(RID identifiable) {
-    delegate.remove(identifiable);
+  public boolean remove(RID identifiable) {
+    return delegate.remove(identifiable);
+  }
+
+  public boolean removeLinks(RID rid) {
+    return delegate.removeLinks(rid);
   }
 
   @Override
@@ -169,6 +166,11 @@ public class RidBag
   @Override
   public Iterator<RID> iterator() {
     return delegate.iterator();
+  }
+
+  @Nonnull
+  public Stream<RID> stream() {
+    return delegate.stream();
   }
 
   @Override
@@ -360,7 +362,7 @@ public class RidBag
     return delegate;
   }
 
-  public List<RawPair<RID, Change>> getChanges() {
+  public Stream<RawPair<RID, Change>> getChanges() {
     return delegate.getChanges();
   }
 

@@ -125,7 +125,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       return Stream.empty();
     }
 
-    return IndexStreamSecurityDecorator.decorateRidStream(this, Stream.of(txIndexEntry.second),
+    return IndexStreamSecurityDecorator.decorateRidStream(this, Stream.of(txIndexEntry.second()),
         session);
   }
 
@@ -516,7 +516,7 @@ public abstract class IndexOneValue extends IndexAbstract {
             .map(
                 (entry) ->
                     calculateTxIndexEntry(
-                        getCollatingValue(entry.first), entry.second, indexChanges))
+                        getCollatingValue(entry.first()), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         comparator);
   }

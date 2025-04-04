@@ -143,7 +143,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
@@ -517,7 +517,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     LinkBagPointer collectionPointer = null;
     final var session = connection.getDatabaseSession();
     try {
-      final var storage = (AbstractPaginatedStorage) session.getStorage();
+      final var storage = (AbstractStorage) session.getStorage();
       final var atomicOperationsManager = storage.getAtomicOperationsManager();
       collectionPointer =
           atomicOperationsManager.calculateInsideAtomicOperation(
@@ -526,7 +526,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
                   connection
                       .getDatabaseSession()
                       .getBTreeCollectionManager()
-                      .createSBTree(request.getCollectionId(), atomicOperation, null, session));
+                      .createBTree(request.getCollectionId(), atomicOperation, null, session));
     } catch (IOException e) {
       throw BaseException.wrapException(
           new DatabaseException(session, "Error during ridbag creation"), e, session);
@@ -540,27 +540,23 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var session = connection.getDatabaseSession();
     final var bTreeCollectionManager = session.getBTreeCollectionManager();
     final var tree =
-        bTreeCollectionManager.loadSBTree(request.getCollectionPointer());
+        bTreeCollectionManager.loadIsolatedBTree(request.getCollectionPointer());
     var serializerFactory = session.getSerializerFactory();
-    try {
-      var key = tree.getKeySerializer().deserialize(serializerFactory,
-          request.getKeyStream(), 0);
-      var result = tree.get(key);
-      final BinarySerializer<? super Integer> valueSerializer;
-      if (result == null) {
-        valueSerializer = NullSerializer.INSTANCE;
-      } else {
-        valueSerializer = tree.getValueSerializer();
-      }
-
-      var stream = new byte[ByteSerializer.BYTE_SIZE + valueSerializer.getObjectSize(
-          serializerFactory, result)];
-      ByteSerializer.INSTANCE.serialize(valueSerializer.getId(), serializerFactory, stream, 0);
-      valueSerializer.serialize(result, serializerFactory, stream, ByteSerializer.BYTE_SIZE);
-      return new SBTGetResponse(stream);
-    } finally {
-      bTreeCollectionManager.releaseSBTree(request.getCollectionPointer());
+    var key = tree.getKeySerializer().deserialize(serializerFactory,
+        request.getKeyStream(), 0);
+    var result = tree.get(key);
+    final BinarySerializer<? super Integer> valueSerializer;
+    if (result == null) {
+      valueSerializer = NullSerializer.INSTANCE;
+    } else {
+      valueSerializer = tree.getValueSerializer();
     }
+
+    var stream = new byte[ByteSerializer.BYTE_SIZE + valueSerializer.getObjectSize(
+        serializerFactory, result)];
+    ByteSerializer.INSTANCE.serialize(valueSerializer.getId(), serializerFactory, stream, 0);
+    valueSerializer.serialize(result, serializerFactory, stream, ByteSerializer.BYTE_SIZE);
+    return new SBTGetResponse(stream);
   }
 
   @Override
@@ -569,27 +565,22 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     final var bTreeCollectionManager =
         connection.getDatabaseSession().getBTreeCollectionManager();
     final var tree =
-        bTreeCollectionManager.loadSBTree(request.getCollectionPointer());
+        bTreeCollectionManager.loadIsolatedBTree(request.getCollectionPointer());
     byte[] stream;
-    try {
-
-      Identifiable result = tree.firstKey();
-      final BinarySerializer keySerializer;
-      if (result == null) {
-        keySerializer = NullSerializer.INSTANCE;
-      } else {
-        keySerializer = tree.getKeySerializer();
-      }
-
-      var serializerFactory = connection.getDatabaseSession().getSerializerFactory();
-      stream = new byte[ByteSerializer.BYTE_SIZE + keySerializer.getObjectSize(serializerFactory,
-          result)];
-      ByteSerializer.INSTANCE.serialize(keySerializer.getId(), serializerFactory, stream, 0);
-      keySerializer.serialize(result, serializerFactory, stream, ByteSerializer.BYTE_SIZE);
-      return new SBTFirstKeyResponse(stream);
-    } finally {
-      bTreeCollectionManager.releaseSBTree(request.getCollectionPointer());
+    Identifiable result = tree.firstKey();
+    final BinarySerializer keySerializer;
+    if (result == null) {
+      keySerializer = NullSerializer.INSTANCE;
+    } else {
+      keySerializer = tree.getKeySerializer();
     }
+
+    var serializerFactory = connection.getDatabaseSession().getSerializerFactory();
+    stream = new byte[ByteSerializer.BYTE_SIZE + keySerializer.getObjectSize(serializerFactory,
+        result)];
+    ByteSerializer.INSTANCE.serialize(keySerializer.getId(), serializerFactory, stream, 0);
+    keySerializer.serialize(result, serializerFactory, stream, ByteSerializer.BYTE_SIZE);
+    return new SBTFirstKeyResponse(stream);
   }
 
   @Override
@@ -599,22 +590,19 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var session = connection.getDatabaseSession();
     final var bTreeCollectionManager = session.getBTreeCollectionManager();
     final var tree =
-        bTreeCollectionManager.loadSBTree(request.getPointer());
-    try {
-      final var keySerializer = tree.getKeySerializer();
-      var key = keySerializer.deserialize(session.getSerializerFactory(), request.getKeyStream(),
-          0);
+        bTreeCollectionManager.loadIsolatedBTree(request.getPointer());
+    final var keySerializer = tree.getKeySerializer();
+    var key = keySerializer.deserialize(session.getSerializerFactory(), request.getKeyStream(),
+        0);
 
-      final var valueSerializer = tree.getValueSerializer();
+    final var valueSerializer = tree.getValueSerializer();
 
-      var listener =
-          new TreeInternal.AccumulativeListener<RID, Integer>(request.getPageSize());
-      tree.loadEntriesMajor(key, request.isInclusive(), true, listener);
-      var result = listener.getResult();
-      return new SBTFetchEntriesMajorResponse<>(keySerializer, valueSerializer, result);
-    } finally {
-      bTreeCollectionManager.releaseSBTree(request.getPointer());
-    }
+    var listener =
+        new TreeInternal.AccumulativeListener<RID, Integer>(request.getPageSize());
+    tree.loadEntriesMajor(key, request.isInclusive(), true, listener);
+    var result = listener.getResult();
+    return new SBTFetchEntriesMajorResponse<>(keySerializer, valueSerializer, result);
+
   }
 
   @Override

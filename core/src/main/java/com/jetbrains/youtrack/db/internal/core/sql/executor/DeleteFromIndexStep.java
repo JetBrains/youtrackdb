@@ -111,15 +111,15 @@ public class DeleteFromIndexStep extends AbstractExecutionStep {
 
   private Result readResult(DatabaseSessionInternal session, RawPair<Object, RID> entry) {
     var result = new ResultInternal(session);
-    var value = entry.second;
-    index.remove(session, entry.first, value);
+    var value = entry.second();
+    index.remove(session, entry.first(), value);
     return result;
   }
 
   private boolean filter(RawPair<Object, RID> entry, CommandContext ctx) {
     if (ridCondition != null) {
       var res = new ResultInternal(ctx.getDatabaseSession());
-      res.setProperty("rid", entry.second);
+      res.setProperty("rid", entry.second());
       return ridCondition.evaluate(res, ctx);
     } else {
       return true;

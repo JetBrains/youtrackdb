@@ -79,7 +79,12 @@ public interface RecordElement {
       return (DatabaseSessionInternal) entity.getBoundedToSession();
     }
 
-    return getOwnerEntity().getSession();
+    var owner = getOwnerEntity();
+    if (owner == null) {
+      return null;
+    }
+
+    return owner.getSession();
   }
 
   void setOwner(RecordElement owner);

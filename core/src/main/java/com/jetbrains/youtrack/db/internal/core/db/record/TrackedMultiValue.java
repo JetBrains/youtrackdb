@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -115,11 +116,15 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   }
 
   default boolean assertIfNotActive() {
-    var session = getSession();
-    assert session != null && session.assertIfNotActive();
-    assert session.isTxActive();
     var owner = getOwnerEntity();
-    assert owner == null || !owner.isNotBound(session);
+    assert owner == null || !owner.isUnloaded();
+    DatabaseSessionInternal session = null;
+
+    if (owner != null) {
+      session = owner.getSession();
+    }
+    assert session == null || session.assertIfNotActive();
+
     return true;
   }
 }

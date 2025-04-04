@@ -31,7 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
@@ -68,13 +68,13 @@ public class BTreeCollectionManagerRemote
     }
   }
 
-  protected EdgeBTree<RID, Integer> createEdgeTree(
+  protected IsolatedLinkBagBTree<RID, Integer> createEdgeTree(
       AtomicOperation atomicOperation, final int collectionId) {
     throw new UnsupportedOperationException(
         "Creation of SB-Tree from remote storage is not allowed");
   }
 
-  protected EdgeBTree<RID, Integer> loadTree(
+  protected IsolatedLinkBagBTree<RID, Integer> loadTree(
       LinkBagPointer collectionPointer) {
     throw new UnsupportedOperationException();
   }
@@ -86,7 +86,7 @@ public class BTreeCollectionManagerRemote
       id = UUID.randomUUID();
     }
 
-    pendingCollections.get().put(id, new WeakReference<RidBag>(collection));
+    pendingCollections.get().put(id, new WeakReference<>(collection));
 
     return id;
   }
@@ -133,7 +133,7 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public LinkBagPointer createSBTree(
+  public LinkBagPointer createBTree(
       int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
       DatabaseSessionInternal session) throws IOException {
     var tree = createEdgeTree(atomicOperation, collectionId);
@@ -141,22 +141,15 @@ public class BTreeCollectionManagerRemote
   }
 
   @Override
-  public EdgeBTree<RID, Integer> loadSBTree(
+  public IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(
       LinkBagPointer collectionPointer) {
 
-    final EdgeBTree<RID, Integer> tree;
+    final IsolatedLinkBagBTree<RID, Integer> tree;
     tree = loadTree(collectionPointer);
 
     return tree;
   }
 
-  @Override
-  public void releaseSBTree(LinkBagPointer collectionPointer) {
-  }
-
-  @Override
-  public void delete(LinkBagPointer collectionPointer) {
-  }
 
   @Override
   public void close() {

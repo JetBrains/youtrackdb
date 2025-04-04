@@ -28,10 +28,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import java.util.Collection;
-import java.util.List;
-import java.util.NavigableMap;
+import java.util.Spliterator;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
 
 public interface LinkBagDelegate
     extends Iterable<RID>,
@@ -43,7 +41,9 @@ public interface LinkBagDelegate
 
   void add(RID rid);
 
-  void remove(RID rid);
+  boolean remove(RID rid);
+
+  boolean removeLinks(RID rid);
 
   boolean isEmpty();
 
@@ -69,11 +69,15 @@ public interface LinkBagDelegate
 
   String toString();
 
-  List<RawPair<RID, Change>> getChanges();
+  Stream<RawPair<RID, Change>> getChanges();
 
   SimpleMultiValueTracker<RID, RID> getTracker();
 
   void setTracker(SimpleMultiValueTracker<RID, RID> tracker);
 
   void setTransactionModified(boolean transactionModified);
+
+  Stream<RID> stream();
+
+  Spliterator<RID> spliterator();
 }

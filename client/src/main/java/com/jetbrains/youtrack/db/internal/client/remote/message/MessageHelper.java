@@ -103,7 +103,7 @@ public class MessageHelper {
       final var lBitsOfId = network.readLong();
 
       final var pointer =
-          CollectionNetworkSerializer.INSTANCE.readCollectionPointer(network);
+          CollectionNetworkSerializer.readCollectionPointer(network);
 
       collectionsUpdates.put(new UUID(mBitsOfId, lBitsOfId), pointer);
     }
@@ -117,7 +117,7 @@ public class MessageHelper {
     for (var entry : changedIds.entrySet()) {
       channel.writeLong(entry.getKey().getMostSignificantBits());
       channel.writeLong(entry.getKey().getLeastSignificantBits());
-      CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(channel, entry.getValue());
+      CollectionNetworkSerializer.writeCollectionPointer(channel, entry.getValue());
     }
   }
 
@@ -177,8 +177,8 @@ public class MessageHelper {
   public static void writeCollectionsArray(
       ChannelDataOutput channel, RawPair<String[], int[]> collections, int protocolVersion)
       throws IOException {
-    final var collectionNames = collections.first;
-    final var collectionIds = collections.second;
+    final var collectionNames = collections.first();
+    final var collectionIds = collections.second();
 
     channel.writeShort((short) collectionNames.length);
 

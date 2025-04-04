@@ -44,16 +44,11 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -61,7 +56,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EntitySerializerDelta {
-
   protected static final byte CREATED = 1;
   protected static final byte REPLACED = 2;
   protected static final byte CHANGED = 3;
@@ -1137,7 +1131,7 @@ public class EntitySerializerDelta {
         writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
         break;
       case LINKBAG:
-        writeRidBag(session, bytes, (RidBag) value);
+        writeLinkBag(session, bytes, (RidBag) value);
         break;
     }
   }
@@ -1316,7 +1310,7 @@ public class EntitySerializerDelta {
                 bytes.offset));
         break;
       case LINKBAG:
-        var bag = readRidBag(session, bytes);
+        var bag = readLinkBag(session, bytes);
         bag.setOwner(owner);
         value = bag;
         break;
@@ -1420,98 +1414,13 @@ public class EntitySerializerDelta {
     return result;
   }
 
-  private static RidBag readRidBag(DatabaseSessionInternal session, BytesContainer bytes) {
-    var uuid = UUIDSerializer.INSTANCE.deserialize(session.getSerializerFactory(), bytes.bytes,
-        bytes.offset);
-    bytes.skip(UUIDSerializer.UUID_SIZE);
-    if (uuid.getMostSignificantBits() == -1 && uuid.getLeastSignificantBits() == -1) {
-      uuid = null;
-    }
-    var b = bytes.bytes[bytes.offset];
-    bytes.skip(1);
-    if (b == 1) {
-      var bag = new RidBag(session, uuid);
-      var size = VarIntSerializer.readAsInteger(bytes);
-      for (var i = 0; i < size; i++) {
-        var id = readOptimizedLink(session, bytes);
-        if (id.equals(NULL_RECORD_ID)) {
-          bag.add(null);
-        } else {
-          bag.add(id);
-        }
-      }
-      return bag;
-    } else {
-      var fileId = VarIntSerializer.readAsLong(bytes);
-      var pageIndex = VarIntSerializer.readAsLong(bytes);
-      var pageOffset = VarIntSerializer.readAsInteger(bytes);
-
-      var size = VarIntSerializer.readAsInteger(bytes);
-      Map<RID, Change> changes = new HashMap<>();
-      var sizeOfChanges = VarIntSerializer.readAsInteger(bytes);
-      while (sizeOfChanges-- > 0) {
-        var link = readOptimizedLink(session, bytes);
-        var type = bytes.bytes[bytes.offset];
-        bytes.skip(1);
-        var change = VarIntSerializer.readAsInteger(bytes);
-        changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
-      }
-
-      LinkBagPointer pointer = null;
-      if (fileId != -1) {
-        pointer =
-            new LinkBagPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
-      }
-
-      return new RidBag(session, pointer, changes, uuid, size);
-    }
+  private static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+    return RecordSerializerNetworkV37.INSTANCE.readLinkBag(session, bytes);
   }
 
-  private static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
+  private static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
-    final var bTreeCollectionManager = session.getBTreeCollectionManager();
-    UUID uuid = null;
-    if (bTreeCollectionManager != null) {
-      uuid = bTreeCollectionManager.listenForChanges(bag, session);
-    }
-    if (uuid == null) {
-      uuid = new UUID(-1, -1);
-    }
-    var uuidPos = bytes.alloc(UUIDSerializer.UUID_SIZE);
-    UUIDSerializer.INSTANCE.serialize(uuid, session.getSerializerFactory(), bytes.bytes, uuidPos);
-    if (bag.isToSerializeEmbedded()) {
-      var pos = bytes.alloc(1);
-      bytes.bytes[pos] = 1;
-      VarIntSerializer.write(bytes, bag.size());
-      for (Identifiable itemValue : bag) {
-        if (itemValue == null) {
-          writeNullLink(bytes);
-        } else {
-          writeOptimizedLink(session, bytes, itemValue);
-        }
-      }
-    } else {
-      var pos = bytes.alloc(1);
-      bytes.bytes[pos] = 2;
-      var pointer = bag.getPointer();
-      if (pointer == null) {
-        pointer = LinkBagPointer.INVALID;
-      }
-      VarIntSerializer.write(bytes, pointer.getFileId());
-      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageIndex());
-      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageOffset());
-      VarIntSerializer.write(bytes, bag.size());
-
-      var changes = bag.getChanges().toList();
-      VarIntSerializer.write(bytes, changes.size());
-      for (var change : changes) {
-        writeOptimizedLink(session, bytes, change.first);
-        var posAll = bytes.alloc(1);
-        bytes.bytes[posAll] = change.second.getType();
-        VarIntSerializer.write(bytes, change.second.getValue());
-      }
-
-    }
+    RecordSerializerNetworkV37.writeLinkBag(session, bytes, bag);
   }
 
   public static void writeNullableType(BytesContainer bytes, PropertyTypeInternal type) {

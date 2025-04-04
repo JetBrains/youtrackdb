@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.LocalPaginatedCollectionAbstract;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
 import org.junit.BeforeClass;
@@ -31,7 +31,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     databaseDocumentTx = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    storage = (AbstractPaginatedStorage) databaseDocumentTx.getStorage();
+    storage = (AbstractStorage) databaseDocumentTx.getStorage();
 
     paginatedCollection = new PaginatedCollectionV2("paginatedCollectionTest", storage);
     paginatedCollection.configure(42, "paginatedCollectionTest");

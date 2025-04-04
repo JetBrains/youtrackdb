@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 
@@ -39,7 +39,7 @@ public class IndexDictionary extends IndexOneValue {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
@@ -58,13 +58,13 @@ public class IndexDictionary extends IndexOneValue {
   }
 
   private static void putV0(
-      final AbstractPaginatedStorage storage, int indexId, Object key, Identifiable value)
+      final AbstractStorage storage, int indexId, Object key, Identifiable value)
       throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   private static void putV1(
-      final AbstractPaginatedStorage storage, int indexId, Object key, Identifiable value)
+      final AbstractStorage storage, int indexId, Object key, Identifiable value)
       throws InvalidIndexEngineIdException {
     storage.putRidIndexEntry(indexId, key, value.getIdentity());
   }

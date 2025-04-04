@@ -107,6 +107,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
@@ -961,6 +962,12 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getSize();
   }
 
+  @Override
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid) {
+    throw new UnsupportedOperationException();
+  }
+
   public long countRecords(DatabaseSessionInternal session) {
     var request = new CountRecordsRequest();
     var response =
@@ -978,7 +985,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var request = new CountRequest(iCollectionIds, countTombstones);
     var response =
         networkOperation((DatabaseSessionRemote) session,
-            request, "Error on read record count in collections: " + Arrays.toString(iCollectionIds));
+            request,
+            "Error on read record count in collections: " + Arrays.toString(iCollectionIds));
     return response.getCount();
   }
 
@@ -1336,14 +1344,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new UnsupportedOperationException();
   }
 
-  public int getLinkBagCounter(DatabaseSessionInternal session, RID recordRid,String recordFieldName, RID itemRid) {
-    var request = new GetRidBagCounterRequest(rid);
-    var response =
-        networkOperation((DatabaseSessionRemote) session, request,
-            "Error on read rid bag counter");
-    return response.getRidBagCounter();
-  }
-
   public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
@@ -1389,7 +1389,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
   }
 
-  public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute, Object value) {
+  public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute,
+      Object value) {
     return false;
   }
 
@@ -2043,8 +2044,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     transaction.clearReceivedDirtyCounters();
 
     for (var pair : response.getOldToUpdatedRids()) {
-      var oldRid = pair.first;
-      var newRid = pair.second;
+      var oldRid = pair.first();
+      var newRid = pair.second();
 
       var txEntry = transaction.getRecordEntry(oldRid);
       assert txEntry.record.getIdentity() instanceof ChangeableIdentity;

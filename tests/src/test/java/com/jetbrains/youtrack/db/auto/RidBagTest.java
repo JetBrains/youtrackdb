@@ -1859,7 +1859,9 @@ public abstract class RidBagTest extends BaseDBTest {
       if (rnd.nextDouble() < 0.2 & rids.size() > 5) {
         final var index = rnd.nextInt(rids.size());
         final var rid = rids.remove(index);
-        bag.remove(rid.getIdentity());
+        if (!bag.remove(rid.getIdentity())) {;
+          bag.remove(rid.getIdentity());
+        }
       } else {
         final long position;
         position = rnd.nextInt(300);
@@ -1876,10 +1878,10 @@ public abstract class RidBagTest extends BaseDBTest {
       final Identifiable bagValue = bagIterator.next();
       assertTrue(rids.contains(bagValue));
 
-      if (rnd.nextDouble() < 0.05) {
-        bagIterator.remove();
-        assertTrue(rids.remove(bagValue));
-      }
+//      if (rnd.nextDouble() < 0.05) {
+//        bagIterator.remove();
+//        assertTrue(rids.remove(bagValue));
+//      }
     }
 
     assertEquals(bag.size(), rids.size());

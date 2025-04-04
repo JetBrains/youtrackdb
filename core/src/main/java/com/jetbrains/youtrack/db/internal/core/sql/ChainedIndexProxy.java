@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField.FieldChain;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.ArrayList;
@@ -364,7 +364,7 @@ public class ChainedIndexProxy<T> implements Index {
         final List<Identifiable> keys;
         try (var stream =
             currentIndex.streamEntries(session, currentKeys, true)) {
-          keys = stream.map((pair) -> pair.second).collect(Collectors.toList());
+          keys = stream.map(RawPair::second).collect(Collectors.toList());
         }
         newKeys = prepareKeys(session, nextIndex, keys);
       }
@@ -386,7 +386,7 @@ public class ChainedIndexProxy<T> implements Index {
     } else {
       try (var stream =
           firstIndex.streamEntries(session, currentKeys, true)) {
-        result = stream.map((pair) -> pair.second).collect(Collectors.toList());
+        result = stream.map(RawPair::second).collect(Collectors.toList());
       }
     }
 
@@ -398,7 +398,7 @@ public class ChainedIndexProxy<T> implements Index {
     try (var stream =
         currentIndex
             .streamEntriesBetween(session, currentKey, true, currentKey, true, true)) {
-      return stream.map((pair) -> pair.second).collect(Collectors.toList());
+      return stream.map(RawPair::second).collect(Collectors.toList());
     }
   }
 
@@ -716,20 +716,20 @@ public class ChainedIndexProxy<T> implements Index {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid) {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid) {
     throw new UnsupportedOperationException("Not allowed operation");
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+  public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session) {
     throw new UnsupportedOperationException("Not allowed operation");
   }
@@ -739,7 +739,7 @@ public class ChainedIndexProxy<T> implements Index {
     //noinspection resource
     return indexStream.flatMap(
         (entry) ->
-            applyTailIndexes(session, entry.second).stream()
+            applyTailIndexes(session, entry.second()).stream()
                 .map((rid) -> new RawPair<>(null, rid)));
   }
 

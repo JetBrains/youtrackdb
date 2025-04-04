@@ -85,7 +85,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
@@ -723,12 +723,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 .getCommandManager()
                 .getScriptExecutor(language);
 
-        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
         ResultSet original;
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
         }
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -790,11 +790,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 .getScriptExecutor(language);
         ResultSet original;
 
-        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
         }
 
         var result = new LocalResultSetLifecycleDecorator(original);
@@ -1460,8 +1460,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
-          + "' because it is mapped to class '" + clazz.getName() + "'");
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
     if (schema.getBlobCollections().contains(collectionId)) {
       schema.removeBlobCollection(iCollectionName);
@@ -1480,13 +1481,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
 
     checkSecurity(
-        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, getCollectionNameById(collectionId));
+        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
+        getCollectionNameById(collectionId));
 
     var schema = metadata.getSchema();
     final var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
-          + "' because it is mapped to class '" + clazz.getName() + "'");
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
     getLocalCache().freeCollection(collectionId);
@@ -1727,12 +1730,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   public void startExclusiveMetadataChange() {
     assert assertIfNotActive();
-    ((AbstractPaginatedStorage) storage).startDDL();
+    ((AbstractStorage) storage).startDDL();
   }
 
   public void endExclusiveMetadataChange() {
     assert assertIfNotActive();
-    ((AbstractPaginatedStorage) storage).endDDL();
+    ((AbstractStorage) storage).endDDL();
   }
 
   @Override
@@ -1874,9 +1877,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
             case RidBag ridBag -> {
               assert ridBag.contains(entity.getIdentity());
-              do {
-                ridBag.remove(entity.getIdentity());
-              } while (ridBag.contains(entity.getIdentity()));
+              var removed = ridBag.removeLinks(entity.getIdentity());
+              assert removed;
+              assert !ridBag.contains(entity.getIdentity());
             }
             default -> {
               throw new IllegalStateException("Unexpected type of link property: "
@@ -1993,11 +1996,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             linkBag.add(rid);
             assert linkBag.contains(rid);
           } else {
-            if (!linkBag.contains(rid)) {
+            var removed = linkBag.remove(entity.getIdentity());
+            if (!removed) {
               throw new IllegalStateException("Cannot remove link " + rid
                   + " from opposite entity because it does not exist");
             }
-            linkBag.remove(entity.getIdentity());
           }
         }
 

@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdExc
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.index.engine.UniqueIndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 
@@ -47,7 +47,7 @@ public class IndexUnique extends IndexOneValue {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {

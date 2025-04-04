@@ -49,9 +49,11 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
@@ -351,7 +353,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
-        var bag = readRidBag(session, bytes);
+        var bag = readLinkBag(session, bytes);
         bag.setOwner(owner);
         value = bag;
         break;
@@ -359,7 +361,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return value;
   }
 
-  private static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
+  public static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
     final var bTreeCollectionManager = session.getBTreeCollectionManager();
 
@@ -384,33 +386,33 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     } else {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 2;
-      var pointer = bag.getPointer();
+
+      var delegate = (RemoteTreeLinkBag) bag.getDelegate();
+      var pointer = delegate.getCollectionPointer();
 
       if (pointer == null || pointer.isValid()) {
         throw new IllegalStateException("RidBag with invalid pointer was found");
       }
 
+      VarIntSerializer.write(bytes, delegate.size());
       VarIntSerializer.write(bytes, pointer.fileId());
       VarIntSerializer.write(bytes, pointer.linkBagId());
-      VarIntSerializer.write(bytes, pointer.getLinkBagId().getPageOffset());
-      VarIntSerializer.write(bytes, -1);
+
       var changes = bag.getChanges();
 
-      if (changes != null) {
-        VarIntSerializer.write(bytes, changes.size());
-        for (var change : changes) {
-          writeOptimizedLink(session, bytes, change.first);
-          var posAll = bytes.alloc(1);
-          bytes.bytes[posAll] = change.second.getType();
-          VarIntSerializer.write(bytes, change.second.getValue());
-        }
-      } else {
-        VarIntSerializer.write(bytes, 0);
-      }
+      changes.forEach(change -> {
+        bytes.alloc(1);
+        bytes.bytes[pos] = 1;
+        writeOptimizedLink(session, bytes, change.first());
+        var posAll = bytes.alloc(1);
+        bytes.bytes[posAll] = change.second().getType();
+        VarIntSerializer.write(bytes, change.second().getValue());
+      });
+      bytes.alloc(1);
     }
   }
 
-  protected RidBag readRidBag(DatabaseSessionInternal db, BytesContainer bytes) {
+  public RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     var uuid = UUIDSerializer.staticDeserialize(bytes.bytes, bytes.offset);
     bytes.skip(UUIDSerializer.UUID_SIZE);
     if (uuid.getMostSignificantBits() == -1 && uuid.getLeastSignificantBits() == -1) {
@@ -419,44 +421,42 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      var bag = new RidBag(db, uuid);
+      var bag = new RidBag(session, uuid);
       // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
       bag.enableTracking(null);
+
       var size = VarIntSerializer.readAsInteger(bytes);
       for (var i = 0; i < size; i++) {
-        Identifiable id = readOptimizedLink(db, bytes);
-        if (id.equals(NULL_RECORD_ID)) {
-          bag.add(null);
-        } else {
-          bag.add(id.getIdentity());
-        }
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
+
       bag.disableTracking(null);
       bag.transactionClear();
       return bag;
     } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
       var fileId = VarIntSerializer.readAsLong(bytes);
-      var pageIndex = VarIntSerializer.readAsLong(bytes);
-      var pageOffset = VarIntSerializer.readAsInteger(bytes);
-      //bag size
-      VarIntSerializer.readAsInteger(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
 
       Map<RID, Change> changes = new HashMap<>();
-      var size = VarIntSerializer.readAsInteger(bytes);
-      while (size-- > 0) {
-        var link = readOptimizedLink(db, bytes);
+      var continueFlag = bytes.bytes[bytes.offset++];
+      while (continueFlag > 0) {
+        var link = readOptimizedLink(session, bytes);
         var type = bytes.bytes[bytes.offset];
         bytes.skip(1);
         var change = VarIntSerializer.readAsInteger(bytes);
         changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
+        continueFlag = bytes.bytes[bytes.offset++];
       }
 
       LinkBagPointer pointer = null;
       if (fileId != -1) {
-        pointer =
-            new LinkBagPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
+        pointer = new LinkBagPointer(fileId, linkBagId);
       }
-      return new RidBag(db, pointer, changes, uuid);
+
+      return new RidBag(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
     }
   }
 
@@ -677,7 +677,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
         break;
       case LINKBAG:
-        writeRidBag(session, bytes, (RidBag) value);
+        writeLinkBag(session, bytes, (RidBag) value);
         break;
     }
   }

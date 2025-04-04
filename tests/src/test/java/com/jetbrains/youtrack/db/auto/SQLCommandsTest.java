@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import java.io.File;
 import java.util.Locale;
 import org.testng.Assert;
@@ -141,7 +141,7 @@ public class SQLCommandsTest extends BaseDBTest {
       var storagePath = session.getStorage().getConfiguration().getDirectory();
 
       final var wowCache =
-          (WOWCache) ((LocalPaginatedStorage) session.getStorage()).getWriteCache();
+          (WOWCache) ((LocalStorage) session.getStorage()).getWriteCache();
 
       var dataFile =
           new File(

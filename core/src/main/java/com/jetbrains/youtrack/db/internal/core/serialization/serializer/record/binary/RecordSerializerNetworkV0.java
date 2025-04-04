@@ -426,11 +426,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
-        var bag = new RidBag(session);
-        bag.fromStream(session, bytes);
-        bag.setOwner(owner);
-        value = bag;
-        break;
+        throw new UnsupportedOperationException();
     }
     return value;
   }
@@ -656,8 +652,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
         break;
       case LINKBAG:
-        pointer = ((RidBag) value).toStream(session, bytes);
-        break;
+        throw new UnsupportedOperationException();
     }
     return pointer;
   }

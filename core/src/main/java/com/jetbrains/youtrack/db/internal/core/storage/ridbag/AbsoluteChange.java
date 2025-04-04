@@ -8,7 +8,7 @@ public class AbsoluteChange implements Change {
   public static final byte TYPE = 1;
   private int value;
 
-  AbsoluteChange(int value) {
+  public AbsoluteChange(int value) {
     this.value = value;
 
     checkPositive();
@@ -25,10 +25,19 @@ public class AbsoluteChange implements Change {
   }
 
   @Override
-  public void decrement() {
+  public boolean decrement() {
+    var result = value > 0;
     value--;
 
     checkPositive();
+    return result;
+  }
+
+  @Override
+  public int clear() {
+    var result = value;
+    value = 0;
+    return result;
   }
 
   @Override
@@ -37,8 +46,8 @@ public class AbsoluteChange implements Change {
   }
 
   @Override
-  public boolean isUndefined() {
-    return false;
+  public int applyTo(int value, int maxCap) {
+    return this.value;
   }
 
   @Override

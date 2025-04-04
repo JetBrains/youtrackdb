@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxMultiValueBe
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxMultiValueBetweenIndexForwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.index.multivalue.MultiValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
@@ -124,7 +124,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
             backedStream
                 .map((rid) -> calculateTxIndexEntry(collatedKey, rid, indexChanges))
                 .filter(Objects::nonNull)
-                .map((pair) -> pair.second),
+                .map(RawPair::second),
             txChanges.stream().map(Identifiable::getIdentity)), session);
   }
 
@@ -150,7 +150,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
@@ -169,7 +169,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   private static void doPutV1(
-      AbstractPaginatedStorage storage, int indexId, Object key, RID identity)
+      AbstractStorage storage, int indexId, Object key, RID identity)
       throws InvalidIndexEngineIdException {
     storage.putRidIndexEntry(indexId, key, identity);
   }
@@ -183,7 +183,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     if (apiVersion == 0) {
@@ -198,7 +198,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   private static boolean doRemoveV1(
-      int indexId, AbstractPaginatedStorage storage, Object key, Identifiable value)
+      int indexId, AbstractStorage storage, Object key, Identifiable value)
       throws InvalidIndexEngineIdException {
     return storage.removeRidIndexEntry(indexId, key, value.getIdentity());
   }
@@ -567,7 +567,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return Streams.mergeSortedSpliterators(
         txStream,
         backedStream
-            .map((entry) -> calculateTxIndexEntry(entry.first, entry.second, indexChanges))
+            .map((entry) -> calculateTxIndexEntry(entry.first(), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         keyComparator);
   }

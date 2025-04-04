@@ -22,15 +22,17 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
 import java.util.NavigableMap;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 /**
@@ -38,14 +40,14 @@ import javax.annotation.Nonnull;
  */
 public class LinkBagUpdateSerializationOperation implements RecordSerializationOperation {
 
-  private final NavigableMap<RID, Change> changedValues;
+  private final Stream<RawPair<RID, Change>> changedValues;
 
   private final LinkBagPointer collectionPointer;
   private final BTreeCollectionManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(
-      final NavigableMap<RID, Change> changedValues,
+      final Stream<RawPair<RID, Change>> changedValues,
       LinkBagPointer collectionPointer, int maxCounterValue,
       @Nonnull DatabaseSessionInternal session) {
     this.changedValues = changedValues;
@@ -56,39 +58,26 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
 
   @Override
   public void execute(
-      AtomicOperation atomicOperation, AbstractPaginatedStorage paginatedStorage) {
-    if (changedValues.isEmpty()) {
-      return;
-    }
-
+      AtomicOperation atomicOperation, AbstractStorage paginatedStorage) {
     var tree = loadTree();
-    try {
-      for (var entry : changedValues.entrySet()) {
-        var storedCounter = tree.get(entry.getKey());
-
-        storedCounter = entry.getValue().applyTo(storedCounter, maxCounterValue);
+    changedValues.forEach(entry -> {
+      try {
+        var storedCounter = tree.get(entry.first());
+        storedCounter = entry.second().applyTo(storedCounter, maxCounterValue);
         if (storedCounter <= 0) {
-          tree.remove(atomicOperation, entry.getKey());
+          tree.remove(atomicOperation, entry.first());
         } else {
-          tree.put(atomicOperation, entry.getKey(), storedCounter);
+          tree.put(atomicOperation, entry.first(), entry.second().getValue());
         }
+      } catch (IOException e) {
+        throw BaseException.wrapException(
+            new DatabaseException(paginatedStorage.getName(), "Error during ridbag update"), e,
+            paginatedStorage.getName());
       }
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new DatabaseException(paginatedStorage.getName(), "Error during ridbag update"), e,
-          paginatedStorage.getName());
-    } finally {
-      releaseTree();
-    }
-
-    changedValues.clear();
+    });
   }
 
-  private EdgeBTree<RID, Integer> loadTree() {
-    return collectionManager.loadSBTree(collectionPointer);
-  }
-
-  private void releaseTree() {
-    collectionManager.releaseSBTree(collectionPointer);
+  private IsolatedLinkBagBTree<RID, Integer> loadTree() {
+    return collectionManager.loadIsolatedBTree(collectionPointer);
   }
 }

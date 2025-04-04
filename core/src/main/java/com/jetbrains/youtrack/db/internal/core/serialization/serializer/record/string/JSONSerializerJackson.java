@@ -111,12 +111,12 @@ public class JSONSerializerJackson {
 
   public static RecordAbstract fromString(@Nonnull DatabaseSessionInternal session,
       @Nonnull String source) {
-    return fromStringWithMetadata(session, source, null).first;
+    return fromStringWithMetadata(session, source, null).first();
   }
 
   public static RecordAbstract fromString(@Nonnull DatabaseSessionInternal session,
       @Nonnull String source, @Nullable RecordAbstract record) {
-    return fromStringWithMetadata(session, source, record).first;
+    return fromStringWithMetadata(session, source, record).first();
   }
 
   public static RawPair<RecordAbstract, RecordMetadata> fromStringWithMetadata(

@@ -24,10 +24,9 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -122,7 +121,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     final var directory = session.getStorage().getConfiguration().getDirectory();
 
     final var wowCache =
-        (WOWCache) ((LocalPaginatedStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) ((LocalStorage) (session.getStorage())).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -157,7 +156,7 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     cygni = activeTx.load(cygni);
     scorpii = activeTx.load(scorpii);
 
-    var expectedResult = new HashSet<EntityImpl>(Arrays.asList(scuti, scorpii));
+    var expectedResult = new HashSet<>(Arrays.asList(scuti, scorpii));
 
     var bag = new RidBag(session);
     bag.add(scuti.getIdentity());
@@ -174,6 +173,8 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     doc = activeTx.load(doc);
     bag = doc.getProperty("ridBag");
     bag.remove(cygni.getIdentity());
+
+    bag.stream().toList();
 
     Set<EntityImpl> result = new HashSet<>();
     for (Identifiable identifiable : bag) {

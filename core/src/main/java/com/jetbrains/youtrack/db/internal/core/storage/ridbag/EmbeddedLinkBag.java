@@ -20,35 +20,30 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.Resettable;
-import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
+import java.util.Spliterator;
 import javax.annotation.Nonnull;
 
 public class EmbeddedLinkBag extends AbstractLinkBag {
+
   public EmbeddedLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {
     super(session, counterMaxValue);
   }
 
-  public EmbeddedLinkBag(@Nonnull List<ObjectIntPair<RID>> changes,
+
+  public EmbeddedLinkBag(@Nonnull List<RawPair<RID, Change>> changes,
       @Nonnull DatabaseSessionInternal session, int size, int counterMaxValue) {
     super(session, size, counterMaxValue);
-    for (var pair : changes) {
-      this.changes.put(pair.key(), new AbsoluteChange(pair.value()));
-    }
+    localChanges.fillAllSorted(changes);
   }
 
   @Override
-  public @Nonnull Iterator<RID> iterator() {
-    assert assertIfNotActive();
-    return new RIDBagIterator(newEntries, changes);
+  protected BagChangesContainer createChangesContainer() {
+    return new ArrayBasedBagChangesContainer();
   }
 
   @Override
@@ -86,135 +81,28 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
   public void requestDelete() {
   }
 
+
   @Override
-  protected Map<RID, Change> initChanges() {
-    return new HashMap<>();
+  protected int getAbsoluteValue(RID rid) {
+    var change = localChanges.getChange(rid);
+    if (change == null) {
+      return 0;
+    }
+    return change.getValue();
   }
 
   @Override
-  protected void updateSize() {
-    if (size < 0) {
-      throw new UnsupportedOperationException();
-    }
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
+    return null;
   }
 
   @Override
-  protected AbsoluteChange getAbsoluteValue(RID rid) {
-    var change = changes.get(rid);
-    if (!(change instanceof AbsoluteChange absoluteChange)) {
-      throw new IllegalArgumentException("Change is not an absolute change");
-    }
-
-    return absoluteChange;
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
+    return null;
   }
 
-  private final class RIDBagIterator implements Iterator<RID>, Resettable, Sizeable {
-
-    private final Map<RID, Change> changedValues;
-    private Iterator<Map.Entry<RID, int[]>> newEntryIterator;
-    private Iterator<Map.Entry<RID, Change>> changedValuesIterator;
-    private Map.Entry<RID, Change> nextChange;
-    private RID currentValue;
-    private int currentFinalCounter;
-    private int currentCounter;
-    private boolean currentRemoved;
-
-    private RIDBagIterator(
-        HashMap<RID, int[]> newEntries,
-        Map<RID, Change> changedValues) {
-      newEntryIterator = newEntries.entrySet().iterator();
-      this.changedValues = changedValues;
-
-      this.changedValuesIterator = changedValues.entrySet().iterator();
-      nextChange = nextChangedNotRemovedEntry(changedValuesIterator);
-    }
-
-    @Override
-    public boolean hasNext() {
-      assert assertIfNotActive();
-      return newEntryIterator.hasNext()
-          || nextChange != null
-          || (currentValue != null && currentCounter < currentFinalCounter);
-    }
-
-    @Override
-    public RID next() {
-      assert assertIfNotActive();
-      currentRemoved = false;
-      if (currentCounter < currentFinalCounter) {
-        currentCounter++;
-        return currentValue;
-      }
-
-      if (newEntryIterator.hasNext()) {
-        var entry = newEntryIterator.next();
-        currentValue = entry.getKey();
-        currentFinalCounter = entry.getValue()[0];
-        currentCounter = 1;
-        return currentValue;
-      }
-
-      if (nextChange != null) {
-        currentValue = nextChange.getKey();
-        currentFinalCounter = nextChange.getValue().applyTo(0, counterMaxValue);
-        currentCounter = 1;
-
-        nextChange = nextChangedNotRemovedEntry(changedValuesIterator);
-      } else {
-        throw new NoSuchElementException();
-      }
-
-      return currentValue;
-    }
-
-    @Override
-    public void remove() {
-      assert assertIfNotActive();
-      if (currentRemoved) {
-        throw new IllegalStateException("Current entity has already been removed");
-      }
-
-      if (currentValue == null) {
-        throw new IllegalStateException("Next method was not called for given iterator");
-      }
-
-      if (removeFromNewEntries(currentValue)) {
-        if (size >= 0) {
-          size--;
-        } else {
-          throw new IllegalStateException("Size is not defined for this bag");
-        }
-      } else {
-        var counter = changedValues.get(currentValue);
-        counter.decrement();
-
-        if (size >= 0) {
-          if (counter.isUndefined()) {
-            throw new IllegalStateException("Size is not defined for this bag");
-          } else {
-            size--;
-          }
-        } else {
-          throw new IllegalStateException("Size is not defined for this bag");
-        }
-      }
-
-      removeEvent(currentValue);
-      currentRemoved = true;
-    }
-
-    @Override
-    public void reset() {
-      assert assertIfNotActive();
-      newEntryIterator = newEntries.entrySet().iterator();
-      this.changedValuesIterator = changedValues.entrySet().iterator();
-      nextChange = nextChangedNotRemovedEntry(changedValuesIterator);
-    }
-
-    @Override
-    public int size() {
-      assert assertIfNotActive();
-      return EmbeddedLinkBag.this.size();
-    }
+  @Override
+  public boolean isSizeable() {
+    return true;
   }
 }

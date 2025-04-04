@@ -40,7 +40,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLValueExpression;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -125,8 +124,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           "The command has been interrupted");
     }
     count++;
-    var key = nextEntry.first;
-    Identifiable value = nextEntry.second;
+    var key = nextEntry.first();
+    Identifiable value = nextEntry.second();
 
     var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("key", convertKey(key));

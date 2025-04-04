@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
@@ -53,8 +53,8 @@ public class RecreateIndexesTask implements Runnable {
       try {
         recreateIndexes(indexesToRebuild, newDb);
       } finally {
-        if (indexManager.storage instanceof AbstractPaginatedStorage abstractPaginatedStorage) {
-          abstractPaginatedStorage.synch();
+        if (indexManager.storage instanceof AbstractStorage abstractStorage) {
+          abstractStorage.synch();
         }
         newDb.close();
       }

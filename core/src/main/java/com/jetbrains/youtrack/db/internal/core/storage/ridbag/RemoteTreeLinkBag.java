@@ -23,13 +23,15 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
-import java.util.stream.Stream;
+import java.util.Spliterator;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class RemoteTreeLinkBag extends AbstractLinkBag {
+
   private final LinkBagPointer collectionPointer;
   private String fieldName;
 
@@ -40,15 +42,24 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected AbsoluteChange getAbsoluteValue(RID rid) {
-    return session.getStorage().getLinkBagCounter(session,
-        owner.getOwnerEntity().getIdentity(), fieldName, rid);
+  protected BagChangesContainer createChangesContainer() {
+    return new TreeBasedBagChangesContainer();
   }
 
   @Override
-  protected void updateSize() {
-    size = session.getStorage().getLinkBagSize(session,
-        owner.getOwnerEntity().getIdentity(), fieldName);
+  protected int getAbsoluteValue(RID rid) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  @Override
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -93,5 +104,10 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
 
   public LinkBagPointer getCollectionPointer() {
     return collectionPointer;
+  }
+
+  @Override
+  public boolean isSizeable() {
+    return false;
   }
 }

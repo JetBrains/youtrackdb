@@ -22,13 +22,12 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBListenerAbstract;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nullable;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * @since 11/26/13
@@ -104,7 +103,7 @@ public class RecordSerializationContext {
   }
 
   public void executeOperations(
-      AtomicOperation atomicOperation, AbstractPaginatedStorage storage) {
+      AtomicOperation atomicOperation, AbstractStorage storage) {
     for (var operation : operations) {
       operation.execute(atomicOperation, storage);
     }

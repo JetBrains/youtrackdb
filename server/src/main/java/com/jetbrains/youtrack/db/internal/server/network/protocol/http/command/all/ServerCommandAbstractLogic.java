@@ -96,10 +96,10 @@ public abstract class ServerCommandAbstractLogic extends ServerCommandAuthentica
         return new RawPair<Object, Entity>(functionResult, null);
       });
 
-      var functionResult = result.first;
-      if (result.second != null) {
+      var functionResult = result.first();
+      if (result.second() != null) {
         var resultInternal = (ResultInternal) functionResult;
-        resultInternal.setProperty(EntityHelper.ATTRIBUTE_VERSION, result.second.getVersion());
+        resultInternal.setProperty(EntityHelper.ATTRIBUTE_VERSION, result.second().getVersion());
       }
       handleResult(iRequest, iResponse, functionResult, session);
     } catch (CommandScriptException e) {

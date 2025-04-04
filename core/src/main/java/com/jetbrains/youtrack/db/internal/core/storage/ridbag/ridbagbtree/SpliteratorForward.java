@@ -12,7 +12,7 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 public final class SpliteratorForward implements Spliterator<RawPairObjectInteger<EdgeKey>> {
-  private final LinkBagBTree bTree;
+  private final SharedLinkBagBTree bTree;
 
   private final EdgeKey fromKey;
   private final EdgeKey toKey;
@@ -28,7 +28,7 @@ public final class SpliteratorForward implements Spliterator<RawPairObjectIntege
   private Iterator<RawPairObjectInteger<EdgeKey>> cacheIterator = Collections.emptyIterator();
 
   SpliteratorForward(
-      LinkBagBTree bTree,
+      SharedLinkBagBTree bTree,
       final EdgeKey fromKey,
       final EdgeKey toKey,
       final boolean fromKeyInclusive,

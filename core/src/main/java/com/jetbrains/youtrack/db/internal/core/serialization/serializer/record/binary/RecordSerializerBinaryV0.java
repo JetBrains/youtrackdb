@@ -756,9 +756,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
   }
 
   protected static RidBag readRidbag(DatabaseSessionInternal session, BytesContainer bytes) {
-    var bag = new RidBag(session);
-    bag.fromStream(session, bytes);
-    return bag;
+    throw new UnsupportedOperationException();
   }
 
   protected static SchemaClass serializeClass(DatabaseSessionInternal session,
@@ -1030,7 +1028,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
   }
 
   protected int writeRidBag(DatabaseSessionInternal db, BytesContainer bytes, RidBag ridbag) {
-    return ridbag.toStream(db, bytes);
+    throw new UnsupportedOperationException();
   }
 
   @SuppressWarnings("unchecked")

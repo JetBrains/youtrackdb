@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.CollectionPositionMapEx
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMapBucket;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.Arrays;
@@ -40,7 +40,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   private long fileId;
 
   CollectionPositionMapV2(
-      final AbstractPaginatedStorage storage,
+      final AbstractStorage storage,
       final String name,
       final String lockName,
       final String extension) {

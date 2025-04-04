@@ -152,8 +152,6 @@ enum STATUS {
 
   AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity, String fieldName, RID rid);
 
-  int getLinkBagSize(DatabaseSessionInternal session, RecordId identity, String fieldName);
-
   /**
    * Returns the total number of records.
    */

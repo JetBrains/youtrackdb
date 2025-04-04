@@ -329,11 +329,16 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     dirty++;
     session.deleteInternal(this);
+    internalReset();
 
     source = null;
     status = STATUS.NOT_LOADED;
     session = null;
     txEntry = null;
+  }
+
+  protected void internalReset() {
+
   }
 
   public void markDeletedInServerTx() {
@@ -461,7 +466,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public final RecordAbstract setIdentity(RID recordId) {
     assert assertIfAlreadyLoaded(recordId);
 
-    this.recordId.setCollectionAndPosition(recordId.getCollectionId(), recordId.getCollectionPosition());
+    this.recordId.setCollectionAndPosition(recordId.getCollectionId(),
+        recordId.getCollectionPosition());
 
     return this;
   }

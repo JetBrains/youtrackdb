@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
@@ -264,19 +264,19 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage, Object key,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
       RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+  public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();

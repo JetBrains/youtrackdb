@@ -327,6 +327,6 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
   private static void streamToSet(
       Stream<RawPair<Object, RID>> stream, Set<Identifiable> result) {
     result.clear();
-    result.addAll(stream.map((entry) -> entry.second).collect(Collectors.toSet()));
+    result.addAll(stream.map((entry) -> entry.second()).collect(Collectors.toSet()));
   }
 }
