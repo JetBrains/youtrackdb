@@ -131,7 +131,10 @@ public class ClientConnectionManager {
         }
       }
     }
-    server.getPushManager().cleanPushSockets();
+    var pushManager = server.getPushManager();
+    if (pushManager != null) {
+      pushManager.cleanPushSockets();
+    }
   }
 
   /**

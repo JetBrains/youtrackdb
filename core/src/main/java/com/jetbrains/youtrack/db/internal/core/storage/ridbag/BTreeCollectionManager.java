@@ -22,30 +22,14 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
-import java.util.Map;
-import java.util.UUID;
-import javax.annotation.Nullable;
 
 public interface BTreeCollectionManager {
   LinkBagPointer createBTree(
-      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
+      int collectionId, AtomicOperation atomicOperation,
       DatabaseSessionInternal session) throws IOException;
 
   IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(LinkBagPointer collectionPointer);
-
-  @Nullable
-  UUID listenForChanges(RidBag collection, DatabaseSessionInternal session);
-
-  void updateCollectionPointer(UUID uuid, LinkBagPointer pointer,
-      DatabaseSessionInternal session);
-
-  void clearPendingCollections();
-
-  Map<UUID, LinkBagPointer> changedIds(DatabaseSessionInternal session);
-
-  void clearChangedIds(DatabaseSessionInternal session);
 }

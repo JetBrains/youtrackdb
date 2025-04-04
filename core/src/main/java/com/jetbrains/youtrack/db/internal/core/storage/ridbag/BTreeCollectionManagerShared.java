@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.Isolat
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTreeImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +46,7 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public final class BTreeCollectionManagerShared
-    implements BTreeCollectionManager, YouTrackDBStartupListener, YouTrackDBShutdownListener {
+public final class BTreeCollectionManagerShared implements BTreeCollectionManager  {
 
   public static final String FILE_EXTENSION = ".grb";
   public static final String FILE_NAME_PREFIX = "global_collection_";
@@ -147,67 +147,10 @@ public final class BTreeCollectionManagerShared
 
   @Override
   public LinkBagPointer createBTree(
-      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
+      int collectionId, AtomicOperation atomicOperation,
       DatabaseSessionInternal session) {
     final var bonsaiGlobal = doCreateRidBag(atomicOperation, collectionId);
-    final var pointer = bonsaiGlobal.getCollectionPointer();
-
-    if (ownerUUID != null) {
-      var changedPointers =
-          session.getCollectionsChanges();
-      if (pointer != null && pointer.isValid()) {
-        changedPointers.put(ownerUUID, pointer);
-      }
-    }
-
-    return pointer;
-  }
-
-  /**
-   * Change UUID to null to prevent its serialization to disk.
-   */
-  @Nullable
-  @Override
-  public UUID listenForChanges(RidBag collection, DatabaseSessionInternal session) {
-    var ownerUUID = collection.getTemporaryId();
-
-    if (ownerUUID != null) {
-      final var pointer = collection.getPointer();
-      var changedPointers = session.getCollectionsChanges();
-
-      if (pointer != null && pointer.isValid()) {
-        changedPointers.put(ownerUUID, pointer);
-      }
-    }
-
-    return null;
-  }
-
-  @Override
-  public void updateCollectionPointer(UUID uuid, LinkBagPointer pointer,
-      DatabaseSessionInternal session) {
-  }
-
-  @Override
-  public void clearPendingCollections() {
-  }
-
-  @Override
-  public Map<UUID, LinkBagPointer> changedIds(DatabaseSessionInternal session) {
-    return session.getCollectionsChanges();
-  }
-
-  @Override
-  public void clearChangedIds(DatabaseSessionInternal session) {
-    session.getCollectionsChanges().clear();
-  }
-
-  @Override
-  public void onShutdown() {
-  }
-
-  @Override
-  public void onStartup() {
+    return bonsaiGlobal.getCollectionPointer();
   }
 
   public void close() {

@@ -20,13 +20,17 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import it.unimi.dsi.fastutil.objects.ObjectIntImmutablePair;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
+import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -35,9 +39,9 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   private final LinkBagPointer collectionPointer;
   private String fieldName;
 
-  public RemoteTreeLinkBag(LinkBagPointer pointer, @Nonnull DatabaseSessionInternal session,
-      int counterMaxValue) {
-    super(session, counterMaxValue);
+  public RemoteTreeLinkBag(@Nonnull DatabaseSessionInternal session, LinkBagPointer pointer,
+      int counterMaxValue, int size) {
+    super(session, size, counterMaxValue);
     this.collectionPointer = pointer;
   }
 
@@ -48,13 +52,33 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
 
   @Override
   protected int getAbsoluteValue(RID rid) {
-    throw new UnsupportedOperationException();
+    assert assertIfNotActive();
+    var ownerEntity = checkOwner();
+
+    return session.getStorage()
+        .getAbsoluteLinkBagCounter(ownerEntity.getIdentity(), fieldName, rid);
+  }
+
+  @Nonnull
+  private EntityImpl checkOwner() {
+    var ownerEntity = getOwnerEntity();
+
+    if (ownerEntity == null) {
+      throw new IllegalStateException(
+          "Owner entity is null, can not return underlying value from storage");
+    }
+    return ownerEntity;
   }
 
   @Nullable
   @Override
   protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
-    throw new UnsupportedOperationException();
+    var ownerEntity = checkOwner();
+
+    return new TransformingSpliterator(
+        session.query("select expand(@this.field(:fieldName)) from " +
+                ownerEntity.getIdentity(), false,
+            Map.of("fieldName", fieldName)));
   }
 
   @Override
@@ -66,7 +90,8 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   public Object returnOriginalState(
       DatabaseSessionInternal session,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    final var reverted = new RemoteTreeLinkBag(this.collectionPointer, session, counterMaxValue);
+    final var reverted = new RemoteTreeLinkBag(session, this.collectionPointer,
+        counterMaxValue, 0);
 
     for (var identifiable : this) {
       reverted.add(identifiable);
@@ -109,5 +134,40 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   @Override
   public boolean isSizeable() {
     return false;
+  }
+
+  private static final class TransformingSpliterator implements Spliterator<ObjectIntPair<RID>> {
+
+    private final Spliterator<Result> delegate;
+
+    TransformingSpliterator(Spliterator<Result> delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public boolean tryAdvance(Consumer<? super ObjectIntPair<RID>> action) {
+      return delegate.tryAdvance(result -> {
+        var rid = result.getIdentity();
+        if (rid == null) {
+          throw new IllegalStateException("RID is null");
+        }
+        action.accept(new ObjectIntImmutablePair<>(rid, 1));
+      });
+    }
+
+    @Override
+    public Spliterator<ObjectIntPair<RID>> trySplit() {
+      return new TransformingSpliterator(delegate.trySplit());
+    }
+
+    @Override
+    public long estimateSize() {
+      return delegate.estimateSize();
+    }
+
+    @Override
+    public int characteristics() {
+      return delegate.characteristics();
+    }
   }
 }

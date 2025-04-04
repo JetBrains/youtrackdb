@@ -361,20 +361,8 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return value;
   }
 
-  public static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+  public void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
-    final var bTreeCollectionManager = session.getBTreeCollectionManager();
-
-    UUID uuid = null;
-    if (bTreeCollectionManager != null) {
-      uuid = bTreeCollectionManager.listenForChanges(bag, session);
-    }
-    if (uuid == null) {
-      uuid = new UUID(-1, -1);
-    }
-    var uuidPos = bytes.alloc(UUIDSerializer.UUID_SIZE);
-    UUIDSerializer.staticSerialize(uuid, bytes.bytes, uuidPos);
-
     if (bag.isToSerializeEmbedded()) {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 1;
@@ -387,41 +375,24 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 2;
 
-      var delegate = (RemoteTreeLinkBag) bag.getDelegate();
+      var delegate = (BTreeBasedLinkBag) bag.getDelegate();
       var pointer = delegate.getCollectionPointer();
 
-      if (pointer == null || pointer.isValid()) {
+      if (pointer == null || !pointer.isValid()) {
         throw new IllegalStateException("RidBag with invalid pointer was found");
       }
 
       VarIntSerializer.write(bytes, delegate.size());
       VarIntSerializer.write(bytes, pointer.fileId());
       VarIntSerializer.write(bytes, pointer.linkBagId());
-
-      var changes = bag.getChanges();
-
-      changes.forEach(change -> {
-        bytes.alloc(1);
-        bytes.bytes[pos] = 1;
-        writeOptimizedLink(session, bytes, change.first());
-        var posAll = bytes.alloc(1);
-        bytes.bytes[posAll] = change.second().getType();
-        VarIntSerializer.write(bytes, change.second().getValue());
-      });
-      bytes.alloc(1);
     }
   }
 
   public RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
-    var uuid = UUIDSerializer.staticDeserialize(bytes.bytes, bytes.offset);
-    bytes.skip(UUIDSerializer.UUID_SIZE);
-    if (uuid.getMostSignificantBits() == -1 && uuid.getLeastSignificantBits() == -1) {
-      uuid = null;
-    }
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      var bag = new RidBag(session, uuid);
+      var bag = new RidBag(session);
       // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
       bag.enableTracking(null);
 
@@ -439,22 +410,10 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       var fileId = VarIntSerializer.readAsLong(bytes);
       var linkBagId = VarIntSerializer.readAsLong(bytes);
 
-      Map<RID, Change> changes = new HashMap<>();
-      var continueFlag = bytes.bytes[bytes.offset++];
-      while (continueFlag > 0) {
-        var link = readOptimizedLink(session, bytes);
-        var type = bytes.bytes[bytes.offset];
-        bytes.skip(1);
-        var change = VarIntSerializer.readAsInteger(bytes);
-        changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
-        continueFlag = bytes.bytes[bytes.offset++];
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkBag with invalid pointer was found");
       }
-
-      LinkBagPointer pointer = null;
-      if (fileId != -1) {
-        pointer = new LinkBagPointer(fileId, linkBagId);
-      }
-
       return new RidBag(session,
           new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
     }

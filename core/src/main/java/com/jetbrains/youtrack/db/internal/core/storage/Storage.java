@@ -53,7 +53,8 @@ import javax.annotation.Nullable;
  * @see DirectMemoryStorage
  */
 public interface Storage extends Backupable, StorageInfo {
-enum STATUS {
+
+  enum STATUS {
     CLOSED,
     OPEN,
     MIGRATION,
@@ -102,13 +103,16 @@ enum STATUS {
    *
    * @param iCollectionName name of the collection
    */
-  int addCollection(DatabaseSessionInternal database, String iCollectionName, Object... iParameters);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName,
+      Object... iParameters);
+
+  int getAbsoluteLinkBagCounter(RID ownerId, String fieldName,  RID key);
 
   /**
    * Add a new collection into the storage.
    *
    * @param iCollectionName name of the collection
-   * @param iRequestedId requested id of the collection
+   * @param iRequestedId    requested id of the collection
    */
   int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
 
@@ -116,7 +120,8 @@ enum STATUS {
 
   String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
-  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute, Object value);
+  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute,
+      Object value);
 
   /**
    * Drops a collection.
@@ -150,7 +155,8 @@ enum STATUS {
    */
   long getSize(DatabaseSessionInternal session);
 
-  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity, String fieldName, RID rid);
+  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid);
 
   /**
    * Returns the total number of records.

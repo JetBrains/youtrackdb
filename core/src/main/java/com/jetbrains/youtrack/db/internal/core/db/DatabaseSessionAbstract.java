@@ -106,6 +106,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -160,7 +161,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
   protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
-  private Map<UUID, LinkBagPointer> collectionsChanges;
+  private Map<UUID, ObjectIntPair<LinkBagPointer>> collectionsChanges;
 
   // database stats!
   protected long loadedRecordsCount;
@@ -620,7 +621,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
-    return getStorageInfo().getCollectionNames().contains(iCollectionName.toLowerCase(Locale.ENGLISH));
+    return getStorageInfo().getCollectionNames()
+        .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
@@ -2173,7 +2175,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
 
-  public Map<UUID, LinkBagPointer> getCollectionsChanges() {
+  public Map<UUID, ObjectIntPair<LinkBagPointer>> getCollectionsChanges() {
     assert assertIfNotActive();
 
     if (collectionsChanges == null) {

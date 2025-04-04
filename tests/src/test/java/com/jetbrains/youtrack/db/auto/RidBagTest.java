@@ -50,7 +50,6 @@ public abstract class RidBagTest extends BaseDBTest {
 
     Identifiable identifiable = iterator.next();
     assertEquals(identifiable, new RecordId("#77:1"));
-
     Assert.assertFalse(iterator.hasNext());
     assertEmbedded(bag.isEmbedded());
     session.commit();
@@ -1768,7 +1767,6 @@ public abstract class RidBagTest extends BaseDBTest {
       }
     }
 
-
     assertEquals(ridBag.size(), size);
     List<RID> ridsCopy = new ArrayList<>(rids);
 
@@ -1852,14 +1850,8 @@ public abstract class RidBagTest extends BaseDBTest {
       if (rnd.nextDouble() < 0.2 & rids.size() > 5) {
         final var index = rnd.nextInt(rids.size());
         final var rid = rids.remove(index);
-        if (!bag.remove(rid.getIdentity())) {
-          ;
-          bag.remove(rid.getIdentity());
-        }
+        Assert.assertTrue(bag.remove(rid.getIdentity()));
       } else {
-        final long position;
-        position = rnd.nextInt(300);
-
         final var recordId = session.newEntity().getIdentity();
         rids.add(recordId);
         bag.add(recordId);
@@ -1872,10 +1864,14 @@ public abstract class RidBagTest extends BaseDBTest {
       final Identifiable bagValue = bagIterator.next();
       assertTrue(rids.contains(bagValue));
 
-//      if (rnd.nextDouble() < 0.05) {
-//        bagIterator.remove();
-//        assertTrue(rids.remove(bagValue));
-//      }
+      if (rnd.nextDouble() < 0.05) {
+        if (bagValue.getIdentity().isPersistent()) {
+          System.out.println();
+        }
+        bagIterator.remove();
+        assertTrue(rids.remove(bagValue));
+
+      }
     }
 
     assertEquals(bag.size(), rids.size());

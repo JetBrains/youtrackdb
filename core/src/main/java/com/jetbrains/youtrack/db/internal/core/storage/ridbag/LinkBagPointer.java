@@ -26,6 +26,6 @@ public record LinkBagPointer(long fileId, long linkBagId) {
   public static final LinkBagPointer INVALID = new LinkBagPointer(-1, -1);
 
   public boolean isValid() {
-    return fileId >= 0;
+    return fileId >= 0 && linkBagId >= 0;
   }
 }

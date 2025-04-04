@@ -595,7 +595,31 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     private void moveToNextEntry() {
       assert currentCounter == 0;
-      currentRid = null;
+
+      if (persistentModificationsCount != savedPersistentModificationsCount) {
+        if (currentRid == null) {
+          initLocalChangesSpliterator();
+        } else {
+          Spliterator<RawPair<RID, Change>> tailSpliterator;
+
+          if (localRid != null) {
+            tailSpliterator = localChanges.spliterator(localRid);
+          } else {
+            tailSpliterator = localChanges.spliterator(currentRid);
+          }
+
+          if (tailSpliterator.estimateSize() == 0) {
+            localChangesSpliterator = null;
+          } else {
+            localChangesSpliterator = tailSpliterator;
+            if (localRid == null) {
+              nextLocalEntree();
+            }
+          }
+        }
+
+        savedPersistentModificationsCount = persistentModificationsCount;
+      }
 
       do {
         if (localRid != null && btreeRid != null) {
@@ -655,6 +679,12 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       btreeRecordsSpliterator = btreeSpliterator();
     }
 
+    public void removed(RID rid) {
+      if (rid.equals(currentRid) && currentCounter > 0) {
+        currentCounter--;
+      }
+    }
+
     @Override
     public boolean tryAdvance(Consumer<? super RID> action) {
       assert assertIfNotActive();
@@ -704,6 +734,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     private void nextBTreeEntree() {
       if (btreeRecordsSpliterator == null) {
+        assert btreeRid == null && btreeCounter == 0;
         return;
       }
 
@@ -723,21 +754,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     private void nextLocalEntree() {
       if (localChangesSpliterator == null) {
+        assert localRid == null && localCounter == 0;
         return;
-      }
-
-      if (savedPersistentModificationsCount != persistentModificationsCount) {
-        if (currentRid == null) {
-          initLocalChangesSpliterator();
-        } else {
-          var tailSpliterator = localChanges.spliterator(currentRid);
-
-          if (tailSpliterator.estimateSize() == 0) {
-            localChangesSpliterator = null;
-          }
-        }
-
-        savedPersistentModificationsCount = persistentModificationsCount;
       }
 
       if (!localChangesSpliterator.tryAdvance(ridChangeRawPair -> {
@@ -794,8 +812,16 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   private final class EnhancedIterator implements Iterator<RID>, Sizeable,
       ResettableIterator<RID>, Resettable {
 
-    private Iterator<RID> iterator = stream().iterator();
+    private MergingSpliterator spliterator;
+    private RID nextRid;
     private RID currentRid;
+
+    public EnhancedIterator() {
+      spliterator = new MergingSpliterator();
+      spliterator.tryAdvance(rid -> {
+        nextRid = rid;
+      });
+    }
 
     @Override
     public boolean isResetable() {
@@ -816,19 +842,27 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     @Override
     public void reset() {
-      iterator = stream().iterator();
+      spliterator = new MergingSpliterator();
     }
 
     @Override
     public boolean hasNext() {
       assert assertIfNotActive();
-      return iterator.hasNext();
+
+      return nextRid != null;
     }
 
     @Override
     public RID next() {
       assert assertIfNotActive();
-      currentRid = iterator.next();
+
+      currentRid = nextRid;
+      if (!spliterator.tryAdvance(rid -> {
+        nextRid = rid;
+      })) {
+        nextRid = null;
+      }
+
       return currentRid;
     }
 
@@ -838,6 +872,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         throw new IllegalStateException("No current element to remove");
       }
       AbstractLinkBag.this.remove(currentRid);
+      spliterator.removed(currentRid);
       currentRid = null;
     }
   }

@@ -526,7 +526,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
                   connection
                       .getDatabaseSession()
                       .getBTreeCollectionManager()
-                      .createBTree(request.getCollectionId(), atomicOperation, null, session));
+                      .createBTree(request.getCollectionId(), atomicOperation, session));
     } catch (IOException e) {
       throw BaseException.wrapException(
           new DatabaseException(session, "Error during ridbag creation"), e, session);
@@ -1162,28 +1162,13 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
       try {
         session.commit();
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        Map<UUID, LinkBagPointer> changedIds = null;
-
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds(session);
-        }
-
         return new Commit37Response(serverTransaction.getId(),
             serverTransaction.getUpdateToOldRecordIdMap(),
-            changedIds, session);
+            session);
       } catch (final RuntimeException e) {
         if (serverTransaction.isActive()) {
           session.rollback(true);
         }
-
-        final var collectionManager =
-            connection.getDatabaseSession().getBTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds(session);
-        }
-
         throw e;
       }
     } catch (final RuntimeException e) {

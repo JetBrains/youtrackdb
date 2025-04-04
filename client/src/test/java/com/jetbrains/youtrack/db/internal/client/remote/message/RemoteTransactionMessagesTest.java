@@ -77,15 +77,12 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     var channel = new MockChannel();
 
-    Map<UUID, LinkBagPointer> changes = new HashMap<>();
-    var val = UUID.randomUUID();
-    changes.put(val, new LinkBagPointer(10, 42));
     var updatedRids = new HashMap<RecordId, RecordId>();
 
     updatedRids.put(new RecordId(10, 20), new RecordId(10, 30));
     updatedRids.put(new RecordId(10, 21), new RecordId(10, 31));
 
-    var response = new Commit37Response(0, updatedRids, changes, session);
+    var response = new Commit37Response(0, updatedRids, session);
     response.write(session, channel, 0, null);
     channel.close();
 
@@ -99,11 +96,6 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     assertEquals(new RecordId(10, 31), readResponse.getOldToUpdatedRids().get(1).getFirst());
     assertEquals(new RecordId(10, 21), readResponse.getOldToUpdatedRids().get(1).getSecond());
-
-    assertEquals(1, readResponse.getCollectionChanges().size());
-    assertNotNull(readResponse.getCollectionChanges().get(val));
-    assertEquals(10, readResponse.getCollectionChanges().get(val).fileId());
-    assertEquals(42, readResponse.getCollectionChanges().get(val).linkBagId());
   }
 
   @Test

@@ -95,6 +95,11 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
+  public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
       String fieldName, RID rid) {
     throw new UnsupportedOperationException();

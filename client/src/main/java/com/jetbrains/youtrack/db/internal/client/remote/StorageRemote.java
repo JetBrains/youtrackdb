@@ -81,6 +81,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
@@ -117,6 +118,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinar
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -723,8 +725,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     stateLock.writeLock().lock();
     try {
       // CLOSE ALL THE SOCKET POOLS
-      sbTreeCollectionManager.close();
-
       status = STATUS.CLOSED;
 
     } finally {
@@ -780,19 +780,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  private static void updateCollectionsFromChanges(
-      final BTreeCollectionManager collectionManager,
-      final Map<UUID, LinkBagPointer> changes, DatabaseSessionInternal session) {
-    if (collectionManager != null) {
-      for (var coll : changes.entrySet()) {
-        collectionManager.updateCollectionPointer(coll.getKey(), coll.getValue(), session);
-      }
-      if (RecordSerializationContext.getDepth() <= 1) {
-        collectionManager.clearPendingCollections();
-      }
-    }
-  }
-
   public RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid) {
     var request = new GetRecordMetadataRequest(rid);
     var response =
@@ -838,6 +825,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         "Error on read record " + iRid);
 
     return response.getResult();
+  }
+
+  @Override
+  public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+    return 0;
   }
 
   public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
@@ -1260,10 +1252,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
     // two pass iteration, we update collection ids, and then update positions
     updateTxFromResponse(transaction, response);
-    updateCollectionsFromChanges(
-        transaction.getDatabaseSession().getBTreeCollectionManager(),
-        response.getCollectionChanges(),
-        transaction.getDatabaseSession());
 
     for (var txEntry : transaction.getRecordOperationsInternal()) {
       final var rec = txEntry.record;

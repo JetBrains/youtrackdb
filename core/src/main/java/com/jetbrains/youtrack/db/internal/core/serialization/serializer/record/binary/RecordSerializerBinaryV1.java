@@ -794,21 +794,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       RidBag ridbag) {
     var positionOffset = bytes.offset;
     ridbag.checkAndConvert();
-    var ownerUuid = ridbag.getTemporaryId();
-
-    final var bTreeCollectionManager = session.getBTreeCollectionManager();
-    UUID uuid = null;
-    if (bTreeCollectionManager != null) {
-      uuid = bTreeCollectionManager.listenForChanges(ridbag, session);
-    }
-
     byte configByte = 0;
     if (ridbag.isEmbedded()) {
       configByte |= 1;
-    }
-
-    if (uuid != null) {
-      configByte |= 2;
     }
 
     // alloc will move offset and do skip
@@ -842,7 +830,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
           assert atomicOperation != null;
           pointer = session
               .getBTreeCollectionManager()
-              .createBTree(collectionId, atomicOperation, ownerUuid, session);
+              .createBTree(collectionId, atomicOperation, session);
 
           btreeLinkBag.setCollectionPointer(pointer);
         } catch (IOException e) {

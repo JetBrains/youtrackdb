@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
@@ -576,7 +577,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet query(String query, Map args) {
+  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
+    return query(query, true, args);
+  }
+
+  @Override
+  public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
@@ -588,7 +595,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     beginReadOnly();
     try {
-      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      if (syncTx) {
+        currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      }
       getSharedContext().getYouTrackDB().startCommand(Optional.empty());
       preQueryStart();
       try {
@@ -597,6 +606,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           throw new CommandExecutionException(getDatabaseName(),
               "Cannot execute query on non idempotent statement: " + query);
         }
+        @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -654,7 +664,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet execute(String query, Map args) {
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -671,6 +681,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         preQueryStart();
 
         var statement = SQLEngine.parse(query, this);
+        @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
         LocalResultSetLifecycleDecorator result;
         if (!statement.isIdempotent()) {
@@ -1937,7 +1948,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         var timeLine = entity.getCollectionTimeLine(propertyName);
         if (timeLine != null) {
           if (currentPropertyValue instanceof EntityLinkListImpl
-              || currentPropertyValue instanceof EntityLinkSetImpl) {
+              || currentPropertyValue instanceof EntityLinkSetImpl ||
+              currentPropertyValue instanceof RidBag
+              || currentPropertyValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
@@ -1952,19 +1965,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                   assert event.getValue() != null;
                   assert event.getOldValue() != null;
                   incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
-                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
-                }
-              }
-            }
-          } else if (currentPropertyValue instanceof EntityLinkMapIml) {
-            for (var event : timeLine.getMultiValueChangeEvents()) {
-              switch (event.getChangeType()) {
-                case ADD -> {
-                  assert event.getValue() != null;
-                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
-                }
-                case REMOVE -> {
-                  assert event.getOldValue() != null;
                   decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
                 }
               }
@@ -2012,7 +2012,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
       if (linkBag == null) {
         if (diff < 0) {
-          throw new IllegalStateException("Cannot remove link for " + entity
+          throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
               + " from opposite entity " + oppositeEntity + " because it does not exist");
         }
         linkBag = new RidBag(this);

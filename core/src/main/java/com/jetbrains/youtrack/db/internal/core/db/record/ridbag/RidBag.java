@@ -45,7 +45,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
@@ -86,11 +85,8 @@ public class RidBag
     RecordElement {
 
   private LinkBagDelegate delegate;
-
-  private String fieldName;
   private int topThreshold;
   private int bottomThreshold;
-  private UUID uuid;
 
   @Nonnull
   private final DatabaseSessionInternal session;
@@ -108,13 +104,6 @@ public class RidBag
     this.session = session;
     initThresholds(session);
     init();
-  }
-
-  public RidBag(@Nonnull DatabaseSessionInternal session, UUID uuid) {
-    this.session = session;
-    initThresholds(session);
-    init();
-    this.uuid = uuid;
   }
 
 
@@ -196,7 +185,7 @@ public class RidBag
     }
 
     var pointer = getPointer();
-    return pointer == null || pointer == LinkBagPointer.INVALID;
+    return pointer == null || !pointer.isValid();
   }
 
   public void checkAndConvert() {
@@ -284,40 +273,6 @@ public class RidBag
     delegate.setOwner(owner);
   }
 
-  /**
-   * Temporary id of collection to track changes in remote mode.
-   *
-   * <p>WARNING! Method is for internal usage.
-   *
-   * @return UUID
-   */
-  public UUID getTemporaryId() {
-    return uuid;
-  }
-
-  public void setTemporaryId(UUID uuid) {
-    this.uuid = uuid;
-  }
-
-  /**
-   * Notify collection that changes has been saved. Converts to non embedded implementation if
-   * needed.
-   *
-   * <p>WARNING! Method is for internal usage.
-   *
-   * @param newPointer new collection pointer
-   */
-  public void notifySaved(LinkBagPointer newPointer, DatabaseSessionInternal session) {
-    if (newPointer.isValid()) {
-      if (isEmbedded()) {
-        replaceWithSBTree(newPointer, session);
-      } else if (delegate instanceof BTreeBasedLinkBag) {
-        ((BTreeBasedLinkBag) delegate).setCollectionPointer(newPointer);
-        ((BTreeBasedLinkBag) delegate).clearChanges();
-      }
-    }
-  }
-
   public LinkBagPointer getPointer() {
     if (isEmbedded()) {
       return LinkBagPointer.INVALID;
@@ -342,20 +297,6 @@ public class RidBag
     delegate = topThreshold >= 0 || session.isRemote() ?
         new EmbeddedLinkBag(session, Integer.MAX_VALUE) :
         new BTreeBasedLinkBag(session, Integer.MAX_VALUE);
-  }
-
-  /**
-   * Silently replace delegate by tree implementation.
-   *
-   * @param pointer new collection pointer
-   */
-  private void replaceWithSBTree(LinkBagPointer pointer, DatabaseSessionInternal session) {
-    delegate.requestDelete();
-    final var treeBag = new RemoteTreeLinkBag(pointer, session, Integer.MAX_VALUE);
-    treeBag.setOwnerFieldName(fieldName);
-    treeBag.setOwner(delegate.getOwner());
-    treeBag.setTracker(delegate.getTracker());
-    delegate = treeBag;
   }
 
   public LinkBagDelegate getDelegate() {
@@ -444,20 +385,6 @@ public class RidBag
   public void setOwnerFieldName(String fieldName) {
     if (this.delegate instanceof RemoteTreeLinkBag) {
       ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);
-    }
-
-    this.fieldName = fieldName;
-  }
-
-  public void makeTree() {
-    if (isEmbedded()) {
-      convertToTree();
-    }
-  }
-
-  public void makeEmbedded() {
-    if (!isEmbedded()) {
-      convertToEmbedded();
     }
   }
 }

@@ -333,6 +333,11 @@ public class PostponedEngineStartTest {
         }
 
         @Override
+        public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+          return 0;
+        }
+
+        @Override
         public int addCollection(DatabaseSessionInternal database, String iCollectionName,
             int iRequestedId) {
           return 0;
