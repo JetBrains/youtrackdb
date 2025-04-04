@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
@@ -611,16 +613,6 @@ public abstract class RidBagTest extends BaseDBTest {
     ridBag = entity.getProperty("ridBag");
     ridBag.add(id10);
     assertTrue(entity.isDirty());
-
-    var expectCME = false;
-    final var rec = (RecordAbstract) entity;
-    if (rec.isContentChanged()) {
-      assertEmbedded(true);
-      expectCME = true;
-    } else {
-      assertEmbedded(false);
-    }
-
     session.commit();
 
     session.begin();
@@ -636,7 +628,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     var activeTx = session.getActiveTransaction();
     entity = activeTx.load(entity);
-    assertEquals(version == entity.getVersion(), !expectCME);
+    assertNotEquals(entity.getVersion(), version);
     session.commit();
   }
 
@@ -768,8 +760,8 @@ public abstract class RidBagTest extends BaseDBTest {
     bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var entry : bag) {
+      assertTrue(rids.remove(entry));
     }
 
     assertTrue(rids.isEmpty());
@@ -1770,11 +1762,12 @@ public abstract class RidBagTest extends BaseDBTest {
     for (var identifiable : ridBag) {
       if (newDocs.contains(identifiable) && rnd.nextBoolean()) {
         ridBag.remove(identifiable.getIdentity());
-        rids.remove(identifiable);
-
-        size--;
+        if (rids.remove(identifiable)) {
+          size--;
+        }
       }
     }
+
 
     assertEquals(ridBag.size(), size);
     List<RID> ridsCopy = new ArrayList<>(rids);
@@ -1859,7 +1852,8 @@ public abstract class RidBagTest extends BaseDBTest {
       if (rnd.nextDouble() < 0.2 & rids.size() > 5) {
         final var index = rnd.nextInt(rids.size());
         final var rid = rids.remove(index);
-        if (!bag.remove(rid.getIdentity())) {;
+        if (!bag.remove(rid.getIdentity())) {
+          ;
           bag.remove(rid.getIdentity());
         }
       } else {

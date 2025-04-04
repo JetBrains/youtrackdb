@@ -117,13 +117,16 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   default boolean assertIfNotActive() {
     var owner = getOwnerEntity();
-    assert owner == null || !owner.isUnloaded();
+    assert owner == null
+        || !owner.isUnloaded() : "Data container is unloaded please acquire new one from entity";
     DatabaseSessionInternal session = null;
 
     if (owner != null) {
       session = owner.getSession();
     }
-    assert session == null || session.assertIfNotActive();
+    assert session == null
+        || session.assertIfNotActive() : "Data container is unloaded please acquire new one from entity";
+    ;
 
     return true;
   }

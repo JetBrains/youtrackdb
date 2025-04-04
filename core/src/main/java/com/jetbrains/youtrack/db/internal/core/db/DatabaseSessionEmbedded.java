@@ -1809,8 +1809,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
     var properties = entity.getPropertyNamesInternal(true, false);
+    var clazz = entity.getImmutableSchemaClass(this);
 
+    var linksToUpdateMap = new HashMap<RecordId, int[]>();
     for (var propertyName : properties) {
+      linksToUpdateMap.clear();
+
       if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
         var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName);
 
@@ -1877,9 +1881,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
             case RidBag ridBag -> {
               assert ridBag.contains(entity.getIdentity());
-              var removed = ridBag.removeLinks(entity.getIdentity());
-              assert removed;
-              assert !ridBag.contains(entity.getIdentity());
+              var removed = ridBag.remove(entity.getIdentity());
+              if (!removed) {
+                throw new IllegalStateException(
+                    "Cannot remove link " + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist in link bag");
+              }
             }
             default -> {
               throw new IllegalStateException("Unexpected type of link property: "
@@ -1887,6 +1894,22 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
           }
         }
+      } else {
+        if (clazz != null) {
+          if (clazz.isVertexType()) {
+            if (VertexEntityImpl.isEdgeProperty(propertyName)) {
+              continue;
+            }
+          } else if (clazz.isEdgeType()) {
+            if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+              continue;
+            }
+          }
+        }
+
+        var currentPropertyValue = entity.getPropertyInternal(propertyName);
+        subtractFromLinksContainer(currentPropertyValue, linksToUpdateMap);
+        updateOppositeLinks(entity, propertyName, linksToUpdateMap);
       }
     }
   }
@@ -1956,57 +1979,62 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         addToLinksContainer(currentPropertyValue, linksToUpdateMap);
       }
 
-      var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
-      for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
-        var oppositeLink = entitiesToUpdate.getKey();
-        var diff = entitiesToUpdate.getValue()[0];
+      updateOppositeLinks(entity, propertyName, linksToUpdateMap);
+    }
+  }
 
-        if (currentTx.isDeletedInTx(oppositeLink)) {
-          if (diff > 0) {
-            throw new IllegalStateException("Cannot add link " + entity.getIdentity()
-                + " to opposite entity because it was deleted in transaction");
-          }
-          continue;
+  private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
+      HashMap<RecordId, int[]> linksToUpdateMap) {
+    var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+    for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
+      var oppositeLink = entitiesToUpdate.getKey();
+      var diff = entitiesToUpdate.getValue()[0];
+
+      if (currentTx.isDeletedInTx(oppositeLink)) {
+        if (diff > 0) {
+          throw new IllegalStateException("Cannot add link " + entity.getIdentity()
+              + " to opposite entity because it was deleted in transaction");
         }
+        continue;
+      }
 
-        var oppositeRecord = load(oppositeLink);
-        if (!oppositeRecord.isEntity()) {
-          continue;
+      var oppositeRecord = load(oppositeLink);
+      if (!oppositeRecord.isEntity()) {
+        continue;
+      }
+
+      var oppositeEntity = (EntityImpl) oppositeRecord;
+      //skip self-links
+      if (oppositeEntity.equals(entity)) {
+        continue;
+      }
+      var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+
+      if (linkBag == null) {
+        if (diff < 0) {
+          throw new IllegalStateException("Cannot remove link for " + entity
+              + " from opposite entity " + oppositeEntity + " because it does not exist");
         }
+        linkBag = new RidBag(this);
+        oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
+      }
 
-        var oppositeEntity = (EntityImpl) oppositeRecord;
-        //skip self-links
-        if (oppositeEntity.equals(entity)) {
-          continue;
-        }
-        var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
-
-        if (linkBag == null) {
-          if (diff < 0) {
-            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+      var rid = entity.getIdentity();
+      for (var i = 0; i < Math.abs(diff); i++) {
+        if (diff > 0) {
+          linkBag.add(rid);
+          assert linkBag.contains(rid);
+        } else {
+          var removed = linkBag.remove(entity.getIdentity());
+          if (!removed) {
+            throw new IllegalStateException("Cannot remove link " + rid
                 + " from opposite entity because it does not exist");
           }
-          linkBag = new RidBag(this);
-          oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
         }
+      }
 
-        var rid = entity.getIdentity();
-        for (var i = 0; i < Math.abs(diff); i++) {
-          if (diff > 0) {
-            linkBag.add(rid);
-            assert linkBag.contains(rid);
-          } else {
-            var removed = linkBag.remove(entity.getIdentity());
-            if (!removed) {
-              throw new IllegalStateException("Cannot remove link " + rid
-                  + " from opposite entity because it does not exist");
-            }
-          }
-        }
-
-        if (linkBag.isEmpty()) {
-          oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
-        }
+      if (linkBag.isEmpty()) {
+        oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
       }
     }
   }

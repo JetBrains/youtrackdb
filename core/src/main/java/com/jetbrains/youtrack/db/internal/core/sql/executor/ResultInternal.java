@@ -1005,7 +1005,8 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+        var cls = schemaSnapshot.getClassByCollectionId(
+            identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isEdgeType();
       }
@@ -1027,7 +1028,8 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+        var cls = schemaSnapshot.getClassByCollectionId(
+            identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isVertexType();
       }
@@ -1345,8 +1347,8 @@ public class ResultInternal implements Result {
       }
       case Identifiable identifiable -> {
         if (alias != null) {
-          throw new IllegalArgumentException(
-              "Alias is not supported for identifiable values");
+          throw new CommandExecutionException(
+              "Alias '" + alias + "' is not supported for identifiable values");
         }
         return new ResultInternal(session, identifiable);
       }
@@ -1355,8 +1357,8 @@ public class ResultInternal implements Result {
       }
       case Map<?, ?> map -> {
         if (alias != null) {
-          throw new IllegalArgumentException(
-              "Alias is not supported for map values");
+          throw new CommandExecutionException(
+              "Alias '" + alias + "' is not supported for map values");
         }
 
         var result = new ResultInternal(session);
@@ -1364,11 +1366,22 @@ public class ResultInternal implements Result {
           if (entry.getKey() instanceof String key) {
             result.setProperty(key, entry.getValue());
           } else {
-            throw new IllegalArgumentException(
+            throw new CommandExecutionException(
                 "Invalid value, only maps with key types of String are supported : " +
                     entry.getKey());
           }
         }
+        return result;
+      }
+      case Map.Entry<?, ?> entry -> {
+        var result = new ResultInternal(session);
+        var key = entry.getKey();
+        if (!(key instanceof String stringKey)) {
+          throw new CommandExecutionException(
+              "Invalid property value, only maps with key types of String are supported : " +
+                  key);
+        }
+        result.setProperty(stringKey, entry.getValue());
         return result;
       }
       default -> {
@@ -1376,8 +1389,7 @@ public class ResultInternal implements Result {
         if (alias != null) {
           result.setProperty(alias, value);
         } else {
-          throw new IllegalArgumentException(
-              "Not supported value type: " + value.getClass().getName());
+          result.setProperty("value", value);
         }
         return result;
       }

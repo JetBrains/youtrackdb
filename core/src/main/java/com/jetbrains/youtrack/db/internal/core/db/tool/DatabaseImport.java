@@ -1582,11 +1582,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   protected static void rewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
     entity = doRewriteLinksInDocument(session, entity, brokenRids);
-
-    if (!entity.isDirty()) {
-      // nothing changed
-    }
-  }
+ }
 
   protected static EntityImpl doRewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {

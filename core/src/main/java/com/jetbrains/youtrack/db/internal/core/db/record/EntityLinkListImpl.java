@@ -264,10 +264,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
 
     var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
-      if (!(sourceRecord instanceof RecordAbstract)
-          || !((RecordAbstract) sourceRecord).isDirty()) {
-        sourceRecord.setDirty();
-      }
+      sourceRecord.setDirty();
     }
   }
 

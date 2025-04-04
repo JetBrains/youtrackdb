@@ -18,7 +18,7 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
   }
 
   protected ExecutionStream traversePatternEdge(
-      ResultInternal startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
     var prevCurrent = iCommandContext.getVariable("$current");
     iCommandContext.setVariable("$current", startingPoint);

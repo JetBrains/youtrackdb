@@ -566,12 +566,15 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Nullable
     private Spliterator<ObjectIntPair<RID>> btreeRecordsSpliterator;
 
+    @Nullable
     private RID currentRid;
     private int currentCounter;
 
+    @Nullable
     private RID btreeRid;
     private int btreeCounter;
 
+    @Nullable
     private RID localRid;
     private int localCounter;
 

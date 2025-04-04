@@ -21,6 +21,8 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.HashSet;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -71,6 +73,25 @@ public interface RecordElement {
 
       owner = owner.getOwner();
     }
+  }
+
+  default Set<RecordElement> getOwnersSet() {
+    var owner = getOwner();
+    if (owner == null) {
+      return Set.of();
+    }
+
+    var result = new HashSet<RecordElement>();
+    result.add(owner);
+    while (true) {
+      owner = owner.getOwner();
+      if (owner == null) {
+        break;
+      }
+      result.add(owner);
+    }
+
+    return result;
   }
 
   @Nullable

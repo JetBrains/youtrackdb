@@ -385,7 +385,9 @@ public class HelperClasses {
       delegate.getChanges().forEach(ridChangeRawPair -> {
         writeByte(bytes, (byte) 1);
         var recId = ridChangeRawPair.first();
-        assert recId.isPersistent();
+        if(!recId.isPersistent()) {
+          throw new IllegalStateException("Non persistent record id can not be stored to database.");
+        }
 
         var change = ridChangeRawPair.second().getValue();
         writeLinkOptimized(bytes, recId);
