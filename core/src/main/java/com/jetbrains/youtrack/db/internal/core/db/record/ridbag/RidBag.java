@@ -26,19 +26,18 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.DataContainer;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.util.Collection;
@@ -82,7 +81,7 @@ public class RidBag
     Sizeable,
     TrackedMultiValue<RID, RID>,
     DataContainer<RID>,
-    RecordElement {
+    RecordElement, StorageBackedMultiValue {
 
   private LinkBagDelegate delegate;
   private int topThreshold;
@@ -136,10 +135,6 @@ public class RidBag
   @Override
   public boolean remove(RID identifiable) {
     return delegate.remove(identifiable);
-  }
-
-  public boolean removeLinks(RID rid) {
-    return delegate.removeLinks(rid);
   }
 
   @Override
@@ -303,9 +298,6 @@ public class RidBag
     return delegate;
   }
 
-  public Stream<RawPair<RID, Change>> getChanges() {
-    return delegate.getChanges();
-  }
 
   @Override
   public boolean equals(Object other) {
@@ -353,7 +345,7 @@ public class RidBag
   }
 
   @Override
-  public MultiValueChangeTimeLine<RID, RID> getTimeLine() {
+  public MultiValueChangeTimeLine<? extends RID, ? extends RID> getTimeLine() {
     return delegate.getTimeLine();
   }
 
@@ -378,7 +370,7 @@ public class RidBag
   }
 
   @Override
-  public MultiValueChangeTimeLine<RID, RID> getTransactionTimeLine() {
+  public MultiValueChangeTimeLine<? extends RID, ? extends RID> getTransactionTimeLine() {
     return delegate.getTransactionTimeLine();
   }
 

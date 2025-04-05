@@ -20,7 +20,6 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
 
   @Override
   public Change getChange(RID rid) {
-    assert ensureAllSorted();
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(rid, null), COMPARATOR);
 
     if (index >= 0) {
@@ -32,7 +31,6 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
 
   @Override
   public void putChange(RID rid, Change change) {
-    assert ensureAllSorted();
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(rid, null), COMPARATOR);
 
     if (index >= 0) {
@@ -99,19 +97,25 @@ public class ArrayBasedBagChangesContainer implements BagChangesContainer {
   @Nonnull
   @Override
   public Spliterator<RawPair<RID, Change>> spliterator() {
-    assert ensureAllSorted();
-    return Spliterators.spliterator(changes, 0, size, Spliterator.SORTED | Spliterator.NONNULL);
+    return Spliterators.spliterator(changes, 0, size,
+        Spliterator.SORTED | Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.SIZED);
   }
 
   @Nonnull
   @Override
   public Spliterator<RawPair<RID, Change>> spliterator(RID after) {
-    assert ensureAllSorted();
     var index = Arrays.binarySearch(changes, 0, size, new RawPair<>(after, null), COMPARATOR);
-    if (index >= 0) {
-      return Spliterators.spliterator(changes, index, size,
-          Spliterator.SORTED | Spliterator.NONNULL);
+    if (index < 0) {
+      index = -index - 1;
+    } else {
+      index++;
     }
+
+    if (index < size) {
+      return Spliterators.spliterator(changes, index, size,
+          Spliterator.SORTED | Spliterator.NONNULL | Spliterator.DISTINCT | Spliterator.SIZED);
+    }
+
     return Spliterators.emptySpliterator();
   }
 

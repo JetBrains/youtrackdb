@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
@@ -11,7 +10,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
@@ -1767,6 +1765,13 @@ public abstract class RidBagTest extends BaseDBTest {
       }
     }
 
+    session.commit();
+    session.begin();
+
+    activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+
     assertEquals(ridBag.size(), size);
     List<RID> ridsCopy = new ArrayList<>(rids);
 
@@ -1775,8 +1780,6 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertTrue(rids.isEmpty());
-
-    session.commit();
 
     session.begin();
     document = session.load(document.getIdentity());
@@ -1863,11 +1866,7 @@ public abstract class RidBagTest extends BaseDBTest {
     while (bagIterator.hasNext()) {
       final Identifiable bagValue = bagIterator.next();
       assertTrue(rids.contains(bagValue));
-
       if (rnd.nextDouble() < 0.05) {
-        if (bagValue.getIdentity().isPersistent()) {
-          System.out.println();
-        }
         bagIterator.remove();
         assertTrue(rids.remove(bagValue));
 

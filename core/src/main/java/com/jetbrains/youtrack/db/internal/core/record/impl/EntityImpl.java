@@ -61,6 +61,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -1349,9 +1350,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
           entity.setOwner(this);
         }
       }
-      case RidBag ridBag -> {
-        ridBag.setOwner(this);
-        ridBag.setOwnerFieldName(name);
+      case StorageBackedMultiValue storageBackedMultiValue -> {
+        storageBackedMultiValue.setOwner(this);
+        storageBackedMultiValue.setOwnerFieldName(name);
       }
       case RecordElement element -> {
         if (!(element instanceof Blob)) {

@@ -7,19 +7,15 @@ public interface Change {
 
   int SIZE = ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE;
 
-  void increment(int maxCap);
+  boolean increment(int maxCap);
 
   boolean decrement();
 
   int applyTo(Integer value, int maxCap);
 
-  int applyTo(int value, int maxCap);
-
   int getValue();
 
   byte getType();
-
-  void applyDiff(int delta);
 
   int serialize(byte[] stream, int offset);
 

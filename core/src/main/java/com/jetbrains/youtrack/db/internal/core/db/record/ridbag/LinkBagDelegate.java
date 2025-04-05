@@ -39,11 +39,9 @@ public interface LinkBagDelegate
 
   void addAll(Collection<RID> values);
 
-  void add(RID rid);
+  boolean add(RID rid);
 
   boolean remove(RID rid);
-
-  boolean removeLinks(RID rid);
 
   boolean isEmpty();
 

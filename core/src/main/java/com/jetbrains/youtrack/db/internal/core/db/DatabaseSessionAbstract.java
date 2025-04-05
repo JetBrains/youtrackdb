@@ -2521,14 +2521,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return new EntityLinkSetImpl(this);
   }
 
-  @Override
-  public LinkSet newLinkSet(int size) {
-    return new EntityLinkSetImpl(size, this);
-  }
 
   @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
-    var linkSet = new EntityLinkSetImpl(source.size(), this);
+    var linkSet = new EntityLinkSetImpl(this);
     linkSet.addAll(source);
     return linkSet;
   }

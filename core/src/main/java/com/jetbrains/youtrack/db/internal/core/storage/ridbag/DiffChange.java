@@ -13,16 +13,15 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public void increment(int maxCap) {
-    delta = Math.min(delta + 1, maxCap);
+  public boolean increment(int maxCap) {
+    var oldDelta = delta;
+    delta = Math.min(oldDelta + 1, maxCap);
+    return delta > oldDelta;
   }
 
   @Override
   public boolean decrement() {
     delta--;
-    if (delta < 0) {
-      throw new IllegalStateException("Delta cannot be negative");
-    }
     return true;
   }
 
@@ -40,20 +39,7 @@ public class DiffChange implements Change {
       result = Math.min(value + delta, maxCap);
     }
 
-    if (result < 0) {
-      result = 0;
-    }
-
-    return result;
-  }
-
-  @Override
-  public int applyTo(int value, int maxCap) {
-    var result = Math.min(value + delta, maxCap);
-    if (result < 0) {
-      result = 0;
-    }
-
+    assert result <= maxCap;
     return result;
   }
 
@@ -65,14 +51,6 @@ public class DiffChange implements Change {
   @Override
   public int getValue() {
     return delta;
-  }
-
-  @Override
-  public void applyDiff(int delta) {
-    this.delta += delta;
-    if (this.delta < 0) {
-      throw new IllegalStateException("Delta cannot be negative");
-    }
   }
 
   @Override

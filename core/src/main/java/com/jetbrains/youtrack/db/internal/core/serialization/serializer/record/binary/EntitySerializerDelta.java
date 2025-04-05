@@ -1094,6 +1094,8 @@ public class EntitySerializerDelta {
         writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
+        writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
+        break;
       case LINKLIST:
         @SuppressWarnings("unchecked")
         var ridCollection = (Collection<Identifiable>) value;
@@ -1270,7 +1272,7 @@ public class EntitySerializerDelta {
         value = readEmbeddedList(session, bytes, owner);
         break;
       case LINKSET:
-        value = readLinkSet(session, bytes, owner);
+        value = readLinkSet(session, bytes);
         break;
       case LINKLIST:
         value = readLinkList(session, bytes, owner);
@@ -1349,22 +1351,6 @@ public class EntitySerializerDelta {
     return found;
   }
 
-  private static Collection<Identifiable> readLinkSet(DatabaseSessionInternal session,
-      BytesContainer bytes,
-      RecordElement owner) {
-    var found = new EntityLinkSetImpl(owner);
-    final var items = VarIntSerializer.readAsInteger(bytes);
-    for (var i = 0; i < items; i++) {
-      Identifiable id = readOptimizedLink(session, bytes);
-      if (id.equals(NULL_RECORD_ID)) {
-        found.addInternal(null);
-      } else {
-        found.addInternal(id);
-      }
-    }
-    return found;
-  }
-
   private Map<String, Identifiable> readLinkMap(
       DatabaseSessionInternal session, final BytesContainer bytes, final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
@@ -1398,6 +1384,17 @@ public class EntitySerializerDelta {
     }
     return result;
   }
+
+  private static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+      BytesContainer bytes) {
+    return RecordSerializerNetworkV37.INSTANCE.readLinkSet(session, bytes);
+  }
+
+  private static void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+      EntityLinkSetImpl linkSet) {
+    RecordSerializerNetworkV37.INSTANCE.writeLinkSet(session, bytes, linkSet);
+  }
+
 
   private static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     return RecordSerializerNetworkV37.INSTANCE.readLinkBag(session, bytes);

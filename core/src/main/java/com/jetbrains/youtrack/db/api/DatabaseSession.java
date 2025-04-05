@@ -499,8 +499,6 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkSet newLinkSet();
 
-  LinkSet newLinkSet(int size);
-
   LinkSet newLinkSet(Collection<? extends Identifiable> source);
 
   <V> Map<String, V> newEmbeddedMap();

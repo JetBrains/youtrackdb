@@ -20,8 +20,11 @@ public class AbsoluteChange implements Change {
   }
 
   @Override
-  public void increment(int maxCap) {
-    value++;
+  public boolean increment(int maxCap) {
+    var oldValue = value;
+    value = Math.min(maxCap, oldValue + 1);
+
+    return value > oldValue;
   }
 
   @Override
@@ -42,19 +45,8 @@ public class AbsoluteChange implements Change {
 
   @Override
   public int applyTo(Integer value, int maxCap) {
+    assert this.value <= maxCap;
     return this.value;
-  }
-
-  @Override
-  public int applyTo(int value, int maxCap) {
-    return this.value;
-  }
-
-  @Override
-  public void applyDiff(int delta) {
-    value += delta;
-
-    checkPositive();
   }
 
   @Override

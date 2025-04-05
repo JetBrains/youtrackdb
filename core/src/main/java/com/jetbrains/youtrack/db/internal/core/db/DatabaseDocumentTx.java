@@ -1229,12 +1229,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkSet newLinkSet(int size) {
-    checkOpenness();
-    return internal.newLinkSet(size);
-  }
-
-  @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);

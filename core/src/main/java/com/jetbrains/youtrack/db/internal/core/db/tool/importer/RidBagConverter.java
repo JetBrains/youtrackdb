@@ -4,9 +4,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 
-/**
- *
- */
 public final class RidBagConverter extends AbstractCollectionConverter<RidBag> {
 
   public RidBagConverter(ConverterData converterData) {

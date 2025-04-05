@@ -984,7 +984,7 @@ public enum PropertyTypeInternal {
           return linkSet;
         }
         case Collection<?> collection -> {
-          var linkSet = session.newLinkSet(collection.size());
+          var linkSet = session.newLinkSet();
           for (var item : collection) {
             linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
           }
@@ -1041,7 +1041,7 @@ public enum PropertyTypeInternal {
       }
 
       var linkSet = (EntityLinkSetImpl) value;
-      var copy = session.newLinkSet(linkSet.size());
+      var copy = session.newLinkSet();
       copy.addAll(linkSet);
 
       return copy;

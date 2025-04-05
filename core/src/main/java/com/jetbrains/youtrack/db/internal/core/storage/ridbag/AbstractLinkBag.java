@@ -20,7 +20,6 @@ import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Spliterator;
 import java.util.TreeMap;
 import java.util.function.Consumer;
@@ -33,7 +32,7 @@ import org.apache.commons.collections4.ResettableIterator;
 public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChangeListener {
 
   protected long newModificationsCount = 0;
-  protected long persistentModificationsCount = 0;
+  protected long localChangesModificationsCount = 0;
 
   protected final int counterMaxValue;
 
@@ -108,23 +107,26 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   @Override
-  public void add(RID rid) {
+  public boolean add(RID rid) {
     if (rid == null) {
       throw new IllegalArgumentException("Impossible to add a null identifiable in a link bag");
     }
 
     assert assertIfNotActive();
 
+    var added = new boolean[1];
     if (rid.isPersistent()) {
       var counter = localChanges.getChange(rid);
 
       if (counter == null) {
+        added[0] = true;
         localChanges.putChange(rid, new DiffChange(1));
       } else {
-        counter.increment(counterMaxValue);
+        assert counter.getValue() >= 0 || counter.getType() == AbsoluteChange.TYPE;
+        added[0] = counter.increment(counterMaxValue);
       }
 
-      persistentModificationsCount++;
+      localChangesModificationsCount++;
     } else {
       rid = session.refreshRid(rid);
 
@@ -137,31 +139,29 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
             changeableIdentity.addIdentityChangeListener(this);
           }
 
+          added[0] = true;
           return new int[]{1};
         }
 
-        value[0] = Math.min(value[0] + 1, counterMaxValue);
+        var oldValue = value[0];
+        value[0] = Math.min(oldValue + 1, counterMaxValue);
+        added[0] = value[0] != oldValue;
+
         return value;
       });
     }
 
     assert size >= 0;
-    size++;
+    if (added[0]) {
+      size++;
+      addEvent(rid, rid);
+    }
 
-    addEvent(rid, rid);
+    return true;
   }
 
   @Override
   public boolean remove(RID rid) {
-    return doRemove(rid, false);
-  }
-
-  @Override
-  public boolean removeLinks(RID rid) {
-    return doRemove(rid, true);
-  }
-
-  private boolean doRemove(RID rid, boolean removeAll) {
     if (rid == null) {
       return false;
     }
@@ -169,15 +169,11 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     assert assertIfNotActive();
     rid = refreshNonPersistentRid(rid);
 
-    var newRidsRemoved = removeFromNewEntries(rid, removeAll);
-    if (newRidsRemoved > 0) {
-      assert size >= newRidsRemoved;
-      size -= newRidsRemoved;
-
-      for (var i = 0; i < newRidsRemoved; i++) {
-        removeEvent(rid);
-      }
-
+    var newRidsRemoved = removeFromNewEntries(rid);
+    if (newRidsRemoved) {
+      assert size >= 1;
+      size--;
+      removeEvent(rid);
       return true;
     }
 
@@ -185,35 +181,18 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     if (change == null) {
       if (rid.isPersistent()) {
-        return removeAndUpdateAbsoluteValue(rid, removeAll);
-      }
-
-      return false;
-    } else if (change.getType() == DiffChange.TYPE && removeAll) {
-      return removeAndUpdateAbsoluteValue(rid, removeAll);
-    }
-
-    if (change.getType() == DiffChange.TYPE && change.getValue() == 0) {
-      return removeAndUpdateAbsoluteValue(rid, removeAll);
-    }
-
-    if (removeAll) {
-      var removed = change.clear();
-
-      if (removed > 0) {
-        for (var i = 0; i < removed; i++) {
-          removeEvent(rid);
-        }
-
-        assert size >= removed;
-        size -= removed;
-
-        return true;
+        return removeAndUpdateAbsoluteValue(rid);
       }
 
       return false;
     }
 
+    if (change.getType() == DiffChange.TYPE && change.getValue() <= 0) {
+      return removeAndUpdateAbsoluteValue(rid);
+    }
+
+    assert change.getType() == AbsoluteChange.TYPE
+        || change.getType() == DiffChange.TYPE && change.getValue() > 0;
     if (change.decrement()) {
       assert change.getType() == DiffChange.TYPE && size > 0 || size >= change.getValue();
       size--;
@@ -225,26 +204,12 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     return false;
   }
 
-  private boolean removeAndUpdateAbsoluteValue(RID rid, boolean removeAll) {
+  private boolean removeAndUpdateAbsoluteValue(RID rid) {
     var absoluteValue = getAbsoluteValue(rid);
 
     if (absoluteValue > 0) {
-      if (removeAll) {
-        localChanges.putChange(rid, new AbsoluteChange(0));
-        persistentModificationsCount++;
-
-        assert size >= absoluteValue;
-        size -= absoluteValue;
-
-        for (var i = 0; i < absoluteValue; i++) {
-          removeEvent(rid);
-        }
-
-        return true;
-      }
-
       localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1));
-      persistentModificationsCount++;
+      localChangesModificationsCount++;
       assert size >= absoluteValue;
 
       size--;
@@ -270,7 +235,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     var change = localChanges.getChange(rid);
 
     if (change != null) {
-      if (change.getType() == DiffChange.TYPE && change.applyTo(0, counterMaxValue) == 0) {
+      if (change.getType() == DiffChange.TYPE && change.getValue() < 0) {
         var absoluteValue = getAbsoluteValue(rid);
         var absoluteChange = new AbsoluteChange(absoluteValue);
         localChanges.putChange(rid, absoluteChange);
@@ -280,7 +245,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       change = new AbsoluteChange(getAbsoluteValue(rid));
     }
 
-    return change.applyTo(0, counterMaxValue) > 0;
+    return change.getValue() > 0;
   }
 
   @Override
@@ -303,12 +268,12 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
    * Removes entry with given key from {@link #newEntries}.
    *
    * @param rid key to remove
-   * @return number of entries removed
+   * @return true if entry was removed, false otherwise
    */
-  protected int removeFromNewEntries(final RID rid, boolean removeAll) {
+  protected boolean removeFromNewEntries(final RID rid) {
     var counter = newEntries.get(rid);
     if (counter == null) {
-      return 0;
+      return false;
     } else {
       if (counter[0] == 1) {
         newEntries.remove(rid);
@@ -318,41 +283,13 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         }
 
         newModificationsCount++;
-        return 1;
-      }
-
-      if (removeAll) {
-        var result = counter[0];
-        newEntries.remove(rid);
-
-        if (rid instanceof ChangeableIdentity changeableIdentity) {
-          changeableIdentity.removeIdentityChangeListener(this);
-        }
-
-        newModificationsCount++;
-        return result;
+        return true;
       }
 
       newModificationsCount++;
       counter[0]--;
-      return 1;
+      return true;
     }
-  }
-
-  @Nullable
-  protected Map.Entry<RID, Change> nextChangedNotRemovedEntry(
-      Iterator<Entry<RID, Change>> iterator) {
-    Map.Entry<RID, Change> entry;
-
-    while (iterator.hasNext()) {
-      entry = iterator.next();
-      // TODO workaround
-      if (entry.getValue().applyTo(0, counterMaxValue) > 0) {
-        return entry;
-      }
-    }
-
-    return null;
   }
 
   @Override
@@ -409,8 +346,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   public void disableTracking(RecordElement entity) {
-    assert assertIfNotActive();
-
     if (tracker.isEnabled()) {
       this.tracker.disable();
       this.dirty = false;
@@ -543,7 +478,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         changeableIdentity.removeIdentityChangeListener(this);
       }
     }
-    persistentModificationsCount++;
+    localChangesModificationsCount++;
   }
 
   @Nullable
@@ -579,7 +514,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     private int localCounter;
 
     private long savedNewModificationsCount = newModificationsCount;
-    private long savedPersistentModificationsCount = persistentModificationsCount;
+    private long savedLocalChangesModificationsCount = localChangesModificationsCount;
 
     public MergingSpliterator() {
       initNewEntriesSpliterator();
@@ -596,30 +531,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     private void moveToNextEntry() {
       assert currentCounter == 0;
 
-      if (persistentModificationsCount != savedPersistentModificationsCount) {
-        if (currentRid == null) {
-          initLocalChangesSpliterator();
-        } else {
-          Spliterator<RawPair<RID, Change>> tailSpliterator;
-
-          if (localRid != null) {
-            tailSpliterator = localChanges.spliterator(localRid);
-          } else {
-            tailSpliterator = localChanges.spliterator(currentRid);
-          }
-
-          if (tailSpliterator.estimateSize() == 0) {
-            localChangesSpliterator = null;
-          } else {
-            localChangesSpliterator = tailSpliterator;
-            if (localRid == null) {
-              nextLocalEntree();
-            }
-          }
-        }
-
-        savedPersistentModificationsCount = persistentModificationsCount;
-      }
+      restoreLocalChangesSpliteratorAfterModification();
 
       do {
         if (localRid != null && btreeRid != null) {
@@ -657,6 +569,26 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
           currentCounter = 0;
         }
       } while (currentRid != null && currentCounter == 0);
+    }
+
+    private void restoreLocalChangesSpliteratorAfterModification() {
+      if (localChangesModificationsCount != savedLocalChangesModificationsCount) {
+        if (currentRid == null) {
+          initLocalChangesSpliterator();
+        } else {
+          var tailSpliterator = localChanges.spliterator(currentRid);
+          if (tailSpliterator.estimateSize() == 0) {
+            localChangesSpliterator = null;
+            localRid = null;
+            localCounter = 0;
+          } else {
+            localChangesSpliterator = tailSpliterator;
+            nextLocalEntree();
+          }
+        }
+
+        savedLocalChangesModificationsCount = localChangesModificationsCount;
+      }
     }
 
     private void initLocalChangesSpliterator() {
@@ -765,6 +697,9 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
         if (change.getType() == DiffChange.TYPE) {
           var absoluteValue = getAbsoluteValue(localRid);
           change = new AbsoluteChange(absoluteValue);
+
+          //it is safe to do here because spliterator will not change order of elements or skip them
+          localChanges.putChange(localRid, change);
         }
 
         assert change instanceof AbsoluteChange;
@@ -799,7 +734,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Override
     public int characteristics() {
       assert assertIfNotActive();
-      return Spliterator.SORTED | Spliterator.NONNULL | Spliterator.SIZED | Spliterator.ORDERED;
+      return Spliterator.SORTED | Spliterator.NONNULL | Spliterator.ORDERED;
     }
 
     @Override

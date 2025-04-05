@@ -174,8 +174,6 @@ public class BTreeBasedRidBagTest extends RidBagTest {
     bag = doc.getProperty("ridBag");
     bag.remove(cygni.getIdentity());
 
-    bag.stream().toList();
-
     Set<EntityImpl> result = new HashSet<>();
     for (Identifiable identifiable : bag) {
       var transaction = session.getActiveTransaction();

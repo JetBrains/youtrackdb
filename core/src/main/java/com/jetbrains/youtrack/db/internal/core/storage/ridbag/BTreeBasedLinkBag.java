@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
@@ -117,7 +118,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     }
     newEntries.clear();
     size = 0;
-    persistentModificationsCount++;
+    localChangesModificationsCount++;
     newModificationsCount++;
   }
 
@@ -146,7 +147,16 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
 
     final var change = localChanges.getChange(rid);
 
-    return change == null ? oldValue : change.applyTo(oldValue, counterMaxValue);
+    var newValue = change == null ? oldValue : change.applyTo(oldValue, counterMaxValue);
+    if (newValue < 0) {
+      throw new DatabaseException(
+          "More entries were removed from link collection than it contains. For rid : "
+              + rid + " collection contains : " + oldValue + " entries, but " + (
+              newValue - oldValue) +
+              " entries were removed.");
+    }
+    return newValue;
+
   }
 
   @Nullable

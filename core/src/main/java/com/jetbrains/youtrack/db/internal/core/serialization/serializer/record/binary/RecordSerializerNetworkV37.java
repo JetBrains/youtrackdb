@@ -71,6 +71,7 @@ import java.util.Map.Entry;
 import java.util.TimeZone;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
@@ -331,7 +332,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         value = readEmbeddedList(session, bytes, owner);
         break;
       case LINKSET:
-        value = readLinkSet(session, bytes, owner);
+        value = readLinkSet(session, bytes);
         break;
       case LINKLIST:
         value = readLinkList(session, bytes, owner);
@@ -359,6 +360,33 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         break;
     }
     return value;
+  }
+
+  public void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+      EntityLinkSetImpl set) {
+    if (set.isToSerializeEmbedded()) {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 1;
+      VarIntSerializer.write(bytes, set.size());
+
+      for (var itemValue : set) {
+        writeOptimizedLink(session, bytes, itemValue);
+      }
+    } else {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 2;
+
+      var delegate = (BTreeBasedLinkBag) set.getDelegate();
+      var pointer = delegate.getCollectionPointer();
+
+      if (pointer == null || !pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
+      }
+
+      VarIntSerializer.write(bytes, delegate.size());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
+    }
   }
 
   public void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
@@ -475,20 +503,36 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return found;
   }
 
-  private static Collection<Identifiable> readLinkSet(DatabaseSessionInternal db,
-      BytesContainer bytes,
-      RecordElement owner) {
-    var found = new EntityLinkSetImpl(owner);
-    final var items = VarIntSerializer.readAsInteger(bytes);
-    for (var i = 0; i < items; i++) {
-      Identifiable id = readOptimizedLink(db, bytes);
-      if (id.equals(NULL_RECORD_ID)) {
-        found.addInternal(null);
-      } else {
-        found.addInternal(id);
+  public EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+      BytesContainer bytes) {
+    var b = bytes.bytes[bytes.offset];
+    bytes.skip(1);
+    if (b == 1) {
+      var bag = new EntityLinkSetImpl(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
+
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
+
+      bag.disableTracking(null);
+      bag.transactionClear();
+      return bag;
+    } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
+      }
+      return new EntityLinkSetImpl(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, 1));
     }
-    return found;
   }
 
   protected static RID readOptimizedLink(DatabaseSessionInternal db,
@@ -533,10 +577,26 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return found;
   }
 
+  @Nullable
   private static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
       EntityImpl entity,
       PropertyTypeInternal type, String key) {
-    return RecordSerializerBinaryV0.getLinkedType(session, entity, type, key);
+    if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
+      return null;
+    }
+    SchemaImmutableClass result = null;
+    if (entity != null) {
+      result = entity.getImmutableSchemaClass(session);
+    }
+    SchemaClass immutableClass = result;
+    if (immutableClass != null) {
+      var prop = immutableClass.getProperty(key);
+      if (prop != null) {
+        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
+      }
+    }
+    return null;
   }
 
   @SuppressWarnings("unchecked")
@@ -618,6 +678,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
+        writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
       case LINKLIST:
         var ridCollection = (Collection<Identifiable>) value;
         writeLinkCollection(session, bytes, ridCollection);

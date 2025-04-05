@@ -52,7 +52,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   boolean isTransactionModified();
 
-  MultiValueChangeTimeLine<K, V> getTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTimeLine();
 
   boolean isEmbeddedContainer();
 
@@ -90,7 +90,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   void transactionClear();
 
 
-  MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTransactionTimeLine();
 
   default void addOwner(V e) {
     if (isEmbeddedContainer()) {
