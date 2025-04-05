@@ -61,7 +61,7 @@ public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37
         throw new IllegalStateException("LinkBag pointer is invalid");
       }
       return new RidBag(session,
-          new RemoteTreeLinkBag(session, Integer.MAX_VALUE, linkBagSize));
+          new RemoteTreeLinkBag(session, pointer, Integer.MAX_VALUE, linkBagSize));
     }
   }
 
@@ -94,7 +94,7 @@ public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37
         throw new IllegalStateException("LinkSet with invalid pointer was found");
       }
       return new EntityLinkSetImpl(session,
-          new RemoteTreeLinkBag(session, linkBagSize, 1));
+          new RemoteTreeLinkBag(session, pointer, linkBagSize, 1));
     }
   }
 }

@@ -35,12 +35,20 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class RemoteTreeLinkBag extends AbstractLinkBag {
-  private String fieldName;
 
+  private String fieldName;
+  private LinkBagPointer pointer;
 
   public RemoteTreeLinkBag(@Nonnull DatabaseSessionInternal session,
       int counterMaxValue, int size) {
     super(session, size, counterMaxValue);
+    this.pointer = LinkBagPointer.INVALID;
+  }
+
+  public RemoteTreeLinkBag(@Nonnull DatabaseSessionInternal session, LinkBagPointer pointer,
+      int counterMaxValue, int size) {
+    super(session, size, counterMaxValue);
+    this.pointer = pointer;
   }
 
   @Override
@@ -126,7 +134,7 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   }
 
   public LinkBagPointer getCollectionPointer() {
-    return collectionPointer;
+    return pointer;
   }
 
   @Override
