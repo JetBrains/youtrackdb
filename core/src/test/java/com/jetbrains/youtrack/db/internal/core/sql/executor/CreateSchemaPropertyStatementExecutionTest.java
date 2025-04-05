@@ -31,7 +31,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testBasicCreateProperty.name STRING").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testBasicCreateProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testBasicCreateProperty.name");
@@ -48,7 +48,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass = db.getMetadata().getSchema()
         .getClass("testBasicUnsafeCreateProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testBasicUnsafeCreateProperty.name");
@@ -69,7 +69,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testCreatePropertyWithLinkedClass_2");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_DIVISION);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_DIVISION);
 
     assertEquals(nameProperty.getName(), PROP_DIVISION);
     assertEquals(nameProperty.getFullName(), "testCreatePropertyWithLinkedClass_2.division");
@@ -88,7 +88,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testCreatePropertyWithEmbeddedType");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), "testCreatePropertyWithEmbeddedType.officers");
@@ -105,7 +105,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testCreateMandatoryProperty.name STRING (MANDATORY)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testCreateMandatoryProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testCreateMandatoryProperty.name");
@@ -120,7 +120,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testCreateNotNullProperty.name STRING (NOTNULL)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testCreateNotNullProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testCreateNotNullProperty.name");
@@ -135,7 +135,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testCreateReadOnlyProperty.name STRING (READONLY)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testCreateReadOnlyProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testCreateReadOnlyProperty.name");
@@ -152,7 +152,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass = db.getMetadata().getSchema()
         .getClass("testCreateReadOnlyFalseProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testCreateReadOnlyFalseProperty.name");
@@ -169,7 +169,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testCreateMandatoryPropertyWithEmbeddedType");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(
@@ -191,7 +191,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testCreateUnsafePropertyWithEmbeddedType");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), "testCreateUnsafePropertyWithEmbeddedType.officers");
@@ -208,7 +208,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testComplexCreateProperty");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), "testComplexCreateProperty.officers");
@@ -229,7 +229,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testLinkedTypeDefaultAndMinMaxUnsafeProperty");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), "testLinkedTypeDefaultAndMinMaxUnsafeProperty.id");
@@ -253,7 +253,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     SchemaClass companyClass =
         db.getMetadata().getSchema().getClass("testDefaultAndMinMaxUnsafeProperty");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), "testDefaultAndMinMaxUnsafeProperty.id");
@@ -274,7 +274,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testExtraSpaces");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), "testExtraSpaces.id");
@@ -311,7 +311,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testMandatoryAsLinkedName");
     SchemaClass mandatoryClass = db.getMetadata().getSchema()
         .getClass("testMandatoryAsLinkedName_2");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), "testMandatoryAsLinkedName.id");
@@ -326,7 +326,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     SchemaClass clazz = db.getMetadata().getSchema().getClass("testIfNotExists");
-    SchemaProperty nameProperty = clazz.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = clazz.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testIfNotExists.name");
@@ -335,7 +335,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     db.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     clazz = db.getMetadata().getSchema().getClass("testIfNotExists");
-    nameProperty = clazz.getProperty(PROP_NAME);
+    nameProperty = clazz.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), "testIfNotExists.name");

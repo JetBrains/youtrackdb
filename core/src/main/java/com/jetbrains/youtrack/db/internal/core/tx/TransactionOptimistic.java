@@ -205,6 +205,7 @@ public class TransactionOptimistic extends FrontendTransactionAbstract implement
             if (entry.record instanceof EntityImpl) {
               if (iPolymorphic) {
                 if (iClass.isSuperClassOf(
+                    getDatabase(),
                     EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) entry.record)))) {
                   result.add(entry);
                 }

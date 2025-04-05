@@ -139,7 +139,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
           throw new DatabaseException(
               "Impossible to create an index, class not found: " + split[0]);
         }
-        if (oClass.getProperty(split[1]) == null) {
+        if (oClass.getProperty(database, split[1]) == null) {
           throw new DatabaseException(
               "Impossible to create an index, property not found: " + name.getValue());
         }
@@ -183,7 +183,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
       final List<PropertyType> fieldTypeList;
       if (keyTypes == null || keyTypes.size() == 0 && fields.length > 0) {
         for (final String fieldName : fields) {
-          if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
+          if (!fieldName.equals("@rid") && !oClass.existsProperty(database, fieldName)) {
             throw new IndexException(
                 "Index with name : '"
                     + name.getValue()
@@ -194,7 +194,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     + "' is absent in class definition.");
           }
         }
-        fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(fields);
+        fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(database, fields);
       } else {
         fieldTypeList =
             keyTypes.stream()
@@ -204,6 +204,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
 
       final IndexDefinition idxDef =
           IndexDefinitionFactory.createIndexDefinition(
+              database,
               oClass,
               Arrays.asList(fields),
               fieldTypeList,

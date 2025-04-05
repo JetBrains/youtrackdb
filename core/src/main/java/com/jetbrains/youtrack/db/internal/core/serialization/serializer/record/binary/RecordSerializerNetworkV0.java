@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -539,7 +540,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     }
     SchemaClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(entity);
     if (immutableClass != null) {
-      SchemaProperty prop = immutableClass.getProperty(key);
+      SchemaProperty prop = immutableClass.getProperty(entity.getSession(), key);
       if (prop != null) {
         return prop.getLinkedType();
       }
@@ -873,6 +874,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   @Override
   public BinaryField deserializeField(
+      DatabaseSession session,
       final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,

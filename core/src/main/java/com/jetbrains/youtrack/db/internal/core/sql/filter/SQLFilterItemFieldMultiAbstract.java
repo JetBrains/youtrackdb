@@ -19,14 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,7 +49,7 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
     clazz = iClass;
 
     for (String n : iNames) {
-      collates.add(getCollateForField(iClass, n));
+      collates.add(getCollateForField(session, iClass, n));
     }
   }
 
@@ -68,7 +68,7 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
     collates.clear();
     for (int i = 0; i < values.length; ++i) {
       values[i] = entity.field(fieldNames[i]);
-      collates.add(getCollateForField(clazz, fieldNames[i]));
+      collates.add(getCollateForField(iContext.getDatabase(), clazz, fieldNames[i]));
     }
 
     if (hasChainOperators()) {

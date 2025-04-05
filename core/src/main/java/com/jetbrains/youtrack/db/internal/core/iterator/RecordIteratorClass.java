@@ -113,9 +113,9 @@ public class RecordIteratorClass<REC extends DBRecord> extends RecordIteratorClu
 
   @Override
   protected boolean include(final DBRecord record) {
-    return record instanceof EntityImpl
-        && targetClass.isSuperClassOf(
-        EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record)));
+    return record instanceof EntityImpl entity
+        && targetClass.isSuperClassOf(entity.getSession(),
+        EntityInternalUtils.getImmutableSchemaClass(entity));
   }
 
   public SchemaClass getTargetClass() {

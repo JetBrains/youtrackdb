@@ -39,7 +39,7 @@ public class CheckRecordTypeStep extends AbstractExecutionStep {
     }
     Optional<SchemaClass> schema = entity.getSchemaType();
 
-    if (schema.isEmpty() || !schema.get().isSubClassOf(clazz)) {
+    if (schema.isEmpty() || !schema.get().isSubClassOf(ctx.getDatabase(), clazz)) {
       throw new CommandExecutionException("record " + result + " is not an instance of " + clazz);
     }
     return result;

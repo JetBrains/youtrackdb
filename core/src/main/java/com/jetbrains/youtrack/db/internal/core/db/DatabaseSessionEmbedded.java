@@ -1826,7 +1826,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public long truncateClass(String name, boolean polimorfic) {
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     SchemaClass clazz = getClass(name);
-    if (clazz.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
+    if (clazz.isSubClassOf(this, SecurityShared.RESTRICTED_CLASSNAME)) {
       throw new SecurityException(
           "Class '"
               + getName()

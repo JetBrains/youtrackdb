@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -131,6 +131,7 @@ public interface Edge extends Entity {
    * @return true if the labels match, false otherwise
    */
   default boolean isLabeled(String[] labels) {
+    DatabaseSession session = getBoundedToSession();
     if (labels == null) {
       return true;
     }
@@ -142,7 +143,8 @@ public interface Edge extends Entity {
     Optional<SchemaClass> typeClass = getSchemaType();
     if (typeClass.isPresent()) {
       types.add(typeClass.get().getName());
-      typeClass.get().getAllSuperClasses().stream().map(SchemaClass::getName).forEach(types::add);
+      typeClass.get().getAllSuperClasses(session).stream().map(SchemaClass::getName)
+          .forEach(types::add);
     } else {
       types.add(CLASS_NAME);
     }

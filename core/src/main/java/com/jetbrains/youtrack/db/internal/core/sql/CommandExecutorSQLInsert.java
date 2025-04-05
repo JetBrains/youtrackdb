@@ -19,22 +19,22 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternal;
@@ -124,7 +124,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
           throwParsingException("Class " + subjectName + " not found in database");
         }
 
-        if (!unsafe && cls.isSubClassOf("E"))
+        if (!unsafe && cls.isSubClassOf(database, "E"))
         // FOUND EDGE
         {
           throw new CommandExecutionException(
@@ -184,7 +184,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
           sourceClauseProcessed = true;
         } else if (parserGetLastWord().equals(KEYWORD_SET)) {
           final List<Pair<String, Object>> fields = new ArrayList<Pair<String, Object>>();
-          parseSetFields(clazz, fields);
+          parseSetFields(clazz, fields, database);
 
           newRecords.add(Pair.convertToMap(fields));
 
@@ -343,7 +343,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
     if (rec instanceof Entity) {
       EntityInternal entity = (EntityInternal) rec;
 
-      if (oldClass != null && oldClass.isSubClassOf("V")) {
+      if (oldClass != null && oldClass.isSubClassOf(querySession, "V")) {
         LogManager.instance()
             .warn(
                 this,
@@ -357,7 +357,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
             if (edges instanceof Identifiable) {
               EntityImpl edgeRec = ((Identifiable) edges).getRecord();
               SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass(edgeRec);
-              if (clazz != null && clazz.isSubClassOf("E")) {
+              if (clazz != null && clazz.isSubClassOf(querySession, "E")) {
                 entity.removeProperty(field);
               }
             } else if (edges instanceof Iterable) {
@@ -365,7 +365,7 @@ public class CommandExecutorSQLInsert extends CommandExecutorSQLSetAware
                 if (edge instanceof Identifiable) {
                   Entity edgeRec = ((Identifiable) edge).getRecord();
                   if (edgeRec.getSchemaType().isPresent()
-                      && edgeRec.getSchemaType().get().isSubClassOf("E")) {
+                      && edgeRec.getSchemaType().get().isSubClassOf(querySession, "E")) {
                     entity.removeProperty(field);
                     break;
                   }

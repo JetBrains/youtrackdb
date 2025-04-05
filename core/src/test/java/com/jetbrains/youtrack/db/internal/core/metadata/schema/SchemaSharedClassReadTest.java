@@ -35,7 +35,7 @@ public class SchemaSharedClassReadTest extends DbTestBase {
     assertTrue(originalClass == loadedClass);
     assertTrue(originalClass == reloadedClass);
 
-    assertEquals(reloadedClass.getProperty("modification").getType(), PropertyType.STRING);
+    assertEquals(reloadedClass.getProperty(db, "modification").getType(), PropertyType.STRING);
   }
 
 //  @Test
@@ -84,7 +84,7 @@ public class SchemaSharedClassReadTest extends DbTestBase {
         youTrackDb.cachedPool("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
     SchemaClass coldClass = db.getMetadata().getSchema().getClass("propertizedClass");
-    assertEquals(coldClass.getProperty("prop1").getType(), PropertyType.STRING);
+    assertEquals(coldClass.getProperty(db, "prop1").getType(), PropertyType.STRING);
 
     youTrackDb.close();
   }

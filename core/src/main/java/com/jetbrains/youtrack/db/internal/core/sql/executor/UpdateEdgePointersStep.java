@@ -1,12 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
@@ -33,7 +34,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
 
   private Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof ResultInternal) {
-      handleUpdateEdge(result.toEntity().getRecord());
+      handleUpdateEdge(ctx.getDatabase(), result.toEntity().getRecord());
     }
     return result;
   }
@@ -49,7 +50,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
    *
    * @param record the edge record
    */
-  private void handleUpdateEdge(EntityImpl record) {
+  private void handleUpdateEdge(DatabaseSession session, EntityImpl record) {
     Object currentOut = record.field("out");
     Object currentIn = record.field("in");
 
@@ -65,7 +66,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
       record.setPropertyInternal("in", currentIn);
     }
 
-    validateOutInForEdge(currentOut, currentIn);
+    validateOutInForEdge(session, currentOut, currentIn);
 
     var prevInIdentifiable = (Identifiable) prevIn;
     var currentInIdentifiable = (Identifiable) currentIn;
@@ -73,6 +74,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
     var prevOutIdentifiable = (Identifiable) prevOut;
 
     VertexInternal.changeVertexEdgePointers(
+        ctx.getDatabase(),
         record,
         prevInIdentifiable,
         currentInIdentifiable,
@@ -80,12 +82,13 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
         currentOutIdentifiable);
   }
 
-  private static void validateOutInForEdge(Object currentOut, Object currentIn) {
-    if (recordIsNotInstanceOfVertex(currentOut)) {
+  private static void validateOutInForEdge(DatabaseSession session, Object currentOut,
+      Object currentIn) {
+    if (recordIsNotInstanceOfVertex(session, currentOut)) {
       throw new CommandExecutionException(
           "Error updating edge: 'out' is not a vertex - " + currentOut);
     }
-    if (recordIsNotInstanceOfVertex(currentIn)) {
+    if (recordIsNotInstanceOfVertex(session, currentIn)) {
       throw new CommandExecutionException(
           "Error updating edge: 'in' is not a vertex - " + currentIn);
     }
@@ -96,7 +99,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
    *
    * @param iRecord The record object
    */
-  private static boolean recordIsNotInstanceOfVertex(Object iRecord) {
+  private static boolean recordIsNotInstanceOfVertex(DatabaseSession session, Object iRecord) {
     if (iRecord == null) {
       return true;
     }
@@ -106,7 +109,7 @@ public class UpdateEdgePointersStep extends AbstractExecutionStep {
     try {
       EntityImpl record = ((Identifiable) iRecord).getRecord();
       return (!EntityInternalUtils.getImmutableSchemaClass(record)
-          .isSubClassOf(SchemaClass.VERTEX_CLASS_NAME));
+          .isSubClassOf(session, SchemaClass.VERTEX_CLASS_NAME));
     } catch (RecordNotFoundException rnf) {
       return true;
     }

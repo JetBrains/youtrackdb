@@ -21,11 +21,11 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     SchemaClass classA = schema.createClass("TestPropertyRenaming");
     SchemaProperty property = classA.createProperty(db, "propertyOld", PropertyType.STRING);
-    assertEquals(property, classA.getProperty("propertyOld"));
-    assertNull(classA.getProperty("propertyNew"));
+    assertEquals(property, classA.getProperty(db, "propertyOld"));
+    assertNull(classA.getProperty(db, "propertyNew"));
     property.setName(db, "propertyNew");
-    assertNull(classA.getProperty("propertyOld"));
-    assertEquals(property, classA.getProperty("propertyNew"));
+    assertNull(classA.getProperty(db, "propertyOld"));
+    assertEquals(property, classA.getProperty(db, "propertyNew"));
   }
 
   @Test
@@ -33,12 +33,12 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     SchemaClass classA = schema.createClass("TestPropertyRenaming");
     SchemaProperty property = classA.createProperty(db, "propertyOld", PropertyType.STRING);
-    assertEquals(property, classA.getProperty("propertyOld"));
-    assertNull(classA.getProperty("propertyNew"));
+    assertEquals(property, classA.getProperty(db, "propertyOld"));
+    assertNull(classA.getProperty(db, "propertyNew"));
     property.setName(db, "propertyNew");
     classA = schema.getClass("TestPropertyRenaming");
-    assertNull(classA.getProperty("propertyOld"));
-    assertEquals(property, classA.getProperty("propertyNew"));
+    assertNull(classA.getProperty(db, "propertyOld"));
+    assertEquals(property, classA.getProperty(db, "propertyNew"));
   }
 
   @Test
@@ -52,7 +52,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
     }
 
-    SchemaProperty prop = classA.getProperty("propertyMap");
+    SchemaProperty prop = classA.getProperty(db, "propertyMap");
     assertNull(prop);
   }
 
@@ -68,7 +68,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
     }
 
-    SchemaProperty prop = classA.getProperty("propertyString");
+    SchemaProperty prop = classA.getProperty(db, "propertyString");
     assertNull(prop);
   }
 
@@ -116,10 +116,10 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     db.command("create class testAlterPropertyWithDot").close();
     db.command("create property testAlterPropertyWithDot.`a.b` STRING").close();
-    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
+    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty(db, "a.b"));
     db.command("alter property testAlterPropertyWithDot.`a.b` name c").close();
-    Assert.assertNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
-    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("c"));
+    Assert.assertNull(schema.getClass("testAlterPropertyWithDot").getProperty(db, "a.b"));
+    Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty(db, "c"));
   }
 
   @Test

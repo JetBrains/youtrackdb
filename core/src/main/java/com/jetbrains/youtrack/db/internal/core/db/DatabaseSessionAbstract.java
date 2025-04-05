@@ -691,7 +691,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
         getMetadata().getImmutableSchemaSnapshot().getClassesRelyOnCluster(this, iClusterName);
 
     for (SchemaClass c : classes) {
-      if (c.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
+      if (c.isSubClassOf(this, SecurityShared.RESTRICTED_CLASSNAME)) {
         throw new SecurityException(
             "Class '"
                 + c.getName()
@@ -1163,7 +1163,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public EdgeInternal newRegularEdge(Vertex from, Vertex to, String type) {
     SchemaClass cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType()) {
+    if (cl == null || !cl.isEdgeType(this)) {
       throw new IllegalArgumentException(type + " is not a regular edge class");
     }
     if (cl.isAbstract()) {
@@ -1177,7 +1177,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
     SchemaClass cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType()) {
+    if (cl == null || !cl.isEdgeType(this)) {
       throw new IllegalArgumentException(type + " is not a lightweight edge class");
     }
     if (!cl.isAbstract()) {
@@ -1262,8 +1262,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
     if (createLightweightEdge) {
       edge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      VertexInternal.createLink(toVertex.getRecord(), inVertex.getRecord(), outFieldName);
-      VertexInternal.createLink(inVertex.getRecord(), toVertex.getRecord(), inFieldName);
+      VertexInternal.createLink(this, toVertex.getRecord(), inVertex.getRecord(), outFieldName);
+      VertexInternal.createLink(this, inVertex.getRecord(), toVertex.getRecord(), inFieldName);
     } else {
       edge = newEdgeInternal(className);
       edge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, toVertex.getRecord());
@@ -1271,11 +1271,11 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
       if (!outEntityModified) {
         // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexInternal.createLink(outEntity, edge.getRecord(), outFieldName);
+        VertexInternal.createLink(this, outEntity, edge.getRecord(), outFieldName);
       }
 
       // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexInternal.createLink(inEntity, edge.getRecord(), inFieldName);
+      VertexInternal.createLink(this, inEntity, edge.getRecord(), inFieldName);
     }
     // OK
 
@@ -1503,7 +1503,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
             SchemaClass schemaClass = EntityInternalUtils.getImmutableSchemaClass(
                 ((EntityImpl) rec));
             if (iPolymorphic) {
-              if (schemaClass.isSubClassOf(className)) {
+              if (schemaClass.isSubClassOf(this, className)) {
                 deletedInTx++;
               }
             } else {
@@ -1521,7 +1521,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
                 ((EntityImpl) rec));
             if (schemaClass != null) {
               if (iPolymorphic) {
-                if (schemaClass.isSubClassOf(className)) {
+                if (schemaClass.isSubClassOf(this, className)) {
                   addedInTx++;
                 }
               } else {
@@ -1939,7 +1939,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     SchemaClass cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
-    if (cl == null || !cl.isEdgeType()) {
+    if (cl == null || !cl.isEdgeType(this)) {
       throw new IllegalArgumentException(iClassName + " is not an edge class");
     }
 
@@ -1998,13 +1998,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public boolean isClusterEdge(int cluster) {
     SchemaClass clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
-    return clazz != null && clazz.isEdgeType();
+    return clazz != null && clazz.isEdgeType(this);
   }
 
   @Override
   public boolean isClusterVertex(int cluster) {
     SchemaClass clazz = getMetadata().getImmutableSchemaSnapshot().getClassByClusterId(cluster);
-    return clazz != null && clazz.isVertexType();
+    return clazz != null && clazz.isVertexType(this);
   }
 
 

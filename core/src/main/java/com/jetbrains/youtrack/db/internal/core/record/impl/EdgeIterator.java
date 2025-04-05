@@ -140,6 +140,7 @@ public class EdgeIterator extends LazyWrapperIterator<Edge> {
     return createGraphElement(super.next());
   }
 
+  @Override
   public boolean filter(final Edge iObject) {
     if (targetVertex != null
         && !targetVertex.equals(iObject.getVertex(connection.getKey().opposite()))) {

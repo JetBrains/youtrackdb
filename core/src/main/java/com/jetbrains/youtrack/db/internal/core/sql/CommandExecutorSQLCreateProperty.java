@@ -290,7 +290,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
   /**
    * Execute the CREATE PROPERTY.
    */
-  public Object execute(final Map<Object, Object> iArgs, DatabaseSessionInternal querySession) {
+  public Object execute(final Map<Object, Object> iArgs, DatabaseSessionInternal session) {
     if (type == null) {
       throw new CommandExecutionException(
           "Cannot execute the command because it has not been parsed yet");
@@ -303,7 +303,7 @@ public class CommandExecutorSQLCreateProperty extends CommandExecutorSQLAbstract
       throw new CommandExecutionException("Source class '" + className + "' not found");
     }
 
-    SchemaPropertyImpl prop = (SchemaPropertyImpl) sourceClass.getProperty(fieldName);
+    SchemaPropertyImpl prop = (SchemaPropertyImpl) sourceClass.getProperty(session, fieldName);
 
     if (prop != null) {
       if (ifNotExists) {

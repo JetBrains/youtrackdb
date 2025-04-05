@@ -411,7 +411,7 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
                 if (record instanceof EntityImpl entity) {
 
                   // DETERMINE THE TYPE FROM THE SCHEMA
-                  PropertyType type = determineType(entity, fieldName);
+                  PropertyType type = determineType(entity, fieldName, db);
 
                   final Object v;
                   if (StringSerializerHelper.SKIPPED_VALUE.equals(fieldValue)) {
@@ -498,7 +498,8 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
     }
   }
 
-  public void toString(final DBRecord iRecord, final JSONWriter json, final String iFormat) {
+  public void toString(DatabaseSessionInternal session, final DBRecord iRecord,
+      final JSONWriter json, final String iFormat) {
     try {
       final FormatSettings settings = new FormatSettings(iFormat);
 
@@ -543,6 +544,7 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
 
   @Override
   public StringBuilder toString(
+      final DatabaseSessionInternal session,
       final DBRecord record,
       final StringBuilder output,
       final String format,
@@ -596,11 +598,12 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
     return NAME;
   }
 
-  private PropertyType determineType(EntityImpl entity, String fieldName) {
+  private PropertyType determineType(EntityImpl entity, String fieldName,
+      DatabaseSessionInternal session) {
     PropertyType type = null;
     final SchemaClass cls = EntityInternalUtils.getImmutableSchemaClass(entity);
     if (cls != null) {
-      final SchemaProperty prop = cls.getProperty(fieldName);
+      final SchemaProperty prop = cls.getProperty(session, fieldName);
       if (prop != null) {
         type = prop.getType();
       }
@@ -624,7 +627,7 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
 
     if (iFieldName != null && EntityInternalUtils.getImmutableSchemaClass(iRecord) != null) {
       final SchemaProperty p =
-          EntityInternalUtils.getImmutableSchemaClass(iRecord).getProperty(iFieldName);
+          EntityInternalUtils.getImmutableSchemaClass(iRecord).getProperty(db, iFieldName);
       if (p != null) {
         iType = p.getType();
         iLinkedType = p.getLinkedType();

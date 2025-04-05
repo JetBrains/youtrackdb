@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ResultMapper;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -62,7 +62,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
               SQLIdentifier identifier = identifiers.get(i);
               Object value = currentValues.get(i).execute(result, ctx);
               value =
-                  SQLUpdateItem.convertToPropertyType(
+                  SQLUpdateItem.convertToPropertyType(ctx.getDatabase(),
                       (ResultInternal) result, identifier, value, ctx);
               ((ResultInternal) result).setProperty(identifier.getStringValue(), value);
             }

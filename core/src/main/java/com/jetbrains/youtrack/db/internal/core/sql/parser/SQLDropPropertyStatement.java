@@ -42,7 +42,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
       throw new CommandExecutionException("Source class '" + className + "' not found");
     }
 
-    if (sourceClass.getProperty(propertyName.getStringValue()) == null) {
+    if (sourceClass.getProperty(database, propertyName.getStringValue()) == null) {
       if (ifExists) {
         return ExecutionStream.empty();
       }

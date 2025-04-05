@@ -319,7 +319,7 @@ public class EntityImpl extends RecordAbstract
     if (type == null) {
       return Optional.empty();
     }
-    if (type.isVertexType()) {
+    if (type.isVertexType(getSession())) {
       return Optional.of(new VertexDelegate(this));
     }
     return Optional.empty();
@@ -335,7 +335,7 @@ public class EntityImpl extends RecordAbstract
     if (type == null) {
       return null;
     }
-    if (type.isVertexType()) {
+    if (type.isVertexType(getSession())) {
       return new VertexDelegate(this);
     }
     return null;
@@ -350,7 +350,7 @@ public class EntityImpl extends RecordAbstract
     if (type == null) {
       return Optional.empty();
     }
-    if (type.isEdgeType()) {
+    if (type.isEdgeType(getSession())) {
       return Optional.of(new EdgeDelegate(this));
     }
     return Optional.empty();
@@ -365,7 +365,7 @@ public class EntityImpl extends RecordAbstract
     if (type == null) {
       return null;
     }
-    if (type.isEdgeType()) {
+    if (type.isEdgeType(getSession())) {
       return new EdgeDelegate(this);
     }
 
@@ -383,7 +383,7 @@ public class EntityImpl extends RecordAbstract
       return false;
     }
 
-    return type.isVertexType();
+    return type.isVertexType(getSession());
   }
 
   @Override
@@ -397,7 +397,7 @@ public class EntityImpl extends RecordAbstract
       return false;
     }
 
-    return type.isEdgeType();
+    return type.isEdgeType(getSession());
   }
 
   @Override
@@ -1262,7 +1262,7 @@ public class EntityImpl extends RecordAbstract
     }
 
     final SchemaClass schemaClass = p.getLinkedClass(session);
-    if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
+    if (schemaClass != null && !schemaClass.isSubClassOf(session, Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) fieldValue;
       final RID rid = identifiable.getIdentity();
@@ -1279,7 +1279,7 @@ public class EntityImpl extends RecordAbstract
           cls = null;
         }
 
-        if (cls != null && !schemaClass.isSuperClassOf(cls)) {
+        if (cls != null && !schemaClass.isSuperClassOf(session, cls)) {
           throw new ValidationException(
               "The field '"
                   + p.getFullName()
@@ -1377,7 +1377,7 @@ public class EntityImpl extends RecordAbstract
                     + "' but the record has no class");
           }
 
-          if (!(entity.getImmutableSchemaClass().isSubClassOf(embeddedClass))) {
+          if (!(entity.getImmutableSchemaClass().isSubClassOf(session, embeddedClass))) {
             throw new ValidationException(
                 "The field '"
                     + p.getFullName()
@@ -3034,7 +3034,7 @@ public class EntityImpl extends RecordAbstract
       if (immutableSchemaClass.isStrictMode()) {
         // CHECK IF ALL FIELDS ARE DEFINED
         for (String f : fieldNames()) {
-          if (immutableSchemaClass.getProperty(f) == null) {
+          if (immutableSchemaClass.getProperty(session, f) == null) {
             throw new ValidationException(
                 "Found additional field '"
                     + f
@@ -3465,7 +3465,7 @@ public class EntityImpl extends RecordAbstract
         if (entityClass == null) {
           ((EntityImpl) value).setClass(linkedClass);
         } else {
-          if (!entityClass.isSubClassOf(linkedClass)) {
+          if (!entityClass.isSubClassOf(session, linkedClass)) {
             throw new ValidationException(
                 "impossible to convert value of field \""
                     + prop.getName()
@@ -3576,7 +3576,7 @@ public class EntityImpl extends RecordAbstract
       if (fieldType == null) {
         SchemaClass clazz = getImmutableSchemaClass();
         if (clazz != null) {
-          final SchemaProperty prop = clazz.getProperty(fieldEntry.getKey());
+          final SchemaProperty prop = clazz.getProperty(session, fieldEntry.getKey());
           fieldType = prop != null ? prop.getType() : null;
         }
       }
@@ -4003,7 +4003,7 @@ public class EntityImpl extends RecordAbstract
     SchemaClass clazz = getImmutableSchemaClass();
     if (clazz != null) {
       // SCHEMA-FULL?
-      final SchemaProperty prop = clazz.getProperty(iFieldName);
+      final SchemaProperty prop = clazz.getProperty(getSession(), iFieldName);
       if (prop != null) {
         entry.property = prop;
         fieldType = prop.getType();

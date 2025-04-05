@@ -357,7 +357,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
       if (total > 0) {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = destClass.getProperty(linkName);
+          SchemaProperty prop = destClass.getProperty(querySession, linkName);
           destClass = database.getMetadata().getSchema().getClass(destClassName);
           if (prop != null) {
             destClass.dropProperty(database, linkName);
@@ -373,7 +373,7 @@ public class CommandExecutorSQLCreateLink extends CommandExecutorSQLAbstract {
         } else {
 
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = sourceClass.getProperty(linkName);
+          SchemaProperty prop = sourceClass.getProperty(querySession, linkName);
           sourceClass = database.getMetadata().getSchema().getClass(sourceClassName);
           if (prop != null) {
             sourceClass.dropProperty(database, linkName);

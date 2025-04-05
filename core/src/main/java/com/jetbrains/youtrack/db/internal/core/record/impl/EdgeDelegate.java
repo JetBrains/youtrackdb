@@ -107,7 +107,7 @@ public class EdgeDelegate implements EdgeInternal {
     var db = entity.getSession();
     var schema = db.getMetadata().getSchema();
 
-    if (schema.getClassByClusterId(id.getClusterId()).isVertexType()) {
+    if (schema.getClassByClusterId(id.getClusterId()).isVertexType(db)) {
       return id;
     }
 
@@ -166,7 +166,7 @@ public class EdgeDelegate implements EdgeInternal {
     var id = result.getIdentity();
     var schema = entity.getSession().getMetadata().getSchema();
 
-    if (schema.getClassByClusterId(id.getClusterId()).isVertexType()) {
+    if (schema.getClassByClusterId(id.getClusterId()).isVertexType(entity.getSession())) {
       return id;
     }
 
@@ -271,7 +271,7 @@ public class EdgeDelegate implements EdgeInternal {
     Optional<SchemaClass> typeClass = getSchemaType();
     if (typeClass.isPresent()) {
       types.add(typeClass.get().getName());
-      typeClass.get().getAllSuperClasses().stream()
+      typeClass.get().getAllSuperClasses(entity.getSession()).stream()
           .map(x -> x.getName())
           .forEach(name -> types.add(name));
     } else {

@@ -73,8 +73,8 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.createProperty(db, "some", PropertyType.LINKLIST, (SchemaClass) null);
     oClass.createProperty(db, "some2", PropertyType.LINKLIST, (SchemaClass) null, true);
 
-    assertNotNull(oClass.getProperty("some"));
-    assertNotNull(oClass.getProperty("some2"));
+    assertNotNull(oClass.getProperty(db, "some"));
+    assertNotNull(oClass.getProperty(db, "some2"));
   }
 
   @Test(expected = SchemaException.class)
@@ -376,12 +376,12 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
               return document.getIdentity();
             });
 
-    oClass.getProperty("test1").setType(db, PropertyType.INTEGER);
-    oClass.getProperty("test2").setType(db, PropertyType.LONG);
-    oClass.getProperty("test3").setType(db, PropertyType.DOUBLE);
-    oClass.getProperty("test4").setType(db, PropertyType.DOUBLE);
-    oClass.getProperty("test5").setType(db, PropertyType.DECIMAL);
-    oClass.getProperty("test6").setType(db, PropertyType.FLOAT);
+    oClass.getProperty(db, "test1").setType(db, PropertyType.INTEGER);
+    oClass.getProperty(db, "test2").setType(db, PropertyType.LONG);
+    oClass.getProperty(db, "test3").setType(db, PropertyType.DOUBLE);
+    oClass.getProperty(db, "test4").setType(db, PropertyType.DOUBLE);
+    oClass.getProperty(db, "test5").setType(db, PropertyType.DECIMAL);
+    oClass.getProperty(db, "test6").setType(db, PropertyType.FLOAT);
 
     EntityImpl doc1 = db.load(rid);
     assertEquals(doc1.fieldType("test1"), PropertyType.INTEGER);
@@ -425,12 +425,12 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
               return document.getIdentity();
             });
 
-    oClass.getProperty("test1").setName(db, "test1a");
-    oClass.getProperty("test2").setName(db, "test2a");
-    oClass.getProperty("test3").setName(db, "test3a");
-    oClass.getProperty("test4").setName(db, "test4a");
-    oClass.getProperty("test5").setName(db, "test5a");
-    oClass.getProperty("test6").setName(db, "test6a");
+    oClass.getProperty(db, "test1").setName(db, "test1a");
+    oClass.getProperty(db, "test2").setName(db, "test2a");
+    oClass.getProperty(db, "test3").setName(db, "test3a");
+    oClass.getProperty(db, "test4").setName(db, "test4a");
+    oClass.getProperty(db, "test5").setName(db, "test5a");
+    oClass.getProperty(db, "test6").setName(db, "test6a");
 
     EntityImpl doc1 = db.load(rid);
     assertEquals(doc1.fieldType("test1a"), PropertyType.SHORT);

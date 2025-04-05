@@ -115,7 +115,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     schema.createClass(className);
     SchemaClass superclass = schema.createClass(superclassName);
     ResultSet result = db.command("alter class " + className + " superclass " + superclassName);
-    Assert.assertTrue(schema.getClass(className).getSuperClasses().contains(superclass));
+    Assert.assertTrue(schema.getClass(className).getSuperClasses(db).contains(superclass));
     result.close();
   }
 
@@ -136,8 +136,8 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
                 + superclassName
                 + ", "
                 + superclassName2);
-    Assert.assertTrue(schema.getClass(className).getSuperClasses().contains(superclass));
-    Assert.assertTrue(schema.getClass(className).getSuperClasses().contains(superclass2));
+    Assert.assertTrue(schema.getClass(className).getSuperClasses(db).contains(superclass));
+    Assert.assertTrue(schema.getClass(className).getSuperClasses(db).contains(superclass2));
     result.close();
   }
 

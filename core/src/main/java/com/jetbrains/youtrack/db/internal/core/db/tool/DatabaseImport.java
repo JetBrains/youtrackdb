@@ -517,9 +517,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     for (final String dbClassName : classesNames) {
       final SchemaClass dbClass = schema.getClass(dbClassName);
       final String className = dbClass.getName();
-      if (!dbClass.isSuperClassOf(role)
-          && !dbClass.isSuperClassOf(user)
-          && !dbClass.isSuperClassOf(identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
+      if (!dbClass.isSuperClassOf(database, role)
+          && !dbClass.isSuperClassOf(database, user)
+          && !dbClass.isSuperClassOf(database,
+          identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
         for (var index : dbClass.getIndexes(database)) {
           indexNames.add(index);
@@ -538,7 +539,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       for (final String className : classesToDrop.keySet()) {
         boolean isSuperClass = false;
         for (SchemaClass dbClass : classesToDrop.values()) {
-          final List<SchemaClass> parentClasses = dbClass.getSuperClasses();
+          final List<SchemaClass> parentClasses = dbClass.getSuperClasses(database);
           if (parentClasses != null) {
             for (SchemaClass parentClass : parentClasses) {
               if (className.equalsIgnoreCase(parentClass.getName())) {
@@ -872,7 +873,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       for (final String superClassName : entry.getValue()) {
         final SchemaClass superClass = database.getMetadata().getSchema().getClass(superClassName);
 
-        if (!entry.getKey().getSuperClasses().contains(superClass)) {
+        if (!entry.getKey().getSuperClasses(database).contains(superClass)) {
           entry.getKey().addSuperClass(database, superClass);
         }
       }
@@ -974,7 +975,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
     }
 
-    SchemaPropertyImpl prop = (SchemaPropertyImpl) iClass.getProperty(propName);
+    SchemaPropertyImpl prop = (SchemaPropertyImpl) iClass.getProperty(database, propName);
     if (prop == null) {
       // CREATE IT
       prop = (SchemaPropertyImpl) iClass.createProperty(database, propName, type,

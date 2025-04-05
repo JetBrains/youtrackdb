@@ -37,11 +37,11 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
       var elem = result.toEntity();
       SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass((EntityImpl) elem);
       if (clazz != null) {
-        if (clazz.getName().equalsIgnoreCase("V") || clazz.isSubClassOf("V")) {
+        if (clazz.getName().equalsIgnoreCase("V") || clazz.isSubClassOf(ctx.getDatabase(), "V")) {
           throw new CommandExecutionException(
               "Cannot safely delete a vertex, please use DELETE VERTEX or UNSAFE");
         }
-        if (clazz.getName().equalsIgnoreCase("E") || clazz.isSubClassOf("E")) {
+        if (clazz.getName().equalsIgnoreCase("E") || clazz.isSubClassOf(ctx.getDatabase(), "E")) {
           throw new CommandExecutionException(
               "Cannot safely delete an edge, please use DELETE EDGE or UNSAFE");
         }

@@ -469,7 +469,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
           .getRecord()
           .map(x -> (Entity) x)
           .flatMap(elem -> elem.getSchemaType())
-          .map(clazz -> clazz.getProperty(identifier.getStringValue()))
+          .map(clazz -> clazz.getProperty(ctx.getDatabase(), identifier.getStringValue()))
           .map(prop -> prop.getCollate())
           .orElse(null);
     }

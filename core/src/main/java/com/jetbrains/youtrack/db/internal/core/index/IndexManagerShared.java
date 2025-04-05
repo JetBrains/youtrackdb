@@ -727,8 +727,8 @@ public class IndexManagerShared implements IndexManagerAbstract {
     if (clazz == null) {
       return;
     }
-    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSubclasses(database).forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses(database).forEach(x -> classesToCheck.add(x.getName()));
     Set<SecurityResourceProperty> allFilteredProperties =
         security.getAllFilteredProperties(database);
 

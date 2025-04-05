@@ -26,11 +26,11 @@ public class AlterSuperclassTest extends DbTestBase {
     classA.setAbstract(db, true);
     SchemaProperty property = classA.createProperty(db, "RevNumberNine", PropertyType.INTEGER);
     SchemaClass classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getSuperClasses(), List.of(classA));
+    assertEquals(classChild.getSuperClasses(db), List.of(classA));
     SchemaClass classChild2 = schema.createClass("ChildClass2", classChild);
-    assertEquals(classChild2.getSuperClasses(), List.of(classChild));
+    assertEquals(classChild2.getSuperClasses(db), List.of(classChild));
     classChild2.setSuperClasses(db, List.of(classA));
-    assertEquals(classChild2.getSuperClasses(), List.of(classA));
+    assertEquals(classChild2.getSuperClasses(db), List.of(classA));
   }
 
   @Test(expected = SchemaException.class)
@@ -40,7 +40,7 @@ public class AlterSuperclassTest extends DbTestBase {
     classA.setAbstract(db, true);
     SchemaProperty property = classA.createProperty(db, "RevNumberNine", PropertyType.INTEGER);
     SchemaClass classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getSuperClasses(), List.of(classA));
+    assertEquals(classChild.getSuperClasses(db), List.of(classA));
     SchemaClass classChild2 = schema.createClass("ChildClass2");
     classChild2.createProperty(db, "RevNumberNine", PropertyType.STRING);
     classChild2.setSuperClasses(db, List.of(classChild));
@@ -51,7 +51,7 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     SchemaClass classA = schema.createClass("ParentClass");
     SchemaClass classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getSuperClasses(), Collections.singletonList(classA));
+    assertEquals(classChild.getSuperClasses(db), Collections.singletonList(classA));
     classChild.addSuperClass(db, classA);
   }
 
@@ -60,7 +60,7 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     SchemaClass classA = schema.createClass("ParentClass");
     SchemaClass classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getSuperClasses(), Collections.singletonList(classA));
+    assertEquals(classChild.getSuperClasses(db), Collections.singletonList(classA));
     classChild.setSuperClasses(db, Arrays.asList(classA, classA));
   }
 

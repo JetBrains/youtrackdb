@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -49,6 +50,7 @@ public interface EntitySerializer {
       RecordElement owner);
 
   BinaryField deserializeField(
+      DatabaseSession session,
       BytesContainer bytes,
       SchemaClass iClass,
       String iFieldName,

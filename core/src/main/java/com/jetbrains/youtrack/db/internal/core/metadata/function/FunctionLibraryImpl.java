@@ -152,7 +152,7 @@ public class FunctionLibraryImpl {
   protected void init(final DatabaseSessionInternal db) {
     if (db.getMetadata().getSchema().existsClass("OFunction")) {
       final SchemaClass f = db.getMetadata().getSchema().getClass("OFunction");
-      SchemaProperty prop = f.getProperty("name");
+      SchemaProperty prop = f.getProperty(db, "name");
       if (prop.getAllIndexes(db).isEmpty()) {
         prop.createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX);
       }

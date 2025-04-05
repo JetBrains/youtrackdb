@@ -428,7 +428,8 @@ public class SQLHelper {
           // CHECK FOR CONVERSIONS
           SchemaImmutableClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(e);
           if (immutableClass != null) {
-            final SchemaProperty prop = immutableClass.getProperty(fieldName);
+            final SchemaProperty prop = immutableClass.getProperty(iContext.getDatabase(),
+                fieldName);
             if (prop != null) {
               if (prop.getType() == PropertyType.LINK) {
                 if (MultiValue.isMultiValue(fieldValue)) {
@@ -444,7 +445,7 @@ public class SQLHelper {
                   }
                 }
               }
-            } else if (immutableClass.isEdgeType()
+            } else if (immutableClass.isEdgeType(iContext.getDatabase())
                 && ("out".equals(fieldName) || "in".equals(fieldName))
                 && (fieldValue instanceof List lst)) {
               if (lst.size() == 1) {

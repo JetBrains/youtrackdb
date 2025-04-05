@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -289,8 +288,8 @@ public class SQLAlterClassStatement extends DDLStatement {
       switch (property) {
         case NAME:
           if (!unsafe) {
-            checkNotEdge(oClass);
-            checkNotIndexed(database, oClass);
+            checkNotEdge(ctx, oClass);
+            checkNotIndexed(ctx, oClass);
           }
           try {
             oClass.setName(database, identifierValue.getStringValue());
@@ -390,8 +389,8 @@ public class SQLAlterClassStatement extends DDLStatement {
     return ExecutionStream.singleton(result);
   }
 
-  private void checkNotIndexed(DatabaseSessionInternal session, SchemaClassInternal oClass) {
-    Set<Index> indexes = oClass.getIndexesInternal(session);
+  private void checkNotIndexed(CommandContext ctx, SchemaClassInternal oClass) {
+    Set<Index> indexes = oClass.getIndexesInternal(ctx.getDatabase());
     if (indexes != null && indexes.size() > 0) {
       throw new CommandExecutionException(
           "Cannot rename class '"
@@ -401,8 +400,8 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
-  private void checkNotEdge(SchemaClass oClass) {
-    if (oClass.isSubClassOf("E")) {
+  private void checkNotEdge(CommandContext ctx, SchemaClass oClass) {
+    if (oClass.isSubClassOf(ctx.getDatabase(), "E")) {
       throw new CommandExecutionException(
           "Cannot alter class '"
               + oClass

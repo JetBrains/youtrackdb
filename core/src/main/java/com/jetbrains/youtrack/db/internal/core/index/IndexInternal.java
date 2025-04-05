@@ -19,15 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
@@ -251,20 +251,20 @@ public interface IndexInternal extends Index {
   }
 
   static boolean isLabelSecurityDefined(
-      DatabaseSessionInternal database,
+      DatabaseSessionInternal session,
       SecurityInternal security,
       String indexClass,
       String propertyName) {
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
-    SchemaClass clazz = database.getClass(indexClass);
+    SchemaClass clazz = session.getClass(indexClass);
     if (clazz == null) {
       return false;
     }
-    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSubclasses(session).forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses(session).forEach(x -> classesToCheck.add(x.getName()));
     Set<SecurityResourceProperty> allFilteredProperties =
-        security.getAllFilteredProperties(database);
+        security.getAllFilteredProperties(session);
 
     for (String className : classesToCheck) {
       Optional<SecurityResourceProperty> item =
@@ -288,7 +288,7 @@ public interface IndexInternal extends Index {
 
     SchemaClass clazz = db.getClass(indexClass);
     if (clazz != null) {
-      Collection<SchemaClass> sub = clazz.getSubclasses();
+      Collection<SchemaClass> sub = clazz.getSubclasses(db);
       for (SchemaClass subClass : sub) {
         if (isReadRestrictedBySecurityPolicy(subClass.getName(), db, security)) {
           return true;

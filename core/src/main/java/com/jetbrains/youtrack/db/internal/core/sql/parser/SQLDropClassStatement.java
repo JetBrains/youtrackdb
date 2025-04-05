@@ -45,13 +45,13 @@ public class SQLDropClassStatement extends DDLStatement {
 
     if (!unsafe && clazz.count(db) > 0) {
       // check vertex or edge
-      if (clazz.isVertexType()) {
+      if (clazz.isVertexType(ctx.getDatabase())) {
         throw new CommandExecutionException(
             "'DROP CLASS' command cannot drop class '"
                 + className
                 + "' because it contains Vertices. Use 'DELETE VERTEX' command first to avoid"
                 + " broken edges in a database, or apply the 'UNSAFE' keyword to force it");
-      } else if (clazz.isEdgeType()) {
+      } else if (clazz.isEdgeType(ctx.getDatabase())) {
         // FOUND EDGE CLASS
         throw new CommandExecutionException(
             "'DROP CLASS' command cannot drop class '"

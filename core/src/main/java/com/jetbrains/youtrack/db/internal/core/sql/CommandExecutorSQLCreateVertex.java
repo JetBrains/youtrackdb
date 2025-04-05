@@ -75,7 +75,7 @@ public class CommandExecutorSQLCreateVertex extends CommandExecutorSQLSetAware
 
         } else if (temp.equals(KEYWORD_SET)) {
           fields = new ArrayList<Pair<String, Object>>();
-          parseSetFields(clazz, fields);
+          parseSetFields(clazz, fields, iRequest.getContext().getDatabase());
 
         } else if (temp.equals(KEYWORD_CONTENT)) {
           parseContent();

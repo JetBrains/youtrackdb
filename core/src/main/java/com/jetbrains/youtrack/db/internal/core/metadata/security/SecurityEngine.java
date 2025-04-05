@@ -285,13 +285,13 @@ public class SecurityEngine {
     SecurityPolicy classPolicy = definedPolicies.get(resource);
 
     String predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
-      if (clazz.getSuperClasses().size() == 1) {
+    if (predicateString == null && !clazz.getSuperClasses(session).isEmpty()) {
+      if (clazz.getSuperClasses(session).size() == 1) {
         return getPredicateForClassHierarchy(
-            session, security, role, clazz.getSuperClasses().iterator().next(), scope);
+            session, security, role, clazz.getSuperClasses(session).iterator().next(), scope);
       }
       SQLAndBlock result = new SQLAndBlock(-1);
-      for (SchemaClass superClass : clazz.getSuperClasses()) {
+      for (SchemaClass superClass : clazz.getSuperClasses(session)) {
         SQLBooleanExpression superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, scope);
         if (superClassPredicate == null) {
@@ -329,18 +329,18 @@ public class SecurityEngine {
     SecurityPolicy classPolicy = definedPolicies.get(resource);
 
     String predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
-      if (clazz.getSuperClasses().size() == 1) {
+    if (predicateString == null && !clazz.getSuperClasses(session).isEmpty()) {
+      if (clazz.getSuperClasses(session).size() == 1) {
         return getPredicateForClassHierarchy(
             session,
             security,
             role,
-            clazz.getSuperClasses().iterator().next(),
+            clazz.getSuperClasses(session).iterator().next(),
             propertyName,
             scope);
       }
       SQLAndBlock result = new SQLAndBlock(-1);
-      for (SchemaClass superClass : clazz.getSuperClasses()) {
+      for (SchemaClass superClass : clazz.getSuperClasses(session)) {
         SQLBooleanExpression superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, propertyName, scope);
         if (superClassPredicate == null) {

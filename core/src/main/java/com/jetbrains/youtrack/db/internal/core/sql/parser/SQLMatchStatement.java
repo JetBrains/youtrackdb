@@ -116,6 +116,7 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
   }
 
   public static class MatchContext {
+
     int currentEdgeNumber = 0;
 
     Map<String, Iterable> candidates = new LinkedHashMap<String, Iterable>();
@@ -854,7 +855,7 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
             continue; // broken graph?, null reference
           }
 
-          if (rightClass != null && !matchesClass(rightValue, rightClass)) {
+          if (rightClass != null && !matchesClass(db, rightValue, rightClass)) {
             continue;
           }
           Iterable<Identifiable> prevMatchedRightValues =
@@ -961,7 +962,7 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
               continue; // broken graph? null reference
             }
 
-            if (leftClass != null && !matchesClass(leftValue, leftClass)) {
+            if (leftClass != null && !matchesClass(db, leftValue, leftClass)) {
               continue;
             }
             Iterable<Identifiable> prevMatchedRightValues =
@@ -1015,7 +1016,7 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
               SQLWhereClause where = aliasFilters.get(inEdge.out.alias);
               String className = aliasClasses.get(inEdge.out.alias);
               SchemaClass oClass = db.getMetadata().getSchema().getClass(className);
-              if ((oClass == null || matchesClass(leftValue, oClass))
+              if ((oClass == null || matchesClass(db, leftValue, oClass))
                   && (where == null || where.matchesFilters(leftValue, iCommandContext))) {
                 MatchContext childContext =
                     matchContext.copy(inEdge.out.alias, leftValue.getIdentity());
@@ -1040,7 +1041,8 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
     return true;
   }
 
-  private boolean matchesClass(Identifiable identifiable, SchemaClass oClass) {
+  private boolean matchesClass(DatabaseSessionInternal session, Identifiable identifiable,
+      SchemaClass oClass) {
     if (identifiable == null) {
       return false;
     }
@@ -1052,7 +1054,7 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
         if (schemaClass == null) {
           return false;
         }
-        return schemaClass.isSubClassOf(oClass);
+        return schemaClass.isSubClassOf(session, oClass);
       }
       return false;
     } catch (RecordNotFoundException rnf) {
@@ -1538,10 +1540,10 @@ public class SQLMatchStatement extends SQLStatement implements CommandExecutor,
     if (class2 == null) {
       throw new CommandExecutionException("Class " + className2 + " not found in the schema");
     }
-    if (class1.isSubClassOf(class2)) {
+    if (class1.isSubClassOf(db, class2)) {
       return class1.getName();
     }
-    if (class2.isSubClassOf(class1)) {
+    if (class2.isSubClassOf(db, class1)) {
       return class2.getName();
     }
     return null;

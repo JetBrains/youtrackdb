@@ -458,11 +458,13 @@ public abstract class CommandExecutorSQLResultsetAbstract extends CommandExecuto
       // check only classes that specified in query will go to result set
       if ((targetClasses != null) && (!targetClasses.isEmpty())) {
         for (String targetClass : targetClasses.keySet()) {
-          if (!getDatabase()
+          DatabaseSessionInternal database = getDatabase();
+          if (!database
               .getMetadata()
               .getImmutableSchemaSnapshot()
               .getClass(targetClass)
-              .isSuperClassOf(EntityInternalUtils.getImmutableSchemaClass(recordSchemaAware))) {
+              .isSuperClassOf(database,
+                  EntityInternalUtils.getImmutableSchemaClass(recordSchemaAware))) {
             return false;
           }
         }

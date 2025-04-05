@@ -60,7 +60,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
     if (clazz == null) {
       throw new CommandExecutionException("Class not found: " + className.getStringValue());
     }
-    if (clazz.getProperty(propertyName.getStringValue()) != null) {
+    if (clazz.getProperty(db, propertyName.getStringValue()) != null) {
       if (ifNotExists) {
         return;
       }

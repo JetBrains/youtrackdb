@@ -1,21 +1,21 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.internal.common.util.Pair;
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.common.util.Pair;
+import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
@@ -360,7 +360,7 @@ public class GraphRepair {
 
               for (String fieldName : vertex.fieldNames()) {
                 final Pair<Direction, String> connection =
-                    VertexInternal.getConnection(
+                    VertexInternal.getConnection(db,
                         db.getMetadata().getSchema(), Direction.BOTH, fieldName);
                 if (connection == null) {
                   continue;
@@ -371,6 +371,7 @@ public class GraphRepair {
                   if (fieldValue instanceof Identifiable) {
 
                     if (isEdgeBroken(
+                        db,
                         vertex,
                         fieldName,
                         connection.getKey(),
@@ -396,7 +397,7 @@ public class GraphRepair {
                     for (Iterator<?> it = coll.iterator(); it.hasNext(); ) {
                       final Object o = it.next();
 
-                      if (isEdgeBroken(
+                      if (isEdgeBroken(db,
                           vertex, fieldName, connection.getKey(), (Identifiable) o, stats,
                           true)) {
                         vertexCorrupted = true;
@@ -426,7 +427,7 @@ public class GraphRepair {
                     }
                     for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
                       final Object o = it.next();
-                      if (isEdgeBroken(
+                      if (isEdgeBroken(db,
                           vertex, fieldName, connection.getKey(), (Identifiable) o, stats,
                           true)) {
                         vertexCorrupted = true;
@@ -498,6 +499,7 @@ public class GraphRepair {
   }
 
   private boolean isEdgeBroken(
+      final DatabaseSession session,
       final Identifiable vertex,
       final String fieldName,
       final Direction direction,
@@ -528,12 +530,12 @@ public class GraphRepair {
         final SchemaImmutableClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(
             record);
         if (immutableClass == null
-            || (!immutableClass.isVertexType() && !immutableClass.isEdgeType()))
+            || (!immutableClass.isVertexType(session) && !immutableClass.isEdgeType(session)))
         // INVALID RECORD TYPE: NULL OR NOT GRAPH TYPE
         {
           broken = true;
         } else {
-          if (immutableClass.isVertexType()) {
+          if (immutableClass.isVertexType(session)) {
             // VERTEX -> LIGHTWEIGHT EDGE
             final String inverseFieldName =
                 getInverseConnectionFieldName(fieldName, useVertexFieldsForEdgeLabels);

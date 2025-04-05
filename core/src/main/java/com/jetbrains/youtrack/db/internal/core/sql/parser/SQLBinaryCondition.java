@@ -471,7 +471,8 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
       SchemaClass nextClazz =
           clazz
-              .getProperty(base.getIdentifier().suffix.getIdentifier().getStringValue())
+              .getProperty(ctx.getDatabase(),
+                  base.getIdentifier().suffix.getIdentifier().getStringValue())
               .getLinkedClass(ctx.getDatabase());
       result.rightStatement =
           indexChainToStatement(

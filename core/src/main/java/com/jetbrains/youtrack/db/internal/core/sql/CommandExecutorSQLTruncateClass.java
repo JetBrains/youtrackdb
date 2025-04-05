@@ -123,28 +123,28 @@ public class CommandExecutorSQLTruncateClass extends CommandExecutorSQLAbstract
     var database = getDatabase();
     final long recs = schemaClass.count(database, deep);
     if (recs > 0 && !unsafe) {
-      if (schemaClass.isSubClassOf("V")) {
+      if (schemaClass.isSubClassOf(querySession, "V")) {
         throw new CommandExecutionException(
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (schemaClass.isSubClassOf("E")) {
+      } else if (schemaClass.isSubClassOf(querySession, "E")) {
         throw new CommandExecutionException(
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
       }
     }
 
-    Collection<SchemaClass> subclasses = schemaClass.getAllSubclasses();
+    Collection<SchemaClass> subclasses = schemaClass.getAllSubclasses(querySession);
     if (deep && !unsafe) { // for multiple inheritance
       for (SchemaClass subclass : subclasses) {
         long subclassRecs = schemaClass.count(database);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf("V")) {
+          if (subclass.isSubClassOf(querySession, "V")) {
             throw new CommandExecutionException(
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
                     + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf("E")) {
+          } else if (subclass.isSubClassOf(querySession, "E")) {
             throw new CommandExecutionException(
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
                     + subclass.getName()

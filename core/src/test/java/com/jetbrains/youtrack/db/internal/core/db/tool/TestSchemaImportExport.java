@@ -94,7 +94,7 @@ public class TestSchemaImportExport extends DbTestBase {
 
       SchemaClass clas1 = db1.getMetadata().getSchema().getClass("Test");
       Assert.assertNotNull(clas1);
-      SchemaProperty prop1 = clas1.getProperty("bla");
+      SchemaProperty prop1 = clas1.getProperty(db, "bla");
       Assert.assertNotNull(prop1);
       Assert.assertEquals("something", prop1.getDefaultValue());
     } finally {
@@ -138,8 +138,8 @@ public class TestSchemaImportExport extends DbTestBase {
               db1, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
       imp.importDatabase();
       SchemaClass clas1 = db1.getMetadata().getSchema().getClass("Test");
-      Assert.assertTrue(clas1.isSubClassOf("OIdentity"));
-      Assert.assertTrue(clas1.isSubClassOf("ORestricted"));
+      Assert.assertTrue(clas1.isSubClassOf(db, "OIdentity"));
+      Assert.assertTrue(clas1.isSubClassOf(db, "ORestricted"));
     } finally {
       context.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }

@@ -113,7 +113,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
             if (record instanceof EntityImpl) {
               SchemaProperty property =
                   EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record))
-                      .getProperty(fieldName);
+                      .getProperty(iContext.getDatabase(), fieldName);
               if (property != null && property.getType().isMultiValue()) {
                 type = property.getLinkedType();
               }

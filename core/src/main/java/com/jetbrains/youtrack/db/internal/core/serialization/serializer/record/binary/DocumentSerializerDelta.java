@@ -16,6 +16,7 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.r
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOType;
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -91,9 +92,9 @@ public class DocumentSerializerDelta {
     return bytes.fitBytes();
   }
 
-  public byte[] serializeDelta(EntityImpl entity) {
+  public byte[] serializeDelta(DatabaseSession session, EntityImpl entity) {
     BytesContainer bytes = new BytesContainer();
-    serializeDelta(bytes, entity);
+    serializeDelta(session, bytes, entity);
     return bytes.fitBytes();
   }
 
@@ -140,7 +141,8 @@ public class DocumentSerializerDelta {
                   + " with the Result binary serializer");
         }
         writeNullableType(bytes, type);
-        serializeValue(bytes, value, type, getLinkedType(oClass, type, entry.getKey()));
+        serializeValue(bytes, value, type,
+            getLinkedType(entity.getSession(), oClass, type, entry.getKey()));
       } else {
         writeNullableType(bytes, null);
       }
@@ -562,7 +564,7 @@ public class DocumentSerializerDelta {
     }
   }
 
-  public void serializeDelta(BytesContainer bytes, EntityImpl entity) {
+  public void serializeDelta(DatabaseSession session, BytesContainer bytes, EntityImpl entity) {
     serializeClass(entity, bytes);
     SchemaClass oClass = EntityInternalUtils.getImmutableSchemaClass(entity);
     long count =
@@ -586,21 +588,21 @@ public class DocumentSerializerDelta {
         writeString(bytes, entry.getKey());
       } else if (docEntry.isTxCreated()) {
         serializeByte(bytes, CREATED);
-        serializeFullEntry(bytes, oClass, entry.getKey(), docEntry);
+        serializeFullEntry(session, bytes, oClass, entry.getKey(), docEntry);
       } else if (docEntry.isTxChanged()) {
         serializeByte(bytes, REPLACED);
-        serializeFullEntry(bytes, oClass, entry.getKey(), docEntry);
+        serializeFullEntry(session, bytes, oClass, entry.getKey(), docEntry);
       } else if (docEntry.isTxTrackedModified()) {
         serializeByte(bytes, CHANGED);
         // timeline must not be NULL here. Else check that tracker is enabled
-        serializeDeltaEntry(bytes, oClass, entry.getKey(), docEntry);
+        serializeDeltaEntry(session, bytes, oClass, entry.getKey(), docEntry);
       } else {
         continue;
       }
     }
   }
 
-  private void serializeDeltaEntry(
+  private void serializeDeltaEntry(DatabaseSession session,
       BytesContainer bytes, SchemaClass oClass, String name, EntityEntry entry) {
     final Object value = entry.value;
     assert value != null;
@@ -611,23 +613,24 @@ public class DocumentSerializerDelta {
     }
     writeString(bytes, name);
     writeNullableType(bytes, type);
-    serializeDeltaValue(bytes, value, type, getLinkedType(oClass, type, name));
+    serializeDeltaValue(session, bytes, value, type, getLinkedType(session, oClass, type, name));
   }
 
   private void serializeDeltaValue(
+      DatabaseSession session,
       BytesContainer bytes, Object value, PropertyType type, PropertyType linkedType) {
     switch (type) {
       case EMBEDDEDLIST:
-        serializeDeltaEmbeddedList(bytes, (TrackedList) value);
+        serializeDeltaEmbeddedList(session, bytes, (TrackedList) value);
         break;
       case EMBEDDEDSET:
-        serializeDeltaEmbeddedSet(bytes, (TrackedSet) value);
+        serializeDeltaEmbeddedSet(session, bytes, (TrackedSet) value);
         break;
       case EMBEDDEDMAP:
-        serializeDeltaEmbeddedMap(bytes, (TrackedMap) value);
+        serializeDeltaEmbeddedMap(session, bytes, (TrackedMap) value);
         break;
       case EMBEDDED:
-        serializeDelta(bytes, ((DBRecord) value).getRecord());
+        serializeDelta(session, bytes, ((DBRecord) value).getRecord());
         break;
       case LINKLIST:
         serializeDeltaLinkList(bytes, (LinkList) value);
@@ -757,7 +760,8 @@ public class DocumentSerializerDelta {
     }
   }
 
-  private void serializeDeltaEmbeddedMap(BytesContainer bytes, TrackedMap value) {
+  private void serializeDeltaEmbeddedMap(DatabaseSession session, BytesContainer bytes,
+      TrackedMap value) {
     MultiValueChangeTimeLine<Object, Object> timeline = value.getTransactionTimeLine();
     if (timeline != null) {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
@@ -817,7 +821,7 @@ public class DocumentSerializerDelta {
         writeString(bytes, singleEntry.getKey().toString());
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       } else if (singleValue instanceof EntityImpl
           && ((EntityImpl) singleValue).isEmbedded()
           && ((EntityImpl) singleValue).isDirty()) {
@@ -825,12 +829,13 @@ public class DocumentSerializerDelta {
         writeString(bytes, singleEntry.getKey().toString());
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       }
     }
   }
 
-  private void serializeDeltaEmbeddedList(BytesContainer bytes, TrackedList value) {
+  private void serializeDeltaEmbeddedList(DatabaseSession session, BytesContainer bytes,
+      TrackedList value) {
     MultiValueChangeTimeLine<Integer, Object> timeline = value.getTransactionTimeLine();
     if (timeline != null) {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
@@ -888,7 +893,7 @@ public class DocumentSerializerDelta {
         VarIntSerializer.write(bytes, i);
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       } else if (singleValue instanceof EntityImpl
           && ((EntityImpl) singleValue).isEmbedded()
           && ((EntityImpl) singleValue).isDirty()) {
@@ -896,12 +901,13 @@ public class DocumentSerializerDelta {
         VarIntSerializer.write(bytes, i);
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       }
     }
   }
 
-  private void serializeDeltaEmbeddedSet(BytesContainer bytes, TrackedSet value) {
+  private void serializeDeltaEmbeddedSet(DatabaseSession session, BytesContainer bytes,
+      TrackedSet value) {
     MultiValueChangeTimeLine<Object, Object> timeline = value.getTransactionTimeLine();
     if (timeline != null) {
       VarIntSerializer.write(bytes, timeline.getMultiValueChangeEvents().size());
@@ -958,7 +964,7 @@ public class DocumentSerializerDelta {
         VarIntSerializer.write(bytes, i);
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       } else if (singleValue instanceof EntityImpl
           && ((EntityImpl) singleValue).isEmbedded()
           && ((EntityImpl) singleValue).isDirty()) {
@@ -966,7 +972,7 @@ public class DocumentSerializerDelta {
         VarIntSerializer.write(bytes, i);
         PropertyType type = PropertyType.getTypeByValue(singleValue);
         writeNullableType(bytes, type);
-        serializeDeltaValue(bytes, singleValue, type, null);
+        serializeDeltaValue(session, bytes, singleValue, type, null);
       }
       i++;
     }
@@ -987,6 +993,7 @@ public class DocumentSerializerDelta {
   }
 
   private void serializeFullEntry(
+      DatabaseSession session,
       BytesContainer bytes, SchemaClass oClass, String name, EntityEntry entry) {
     final Object value = entry.value;
     if (value != null) {
@@ -999,7 +1006,7 @@ public class DocumentSerializerDelta {
       }
       writeString(bytes, name);
       writeNullableType(bytes, type);
-      serializeValue(bytes, value, type, getLinkedType(oClass, type, name));
+      serializeValue(bytes, value, type, getLinkedType(session, oClass, type, name));
     } else {
       writeString(bytes, name);
       writeNullableType(bytes, null);

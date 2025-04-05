@@ -9,10 +9,10 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
@@ -353,7 +353,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     var entity = getBaseDocument();
     if (labels != null && labels.length > 0) {
       // EDGE LABELS: CREATE FIELD NAME TABLE (FASTER THAN EXTRACT FIELD NAMES FROM THE DOCUMENT)
-      var toLoadFieldNames = getEdgeFieldNames(schema, direction, labels);
+      var toLoadFieldNames = getEdgeFieldNames(db, schema, direction, labels);
 
       if (toLoadFieldNames != null) {
         // EARLY FETCH ALL THE FIELDS THAT MATTERS
@@ -369,7 +369,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
     var iterables = new ArrayList<Iterable<Edge>>(fieldNames.size());
     for (var fieldName : fieldNames) {
       final Pair<Direction, String> connection =
-          getConnection(schema, direction, fieldName, labels);
+          getConnection(db, schema, direction, fieldName, labels);
       if (connection == null)
       // SKIP THIS FIELD
       {
@@ -411,6 +411,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
   }
 
   private static ArrayList<String> getEdgeFieldNames(
+      DatabaseSessionInternal session,
       Schema schema, final Direction iDirection, String... classNames) {
     if (classNames == null)
     // FALL BACK TO LOAD ALL FIELD NAMES
@@ -430,7 +431,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
       SchemaClass clazz = schema.getClass(className);
       if (clazz != null) {
         allClassNames.add(clazz.getName()); // needed for aliases
-        Collection<SchemaClass> subClasses = clazz.getAllSubclasses();
+        Collection<SchemaClass> subClasses = clazz.getAllSubclasses(session);
         for (SchemaClass subClass : subClasses) {
           allClassNames.add(subClass.getName());
         }
@@ -457,6 +458,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
   }
 
   static Pair<Direction, String> getConnection(
+      final DatabaseSession session,
       final Schema schema,
       final Direction direction,
       final String fieldName,
@@ -485,7 +487,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
           // GO DOWN THROUGH THE INHERITANCE TREE
           SchemaClass type = schema.getClass(clsName);
           if (type != null) {
-            for (SchemaClass subType : type.getAllSubclasses()) {
+            for (SchemaClass subType : type.getAllSubclasses(session)) {
               clsName = subType.getName();
 
               if (fieldName.equals(DIRECTION_OUT_PREFIX + clsName)) {
@@ -514,7 +516,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
           // GO DOWN THROUGH THE INHERITANCE TREE
           SchemaClass type = schema.getClass(clsName);
           if (type != null) {
-            for (SchemaClass subType : type.getAllSubclasses()) {
+            for (SchemaClass subType : type.getAllSubclasses(session)) {
               clsName = subType.getName();
               if (fieldName.equals(DIRECTION_IN_PREFIX + clsName)) {
                 return new Pair<>(Direction.IN, clsName);
@@ -806,6 +808,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
    * updates old and new vertices connected to an edge after out/in update on the edge itself
    */
   static void changeVertexEdgePointers(
+      DatabaseSessionInternal session,
       EntityImpl edge,
       Identifiable prevInVertex,
       Identifiable currentInVertex,
@@ -815,15 +818,16 @@ public interface VertexInternal extends Vertex, EntityInternal {
 
     if (currentInVertex != prevInVertex) {
       changeVertexEdgePointersOneDirection(
-          edge, prevInVertex, currentInVertex, edgeClass, Direction.IN);
+          session, edge, prevInVertex, currentInVertex, edgeClass, Direction.IN);
     }
     if (currentOutVertex != prevOutVertex) {
       changeVertexEdgePointersOneDirection(
-          edge, prevOutVertex, currentOutVertex, edgeClass, Direction.OUT);
+          session, edge, prevOutVertex, currentOutVertex, edgeClass, Direction.OUT);
     }
   }
 
   private static void changeVertexEdgePointersOneDirection(
+      DatabaseSessionInternal session,
       EntityImpl edge,
       Identifiable prevInVertex,
       Identifiable currentInVertex,
@@ -839,7 +843,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
       }
 
       var currentRecord = currentInVertex.<EntityImpl>getRecord();
-      createLink(currentRecord, edge, inFieldName);
+      createLink(session, currentRecord, edge, inFieldName);
 
       prevRecord.save();
       currentRecord.save();
@@ -891,6 +895,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
    * Creates a link between a vertices and a Graph Element.
    */
   static void createLink(
+      DatabaseSession session,
       final EntityImpl fromVertex, final Identifiable to, final String fieldName) {
     final Object out;
     PropertyType outType = fromVertex.fieldType(fieldName);
@@ -901,7 +906,7 @@ public interface VertexInternal extends Vertex, EntityInternal {
       throw new IllegalArgumentException("Class not found in source vertex: " + fromVertex);
     }
 
-    final SchemaProperty prop = linkClass.getProperty(fieldName);
+    final SchemaProperty prop = linkClass.getProperty(session, fieldName);
     final PropertyType propType =
         prop != null && prop.getType() != PropertyType.ANY ? prop.getType() : null;
 

@@ -521,6 +521,7 @@ public class SQLBaseExpression extends SQLMathExpression {
     }
     if (identifier.isIndexChain(ctx, clazz)) {
       SchemaProperty prop = clazz.getProperty(
+          ctx.getDatabase(),
           identifier.getSuffix().getIdentifier().getStringValue());
       var linkedClass = (SchemaClassInternal) prop.getLinkedClass(ctx.getDatabase());
       if (linkedClass != null) {

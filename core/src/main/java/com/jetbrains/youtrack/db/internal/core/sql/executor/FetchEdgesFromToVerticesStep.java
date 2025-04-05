@@ -1,19 +1,20 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import java.util.Collections;
 import java.util.HashSet;
@@ -83,7 +84,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       Object val) {
     return ExecutionStream.resultIterator(
         StreamSupport.stream(this.loadNextResults(val).spliterator(), false)
-            .filter((e) -> filterResult(e, toList))
+            .filter((e) -> filterResult(db, e, toList))
             .map(
                 (edge) -> {
                   return (Result) new ResultInternal(db, edge);
@@ -135,9 +136,9 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return (Iterator<?>) fromValues;
   }
 
-  private boolean filterResult(Edge edge, Set<RID> toList) {
+  private boolean filterResult(DatabaseSession session, Edge edge, Set<RID> toList) {
     if (toList == null || toList.contains(edge.getTo().getIdentity())) {
-      return matchesClass(edge) && matchesCluster(edge);
+      return matchesClass(session, edge) && matchesCluster(edge);
     }
     return true;
   }
@@ -167,13 +168,13 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return clusterName.equals(targetCluster.getStringValue());
   }
 
-  private boolean matchesClass(Edge edge) {
+  private boolean matchesClass(DatabaseSession session, Edge edge) {
     if (targetClass == null) {
       return true;
     }
     var schemaClass = edge.getSchemaClass();
     assert schemaClass != null;
-    return schemaClass.isSubClassOf(targetClass.getStringValue());
+    return schemaClass.isSubClassOf(session, targetClass.getStringValue());
   }
 
   @Override

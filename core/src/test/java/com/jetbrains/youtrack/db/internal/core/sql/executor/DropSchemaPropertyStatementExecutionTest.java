@@ -22,7 +22,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Schema schema = db.getMetadata().getSchema();
     schema.createClass(className).createProperty(db, propertyName, PropertyType.STRING);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
     ResultSet result = db.command("drop property " + className + "." + propertyName);
     Assert.assertTrue(result.hasNext());
     Result next = result.next();
@@ -30,7 +30,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(db, propertyName));
   }
 
   @Test
@@ -43,7 +43,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
         .createProperty(db, propertyName, PropertyType.STRING)
         .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
     ResultSet result = db.command("drop property " + className + "." + propertyName + " force");
     for (int i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
@@ -54,7 +54,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(db, propertyName));
   }
 
   @Test
@@ -68,7 +68,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
         .createProperty(db, propertyName, PropertyType.STRING)
         .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
     try {
       db.command("drop property " + className + "." + propertyName);
       Assert.fail();

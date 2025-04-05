@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -51,13 +52,14 @@ public class IndexDefinitionFactory {
    * @return index definition instance
    */
   public static IndexDefinition createIndexDefinition(
+      DatabaseSession session,
       final SchemaClass oClass,
       final List<String> fieldNames,
       final List<PropertyType> types,
       List<Collate> collates,
       String indexKind,
       String algorithm) {
-    checkTypes(oClass, fieldNames, types);
+    checkTypes(session, oClass, fieldNames, types);
 
     if (fieldNames.size() == 1) {
       Collate collate = null;
@@ -65,11 +67,12 @@ public class IndexDefinitionFactory {
       PropertyType type = types.get(0);
       String field = fieldNames.get(0);
       final String fieldName =
-          SchemaClassImpl.decodeClassName(adjustFieldName(oClass, extractFieldName(field)));
+          SchemaClassImpl.decodeClassName(
+              adjustFieldName(session, oClass, extractFieldName(field)));
       if (collates != null) {
         collate = collates.get(0);
       }
-      SchemaProperty property = oClass.getProperty(fieldName);
+      SchemaProperty property = oClass.getProperty(session, fieldName);
       if (property != null) {
         if (collate == null) {
           collate = property.getCollate();
@@ -81,7 +84,7 @@ public class IndexDefinitionFactory {
       return createSingleFieldIndexDefinition(
           oClass.getName(), fieldName, type, linkedType, collate, indexKind, indexBy);
     } else {
-      return createMultipleFieldIndexDefinition(
+      return createMultipleFieldIndexDefinition(session,
           oClass, fieldNames, types, collates, indexKind, algorithm);
     }
   }
@@ -118,6 +121,7 @@ public class IndexDefinitionFactory {
   }
 
   private static IndexDefinition createMultipleFieldIndexDefinition(
+      DatabaseSession session,
       final SchemaClass oClass,
       final List<String> fieldsToIndex,
       final List<PropertyType> types,
@@ -137,8 +141,9 @@ public class IndexDefinitionFactory {
       }
       String field = fieldsToIndex.get(i);
       final String fieldName =
-          SchemaClassImpl.decodeClassName(adjustFieldName(oClass, extractFieldName(field)));
-      SchemaProperty property = oClass.getProperty(fieldName);
+          SchemaClassImpl.decodeClassName(
+              adjustFieldName(session, oClass, extractFieldName(field)));
+      SchemaProperty property = oClass.getProperty(session, fieldName);
       if (property != null) {
         if (collate == null) {
           collate = property.getCollate();
@@ -154,7 +159,9 @@ public class IndexDefinitionFactory {
     return compositeIndex;
   }
 
-  private static void checkTypes(SchemaClass oClass, List<String> fieldNames,
+  private static void checkTypes(
+      DatabaseSession session,
+      SchemaClass oClass, List<String> fieldNames,
       List<PropertyType> types) {
     if (fieldNames.size() != types.size()) {
       throw new IllegalArgumentException(
@@ -169,7 +176,7 @@ public class IndexDefinitionFactory {
       final String fieldName = fieldNames.get(i);
       final PropertyType type = types.get(i);
 
-      final SchemaProperty property = oClass.getProperty(fieldName);
+      final SchemaProperty property = oClass.getProperty(session, fieldName);
       if (property != null && !type.equals(property.getType())) {
         throw new IllegalArgumentException("Property type list not match with real property types");
       }
@@ -272,8 +279,9 @@ public class IndexDefinitionFactory {
             + '\'');
   }
 
-  private static String adjustFieldName(final SchemaClass clazz, final String fieldName) {
-    final SchemaProperty property = clazz.getProperty(fieldName);
+  private static String adjustFieldName(DatabaseSession session, final SchemaClass clazz,
+      final String fieldName) {
+    final SchemaProperty property = clazz.getProperty(session, fieldName);
     if (property != null) {
       return property.getName();
     } else {

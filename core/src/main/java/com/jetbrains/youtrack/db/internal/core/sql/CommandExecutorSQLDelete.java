@@ -355,13 +355,13 @@ public class CommandExecutorSQLDelete extends CommandExecutorSQLAbstract
         // CHECK IF ARE VERTICES OR EDGES
         final SchemaClass cls = EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record));
         if (cls != null) {
-          if (cls.isSubClassOf("V"))
+          if (cls.isSubClassOf(querySession, "V"))
           // FOUND VERTEX
           {
             throw new CommandExecutionException(
                 "'DELETE' command cannot delete vertices. Use 'DELETE VERTEX' command instead, or"
                     + " apply the 'UNSAFE' keyword to force it");
-          } else if (cls.isSubClassOf("E"))
+          } else if (cls.isSubClassOf(querySession, "E"))
           // FOUND EDGE
           {
             throw new CommandExecutionException(

@@ -656,7 +656,13 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
       regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
       String linkedClassName =
           entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
-      linkedClass = owner.owner.getClass(db, linkedClassName);
+      // maybe I will find a better solution, but we need it to unfold recursion
+      // class loads properties -> property loads same class which is not loaded yet
+      if (linkedClassName != null && linkedClassName.equalsIgnoreCase(owner.getName())) {
+        linkedClass = owner;
+      } else {
+        linkedClass = owner.owner.getClass(db, linkedClassName);
+      }
       linkedType =
           entity.field("linkedType") != null
               ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())

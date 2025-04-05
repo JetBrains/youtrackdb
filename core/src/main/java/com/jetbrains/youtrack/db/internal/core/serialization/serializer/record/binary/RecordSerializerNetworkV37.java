@@ -583,7 +583,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializer {
     }
     SchemaClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(entity);
     if (immutableClass != null) {
-      SchemaProperty prop = immutableClass.getProperty(key);
+      SchemaProperty prop = immutableClass.getProperty(entity.getSession(), key);
       if (prop != null) {
         return prop.getLinkedType();
       }

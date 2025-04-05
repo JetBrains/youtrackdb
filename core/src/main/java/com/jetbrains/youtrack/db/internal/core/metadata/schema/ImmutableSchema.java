@@ -90,7 +90,7 @@ public class ImmutableSchema implements SchemaInternal {
     properties.addAll(schemaShared.getGlobalProperties());
 
     for (SchemaClass cl : classes.values()) {
-      ((SchemaImmutableClass) cl).init();
+      ((SchemaImmutableClass) cl).init(database);
     }
 
     this.blobClusters = schemaShared.getBlobClusters();

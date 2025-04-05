@@ -213,7 +213,7 @@ public class CommandExecutorSQLAlterProperty extends CommandExecutorSQLAbstract
   /**
    * Execute the ALTER PROPERTY.
    */
-  public Object execute(final Map<Object, Object> iArgs, DatabaseSessionInternal querySession) {
+  public Object execute(final Map<Object, Object> iArgs, DatabaseSessionInternal session) {
     if (attribute == null) {
       throw new CommandExecutionException(
           "Cannot execute the command because it has not yet been parsed");
@@ -226,7 +226,7 @@ public class CommandExecutorSQLAlterProperty extends CommandExecutorSQLAbstract
       throw new CommandExecutionException("Source class '" + className + "' not found");
     }
 
-    final SchemaPropertyImpl prop = (SchemaPropertyImpl) sourceClass.getProperty(fieldName);
+    final SchemaPropertyImpl prop = (SchemaPropertyImpl) sourceClass.getProperty(session, fieldName);
     if (prop == null) {
       throw new CommandExecutionException(
           "Property '" + className + "." + fieldName + "' not exists");

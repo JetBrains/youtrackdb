@@ -55,7 +55,8 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
     }
   }
 
-  protected void parseSetFields(final SchemaClass iClass, final List<Pair<String, Object>> fields) {
+  protected void parseSetFields(final SchemaClass iClass, final List<Pair<String, Object>> fields,
+      DatabaseSessionInternal session) {
     String fieldName;
     String fieldValue;
 
@@ -73,7 +74,8 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
       fieldValue = parserRequiredWord(false, "Value expected", " =><,\r\n");
 
       // INSERT TRANSFORMED FIELD VALUE
-      final Object v = convertValue(iClass, fieldName, getFieldValueCountingParameters(fieldValue));
+      final Object v = convertValue(iClass, fieldName, getFieldValueCountingParameters(fieldValue),
+          session);
 
       fields.add(new Pair(fieldName, v));
       parserSkipWhiteSpaces();
@@ -127,9 +129,9 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
           }
           if (candidateClass == null
               || candidateClass.equals(aClass)
-              || candidateClass.isSubClassOf(aClass)) {
+              || candidateClass.isSubClassOf(db, aClass)) {
             candidateClass = aClass;
-          } else if (!candidateClass.isSuperClassOf(aClass)) {
+          } else if (!candidateClass.isSuperClassOf(db, aClass)) {
             return null;
           }
         }
@@ -144,10 +146,11 @@ public abstract class CommandExecutorSQLSetAware extends CommandExecutorSQLAbstr
     return null;
   }
 
-  protected Object convertValue(SchemaClass iClass, String fieldName, Object v) {
+  protected Object convertValue(SchemaClass iClass, String fieldName, Object v,
+      DatabaseSessionInternal session) {
     if (iClass != null) {
       // CHECK TYPE AND CONVERT IF NEEDED
-      final SchemaProperty p = iClass.getProperty(fieldName);
+      final SchemaProperty p = iClass.getProperty(session, fieldName);
       if (p != null) {
         final SchemaClass embeddedType = p.getLinkedClass(context.getDatabase());
 

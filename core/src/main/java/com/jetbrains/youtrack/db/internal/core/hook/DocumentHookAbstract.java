@@ -58,8 +58,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
    * It's called just before to create the new entity.
    *
    * @param entity The entity to create
-   * @return True if the entity has been modified and a new marshalling is required, otherwise
-   * false
+   * @return True if the entity has been modified and a new marshalling is required, otherwise false
    */
   public RESULT onRecordBeforeCreate(final EntityImpl entity) {
     return RESULT.RECORD_NOT_CHANGED;
@@ -93,8 +92,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
    * It's called just before to read the entity.
    *
    * @param entity The entity to read
-   * @return True if the entity has been modified and a new marshalling is required, otherwise
-   * false
+   * @return True if the entity has been modified and a new marshalling is required, otherwise false
    */
   public RESULT onRecordBeforeRead(final EntityImpl entity) {
     return RESULT.RECORD_NOT_CHANGED;
@@ -128,8 +126,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
    * It's called just before to update the entity.
    *
    * @param entity The entity to update
-   * @return True if the entity has been modified and a new marshalling is required, otherwise
-   * false
+   * @return True if the entity has been modified and a new marshalling is required, otherwise false
    */
   public RESULT onRecordBeforeUpdate(final EntityImpl entity) {
     return RESULT.RECORD_NOT_CHANGED;
@@ -163,8 +160,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
    * It's called just before to delete the entity.
    *
    * @param entity The entity to delete
-   * @return True if the entity has been modified and a new marshalling is required, otherwise
-   * false
+   * @return True if the entity has been modified and a new marshalling is required, otherwise false
    */
   public RESULT onRecordBeforeDelete(final EntityImpl entity) {
     return RESULT.RECORD_NOT_CHANGED;
@@ -334,7 +330,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
     if (includeClasses != null) {
       // FILTER BY CLASSES
       for (String cls : includeClasses) {
-        if (clazz.isSubClassOf(cls)) {
+        if (clazz.isSubClassOf(database, cls)) {
           return true;
         }
       }
@@ -344,7 +340,7 @@ public abstract class DocumentHookAbstract implements RecordHook {
     if (excludeClasses != null) {
       // FILTER BY CLASSES
       for (String cls : excludeClasses) {
-        if (clazz.isSubClassOf(cls)) {
+        if (clazz.isSubClassOf(database, cls)) {
           return false;
         }
       }

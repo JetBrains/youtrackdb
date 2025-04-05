@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -572,13 +573,14 @@ public class HelperClasses {
     return ChangeSerializationHelper.createChangeInstance(type, change);
   }
 
-  public static PropertyType getLinkedType(SchemaClass clazz, PropertyType type, String key) {
+  public static PropertyType getLinkedType(DatabaseSession session, SchemaClass clazz,
+      PropertyType type, String key) {
     if (type != PropertyType.EMBEDDEDLIST && type != PropertyType.EMBEDDEDSET
         && type != PropertyType.EMBEDDEDMAP) {
       return null;
     }
     if (clazz != null) {
-      SchemaProperty prop = clazz.getProperty(key);
+      SchemaProperty prop = clazz.getProperty(session, key);
       if (prop != null) {
         return prop.getLinkedType();
       }

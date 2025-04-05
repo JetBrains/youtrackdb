@@ -549,7 +549,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
         if (cls.isStrictMode()) {
           writer.writeAttribute(0, false, "strictMode", cls.isStrictMode());
         }
-        if (!cls.getSuperClasses().isEmpty()) {
+        if (!cls.getSuperClasses(database).isEmpty()) {
           writer.writeAttribute(0, false, "super-classes", cls.getSuperClassesNames());
         }
         if (cls.getShortName() != null) {
@@ -646,7 +646,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
         }
 
         final String format = RecordAbstract.BASE_FORMAT + ",dateAsLong";
-        RecordSerializerJSON.INSTANCE.toString(rec, writer, format);
+        RecordSerializerJSON.INSTANCE.toString(database, rec, writer, format);
 
         recordExported++;
         recordNum++;

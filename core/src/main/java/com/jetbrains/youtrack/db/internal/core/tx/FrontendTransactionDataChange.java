@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -37,7 +36,7 @@ public class FrontendTransactionDataChange {
       case RecordOperation.UPDATED:
         if (recordType == EntityImpl.RECORD_TYPE) {
           record = Optional.of(
-              DocumentSerializerDelta.instance().serializeDelta((EntityImpl) rec));
+              DocumentSerializerDelta.instance().serializeDelta(session, (EntityImpl) rec));
         } else {
           record = Optional.of(RecordSerializerNetworkDistributed.INSTANCE.toStream(session, rec));
         }

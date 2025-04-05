@@ -814,10 +814,10 @@ public class MatchExecutionPlanner {
     Schema schema = db.getMetadata().getSchema();
     SchemaClass class1 = schema.getClass(className1);
     SchemaClass class2 = schema.getClass(className2);
-    if (class1.isSubClassOf(class2)) {
+    if (class1.isSubClassOf(db, class2)) {
       return class1.getName();
     }
-    if (class2.isSubClassOf(class1)) {
+    if (class2.isSubClassOf(db, class1)) {
       return class2.getName();
     }
     return null;

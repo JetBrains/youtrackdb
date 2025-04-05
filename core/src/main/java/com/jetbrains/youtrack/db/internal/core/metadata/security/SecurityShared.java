@@ -598,8 +598,8 @@ public class SecurityShared implements SecurityInternal {
       }
       Set<SchemaClass> allClasses = new HashSet<>();
       allClasses.add(clazz);
-      allClasses.addAll(clazz.getAllSubclasses());
-      allClasses.addAll(clazz.getAllSuperClasses());
+      allClasses.addAll(clazz.getAllSubclasses(session));
+      allClasses.addAll(clazz.getAllSuperClasses(session));
       for (SchemaClass c : allClasses) {
         for (Index index : ((SchemaClassInternal) c).getIndexesInternal(session)) {
           List<String> indexFields = index.getDefinition().getFields();
@@ -954,197 +954,197 @@ public class SecurityShared implements SecurityInternal {
     adminRole.save(session);
   }
 
-  private static void createOrUpdateORestrictedClass(final DatabaseSessionInternal database) {
-    SchemaClassInternal restrictedClass = database.getMetadata().getSchemaInternal()
+  private static void createOrUpdateORestrictedClass(final DatabaseSessionInternal session) {
+    SchemaClassInternal restrictedClass = session.getMetadata().getSchemaInternal()
         .getClassInternal(RESTRICTED_CLASSNAME);
     boolean unsafe = false;
     if (restrictedClass == null) {
       restrictedClass =
-          (SchemaClassInternal) database.getMetadata().getSchemaInternal()
+          (SchemaClassInternal) session.getMetadata().getSchemaInternal()
               .createAbstractClass(RESTRICTED_CLASSNAME);
       unsafe = true;
     }
-    if (!restrictedClass.existsProperty(ALLOW_ALL_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(session, ALLOW_ALL_FIELD)) {
+      restrictedClass.createProperty(session,
           ALLOW_ALL_FIELD,
           PropertyType.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
+          session.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(ALLOW_READ_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(session, ALLOW_READ_FIELD)) {
+      restrictedClass.createProperty(session,
           ALLOW_READ_FIELD,
           PropertyType.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
+          session.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(ALLOW_UPDATE_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(session, ALLOW_UPDATE_FIELD)) {
+      restrictedClass.createProperty(session,
           ALLOW_UPDATE_FIELD,
           PropertyType.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
+          session.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
-    if (!restrictedClass.existsProperty(ALLOW_DELETE_FIELD)) {
-      restrictedClass.createProperty(database,
+    if (!restrictedClass.existsProperty(session, ALLOW_DELETE_FIELD)) {
+      restrictedClass.createProperty(session,
           ALLOW_DELETE_FIELD,
           PropertyType.LINKSET,
-          database.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
+          session.getMetadata().getSchema().getClass(Identity.CLASS_NAME), unsafe);
     }
   }
 
   private static void createOrUpdateOUserClass(
-      final DatabaseSessionInternal database, SchemaClass identityClass, SchemaClass roleClass) {
+      final DatabaseSessionInternal session, SchemaClass identityClass, SchemaClass roleClass) {
     boolean unsafe = false;
-    SchemaClassInternal userClass = database.getMetadata().getSchemaInternal()
+    SchemaClassInternal userClass = session.getMetadata().getSchemaInternal()
         .getClassInternal("OUser");
     if (userClass == null) {
-      userClass = (SchemaClassInternal) database.getMetadata().getSchema()
+      userClass = (SchemaClassInternal) session.getMetadata().getSchema()
           .createClass("OUser", identityClass);
       unsafe = true;
-    } else if (!userClass.getSuperClasses().contains(identityClass))
+    } else if (!userClass.getSuperClasses(session).contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      userClass.setSuperClasses(database, Collections.singletonList(identityClass));
+      userClass.setSuperClasses(session, Collections.singletonList(identityClass));
     }
 
-    if (!userClass.existsProperty("name")) {
+    if (!userClass.existsProperty(session, "name")) {
       userClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci")
-          .setMin(database, "1")
-          .setRegexp(database, "\\S+(.*\\S+)*");
-      userClass.createIndex(database, "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+          .createProperty(session, "name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(session, true)
+          .setNotNull(session, true)
+          .setCollate(session, "ci")
+          .setMin(session, "1")
+          .setRegexp(session, "\\S+(.*\\S+)*");
+      userClass.createIndex(session, "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
           "name");
     } else {
-      final SchemaProperty name = userClass.getProperty("name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        userClass.createIndex(database,
+      final SchemaProperty name = userClass.getProperty(session, "name");
+      if (name.getAllIndexes(session).isEmpty()) {
+        userClass.createIndex(session,
             "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
-    if (!userClass.existsProperty(SecurityUserIml.PASSWORD_FIELD)) {
+    if (!userClass.existsProperty(session, SecurityUserIml.PASSWORD_FIELD)) {
       userClass
-          .createProperty(database, SecurityUserIml.PASSWORD_FIELD, PropertyType.STRING,
+          .createProperty(session, SecurityUserIml.PASSWORD_FIELD, PropertyType.STRING,
               (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true);
+          .setMandatory(session, true)
+          .setNotNull(session, true);
     }
-    if (!userClass.existsProperty("roles")) {
-      userClass.createProperty(database, "roles", PropertyType.LINKSET, roleClass, unsafe);
+    if (!userClass.existsProperty(session, "roles")) {
+      userClass.createProperty(session, "roles", PropertyType.LINKSET, roleClass, unsafe);
     }
-    if (!userClass.existsProperty("status")) {
+    if (!userClass.existsProperty(session, "status")) {
       userClass
-          .createProperty(database, "status", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true);
+          .createProperty(session, "status", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(session, true)
+          .setNotNull(session, true);
     }
   }
 
   private static void createOrUpdateOSecurityPolicyClass(
-      final DatabaseSessionInternal database) {
-    SchemaClassInternal policyClass = database.getMetadata().getSchemaInternal()
+      final DatabaseSessionInternal session) {
+    SchemaClassInternal policyClass = session.getMetadata().getSchemaInternal()
         .getClassInternal("OSecurityPolicy");
     boolean unsafe = false;
     if (policyClass == null) {
-      policyClass = (SchemaClassInternal) database.getMetadata().getSchema()
+      policyClass = (SchemaClassInternal) session.getMetadata().getSchema()
           .createClass("OSecurityPolicy");
       unsafe = true;
     }
 
-    if (!policyClass.existsProperty("name")) {
+    if (!policyClass.existsProperty(session, "name")) {
       policyClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci");
-      policyClass.createIndex(database,
+          .createProperty(session, "name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(session, true)
+          .setNotNull(session, true)
+          .setCollate(session, "ci");
+      policyClass.createIndex(session,
           "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
     } else {
-      final SchemaProperty name = policyClass.getProperty("name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        policyClass.createIndex(database,
+      final SchemaProperty name = policyClass.getProperty(session, "name");
+      if (name.getAllIndexes(session).isEmpty()) {
+        policyClass.createIndex(session,
             "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
 
-    if (!policyClass.existsProperty("create")) {
-      policyClass.createProperty(database, "create", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "create")) {
+      policyClass.createProperty(session, "create", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty("read")) {
-      policyClass.createProperty(database, "read", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "read")) {
+      policyClass.createProperty(session, "read", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty("beforeUpdate")) {
-      policyClass.createProperty(database, "beforeUpdate", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "beforeUpdate")) {
+      policyClass.createProperty(session, "beforeUpdate", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty("afterUpdate")) {
-      policyClass.createProperty(database, "afterUpdate", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "afterUpdate")) {
+      policyClass.createProperty(session, "afterUpdate", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty("delete")) {
-      policyClass.createProperty(database, "delete", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "delete")) {
+      policyClass.createProperty(session, "delete", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
-    if (!policyClass.existsProperty("execute")) {
-      policyClass.createProperty(database, "execute", PropertyType.STRING, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "execute")) {
+      policyClass.createProperty(session, "execute", PropertyType.STRING, (PropertyType) null,
           unsafe);
     }
 
-    if (!policyClass.existsProperty("active")) {
-      policyClass.createProperty(database, "active", PropertyType.BOOLEAN, (PropertyType) null,
+    if (!policyClass.existsProperty(session, "active")) {
+      policyClass.createProperty(session, "active", PropertyType.BOOLEAN, (PropertyType) null,
           unsafe);
     }
 
   }
 
-  private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionInternal database,
+  private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionInternal session,
       SchemaClass identityClass) {
-    SchemaClassInternal roleClass = database.getMetadata().getSchemaInternal()
+    SchemaClassInternal roleClass = session.getMetadata().getSchemaInternal()
         .getClassInternal("ORole");
     boolean unsafe = false;
     if (roleClass == null) {
-      roleClass = (SchemaClassInternal) database.getMetadata().getSchema()
+      roleClass = (SchemaClassInternal) session.getMetadata().getSchema()
           .createClass("ORole", identityClass);
       unsafe = true;
-    } else if (!roleClass.getSuperClasses().contains(identityClass))
+    } else if (!roleClass.getSuperClasses(session).contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      roleClass.setSuperClasses(database, Collections.singletonList(identityClass));
+      roleClass.setSuperClasses(session, Collections.singletonList(identityClass));
     }
 
-    if (!roleClass.existsProperty("name")) {
+    if (!roleClass.existsProperty(session, "name")) {
       roleClass
-          .createProperty(database, "name", PropertyType.STRING, (PropertyType) null, unsafe)
-          .setMandatory(database, true)
-          .setNotNull(database, true)
-          .setCollate(database, "ci");
-      roleClass.createIndex(database, "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+          .createProperty(session, "name", PropertyType.STRING, (PropertyType) null, unsafe)
+          .setMandatory(session, true)
+          .setNotNull(session, true)
+          .setCollate(session, "ci");
+      roleClass.createIndex(session, "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
           "name");
     } else {
-      final SchemaProperty name = roleClass.getProperty("name");
-      if (name.getAllIndexes(database).isEmpty()) {
-        roleClass.createIndex(database,
+      final SchemaProperty name = roleClass.getProperty(session, "name");
+      if (name.getAllIndexes(session).isEmpty()) {
+        roleClass.createIndex(session,
             "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
 
-    if (!roleClass.existsProperty("mode")) {
-      roleClass.createProperty(database, "mode", PropertyType.BYTE, (PropertyType) null, unsafe);
+    if (!roleClass.existsProperty(session, "mode")) {
+      roleClass.createProperty(session, "mode", PropertyType.BYTE, (PropertyType) null, unsafe);
     }
 
-    if (!roleClass.existsProperty("rules")) {
-      roleClass.createProperty(database, "rules", PropertyType.EMBEDDEDMAP, PropertyType.BYTE,
+    if (!roleClass.existsProperty(session, "rules")) {
+      roleClass.createProperty(session, "rules", PropertyType.EMBEDDEDMAP, PropertyType.BYTE,
           unsafe);
     }
-    if (!roleClass.existsProperty("inheritedRole")) {
-      roleClass.createProperty(database, "inheritedRole", PropertyType.LINK, roleClass, unsafe);
+    if (!roleClass.existsProperty(session, "inheritedRole")) {
+      roleClass.createProperty(session, "inheritedRole", PropertyType.LINK, roleClass, unsafe);
     }
 
-    if (!roleClass.existsProperty("policies")) {
-      roleClass.createProperty(database,
-          "policies", PropertyType.LINKMAP, database.getClass("OSecurityPolicy"), unsafe);
+    if (!roleClass.existsProperty(session, "policies")) {
+      roleClass.createProperty(session,
+          "policies", PropertyType.LINKMAP, session.getClass("OSecurityPolicy"), unsafe);
     }
 
     return roleClass;
@@ -1154,11 +1154,11 @@ public class SecurityShared implements SecurityInternal {
     final SchemaClass userClass = session.getMetadata().getSchema().getClass("OUser");
     if (userClass != null) {
       // @COMPATIBILITY <1.3.0
-      if (!userClass.existsProperty("status")) {
+      if (!userClass.existsProperty(session, "status")) {
         userClass.createProperty(session, "status", PropertyType.STRING).setMandatory(session, true)
             .setNotNull(session, true);
       }
-      SchemaProperty p = userClass.getProperty("name");
+      SchemaProperty p = userClass.getProperty(session, "name");
       if (p == null) {
         p =
             userClass
@@ -1176,16 +1176,16 @@ public class SecurityShared implements SecurityInternal {
       // ROLE
       final SchemaClass roleClass = session.getMetadata().getSchema().getClass("ORole");
 
-      final SchemaProperty rules = roleClass.getProperty("rules");
+      final SchemaProperty rules = roleClass.getProperty(session, "rules");
       if (rules != null && !PropertyType.EMBEDDEDMAP.equals(rules.getType())) {
         roleClass.dropProperty(session, "rules");
       }
 
-      if (!roleClass.existsProperty("inheritedRole")) {
+      if (!roleClass.existsProperty(session, "inheritedRole")) {
         roleClass.createProperty(session, "inheritedRole", PropertyType.LINK, roleClass);
       }
 
-      p = roleClass.getProperty("name");
+      p = roleClass.getProperty(session, "name");
       if (p == null) {
         p = roleClass.createProperty(session, "name", PropertyType.STRING).
             setMandatory(session, true)
@@ -1383,7 +1383,7 @@ public class SecurityShared implements SecurityInternal {
                       Entity policy = policyEntry.getValue().getRecord();
 
                       for (SchemaClass clazz : allClasses) {
-                        if (isClassInvolved(clazz, res)
+                        if (isClassInvolved(session, clazz, res)
                             && !isAllAllowed(
                             session,
                             new ImmutableSecurityPolicy(session,
@@ -1419,7 +1419,8 @@ public class SecurityShared implements SecurityInternal {
     return true;
   }
 
-  private boolean isClassInvolved(SchemaClass clazz, SecurityResource res) {
+  private boolean isClassInvolved(DatabaseSessionInternal session, SchemaClass clazz,
+      SecurityResource res) {
 
     if (res instanceof SecurityResourceAll
         || res.equals(SecurityResourceClass.ALL_CLASSES)
@@ -1428,10 +1429,10 @@ public class SecurityShared implements SecurityInternal {
     }
     if (res instanceof SecurityResourceClass) {
       String resourceClass = ((SecurityResourceClass) res).getClassName();
-      return clazz.isSubClassOf(resourceClass);
+      return clazz.isSubClassOf(session, resourceClass);
     } else if (res instanceof SecurityResourceProperty) {
       String resourceClass = ((SecurityResourceProperty) res).getClassName();
-      return clazz.isSubClassOf(resourceClass);
+      return clazz.isSubClassOf(session, resourceClass);
     }
     return false;
   }

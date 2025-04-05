@@ -4,7 +4,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -42,11 +41,11 @@ public class SQLTruncateClassStatement extends DDLStatement {
 
     final long recs = clazz.count(ctx.getDatabase(), polymorphic);
     if (recs > 0 && !unsafe) {
-      if (clazz.isSubClassOf("V")) {
+      if (clazz.isSubClassOf(ctx.getDatabase(), "V")) {
         throw new CommandExecutionException(
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (clazz.isSubClassOf("E")) {
+      } else if (clazz.isSubClassOf(ctx.getDatabase(), "E")) {
         throw new CommandExecutionException(
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
@@ -54,17 +53,17 @@ public class SQLTruncateClassStatement extends DDLStatement {
     }
 
     List<Result> rs = new ArrayList<>();
-    Collection<SchemaClass> subclasses = clazz.getAllSubclasses();
+    Collection<SchemaClass> subclasses = clazz.getAllSubclasses(ctx.getDatabase());
     if (polymorphic && !unsafe) { // for multiple inheritance
       for (SchemaClass subclass : subclasses) {
         long subclassRecs = clazz.count(db);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf("V")) {
+          if (subclass.isSubClassOf(ctx.getDatabase(), "V")) {
             throw new CommandExecutionException(
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
                     + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf("E")) {
+          } else if (subclass.isSubClassOf(ctx.getDatabase(), "E")) {
             throw new CommandExecutionException(
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
                     + subclass.getName()

@@ -54,7 +54,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -71,7 +71,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING UNSAFE").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -89,7 +89,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.division LINK division").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_DIVISION);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_DIVISION);
 
     assertEquals(nameProperty.getName(), PROP_DIVISION);
     assertEquals(nameProperty.getFullName(), PROP_FULL_DIVISION);
@@ -107,7 +107,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE Property company.officers EMBEDDEDLIST STRING").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), PROP_FULL_OFFICERS);
@@ -125,7 +125,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING (MANDATORY)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -141,7 +141,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING (NOTNULL)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -157,7 +157,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING (READONLY)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -173,7 +173,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property company.name STRING (READONLY false)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_NAME);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_NAME);
 
     assertEquals(nameProperty.getName(), PROP_NAME);
     assertEquals(nameProperty.getFullName(), PROP_FULL_NAME);
@@ -187,7 +187,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE Property company.officers EMBEDDEDLIST STRING (MANDATORY)").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), PROP_FULL_OFFICERS);
@@ -205,7 +205,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE Property company.officers EMBEDDEDLIST STRING UNSAFE").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), PROP_FULL_OFFICERS);
@@ -223,7 +223,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
         .close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty nameProperty = companyClass.getProperty(PROP_OFFICERS);
+    SchemaProperty nameProperty = companyClass.getProperty(db, PROP_OFFICERS);
 
     assertEquals(nameProperty.getName(), PROP_OFFICERS);
     assertEquals(nameProperty.getFullName(), PROP_FULL_OFFICERS);
@@ -242,7 +242,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
         .close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
@@ -263,7 +263,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE PROPERTY company.id INTEGER (DEFAULT 5, MIN 1, MAX 10) UNSAFE").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
@@ -284,7 +284,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE PROPERTY company.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
@@ -306,7 +306,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
         .close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
@@ -348,7 +348,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("company");
     SchemaClass mandatoryClass = db.getMetadata().getSchema().getClass("Mandatory");
-    SchemaProperty idProperty = companyClass.getProperty(PROP_ID);
+    SchemaProperty idProperty = companyClass.getProperty(db, PROP_ID);
 
     assertEquals(idProperty.getName(), PROP_ID);
     assertEquals(idProperty.getFullName(), PROP_FULL_ID);
@@ -364,13 +364,13 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     db.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     SchemaClass companyClass = db.getMetadata().getSchema().getClass("testIfNotExists");
-    SchemaProperty property = companyClass.getProperty("name");
+    SchemaProperty property = companyClass.getProperty(db, "name");
     assertEquals(property.getName(), PROP_NAME);
 
     db.command("CREATE property testIfNotExists.name if not exists STRING").close();
 
     companyClass = db.getMetadata().getSchema().getClass("testIfNotExists");
-    property = companyClass.getProperty("name");
+    property = companyClass.getProperty(db, "name");
     assertEquals(property.getName(), PROP_NAME);
   }
 }

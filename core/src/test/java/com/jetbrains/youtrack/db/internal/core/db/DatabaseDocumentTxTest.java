@@ -3,21 +3,21 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommitSerializationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClassDescendentOrder;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClassDescendentOrder;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Collection;
 import java.util.List;
 import org.junit.Assert;
@@ -91,7 +91,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     SchemaClass clazz = db.createClass("TestCreateClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateClass", clazz.getName());
-    List<SchemaClass> superclasses = clazz.getSuperClasses();
+    List<SchemaClass> superclasses = clazz.getSuperClasses(db);
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -105,7 +105,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     SchemaClass subclazz = db.createClass("TestCreateClass_subclass", "TestCreateClass");
     Assert.assertNotNull(subclazz);
     Assert.assertEquals("TestCreateClass_subclass", subclazz.getName());
-    List<SchemaClass> sub_superclasses = subclazz.getSuperClasses();
+    List<SchemaClass> sub_superclasses = subclazz.getSuperClasses(db);
     Assert.assertEquals(1, sub_superclasses.size());
     Assert.assertEquals("TestCreateClass", sub_superclasses.get(0).getName());
   }
@@ -117,7 +117,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     SchemaClass clazz = db.getClass("TestGetClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestGetClass", clazz.getName());
-    List<SchemaClass> superclasses = clazz.getSuperClasses();
+    List<SchemaClass> superclasses = clazz.getSuperClasses(db);
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -175,7 +175,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     SchemaClass clazz = db.createClassIfNotExist("TestCreateClassIfNotExists");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateClassIfNotExists", clazz.getName());
-    List<SchemaClass> superclasses = clazz.getSuperClasses();
+    List<SchemaClass> superclasses = clazz.getSuperClasses(db);
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -183,7 +183,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     SchemaClass clazz2 = db.createClassIfNotExist("TestCreateClassIfNotExists_non_existing");
     Assert.assertNotNull(clazz2);
     Assert.assertEquals("TestCreateClassIfNotExists_non_existing", clazz2.getName());
-    List<SchemaClass> superclasses2 = clazz2.getSuperClasses();
+    List<SchemaClass> superclasses2 = clazz2.getSuperClasses(db);
     if (superclasses2 != null) {
       assertTrue(superclasses2.isEmpty());
     }
@@ -197,7 +197,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     clazz = db.getClass("TestCreateVertexClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateVertexClass", clazz.getName());
-    List<SchemaClass> superclasses = clazz.getSuperClasses();
+    List<SchemaClass> superclasses = clazz.getSuperClasses(db);
     Assert.assertEquals(1, superclasses.size());
     Assert.assertEquals("V", superclasses.get(0).getName());
   }
@@ -210,7 +210,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     clazz = db.getClass("TestCreateEdgeClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateEdgeClass", clazz.getName());
-    List<SchemaClass> superclasses = clazz.getSuperClasses();
+    List<SchemaClass> superclasses = clazz.getSuperClasses(db);
     Assert.assertEquals(1, superclasses.size());
     Assert.assertEquals("E", superclasses.get(0).getName());
   }

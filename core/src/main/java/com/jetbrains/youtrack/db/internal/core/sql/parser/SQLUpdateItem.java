@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
 import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
@@ -149,18 +150,19 @@ public class SQLUpdateItem extends SimpleNode {
       rightValue = convertToType(rightValue, null, linkedType, ctx);
       Object val = entity.getProperty(propertyName);
       if (val == null) {
-        val = initSchemafullCollections(entity, propertyName);
+        val = initSchemafullCollections(ctx.getDatabase(), entity, propertyName);
       }
       leftModifier.setValue(entity, val, rightValue, ctx);
     }
   }
 
-  private Object initSchemafullCollections(ResultInternal entity, String propName) {
+  private Object initSchemafullCollections(DatabaseSessionInternal session, ResultInternal entity,
+      String propName) {
     SchemaClass oClass = entity.getEntity().flatMap(x -> x.getSchemaType()).orElse(null);
     if (oClass == null) {
       return null;
     }
-    SchemaProperty prop = oClass.getProperty(propName);
+    SchemaProperty prop = oClass.getProperty(session, propName);
 
     Object result = null;
     if (prop == null) {
@@ -207,7 +209,7 @@ public class SQLUpdateItem extends SimpleNode {
   private PropertyType calculateTypeForThisItem(
       DatabaseSession session,
       SchemaClass clazz, String propName, SQLModifier modifier, CommandContext ctx) {
-    SchemaProperty prop = clazz.getProperty(propName);
+    SchemaProperty prop = clazz.getProperty(session, propName);
     if (prop == null) {
       return null;
     }
@@ -232,7 +234,7 @@ public class SQLUpdateItem extends SimpleNode {
     switch (operator) {
       case OPERATOR_EQ:
         Object newValue = convertResultToDocument(rightValue);
-        newValue = convertToPropertyType(entity, attrName, newValue, ctx);
+        newValue = convertToPropertyType(ctx.getDatabase(), entity, attrName, newValue, ctx);
         entity.setProperty(attrName.getStringValue(), cleanValue(newValue));
         break;
       case OPERATOR_MINUSASSIGN:
@@ -270,14 +272,14 @@ public class SQLUpdateItem extends SimpleNode {
     return newValue;
   }
 
-  public static Object convertToPropertyType(
+  public static Object convertToPropertyType(DatabaseSessionInternal session,
       ResultInternal res, SQLIdentifier attrName, Object newValue, CommandContext ctx) {
     Entity entity = res.toEntity();
     Optional<SchemaClass> optSchema = entity.getSchemaType();
     if (!optSchema.isPresent()) {
       return newValue;
     }
-    SchemaProperty prop = optSchema.get().getProperty(attrName.getStringValue());
+    SchemaProperty prop = optSchema.get().getProperty(session, attrName.getStringValue());
     if (prop == null) {
       return newValue;
     }
@@ -345,7 +347,7 @@ public class SQLUpdateItem extends SimpleNode {
   private static Object convertToType(Object item, SchemaClass linkedClass, CommandContext ctx) {
     if (item instanceof Entity) {
       SchemaClass currentType = ((Entity) item).getSchemaType().orElse(null);
-      if (currentType == null || !currentType.isSubClassOf(linkedClass)) {
+      if (currentType == null || !currentType.isSubClassOf(ctx.getDatabase(), linkedClass)) {
         Entity result = ctx.getDatabase().newEntity(linkedClass.getName());
         for (String prop : ((Entity) item).getPropertyNames()) {
           result.setProperty(prop, ((Entity) item).getProperty(prop));

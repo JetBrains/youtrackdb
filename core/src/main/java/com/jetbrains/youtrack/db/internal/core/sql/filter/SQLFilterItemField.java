@@ -94,9 +94,10 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
   }
 
-  public SQLFilterItemField(final String iName, final SchemaClass iClass) {
+  public SQLFilterItemField(DatabaseSessionInternal session, final String iName,
+      final SchemaClass iClass) {
     this.name = IOUtils.getStringContent(iName);
-    collate = getCollateForField(iClass, name);
+    collate = getCollateForField(session, iClass, name);
     if (iClass != null) {
       collatePreset = true;
     }
@@ -106,7 +107,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       DatabaseSessionInternal session, final BaseParser iQueryToParse, final String iName,
       final SchemaClass iClass) {
     super(session, iQueryToParse, iName);
-    collate = getCollateForField(iClass, iName);
+    collate = getCollateForField(session, iClass, iName);
     if (iClass != null) {
       collatePreset = true;
     }
@@ -147,7 +148,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     if (!collatePreset) {
       SchemaClass schemaClass = EntityInternalUtils.getImmutableSchemaClass(entity);
       if (schemaClass != null) {
-        collate = getCollateForField(schemaClass, name);
+        collate = getCollateForField(iContext.getDatabase(), schemaClass, name);
       }
     }
 
@@ -175,6 +176,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
 
     // check for embedded objects, they have invalid ID and they are serialized with class name
     return serializer.deserializeField(
+        db,
         serialized,
         EntityInternalUtils.getImmutableSchemaClass(rec),
         name,
@@ -254,7 +256,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
    * @param object the root element (entity?) of this field chain
    * @return the collate, null if no collate is defined
    */
-  public Collate getCollate(Object object) {
+  public Collate getCollate(DatabaseSession session, Object object) {
     if (collate != null || operationsChain == null || !isFieldChain()) {
       return collate;
     }
@@ -276,6 +278,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         return null;
       }
       SchemaProperty property = schemaClass.getProperty(
+          session,
           chain.getItemName(chain.getItemCount() - 1));
       if (property == null) {
         return null;

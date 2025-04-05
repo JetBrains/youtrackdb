@@ -23,6 +23,7 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.r
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOptimizedLink;
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -200,7 +201,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return type;
   }
 
+  @Override
   public BinaryField deserializeField(
+      DatabaseSession session,
       final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
@@ -255,7 +258,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             return null;
           }
           bytes.offset = currentValuePos;
-          final SchemaProperty classProp = iClass.getProperty(iFieldName);
+          final SchemaProperty classProp = iClass.getProperty(session, iFieldName);
           return new BinaryField(
               iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
         }
@@ -422,7 +425,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             valuesBuffer,
             value,
             type,
-            getLinkedType(oClass, type, field.getKey()),
+            getLinkedType(session, oClass, type, field.getKey()),
             schema, encryption);
         int valueLength = valuesBuffer.offset - startOffset;
         VarIntSerializer.write(headerBuffer, valueLength);

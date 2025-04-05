@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import static com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared.normalizeClassName;
+
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
@@ -21,6 +23,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
@@ -155,7 +158,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     if (classes != null) {
       List<SchemaClass> toCheck = new ArrayList<SchemaClass>(classes);
       toCheck.add(this);
-      checkParametersConflict(toCheck);
+      checkParametersConflict(session, toCheck);
     }
     acquireSchemaWriteLock(database);
     try {
@@ -176,7 +179,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         return this;
       }
 
-      if (subclasses.remove(baseClass)) {
+      LazySchemaClass removedClass = subclasses.remove(baseClass.getName());
+      if (removedClass != null) {
+        // todo replace with removedClass.getDelegate()
         removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
       }
       owner.markClassDirty(this);
@@ -217,17 +222,19 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           user.allow(database, Rule.ResourceGeneric.CLASS, cls.getName(), Role.PERMISSION_UPDATE);
         }
 
-        if (superClasses.contains(superClass)) {
+        String superClassName = superClass.getName();
+        if (superClasses.containsKey(superClassName)) {
           throw new SchemaException(
               "Class: '"
                   + this.getName()
                   + "' already has the class '"
-                  + superClass.getName()
+                  + superClassName
                   + "' as superclass");
         }
 
         cls.addBaseClass(database, this);
-        superClasses.add(cls);
+        LazySchemaClass lazyClass = owner.getLazyClass(superClassName);
+        superClasses.put(cls.getName(), lazyClass);
         owner.markClassDirty(this);
       }
     } finally {
@@ -255,12 +262,10 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final SchemaClassImpl cls;
       cls = (SchemaClassImpl) superClass;
 
-      if (superClasses.contains(cls)) {
-        if (cls != null) {
-          cls.removeBaseClassInternal(session, this);
-        }
+      if (superClasses.containsKey(cls.getName())) {
+        cls.removeBaseClassInternal(session, this);
 
-        superClasses.remove(superClass);
+        superClasses.remove(superClass.getName());
         owner.markClassDirty(this);
       }
     } finally {
@@ -268,32 +273,53 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClass> classes) {
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
-    SchemaClassImpl cls;
-    for (SchemaClass superClass : classes) {
-      cls = (SchemaClassImpl) superClass;
-      if (newSuperClasses.contains(cls)) {
-        throw new SchemaException("Duplicated superclass '" + cls.getName() + "'");
+  @Override
+  protected void setLazySuperClassesInternal(DatabaseSessionInternal session,
+      List<LazySchemaClass> lazyClasses) {
+    Map<String, LazySchemaClass> newSuperClasses = new HashMap<>();
+    for (LazySchemaClass superClass : lazyClasses) {
+      String className = superClass.getName(session);
+      if (newSuperClasses.containsKey(className)) {
+        throw new SchemaException("Duplicated superclass '" + className + "'");
       }
-
-      newSuperClasses.add(cls);
+      newSuperClasses.put(className, superClass);
     }
 
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
-    toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
-    toRemoveList.removeAll(newSuperClasses);
-
-    for (SchemaClassImpl toRemove : toRemoveList) {
-      toRemove.removeBaseClassInternal(session, this);
+    Map<String, LazySchemaClass> classesToAdd = new HashMap<>();
+    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : newSuperClasses.entrySet()) {
+      if (!superClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToAdd.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
     }
-    for (SchemaClassImpl addTo : toAddList) {
-      addTo.addBaseClass(session, this);
+
+    Map<String, LazySchemaClass> classesToRemove = new HashMap<>();
+    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : superClasses.entrySet()) {
+      if (!newSuperClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToRemove.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
+    }
+
+    for (LazySchemaClass toRemove : classesToRemove.values()) {
+      toRemove.loadWithoutInheritanceIfNeeded(session);
+      ((SchemaClassImpl) toRemove.getDelegate()).removeBaseClassInternal(session, this);
+    }
+    for (LazySchemaClass addTo : classesToAdd.values()) {
+      addTo.loadWithoutInheritanceIfNeeded(session);
+      ((SchemaClassImpl) addTo.getDelegate()).addBaseClass(session, this);
     }
     superClasses.clear();
-    superClasses.addAll(newSuperClasses);
+    superClasses.putAll(newSuperClasses);
+  }
+
+  protected void setSuperClassesInternal(DatabaseSessionInternal session,
+      final List<? extends SchemaClass> classes) {
+    // todo this is a bad temporary decision, we already have all classes, converting them to lazy classes to load again smells.
+    // I think it's possible to completely move to lazy classes and remove this method
+    List<LazySchemaClass> lazyClasses = new ArrayList<>(classes.size());
+    for (SchemaClass superClass : classes) {
+      lazyClasses.add(owner.getLazyClass(superClass.getName()));
+    }
+    setLazySuperClassesInternal(session, lazyClasses);
   }
 
   public SchemaClass setName(DatabaseSession session, final String name) {
@@ -755,25 +781,25 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  protected void setAbstractInternal(DatabaseSessionInternal database, final boolean isAbstract) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+  protected void setAbstractInternal(DatabaseSessionInternal session, final boolean isAbstract) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
       if (isAbstract) {
         // SWITCH TO ABSTRACT
         if (defaultClusterId != NOT_EXISTENT_CLUSTER_ID) {
           // CHECK
-          if (count(database) > 0) {
+          if (count(session) > 0) {
             throw new IllegalStateException(
                 "Cannot set the class as abstract because contains records.");
           }
 
-          tryDropCluster(database, defaultClusterId);
+          tryDropCluster(session, defaultClusterId);
           for (int clusterId : getClusterIds()) {
-            tryDropCluster(database, clusterId);
-            removePolymorphicClusterId(database, clusterId);
-            ((SchemaEmbedded) owner).removeClusterForClass(database, clusterId);
+            tryDropCluster(session, clusterId);
+            removePolymorphicClusterId(session, clusterId);
+            ((SchemaEmbedded) owner).removeClusterForClass(session, clusterId);
           }
 
           setClusterIds(new int[]{NOT_EXISTENT_CLUSTER_ID});
@@ -785,17 +811,17 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           return;
         }
 
-        int clusterId = database.getClusterIdByName(name);
+        int clusterId = session.getClusterIdByName(name);
         if (clusterId == -1) {
-          clusterId = database.addCluster(name);
+          clusterId = session.addCluster(name);
         }
 
         this.defaultClusterId = clusterId;
         this.clusterIds[0] = this.defaultClusterId;
         this.polymorphicClusterIds = Arrays.copyOf(clusterIds, clusterIds.length);
-        for (SchemaClass clazz : getAllSubclasses()) {
+        for (SchemaClass clazz : getAllSubclasses(session)) {
           if (clazz instanceof SchemaClassImpl) {
-            addPolymorphicClusterIds(database, (SchemaClassImpl) clazz);
+            addPolymorphicClusterIds(session, (SchemaClassImpl) clazz);
           } else {
             LogManager.instance()
                 .warn(this, "Warning: cannot set polymorphic cluster IDs for class " + name);
@@ -806,7 +832,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       this.abstractClass = isAbstract;
       owner.markClassDirty(this);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
@@ -863,8 +889,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     addClusterIdToIndexes(session, clusterId);
 
-    for (SchemaClassImpl superClass : superClasses) {
-      ((SchemaClassEmbedded) superClass).addPolymorphicClusterId(session, clusterId);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ((SchemaClassEmbedded) superClass.getDelegate()).addPolymorphicClusterId(session, clusterId);
     }
   }
 

@@ -235,7 +235,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       if (total[0] > 0) {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = destClass.getProperty(linkName);
+          SchemaProperty prop = destClass.getProperty(database, linkName);
           destClass = db.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
             if (linkType != prop.getType()) {
@@ -259,7 +259,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
           }
         } else {
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = sourceClass.getProperty(linkName);
+          SchemaProperty prop = sourceClass.getProperty(database, linkName);
           sourceClass = db.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
             if (prop.getType() != PropertyType.LINK) {

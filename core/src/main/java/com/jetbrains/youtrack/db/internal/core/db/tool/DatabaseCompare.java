@@ -231,7 +231,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       }
 
       for (SchemaProperty prop : clazz.declaredProperties()) {
-        SchemaProperty prop2 = clazz2.getProperty(prop.getName());
+        SchemaProperty prop2 = clazz2.getProperty(database, prop.getName());
         if (prop2 == null) {
           listener.onMessage(
               "\n- ERR: Class definition for "

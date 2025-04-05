@@ -133,7 +133,7 @@ public class CommandExecutorSQLDropProperty extends CommandExecutorSQLAbstract
       throw new CommandExecutionException("Source class '" + className + "' not found");
     }
 
-    if (ifExists && !sourceClass.existsProperty(fieldName)) {
+    if (ifExists && !sourceClass.existsProperty(querySession, fieldName)) {
       return null;
     }
 

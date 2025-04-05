@@ -243,9 +243,10 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
   protected abstract void setRoot(DatabaseSessionInternal session, BaseParser iQueryToParse,
       final String iRoot);
 
-  protected Collate getCollateForField(final SchemaClass iClass, final String iFieldName) {
+  protected Collate getCollateForField(DatabaseSessionInternal session, final SchemaClass iClass,
+      final String iFieldName) {
     if (iClass != null) {
-      final SchemaProperty p = iClass.getProperty(iFieldName);
+      final SchemaProperty p = iClass.getProperty(session, iFieldName);
       if (p != null) {
         return p.getCollate();
       }

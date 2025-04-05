@@ -50,8 +50,8 @@ import java.util.Set;
  * {@link EntityPropertiesVisitor} instance.
  *
  * <p>Fields will be visited till method
- * {@link EntityPropertiesVisitor#goFurther(PropertyType, PropertyType,
- * Object, Object)} returns true.
+ * {@link EntityPropertiesVisitor#goFurther(PropertyType, PropertyType, Object, Object)} returns
+ * true.
  */
 public class EntityFieldWalker {
 
@@ -95,7 +95,7 @@ public class EntityFieldWalker {
 
       PropertyType linkedType = null;
       if (fieldType == null && clazz != null) {
-        SchemaProperty property = clazz.getProperty(fieldName);
+        SchemaProperty property = clazz.getProperty(session, fieldName);
         if (property != null) {
           fieldType = property.getType();
           linkedType = property.getLinkedType();

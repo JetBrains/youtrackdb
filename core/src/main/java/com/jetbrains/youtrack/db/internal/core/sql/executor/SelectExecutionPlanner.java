@@ -1894,7 +1894,7 @@ public class SelectExecutionPlanner {
               .forEach(
                   item -> {
                     SchemaProperty possibleEdgeProperty =
-                        targetClass.getProperty("out_" + item.getAlias());
+                        targetClass.getProperty(ctx.getDatabase(), "out_" + item.getAlias());
                     if (possibleEdgeProperty != null
                         && possibleEdgeProperty.getType() == PropertyType.LINKBAG) {
                       item.setEdge(true);
@@ -2315,13 +2315,14 @@ public class SelectExecutionPlanner {
       throw new CommandExecutionException("Class not found: " + targetClass);
     }
 
-    if (clazz.count(ctx.getDatabase(), false) != 0 || clazz.getSubclasses().size() == 0
-        || isDiamondHierarchy(clazz)) {
+    if (clazz.count(ctx.getDatabase(), false) != 0
+        || clazz.getSubclasses(ctx.getDatabase()).size() == 0
+        || isDiamondHierarchy(ctx.getDatabase(), clazz)) {
       return false;
     }
     // try subclasses
 
-    Collection<SchemaClass> subclasses = clazz.getSubclasses();
+    Collection<SchemaClass> subclasses = clazz.getSubclasses(ctx.getDatabase());
 
     List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
     for (SchemaClass subClass : subclasses) {
@@ -2348,14 +2349,14 @@ public class SelectExecutionPlanner {
    * @param clazz
    * @return
    */
-  private boolean isDiamondHierarchy(SchemaClass clazz) {
+  private boolean isDiamondHierarchy(DatabaseSessionInternal session, SchemaClass clazz) {
     Set<SchemaClass> traversed = new HashSet<>();
     List<SchemaClass> stack = new ArrayList<>();
     stack.add(clazz);
     while (!stack.isEmpty()) {
       SchemaClass current = stack.remove(0);
       traversed.add(current);
-      for (SchemaClass sub : current.getSubclasses()) {
+      for (SchemaClass sub : current.getSubclasses(session)) {
         if (traversed.contains(sub)) {
           return true;
         }
@@ -2381,12 +2382,12 @@ public class SelectExecutionPlanner {
         throw new CommandExecutionException("Cannot find class " + targetClass);
       }
       if (clazz.count(ctx.getDatabase(), false) != 0
-          || clazz.getSubclasses().isEmpty()
-          || isDiamondHierarchy(clazz)) {
+          || clazz.getSubclasses(ctx.getDatabase()).isEmpty()
+          || isDiamondHierarchy(ctx.getDatabase(), clazz)) {
         return null;
       }
 
-      Collection<SchemaClass> subclasses = clazz.getSubclasses();
+      Collection<SchemaClass> subclasses = clazz.getSubclasses(ctx.getDatabase());
 
       List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
       for (SchemaClass subClass : subclasses) {
@@ -2740,7 +2741,7 @@ public class SelectExecutionPlanner {
           new IndexSearchInfo(
               indexField,
               allowsRangeQueries(index),
-              isMap(clazz, indexField),
+              isMap(ctx.getDatabase(), clazz, indexField),
               isIndexByKey(index, indexField),
               isIndexByValue(index, indexField),
               ctx);
@@ -2860,8 +2861,8 @@ public class SelectExecutionPlanner {
     return false;
   }
 
-  private boolean isMap(SchemaClass clazz, String indexField) {
-    SchemaProperty prop = clazz.getProperty(indexField);
+  private boolean isMap(DatabaseSessionInternal session, SchemaClass clazz, String indexField) {
+    SchemaProperty prop = clazz.getProperty(session, indexField);
     if (prop == null) {
       return false;
     }

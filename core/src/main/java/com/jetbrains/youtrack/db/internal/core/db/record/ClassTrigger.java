@@ -178,13 +178,13 @@ public class ClassTrigger {
     if (clz != null && clz.isTriggered()) {
       Function func = null;
       String fieldName = clz.getCustom(attr);
-      SchemaClass superClz = clz.getSuperClass();
+      SchemaClass superClz = clz.getSuperClass(database);
       while (fieldName == null || fieldName.length() == 0) {
         if (superClz == null || superClz.getName().equals(CLASSNAME)) {
           break;
         }
         fieldName = superClz.getCustom(attr);
-        superClz = superClz.getSuperClass();
+        superClz = superClz.getSuperClass(database);
       }
       if (fieldName != null && fieldName.length() > 0) {
         // check if it is reflection or not

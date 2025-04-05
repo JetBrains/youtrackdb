@@ -1391,7 +1391,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
       for (String className : parsedTarget.getTargetClasses().keySet()) {
         final SchemaClass cls =
             db.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-        if (cls.isSubClassOf(SecurityShared.RESTRICTED_CLASSNAME)) {
+        if (cls.isSubClassOf(db, SecurityShared.RESTRICTED_CLASSNAME)) {
           restrictedClasses = true;
           break;
         }
@@ -1965,7 +1965,7 @@ public class CommandExecutorSQLSelect extends CommandExecutorSQLResultsetAbstrac
 
   private boolean searchForSubclassIndexes(
       DatabaseSessionInternal session, final SchemaClass iSchemaClass) {
-    Collection<SchemaClass> subclasses = iSchemaClass.getSubclasses();
+    Collection<SchemaClass> subclasses = iSchemaClass.getSubclasses(session);
     if (subclasses.size() == 0) {
       return false;
     }

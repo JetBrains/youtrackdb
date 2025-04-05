@@ -42,6 +42,7 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.r
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOptimizedLink;
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -204,6 +205,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
   @Override
   public BinaryField deserializeField(
+      DatabaseSession session,
       BytesContainer bytes,
       SchemaClass iClass,
       String iFieldName,
@@ -279,7 +281,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
 
           bytes.offset = valuePos;
 
-          final SchemaProperty classProp = iClass.getProperty(iFieldName);
+          final SchemaProperty classProp = iClass.getProperty(session, iFieldName);
           return new BinaryField(
               iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
         }
@@ -465,7 +467,7 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
                 bytes,
                 value,
                 type,
-                getLinkedType(entity, type, values[i].getKey()),
+                getLinkedType(session, entity, type, values[i].getKey()),
                 schema, encryption);
         IntegerSerializer.INSTANCE.serializeLiteral(pointer, bytes.bytes, pos[i]);
         if (values[i].getValue().property == null
@@ -925,14 +927,15 @@ public class RecordSerializerBinaryV0 implements EntitySerializer {
     return null;
   }
 
-  protected PropertyType getLinkedType(EntityImpl entity, PropertyType type, String key) {
+  protected PropertyType getLinkedType(DatabaseSession session, EntityImpl entity,
+      PropertyType type, String key) {
     if (type != PropertyType.EMBEDDEDLIST && type != PropertyType.EMBEDDEDSET
         && type != PropertyType.EMBEDDEDMAP) {
       return null;
     }
     SchemaClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(entity);
     if (immutableClass != null) {
-      SchemaProperty prop = immutableClass.getProperty(key);
+      SchemaProperty prop = immutableClass.getProperty(session, key);
       if (prop != null) {
         return prop.getLinkedType();
       }

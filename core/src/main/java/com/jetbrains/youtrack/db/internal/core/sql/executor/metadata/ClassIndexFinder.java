@@ -41,7 +41,7 @@ public class ClassIndexFinder implements IndexFinder {
           }
         };
     for (String ele : rawPath) {
-      SchemaPropertyInternal prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
+      SchemaPropertyInternal prop = (SchemaPropertyInternal) cand.cl.getProperty(db, ele);
       if (prop != null) {
         SchemaClass linkedClass = prop.getLinkedClass(db);
         Collection<Index> indexes = prop.getAllIndexesInternal(db);
@@ -88,7 +88,7 @@ public class ClassIndexFinder implements IndexFinder {
     Optional<IndexCandidate> cand = pre.chain;
     String last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(ctx.getDatabase(), last);
     if (prop != null) {
       Collection<Index> indexes = prop.getAllIndexesInternal(ctx.getDatabase());
       for (Index index : indexes) {
@@ -117,7 +117,7 @@ public class ClassIndexFinder implements IndexFinder {
     Optional<IndexCandidate> cand = pre.chain;
     String last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(ctx.getDatabase(), last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
         Collection<Index> indexes = prop.getAllIndexesInternal(ctx.getDatabase());
@@ -153,7 +153,7 @@ public class ClassIndexFinder implements IndexFinder {
     Optional<IndexCandidate> cand = pre.chain;
     String last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(ctx.getDatabase(), last);
     if (prop != null) {
       Collection<Index> indexes = prop.getAllIndexesInternal(ctx.getDatabase());
       for (Index index : indexes) {
@@ -183,7 +183,7 @@ public class ClassIndexFinder implements IndexFinder {
     Optional<IndexCandidate> cand = pre.chain;
     String last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(ctx.getDatabase(), last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
         Collection<Index> indexes = prop.getAllIndexesInternal(ctx.getDatabase());
@@ -219,7 +219,7 @@ public class ClassIndexFinder implements IndexFinder {
     Optional<IndexCandidate> cand = pre.chain;
     String last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = (SchemaPropertyInternal) cl.getProperty(ctx.getDatabase(), last);
     if (prop != null) {
       Collection<Index> indexes = prop.getAllIndexesInternal(ctx.getDatabase());
       for (Index index : indexes) {

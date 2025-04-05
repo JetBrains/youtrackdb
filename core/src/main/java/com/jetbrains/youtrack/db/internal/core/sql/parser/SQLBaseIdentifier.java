@@ -383,6 +383,7 @@ public class SQLBaseIdentifier extends SimpleNode {
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
       SchemaPropertyInternal prop = clazz.getPropertyInternal(
+          ctx.getDatabase(),
           suffix.getIdentifier().getStringValue());
       if (prop == null) {
         return false;

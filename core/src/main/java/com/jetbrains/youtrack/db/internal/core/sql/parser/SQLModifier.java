@@ -481,7 +481,8 @@ public class SQLModifier extends SimpleNode {
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(suffix.getIdentifier().getStringValue());
+      var prop = clazz.getPropertyInternal(ctx.getDatabase(),
+          suffix.getIdentifier().getStringValue());
       if (prop != null
           && prop.getAllIndexesInternal(ctx.getDatabase()).stream()
           .anyMatch(idx -> idx.getDefinition().getFields().size() == 1)) {

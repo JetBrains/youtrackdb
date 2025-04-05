@@ -281,6 +281,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
           "Cannot execute the command because it has not been parsed yet");
     }
 
+    // why do we need to get another db then querySession?
     final DatabaseSessionInternal database = getDatabase();
     final Index idx;
     List<Collate> collatesList = null;
@@ -343,7 +344,7 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
         final List<PropertyType> fieldTypeList;
         if (keyTypes == null) {
           for (final String fieldName : fields) {
-            if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
+            if (!fieldName.equals("@rid") && !oClass.existsProperty(querySession, fieldName)) {
               throw new IndexException(
                   "Index with name : '"
                       + indexName
@@ -354,13 +355,14 @@ public class CommandExecutorSQLCreateIndex extends CommandExecutorSQLAbstract
                       + "' is absent in class definition.");
             }
           }
-          fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(fields);
+          fieldTypeList = ((SchemaClassImpl) oClass).extractFieldTypes(querySession, fields);
         } else {
           fieldTypeList = Arrays.asList(keyTypes);
         }
 
         final IndexDefinition idxDef =
             IndexDefinitionFactory.createIndexDefinition(
+                querySession,
                 oClass,
                 Arrays.asList(fields),
                 fieldTypeList,

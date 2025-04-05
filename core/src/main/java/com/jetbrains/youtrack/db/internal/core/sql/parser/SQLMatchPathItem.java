@@ -2,6 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -117,7 +118,7 @@ public class SQLMatchPathItem extends SimpleNode {
       for (Identifiable origin : queryResult) {
         Object previousMatch = iCommandContext.getVariable("$currentMatch");
         iCommandContext.setVariable("$currentMatch", origin);
-        if ((oClass == null || matchesClass(origin, oClass))
+        if ((oClass == null || matchesClass(iCommandContext.getDatabase(), origin, oClass))
             && (filter == null || filter.matchesFilters(origin, iCommandContext))) {
           result.add(origin);
         }
@@ -128,7 +129,7 @@ public class SQLMatchPathItem extends SimpleNode {
       iCommandContext.setVariable("$depth", depth);
       Object previousMatch = iCommandContext.getVariable("$currentMatch");
       iCommandContext.setVariable("$currentMatch", startingPoint);
-      if ((oClass == null || matchesClass(startingPoint, oClass))
+      if ((oClass == null || matchesClass(iCommandContext.getDatabase(), startingPoint, oClass))
           && (filter == null || filter.matchesFilters(startingPoint, iCommandContext))) {
         result.add(startingPoint);
       }
@@ -158,7 +159,8 @@ public class SQLMatchPathItem extends SimpleNode {
     return result;
   }
 
-  private boolean matchesClass(Identifiable identifiable, SchemaClass oClass) {
+  private boolean matchesClass(DatabaseSession session, Identifiable identifiable,
+      SchemaClass oClass) {
     if (identifiable == null) {
       return false;
     }
@@ -166,7 +168,7 @@ public class SQLMatchPathItem extends SimpleNode {
       DBRecord record = identifiable.getRecord();
       if (record instanceof EntityImpl) {
         return EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record))
-            .isSubClassOf(oClass);
+            .isSubClassOf(session, oClass);
       }
     } catch (RecordNotFoundException rnf) {
       return false;

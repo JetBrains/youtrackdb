@@ -58,6 +58,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -78,11 +79,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   protected String name;
   protected String description;
   protected int[] clusterIds;
-  //TODO review question, "I've changed it to set, is there any reason to have an array here?"
-  protected final LinkedHashSet<SchemaClassImpl> superClasses = new LinkedHashSet<>();
+  // it's linked map since we need to support one single parent class
+  // this feature is deprecated and as soon as it's removed, this could be changed to normal map
+  protected final LinkedHashMap<String, LazySchemaClass> superClasses = new LinkedHashMap<>();
   protected int[] polymorphicClusterIds;
-  //TODO review question, "I've changed it to set, is there any reason to have an array here?"
-  protected Set<SchemaClass> subclasses = new HashSet<>();
+  protected final Map<String, LazySchemaClass> subclasses = new HashMap<>();
   protected float overSize = 0f;
   protected String shortName;
   protected boolean strictMode = false; // @SINCE v1.0rc8
@@ -243,11 +244,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
   @Override
   @Deprecated
-  public SchemaClass getSuperClass() {
+  public SchemaClass getSuperClass(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
       // todo can we drop it if it is deprecated or should we still support it?
-      return superClasses.isEmpty() ? null : superClasses.getFirst();
+      return superClasses.isEmpty() ? null : superClasses.firstEntry().getValue().getDelegate();
     } finally {
       releaseSchemaReadLock();
     }
@@ -270,10 +271,15 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   @Override
-  public List<SchemaClass> getSuperClasses() {
+  public List<SchemaClass> getSuperClasses(DatabaseSession db) {
     acquireSchemaReadLock();
     try {
-      return Collections.unmodifiableList(superClasses.stream().toList());
+      List<SchemaClass> result = new ArrayList<>(superClasses.size());
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) db);
+        result.add(superClass.getDelegate());
+      }
+      return result;
     } finally {
       releaseSchemaReadLock();
     }
@@ -293,10 +299,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public List<String> getSuperClassesNames() {
     acquireSchemaReadLock();
     try {
-      List<String> superClassesNames = new ArrayList<String>(superClasses.size());
-      for (SchemaClassImpl superClass : superClasses) {
-        superClassesNames.add(superClass.getName());
-      }
+      List<String> superClassesNames = new ArrayList<>(superClasses.size());
+      superClassesNames.addAll(superClasses.keySet());
       return superClassesNames;
     } finally {
       releaseSchemaReadLock();
@@ -315,6 +319,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
     setSuperClasses(session, classes);
   }
+
+  protected abstract void setLazySuperClassesInternal(DatabaseSessionInternal session,
+      final List<LazySchemaClass> lazyClasses);
 
   protected abstract void setSuperClassesInternal(DatabaseSessionInternal session,
       final List<? extends SchemaClass> classes);
@@ -376,22 +383,24 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     acquireSchemaReadLock();
     try {
       final Map<String, SchemaProperty> props = new HashMap<String, SchemaProperty>(20);
-      propertiesMap(props);
+      propertiesMap((DatabaseSessionInternal) session, props);
       return props;
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  private void propertiesMap(Map<String, SchemaProperty> propertiesMap) {
+  private void propertiesMap(DatabaseSessionInternal db,
+      Map<String, SchemaProperty> propertiesMap) {
     for (SchemaProperty p : properties.values()) {
       String propName = p.getName();
       if (!propertiesMap.containsKey(propName)) {
         propertiesMap.put(propName, p);
       }
     }
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.propertiesMap(propertiesMap);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(db);
+      ((SchemaClassImpl) superClass.getDelegate()).propertiesMap(db, propertiesMap);
     }
   }
 
@@ -401,18 +410,19 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
     acquireSchemaReadLock();
     try {
-      return new ArrayList<>(properties());
+      return new ArrayList<>(propertiesInternal((DatabaseSessionInternal) session));
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  private List<SchemaProperty> properties() {
+  private List<SchemaProperty> propertiesInternal(DatabaseSessionInternal session) {
     List<SchemaProperty> resultProperties = new ArrayList<>(
         this.properties.values()
     );
-    for (SchemaClassImpl superClass : superClasses) {
-      resultProperties.addAll(superClass.properties());
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      resultProperties.addAll((superClass.getDelegate()).properties(session));
     }
     return resultProperties;
   }
@@ -424,8 +434,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         indexedProperties.add(p);
       }
     }
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.getIndexedProperties(session, indexedProperties);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ((SchemaClassImpl) superClass.getDelegate()).getIndexedProperties(session, indexedProperties);
     }
   }
 
@@ -445,12 +456,14 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
   }
 
-  public SchemaProperty getProperty(String propertyName) {
-    return getPropertyInternal(propertyName);
+  @Override
+  public SchemaProperty getProperty(DatabaseSession session, String propertyName) {
+    return getPropertyInternal(session, propertyName);
   }
 
   @Override
-  public SchemaPropertyInternal getPropertyInternal(String propertyName) {
+  public SchemaPropertyInternal getPropertyInternal(DatabaseSession session,
+      String propertyName) {
     acquireSchemaReadLock();
     try {
       var p = properties.get(propertyName);
@@ -459,8 +472,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         return p;
       }
 
-      for (SchemaClassImpl schemaClass : superClasses) {
-        p = schemaClass.getPropertyInternal(propertyName);
+      for (LazySchemaClass schemaClass : superClasses.values()) {
+        schemaClass.loadIfNeeded((DatabaseSessionInternal) session);
+        p = schemaClass.getDelegate().getPropertyInternal(session, propertyName);
         if (p != null) {
           return p;
         }
@@ -513,15 +527,16 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   @Override
-  public boolean existsProperty(String propertyName) {
+  public boolean existsProperty(DatabaseSession session, String propertyName) {
     acquireSchemaReadLock();
     try {
       boolean result = properties.containsKey(propertyName);
       if (result) {
         return true;
       }
-      for (SchemaClassImpl superClass : superClasses) {
-        result = superClass.existsProperty(propertyName);
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        result = superClass.getDelegate().existsProperty(session, propertyName);
         if (result) {
           return true;
         }
@@ -533,6 +548,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   public void fromStream(DatabaseSessionInternal db, EntityImpl entity) {
+    fromStream(db, entity, true);
+  }
+
+  public void fromStream(DatabaseSessionInternal db, EntityImpl entity,
+      boolean loadInheritanceTree) {
     acquireSchemaWriteLock(db);
     try {
       identity = entity.getIdentity();
@@ -623,53 +643,58 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       clusterSelection =
           owner.getClusterSelectionFactory().getStrategy(entity.field("clusterSelection"));
 
-      // REBUILD THE INHERITANCE TREE
-      List<SchemaClass> superClasses;
-      SchemaClass superClass;
-
-      // we need to get subclasses from here to
-      Collection<String> superClassNames = entity.field("superClasses");
-      String legacySuperClassName = entity.field("superClass");
-      if (superClassNames == null) {
-        superClassNames = new ArrayList<>();
-      }
-
-      if (legacySuperClassName != null && !superClassNames.contains(legacySuperClassName)) {
-        superClassNames.add(legacySuperClassName);
-      }
-
-      if (!superClassNames.isEmpty()) {
-        // HAS A SUPER CLASS or CLASSES
-        superClasses = new ArrayList<>(superClassNames.size());
-        for (String superClassName : superClassNames) {
-
-          superClass = owner.getClass(db, SchemaShared.normalizeClassName(superClassName));
-
-          if (superClass == null) {
-            throw new ConfigurationException(
-                "Super class '"
-                    + superClassName
-                    + "' was declared in class '"
-                    + this.getName()
-                    + "' but was not found in schema. Remove the dependency or create the class"
-                    + " to continue.");
-          }
-          superClasses.add(superClass);
-        }
-        setSuperClassesInternal(db, superClasses);
-      }
-      Collection<String> storedSubclassesNames = entity.field("subClasses");
-      if (storedSubclassesNames != null && !storedSubclassesNames.isEmpty()) {
-        subclasses.clear();
-        for (String storedSubclassName : storedSubclassesNames) {
-          SchemaClassInternal subclass = owner.getClass(db,
-              SchemaShared.normalizeClassName(storedSubclassName));
-          subclasses.add(subclass);
-          addPolymorphicClusterIdsWithInheritance(db, (SchemaClassImpl) subclass);
-        }
+      if (loadInheritanceTree) {
+        // we don't load tree for some classes to prevent infinite recursion
+        // from these classes we only need their names and cluster ids to be loaded
+        loadInheritanceTree(db, entity);
       }
     } finally {
       releaseSchemaWriteLock(db);
+    }
+  }
+
+  public void loadInheritanceTree(DatabaseSessionInternal db, EntityImpl entity) {
+    Collection<String> superClassNames = entity.field("superClasses");
+    String legacySuperClassName = entity.field("superClass");
+    if (superClassNames == null) {
+      superClassNames = new ArrayList<>();
+    }
+
+    if (legacySuperClassName != null && !superClassNames.contains(legacySuperClassName)) {
+      superClassNames.add(legacySuperClassName);
+    }
+
+    if (!superClassNames.isEmpty()) {
+      // HAS A SUPER CLASS or CLASSES
+      List<LazySchemaClass> superClassesToInit = new ArrayList<>(superClassNames.size());
+      for (String superClassName : superClassNames) {
+
+        LazySchemaClass lazySuperClass = owner.getLazyClass(
+            SchemaShared.normalizeClassName(superClassName));
+
+        if (lazySuperClass == null) {
+          throw new ConfigurationException(
+              "Super class '"
+                  + superClassName
+                  + "' was declared in class '"
+                  + this.getName()
+                  + "' but was not found in schema. Remove the dependency or create the class"
+                  + " to continue.");
+        }
+        superClassesToInit.add(lazySuperClass);
+      }
+      setLazySuperClassesInternal(db, superClassesToInit);
+    }
+    Collection<String> storedSubclassesNames = entity.field("subClasses");
+    if (storedSubclassesNames != null && !storedSubclassesNames.isEmpty()) {
+      subclasses.clear();
+      for (String storedSubclassName : storedSubclassesNames) {
+        LazySchemaClass subclass = owner.getLazyClass(
+            SchemaShared.normalizeClassName(storedSubclassName));
+        subclasses.put(storedSubclassName, subclass);
+        subclass.loadWithoutInheritanceIfNeeded(db);
+        addPolymorphicClusterIdsWithInheritance(db, (SchemaClassImpl) subclass.getDelegate());
+      }
     }
   }
 
@@ -709,20 +734,13 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
       } else {
         // Single super class is deprecated!
-        entity.field("superClass", superClasses.getFirst().getName(), PropertyType.STRING);
-        List<String> superClassesNames = new ArrayList<String>();
-        for (SchemaClassImpl superClass : superClasses) {
-          superClassesNames.add(superClass.getName());
-        }
+        entity.field("superClass", superClasses.firstEntry().getKey(), PropertyType.STRING);
+        List<String> superClassesNames = new ArrayList<>(superClasses.keySet());
         entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
       }
 
       if (!subclasses.isEmpty()) {
-        Collection<String> storedSubclassesNames = entity.field("subClasses");
-        List<String> subClassesNames = new ArrayList<>(subclasses.size());
-        for (SchemaClass subClass : subclasses) {
-          subClassesNames.add(subClass.getName());
-        }
+        List<String> subClassesNames = new ArrayList<>(subclasses.keySet());
         entity.field("subClasses", subClassesNames, PropertyType.EMBEDDEDSET);
       } else {
         entity.field("subClasses", null, PropertyType.EMBEDDEDSET);
@@ -797,26 +815,33 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     database.truncateCluster(clusterName);
   }
 
-  public Collection<SchemaClass> getSubclasses() {
+  public Collection<SchemaClass> getSubclasses(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
       if (subclasses.isEmpty()) {
         return Collections.emptyList();
       }
 
-      return Collections.unmodifiableCollection(subclasses);
+      List<SchemaClass> result = new ArrayList<>(subclasses.size());
+      for (LazySchemaClass lazySchemaClass : subclasses.values()) {
+        lazySchemaClass.loadIfNeeded((DatabaseSessionInternal) session);
+        result.add(lazySchemaClass.getDelegate());
+      }
+      return result;
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  public Collection<SchemaClass> getAllSubclasses() {
+  public Collection<SchemaClass> getAllSubclasses(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
-      final Set<SchemaClass> set = new HashSet<>(subclasses);
+      final Set<SchemaClass> set = new HashSet<>(subclasses.size());
 
-      for (SchemaClass c : subclasses) {
-        set.addAll(c.getAllSubclasses());
+      for (LazySchemaClass c : subclasses.values()) {
+        c.loadIfNeeded((DatabaseSessionInternal) session);
+        set.add(c.getDelegate());
+        set.addAll(c.getDelegate().getAllSubclasses(session));
       }
       return set;
     } finally {
@@ -825,26 +850,28 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   @Deprecated
-  public Collection<SchemaClass> getBaseClasses() {
-    return getSubclasses();
+  public Collection<SchemaClass> getBaseClasses(DatabaseSession session) {
+    return getSubclasses(session);
   }
 
   @Deprecated
-  public Collection<SchemaClass> getAllBaseClasses() {
-    return getAllSubclasses();
+  public Collection<SchemaClass> getAllBaseClasses(DatabaseSession session) {
+    return getAllSubclasses(session);
   }
 
   @Override
-  public Collection<SchemaClass> getAllSuperClasses() {
-    Set<SchemaClass> ret = new HashSet<SchemaClass>();
-    ret.addAll(getAllSuperClassesInternal());
+  public Collection<SchemaClass> getAllSuperClasses(DatabaseSession session) {
+    Set<SchemaClass> ret = new HashSet<>();
+    ret.addAll(getAllSuperClassesInternal((DatabaseSessionInternal) session));
     return ret;
   }
 
-  private Set<SchemaClass> getAllSuperClassesInternal() {
-    Set<SchemaClass> ret = new HashSet<>(superClasses);
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.getAllSuperClasses();
+  private Set<SchemaClass> getAllSuperClassesInternal(DatabaseSessionInternal session) {
+    Set<SchemaClass> ret = new HashSet<>(superClasses.size());
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ret.add(superClass.getDelegate());
+      ret.addAll(superClass.getDelegate().getAllSuperClasses(session));
     }
     return ret;
   }
@@ -852,7 +879,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   public abstract SchemaClass removeBaseClassInternal(DatabaseSessionInternal session,
       final SchemaClass baseClass);
 
-  public float getOverSize() {
+  public float getOverSize(DatabaseSession session) {
     acquireSchemaReadLock();
     try {
       if (overSize > 0)
@@ -864,8 +891,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       // NO OVERSIZE by default
       float maxOverSize = 0;
       float thisOverSize;
-      for (SchemaClassImpl superClass : superClasses) {
-        thisOverSize = superClass.getOverSize();
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        thisOverSize = ((SchemaClassImpl) superClass.getDelegate()).getOverSize(session);
         if (thisOverSize > maxOverSize) {
           maxOverSize = thisOverSize;
         }
@@ -984,7 +1012,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
    * @return Returns true if the current instance extends the passed schema class (iClass)
    * @see #isSuperClassOf(SchemaClass)
    */
-  public boolean isSubClassOf(final String iClassName) {
+  public boolean isSubClassOf(DatabaseSession session, final String iClassName) {
     acquireSchemaReadLock();
     try {
       if (iClassName == null) {
@@ -994,8 +1022,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       if (iClassName.equalsIgnoreCase(getName()) || iClassName.equalsIgnoreCase(getShortName())) {
         return true;
       }
-      for (SchemaClassImpl superClass : superClasses) {
-        if (superClass.isSubClassOf(iClassName)) {
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        if (superClass.getDelegate().isSubClassOf(session, iClassName)) {
           return true;
         }
       }
@@ -1012,7 +1041,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
    * @return true if the current instance extends the passed schema class (iClass)
    * @see #isSuperClassOf(SchemaClass)
    */
-  public boolean isSubClassOf(final SchemaClass clazz) {
+  public boolean isSubClassOf(DatabaseSession session, final SchemaClass clazz) {
     acquireSchemaReadLock();
     try {
       if (clazz == null) {
@@ -1021,8 +1050,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       if (equals(clazz)) {
         return true;
       }
-      for (SchemaClassImpl superClass : superClasses) {
-        if (superClass.isSubClassOf(clazz)) {
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        if (superClass.getDelegate().isSubClassOf(session, clazz)) {
           return true;
         }
       }
@@ -1039,11 +1069,11 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
    * @return Returns true if the passed schema class extends the current instance
    * @see #isSubClassOf(SchemaClass)
    */
-  public boolean isSuperClassOf(final SchemaClass clazz) {
-    return clazz != null && clazz.isSubClassOf(this);
+  public boolean isSuperClassOf(DatabaseSession session, final SchemaClass clazz) {
+    return clazz != null && clazz.isSubClassOf(session, this);
   }
 
-  public Object get(final ATTRIBUTES iAttribute) {
+  public Object get(DatabaseSession session, final ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
@@ -1054,9 +1084,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       case SHORTNAME:
         return getShortName();
       case SUPERCLASS:
-        return getSuperClass();
+        return getSuperClass(session);
       case SUPERCLASSES:
-        return getSuperClasses();
+        return getSuperClasses(session);
       case STRICT_MODE:
         return isStrictMode();
       case ABSTRACT:
@@ -1231,7 +1261,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       final String fieldName =
           decodeClassName(IndexDefinitionFactory.extractFieldName(fieldToIndex));
 
-      if (!fieldName.equals("@rid") && !existsProperty(fieldName)) {
+      if (!fieldName.equals("@rid") && !existsProperty(session, fieldName)) {
         throw new IndexException(
             "Index with name '"
                 + name
@@ -1244,8 +1274,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
 
     final IndexDefinition indexDefinition =
-        IndexDefinitionFactory.createIndexDefinition(
-            this, Arrays.asList(fields), extractFieldTypes(fields), null, type, algorithm);
+        IndexDefinitionFactory.createIndexDefinition(session,
+            this, Arrays.asList(fields), extractFieldTypes(session, fields), null, type, algorithm);
 
     sessionInternal
         .getMetadata()
@@ -1277,8 +1307,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       if (currentClassResult) {
         return true;
       }
-      for (SchemaClassImpl superClass : superClasses) {
-        if (superClass.areIndexed(sessionInternal, fields)) {
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded(sessionInternal);
+        if (superClass.getDelegate().areIndexed(sessionInternal, fields)) {
           return true;
         }
       }
@@ -1312,8 +1343,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     try {
       final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, fields));
 
-      for (SchemaClassImpl superClass : superClasses) {
-        result.addAll(superClass.getInvolvedIndexesInternal(session, fields));
+      for (LazySchemaClass superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        result.addAll(superClass.getDelegate().getInvolvedIndexesInternal(session, fields));
       }
 
       return result;
@@ -1405,13 +1437,13 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   }
 
   @Override
-  public boolean isEdgeType() {
-    return isSubClassOf(EDGE_CLASS_NAME);
+  public boolean isEdgeType(DatabaseSession session) {
+    return isSubClassOf(session, EDGE_CLASS_NAME);
   }
 
   @Override
-  public boolean isVertexType() {
-    return isSubClassOf(VERTEX_CLASS_NAME);
+  public boolean isVertexType(DatabaseSession session) {
+    return isSubClassOf(session, VERTEX_CLASS_NAME);
   }
 
   public void onPostIndexManagement(DatabaseSessionInternal session) {
@@ -1431,8 +1463,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     acquireSchemaReadLock();
     try {
       getClassIndexes(session, indexes);
-      for (var superClass : superClasses) {
-        superClass.getIndexesInternal(session, indexes);
+      for (var superClass : superClasses.values()) {
+        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        superClass.getDelegate().getIndexesInternal(session, indexes);
       }
     } finally {
       releaseSchemaReadLock();
@@ -1721,7 +1754,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     session.command("alter cluster `" + oldName + "` NAME \"" + newName + "\"").close();
   }
 
-  protected void onlyAddPolymorphicClusterId(int clusterId) {
+  protected void onlyAddPolymorphicClusterId(DatabaseSession session, int clusterId) {
     if (Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0) {
       return;
     }
@@ -1731,8 +1764,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     polymorphicClusterIds[polymorphicClusterIds.length - 1] = clusterId;
     Arrays.sort(polymorphicClusterIds);
 
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.onlyAddPolymorphicClusterId(clusterId);
+    for (var superClass : superClasses.values()) {
+      superClass.loadIfNeeded((DatabaseSessionInternal) session);
+      ((SchemaClassImpl) superClass.getDelegate()).onlyAddPolymorphicClusterId(session, clusterId);
     }
   }
 
@@ -1757,13 +1791,15 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
    */
   public SchemaClass addBaseClass(DatabaseSessionInternal session,
       final SchemaClassImpl iBaseClass) {
-    checkRecursion(iBaseClass);
+    checkRecursion(session, iBaseClass);
 
-    if (subclasses.contains(iBaseClass)) {
+    String baseClassName = iBaseClass.getName();
+    if (subclasses.containsKey(baseClassName)) {
       return this;
     }
 
-    subclasses.add(iBaseClass);
+    LazySchemaClass lazyClass = owner.getLazyClass(baseClassName);
+    subclasses.put(baseClassName, lazyClass);
     owner.markClassDirty(this);
     owner.markClassDirty(iBaseClass);
     addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
@@ -1774,7 +1810,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       final SchemaClass baseClass) {
     final Collection<SchemaProperty> baseClassProperties = baseClass.properties(session);
     for (SchemaProperty property : baseClassProperties) {
-      SchemaProperty thisProperty = getProperty(property.getName());
+      SchemaProperty thisProperty = getProperty(session, property.getName());
       if (thisProperty != null && !thisProperty.getType().equals(property.getType())) {
         throw new SchemaException(
             "Cannot add base class '"
@@ -1788,7 +1824,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
   }
 
-  public static void checkParametersConflict(List<SchemaClass> classes) {
+  public static void checkParametersConflict(DatabaseSession session, List<SchemaClass> classes) {
     final Map<String, SchemaProperty> comulative = new HashMap<String, SchemaProperty>();
     final Map<String, SchemaProperty> properties = new HashMap<String, SchemaProperty>();
 
@@ -1798,7 +1834,7 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
       }
       SchemaClassImpl impl;
       impl = (SchemaClassImpl) superClass;
-      impl.propertiesMap(properties);
+      impl.propertiesMap((DatabaseSessionInternal) session, properties);
       for (Map.Entry<String, SchemaProperty> entry : properties.entrySet()) {
         if (comulative.containsKey(entry.getKey())) {
           final String property = entry.getKey();
@@ -1819,8 +1855,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
   }
 
-  private void checkRecursion(final SchemaClass baseClass) {
-    if (isSubClassOf(baseClass)) {
+  private void checkRecursion(DatabaseSessionInternal session, final SchemaClass baseClass) {
+    if (isSubClassOf(session, baseClass)) {
       throw new SchemaException(
           "Cannot add base class '" + baseClass.getName() + "', because of recursion");
     }
@@ -1833,7 +1869,8 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     }
   }
 
-  protected void onlyRemovePolymorphicClusterId(final int clusterId) {
+  protected void onlyRemovePolymorphicClusterId(DatabaseSessionInternal session,
+      final int clusterId) {
     final int index = Arrays.binarySearch(polymorphicClusterIds, clusterId);
     if (index < 0) {
       return;
@@ -1850,8 +1887,10 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
 
     polymorphicClusterIds = Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length - 1);
 
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.onlyRemovePolymorphicClusterId(clusterId);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ((SchemaClassImpl) superClass.getDelegate()).onlyRemovePolymorphicClusterId(session,
+          clusterId);
     }
   }
 
@@ -1874,8 +1913,9 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     polymorphicClusterIds = Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length - 1);
 
     removeClusterFromIndexes(session, clusterId);
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.removePolymorphicClusterId(session, clusterId);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ((SchemaClassImpl) superClass.getDelegate()).removePolymorphicClusterId(session, clusterId);
     }
   }
 
@@ -1929,18 +1969,21 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
   private void addPolymorphicClusterIdsWithInheritance(DatabaseSessionInternal session,
       final SchemaClassImpl iBaseClass) {
     addPolymorphicClusterIds(session, iBaseClass);
-    for (SchemaClassImpl superClass : superClasses) {
-      superClass.addPolymorphicClusterIdsWithInheritance(session, iBaseClass);
+    for (LazySchemaClass superClass : superClasses.values()) {
+      superClass.loadIfNeeded(session);
+      ((SchemaClassImpl) superClass.getDelegate()).addPolymorphicClusterIdsWithInheritance(session,
+          iBaseClass);
     }
   }
 
-  public List<PropertyType> extractFieldTypes(final String[] fieldNames) {
+  public List<PropertyType> extractFieldTypes(DatabaseSession session, final String[] fieldNames) {
     final List<PropertyType> types = new ArrayList<PropertyType>(fieldNames.length);
 
     for (String fieldName : fieldNames) {
       if (!fieldName.equals("@rid")) {
         types.add(
-            getProperty(decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName)))
+            getProperty(session,
+                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName)))
                 .getType());
       } else {
         types.add(PropertyType.LINK);
@@ -1994,17 +2037,14 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
         entity.field("superClasses", null, PropertyType.EMBEDDEDLIST);
       } else {
         // Single super class is deprecated!
-        entity.field("superClass", superClasses.getFirst().getName(), PropertyType.STRING);
-        List<String> superClassesNames = new ArrayList<String>();
-        for (SchemaClassImpl superClass : superClasses) {
-          superClassesNames.add(superClass.getName());
-        }
+        entity.field("superClass", superClasses.firstEntry().getKey(), PropertyType.STRING);
+        List<String> superClassesNames = new ArrayList<>(superClasses.keySet());
         entity.field("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
       }
 
       entity.field(
           "customFields",
-          customFields != null && customFields.size() > 0 ? customFields : null,
+          customFields != null && !customFields.isEmpty() ? customFields : null,
           PropertyType.EMBEDDEDMAP);
 
       return entity;

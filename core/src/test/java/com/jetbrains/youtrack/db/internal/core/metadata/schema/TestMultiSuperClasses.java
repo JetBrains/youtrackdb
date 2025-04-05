@@ -36,27 +36,27 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   }
 
   private void testClassCreationBranch(SchemaClass aClass, SchemaClass bClass, SchemaClass cClass) {
-    assertNotNull(aClass.getSuperClasses());
-    assertEquals(aClass.getSuperClasses().size(), 0);
+    assertNotNull(aClass.getSuperClasses(db));
+    assertEquals(aClass.getSuperClasses(db).size(), 0);
     assertNotNull(bClass.getSuperClassesNames());
     assertEquals(bClass.getSuperClassesNames().size(), 0);
     assertNotNull(cClass.getSuperClassesNames());
     assertEquals(cClass.getSuperClassesNames().size(), 2);
 
-    List<? extends SchemaClass> superClasses = cClass.getSuperClasses();
+    List<? extends SchemaClass> superClasses = cClass.getSuperClasses(db);
     assertTrue(superClasses.contains(aClass));
     assertTrue(superClasses.contains(bClass));
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
-    assertTrue(aClass.isSuperClassOf(cClass));
-    assertTrue(bClass.isSuperClassOf(cClass));
+    assertTrue(cClass.isSubClassOf(db, aClass));
+    assertTrue(cClass.isSubClassOf(db, bClass));
+    assertTrue(aClass.isSuperClassOf(db, cClass));
+    assertTrue(bClass.isSuperClassOf(db, cClass));
 
-    SchemaProperty property = cClass.getProperty("propertyInt");
+    SchemaProperty property = cClass.getProperty(db, "propertyInt");
     assertEquals(PropertyType.INTEGER, property.getType());
     property = cClass.propertiesMap(db).get("propertyInt");
     assertEquals(PropertyType.INTEGER, property.getType());
 
-    property = cClass.getProperty("propertyDouble");
+    property = cClass.getProperty(db, "propertyDouble");
     assertEquals(PropertyType.DOUBLE, property.getType());
     property = cClass.propertiesMap(db).get("propertyDouble");
     assertEquals(PropertyType.DOUBLE, property.getType());
@@ -70,17 +70,17 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     SchemaClass bClass = oSchema.createAbstractClass("sqlB");
     SchemaClass cClass = oSchema.createClass("sqlC");
     db.command("alter class sqlC superclasses sqlA, sqlB").close();
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isSubClassOf(db, aClass));
+    assertTrue(cClass.isSubClassOf(db, bClass));
     db.command("alter class sqlC superclass sqlA").close();
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertFalse(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isSubClassOf(db, aClass));
+    assertFalse(cClass.isSubClassOf(db, bClass));
     db.command("alter class sqlC superclass +sqlB").close();
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isSubClassOf(db, aClass));
+    assertTrue(cClass.isSubClassOf(db, bClass));
     db.command("alter class sqlC superclass -sqlA").close();
-    assertFalse(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertFalse(cClass.isSubClassOf(db, aClass));
+    assertTrue(cClass.isSubClassOf(db, bClass));
   }
 
   @Test
@@ -97,8 +97,8 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     assertNotNull(aClass);
     assertNotNull(bClass);
     assertNotNull(cClass);
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isSubClassOf(db, aClass));
+    assertTrue(cClass.isSubClassOf(db, bClass));
   }
 
   @Test(
@@ -121,7 +121,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     SchemaClass bClass = oSchema.createAbstractClass("impactGoodB");
     bClass.createProperty(db, "property", PropertyType.STRING);
     SchemaClass cClass = oSchema.createAbstractClass("impactGoodC", aClass, bClass);
-    assertTrue(cClass.existsProperty("property"));
+    assertTrue(cClass.existsProperty(db, "property"));
   }
 
   @Test(

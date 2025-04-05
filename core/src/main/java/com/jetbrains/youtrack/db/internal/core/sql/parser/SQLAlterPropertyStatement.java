@@ -44,7 +44,7 @@ public class SQLAlterPropertyStatement extends DDLStatement {
       throw new CommandExecutionException("Invalid class name or class not found: " + clazz);
     }
 
-    SchemaProperty property = clazz.getProperty(propertyName.getStringValue());
+    SchemaProperty property = clazz.getProperty(ctx.getDatabase(), propertyName.getStringValue());
     if (property == null) {
       throw new CommandExecutionException(
           "Property " + propertyName.getStringValue() + " not found on class " + clazz);

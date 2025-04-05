@@ -169,7 +169,8 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
           // SEARCH FOR A CONFIGURED PROPERTY
           if (EntityInternalUtils.getImmutableSchemaClass(record) != null) {
-            prop = EntityInternalUtils.getImmutableSchemaClass(record).getProperty(fieldName);
+            prop = EntityInternalUtils.getImmutableSchemaClass(record)
+                .getProperty(database, fieldName);
           } else {
             prop = null;
           }
@@ -335,6 +336,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
   @Override
   protected StringBuilder toString(
+      final DatabaseSessionInternal session,
       DBRecord iRecord,
       final StringBuilder iOutput,
       final String iFormat,
@@ -371,7 +373,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
       // SEARCH FOR A CONFIGURED PROPERTY
       if (EntityInternalUtils.getImmutableSchemaClass(record) != null) {
-        prop = EntityInternalUtils.getImmutableSchemaClass(record).getProperty(fieldName);
+        prop = EntityInternalUtils.getImmutableSchemaClass(record).getProperty(session, fieldName);
       } else {
         prop = null;
       }
@@ -570,7 +572,8 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
       iOutput.append(fieldName);
       iOutput.append(FIELD_VALUE_SEPARATOR);
-      fieldToStream(record, iOutput, type, linkedClass, linkedType, fieldName, fieldValue, true);
+      fieldToStream(session, record, iOutput, type, linkedClass, linkedType, fieldName, fieldValue,
+          true);
 
       i++;
     }

@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -55,7 +54,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal {
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType(getSession())) {
       return rid;
     }
 
@@ -87,7 +86,7 @@ public class EdgeEntityImpl extends EntityImpl implements EdgeInternal {
     }
 
     var rid = result.getIdentity();
-    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType()) {
+    if (schema.getClassByClusterId(rid.getClusterId()).isVertexType(getSession())) {
       return rid;
     }
 

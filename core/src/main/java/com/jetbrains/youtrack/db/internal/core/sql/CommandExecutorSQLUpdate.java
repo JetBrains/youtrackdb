@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
@@ -181,9 +182,9 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         } else if (word.equals(KEYWORD_MERGE)) {
           parseMerge();
         } else if (word.equals(KEYWORD_SET)) {
-          parseSetFields(clazz, setEntries);
+          parseSetFields(clazz, setEntries, database);
         } else if (word.equals(KEYWORD_ADD)) {
-          parseAddFields();
+          parseAddFields(iRequest.getContext().getDatabase());
         } else if (word.equals(KEYWORD_PUT)) {
           parsePutFields();
         } else if (word.equals(KEYWORD_REMOVE)) {
@@ -366,7 +367,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
   public boolean result(DatabaseSessionInternal querySession, final Object iRecord) {
     final EntityImpl record = ((Identifiable) iRecord).getRecord();
 
-    if (updateEdge && !isRecordInstanceOf(iRecord, "E")) {
+    if (updateEdge && !isRecordInstanceOf(querySession, iRecord, "E")) {
       throw new CommandExecutionException(
           "Using UPDATE EDGE on a record that is not an instance of E");
     }
@@ -381,7 +382,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
     returnHandler.beforeUpdate(record);
 
-    boolean updated = handleContent(record);
+    boolean updated = handleContent(querySession, record);
     updated |= handleMerge(record);
     updated |= handleSetEntries(record);
     updated |= handleIncrementEntries(record);
@@ -403,11 +404,12 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
   /**
    * checks if an object is an Identifiable and an instance of a particular (schema) class
    *
-   * @param iRecord     The record object
+   * @param iRecord         The record object
    * @param youTrackDbClass The schema class
    * @return
    */
-  private boolean isRecordInstanceOf(Object iRecord, String youTrackDbClass) {
+  private boolean isRecordInstanceOf(DatabaseSession session, Object iRecord,
+      String youTrackDbClass) {
     if (iRecord == null) {
       return false;
     }
@@ -418,7 +420,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     if (iRecord == null) {
       return false;
     }
-    return (EntityInternalUtils.getImmutableSchemaClass(record).isSubClassOf(youTrackDbClass));
+    return (EntityInternalUtils.getImmutableSchemaClass(record)
+        .isSubClassOf(session, youTrackDbClass));
   }
 
   /**
@@ -437,7 +440,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     Object prevOut = record.getOriginalValue("out");
     Object prevIn = record.getOriginalValue("in");
 
-    validateOutInForEdge(record, currentOut, currentIn);
+    validateOutInForEdge(db, record, currentOut, currentIn);
 
     changeVertexEdgePointer(db, record, (Identifiable) prevIn, (Identifiable) currentIn, "in");
     changeVertexEdgePointer(db, record, (Identifiable) prevOut, (Identifiable) currentOut,
@@ -479,12 +482,13 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     }
   }
 
-  private void validateOutInForEdge(EntityImpl record, Object currentOut, Object currentIn) {
-    if (!isRecordInstanceOf(currentOut, "V")) {
+  private void validateOutInForEdge(DatabaseSession session, EntityImpl record, Object currentOut,
+      Object currentIn) {
+    if (!isRecordInstanceOf(session, currentOut, "V")) {
       throw new CommandExecutionException(
           "Error updating edge: 'out' is not a vertex - " + currentOut);
     }
-    if (!isRecordInstanceOf(currentIn, "V")) {
+    if (!isRecordInstanceOf(session, currentIn, "V")) {
       throw new CommandExecutionException(
           "Error updating edge: 'in' is not a vertex - " + currentIn);
     }
@@ -612,7 +616,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     }
   }
 
-  private boolean handleContent(EntityImpl record) {
+  private boolean handleContent(DatabaseSession session, EntityImpl record) {
     boolean updated = false;
     if (content != null) {
       // REPLACE ALL THE CONTENT
@@ -625,20 +629,21 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
               .getClass(Security.RESTRICTED_CLASSNAME);
 
       if (restricted != null
-          && restricted.isSuperClassOf(EntityInternalUtils.getImmutableSchemaClass(record))) {
+          && restricted.isSuperClassOf(session,
+          EntityInternalUtils.getImmutableSchemaClass(record))) {
         for (SchemaProperty prop : restricted.properties(getDatabase())) {
           fieldsToPreserve.field(prop.getName(), record.<Object>field(prop.getName()));
         }
       }
 
       SchemaClass recordClass = EntityInternalUtils.getImmutableSchemaClass(record);
-      if (recordClass != null && recordClass.isSubClassOf("V")) {
+      if (recordClass != null && recordClass.isSubClassOf(session, "V")) {
         for (String fieldName : record.fieldNames()) {
           if (fieldName.startsWith("in_") || fieldName.startsWith("out_")) {
             fieldsToPreserve.field(fieldName, record.<Object>field(fieldName));
           }
         }
-      } else if (recordClass != null && recordClass.isSubClassOf("E")) {
+      } else if (recordClass != null && recordClass.isSubClassOf(session, "E")) {
         for (String fieldName : record.fieldNames()) {
           if (fieldName.equals("in") || fieldName.equals("out")) {
             fieldsToPreserve.field(fieldName, record.<Object>field(fieldName));
@@ -716,7 +721,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         // GET THE TYPE IF ANY
         if (EntityInternalUtils.getImmutableSchemaClass(record) != null) {
           SchemaProperty prop =
-              EntityInternalUtils.getImmutableSchemaClass(record).getProperty(entry.getKey());
+              EntityInternalUtils.getImmutableSchemaClass(record)
+                  .getProperty(querySession, entry.getKey());
           if (prop != null && prop.getType() == PropertyType.LINKSET)
           // SET TYPE
           {
@@ -788,7 +794,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
         if (fieldValue == null) {
           if (EntityInternalUtils.getImmutableSchemaClass(record) != null) {
             final SchemaProperty property =
-                EntityInternalUtils.getImmutableSchemaClass(record).getProperty(entry.getKey());
+                EntityInternalUtils.getImmutableSchemaClass(record)
+                    .getProperty(querySession, entry.getKey());
             if (property != null
                 && (property.getType() != null
                 && (!property.getType().equals(PropertyType.EMBEDDEDMAP)
@@ -810,7 +817,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
 
           if (EntityInternalUtils.getImmutableSchemaClass(record) != null) {
             final SchemaProperty property =
-                EntityInternalUtils.getImmutableSchemaClass(record).getProperty(entry.getKey());
+                EntityInternalUtils.getImmutableSchemaClass(record)
+                    .getProperty(querySession, entry.getKey());
             if (property != null
                 && property.getType().equals(PropertyType.LINKMAP)
                 && !(value instanceof Identifiable)) {
@@ -915,7 +923,7 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
     return value;
   }
 
-  private void parseAddFields() {
+  private void parseAddFields(DatabaseSessionInternal session) {
     String fieldName;
     String fieldValue;
 
@@ -928,7 +936,8 @@ public class CommandExecutorSQLUpdate extends CommandExecutorSQLRetryAbstract
       parserRequiredKeyword("=");
       fieldValue = parserRequiredWord(false, "Value expected", " =><,\r\n");
 
-      final Object v = convertValue(clazz, fieldName, getFieldValueCountingParameters(fieldValue));
+      final Object v = convertValue(clazz, fieldName,
+          getFieldValueCountingParameters(fieldValue), session);
 
       // INSERT TRANSFORMED FIELD VALUE
       addEntries.add(new Pair<String, Object>(fieldName, v));

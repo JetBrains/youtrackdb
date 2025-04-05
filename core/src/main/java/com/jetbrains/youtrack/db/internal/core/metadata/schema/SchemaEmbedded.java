@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -88,7 +89,7 @@ public class SchemaEmbedded extends SchemaShared {
 
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
     }
     acquireSchemaWriteLock(database);
     try {
@@ -189,7 +190,7 @@ public class SchemaEmbedded extends SchemaShared {
       EntityImpl savedClassEntity = database.computeInTx(
           () -> database.save(classEntity, MetadataDefault.CLUSTER_INTERNAL_NAME));
 
-      classesRefs.put(key, new LazySchemaClass(savedClassEntity.getIdentity(), cls));
+      classesRefs.put(key, LazySchemaClass.fromTemplate(savedClassEntity.getIdentity(), cls));
       this.markClassDirty(cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
@@ -288,7 +289,7 @@ public class SchemaEmbedded extends SchemaShared {
     SchemaClass result;
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
     }
 
     acquireSchemaWriteLock(database);
@@ -432,12 +433,13 @@ public class SchemaEmbedded extends SchemaShared {
         throw new SchemaException("Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
+      Collection<SchemaClass> subclasses = cls.getSubclasses(database);
+      if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + subclasses
                 + ". Remove the dependencies before trying to drop it again");
       }
 
@@ -476,18 +478,19 @@ public class SchemaEmbedded extends SchemaShared {
         throw new SchemaException("Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
+      Collection<SchemaClass> subclasses = cls.getSubclasses(database);
+      if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + subclasses
                 + ". Remove the dependencies before trying to drop it again");
       }
 
       checkEmbedded();
 
-      for (SchemaClass superClass : cls.getSuperClasses()) {
+      for (SchemaClass superClass : cls.getSuperClasses(database)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         ((SchemaClassImpl) superClass).removeBaseClassInternal(database, cls);
       }
