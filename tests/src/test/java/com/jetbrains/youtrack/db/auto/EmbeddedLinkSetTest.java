@@ -5,10 +5,15 @@ import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -477,6 +482,134 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
 
     for (var identifiable : set) {
       assertTrue(rids.remove(identifiable));
+    }
+
+    assertTrue(rids.isEmpty());
+    session.commit();
+  }
+
+  public void testEmptyIterator() {
+    session.begin();
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+    Assert.assertTrue(set.isEmbedded());
+    assertEquals(set.size(), 0);
+
+    for (@SuppressWarnings("unused") var id : set) {
+      Assert.fail();
+    }
+    session.commit();
+  }
+
+  public void testAddRemoveNotExisting() {
+
+    session.begin();
+
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    var id7 = session.newEntity().getIdentity();
+    var id8 = session.newEntity().getIdentity();
+    session.commit();
+
+    session.begin();
+    var rids = new HashSet<RID>();
+
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+    assertTrue(set.isEmbedded());
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.add(id3);
+    rids.add(id3);
+
+    set.add(id4);
+    rids.add(id4);
+
+    set.add(id4);
+    rids.add(id4);
+
+    set.add(id4);
+    rids.add(id4);
+
+    set.add(id5);
+    rids.add(id5);
+
+    set.add(id6);
+    rids.add(id6);
+    assertTrue(set.isEmbedded());
+
+    var entity = session.newEntity();
+    entity.setProperty("linkset", set);
+
+    session.commit();
+
+    var rid = entity.getIdentity();
+
+    session.close();
+
+    session = createSessionInstance();
+
+    session.begin();
+    entity = session.load(rid);
+
+    set = entity.getProperty("linkset");
+    assertTrue(set.isEmbedded());
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.remove(id4);
+    rids.remove(id4);
+
+    set.remove(id4);
+    rids.remove(id4);
+
+    set.remove(id2);
+    rids.remove(id2);
+
+    set.remove(id2);
+    rids.remove(id2);
+
+    set.remove(id7);
+    rids.remove(id7);
+
+    set.remove(id8);
+    rids.remove(id8);
+
+    set.remove(id8);
+    rids.remove(id8);
+
+    set.remove(id8);
+    rids.remove(id8);
+
+    assertTrue(set.isEmbedded());
+
+    for (var identifiable : set) {
+      assertTrue(rids.remove(identifiable.getIdentity()));
+    }
+
+    assertTrue(rids.isEmpty());
+
+    for (var identifiable : set) {
+      rids.add(identifiable.getIdentity());
+    }
+
+    session.commit();
+
+    session.begin();
+    entity = session.load(rid);
+
+    set = entity.getProperty("linkset");
+    assertTrue(set.isEmbedded());
+
+    for (var identifiable : set) {
+      assertTrue(rids.remove(identifiable.getIdentity()));
     }
 
     assertTrue(rids.isEmpty());
