@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
@@ -615,4 +616,38 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     assertTrue(rids.isEmpty());
     session.commit();
   }
+
+  public void testContentChange() {
+    session.begin();
+    var entity = session.newEntity();
+    var set = session.newLinkSet();
+    entity.setLinkSet("linkset", set);
+
+    session.commit();
+
+    session.begin();
+    var id10 = session.newEntity().getIdentity();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    set = entity.getLinkSet("linkset");
+    set.add(id10);
+    assertTrue(entity.isDirty());
+    session.commit();
+
+    session.begin();
+    var id12 = session.newEntity().getIdentity();
+    var version = entity.getVersion();
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    set = entity.getProperty("linkset");
+    set.add(id12);
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    assertNotEquals(entity.getVersion(), version);
+    session.commit();
+  }
+
 }
