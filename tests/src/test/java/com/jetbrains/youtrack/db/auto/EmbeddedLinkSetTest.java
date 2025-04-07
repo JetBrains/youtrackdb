@@ -811,5 +811,150 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     activeTx.commit();
   }
 
+  public void testAddIterateAndRemove() {
+    session.begin();
 
+    var id0 = session.newEntity().getIdentity();
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    var id7 = session.newEntity().getIdentity();
+    var id8 = session.newEntity().getIdentity();
+    session.commit();
+
+    session.begin();
+    var rids = new HashSet<Identifiable>();
+
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+    assertTrue(set.isEmbedded());
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.add(id3);
+    rids.add(id3);
+
+    set.add(id4);
+    rids.add(id4);
+
+    set.add(id4);
+    rids.add(id4);
+
+    set.add(id7);
+    rids.add(id7);
+
+    set.add(id8);
+    rids.add(id8);
+
+    assertTrue(set.isEmbedded());
+
+    var entity = session.newEntity();
+    entity.setProperty("linkset", set);
+
+    session.commit();
+
+    var rid = entity.getIdentity();
+    session.close();
+
+    session = createSessionInstance();
+
+    session.begin();
+    entity = session.load(rid);
+
+    set = entity.getProperty("linkset");
+    assertTrue(set.isEmbedded());
+
+    set.add(id0);
+    rids.add(id0);
+
+    set.add(id1);
+    rids.add(id1);
+
+    set.add(id2);
+    rids.add(id2);
+
+    set.add(id3);
+    rids.add(id3);
+
+    set.add(id3);
+    rids.add(id3);
+
+    set.add(id5);
+    rids.add(id5);
+
+    set.add(id6);
+    rids.add(id6);
+
+    assertTrue(set.isEmbedded());
+
+    var iterator = set.iterator();
+
+    while (iterator.hasNext()) {
+      var identifiable = iterator.next();
+      if (identifiable.equals(id2)) {
+        iterator.remove();
+        rids.remove(identifiable);
+      }
+
+      if (identifiable.equals(id3)) {
+        iterator.remove();
+        rids.remove(identifiable);
+      }
+
+      if (identifiable.equals(id6)) {
+        iterator.remove();
+        rids.remove(identifiable);
+      }
+
+      if (identifiable.equals(id4)) {
+        iterator.remove();
+        rids.remove(identifiable);
+      }
+
+      if (identifiable.equals(id7)) {
+        iterator.remove();
+        rids.remove(identifiable);
+      }
+    }
+
+    for (var identifiable : set) {
+      assertTrue(rids.remove(identifiable));
+    }
+
+    assertTrue(rids.isEmpty());
+
+    rids.addAll(set);
+
+    entity = session.newEntity();
+
+    final var otherSet = (EntityLinkSetImpl) session.newLinkSet();
+    otherSet.addAll(set);
+
+    assertTrue(otherSet.isEmbedded());
+
+    entity.setLinkSet("linkset", otherSet);
+
+    session.commit();
+
+    rid = entity.getIdentity();
+
+    session.begin();
+    entity = session.load(rid);
+
+    set = (EntityLinkSetImpl) entity.getLinkSet("linkset");
+    assertTrue(set.isEmbedded());
+
+    for (var identifiable : set) {
+      assertTrue(rids.remove(identifiable));
+    }
+
+    assertTrue(rids.isEmpty());
+    session.commit();
+  }
 }
