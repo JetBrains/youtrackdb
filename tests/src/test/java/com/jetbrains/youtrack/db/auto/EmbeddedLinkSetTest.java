@@ -995,4 +995,66 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
       assertTrue(expectedTwo.remove(identifiable));
     }
   }
+
+  public void testSaveLoad() {
+    session.begin();
+
+    final var id12 = session.newEntity().getIdentity();
+    final var id13 = session.newEntity().getIdentity();
+    final var id14 = session.newEntity().getIdentity();
+    final var id15 = session.newEntity().getIdentity();
+    final var id16 = session.newEntity().getIdentity();
+    final var id17 = session.newEntity().getIdentity();
+    final var id18 = session.newEntity().getIdentity();
+    final var id19 = session.newEntity().getIdentity();
+    final var id20 = session.newEntity().getIdentity();
+    final var id21 = session.newEntity().getIdentity();
+    final var id22 = session.newEntity().getIdentity();
+
+    session.commit();
+    session.begin();
+    var expected = new HashSet<RID>(8);
+
+    expected.add(id12);
+    expected.add(id13);
+    expected.add(id14);
+    expected.add(id15);
+    expected.add(id16);
+    expected.add(id17);
+    expected.add(id18);
+    expected.add(id19);
+    expected.add(id20);
+    expected.add(id21);
+    expected.add(id22);
+
+    var entity = session.newEntity();
+
+    final var set = (EntityLinkSetImpl) session.newLinkSet();
+    set.addAll(expected);
+
+    entity.setLinkSet("linkSet", set);
+    assertTrue(set.isEmbedded());
+
+    session.commit();
+    final var id = entity.getIdentity();
+
+    session.close();
+
+    session = createSessionInstance();
+
+    session.begin();
+    entity = session.load(id);
+
+    final var loaded = (EntityLinkSetImpl) entity.getLinkSet("linkSet");
+    assertTrue(loaded.isEmbedded());
+
+    assertEquals(loaded.size(), expected.size());
+
+    for (var identifiable : loaded) {
+      assertTrue(expected.remove(identifiable.getIdentity()));
+    }
+
+    assertTrue(expected.isEmpty());
+    session.commit();
+  }
 }
