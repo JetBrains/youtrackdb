@@ -10,7 +10,9 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
+import java.util.Random;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -1089,4 +1091,92 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  public void testMassiveChanges() {
+    session.begin();
+    var entity = session.newEntity();
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+    assertTrue(set.isEmbedded());
+
+    final var seed = System.nanoTime();
+    System.out.println("testMassiveChanges seed: " + seed);
+
+    var random = new Random(seed);
+    var rids = new HashSet<Identifiable>();
+    entity.setLinkSet("linkSet", set);
+
+    session.commit();
+
+    var rid = entity.getIdentity();
+
+    for (var i = 0; i < 10; i++) {
+      rids.clear();
+      session.begin();
+      entity = session.load(rid);
+
+      set = (EntityLinkSetImpl) entity.getLinkSet("linkSet");
+      assertTrue(set.isEmbedded());
+      rids.addAll(set);
+
+      massiveInsertionIteration(random, rids, set);
+      assertTrue(set.isEmbedded());
+
+      session.commit();
+    }
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(entity).delete();
+    session.commit();
+  }
+
+  private void massiveInsertionIteration(Random rnd, Set<Identifiable> rids,
+      EntityLinkSetImpl linkSet) {
+    var linkSetIterator = linkSet.iterator();
+
+    while (linkSetIterator.hasNext()) {
+      var setValue = linkSetIterator.next();
+      assertTrue(rids.contains(setValue));
+    }
+
+    assertEquals(linkSet.size(), rids.size());
+
+    for (var i = 0; i < 100; i++) {
+      if (rnd.nextDouble() < 0.2 & rids.size() > 5) {
+        final var index = rnd.nextInt(rids.size());
+
+        RID ridToRemove = null;
+        var iter = rids.iterator();
+        for (var j = 0; j < index + 1; j++) {
+          ridToRemove = iter.next().getIdentity();
+        }
+
+        rids.remove(ridToRemove);
+        Assert.assertTrue(linkSet.remove(ridToRemove.getIdentity()));
+      } else {
+        final var recordId = session.newEntity().getIdentity();
+        rids.add(recordId);
+        linkSet.add(recordId);
+      }
+    }
+
+    linkSetIterator = linkSet.iterator();
+
+    while (linkSetIterator.hasNext()) {
+      final var setValue = linkSetIterator.next();
+      assertTrue(rids.contains(setValue));
+
+      if (rnd.nextDouble() < 0.05) {
+        linkSetIterator.remove();
+        assertTrue(rids.remove(setValue));
+      }
+    }
+
+    assertEquals(linkSet.size(), rids.size());
+    linkSetIterator = linkSet.iterator();
+
+    while (linkSetIterator.hasNext()) {
+      final var setValue = linkSetIterator.next();
+      assertTrue(rids.contains(setValue));
+    }
+  }
 }
