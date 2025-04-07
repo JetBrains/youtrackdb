@@ -9,12 +9,9 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -647,6 +644,30 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     activeTx = session.getActiveTransaction();
     entity = activeTx.load(entity);
     assertNotEquals(entity.getVersion(), version);
+    session.commit();
+  }
+
+  public void testAddAllAndIterator() {
+    session.begin();
+    final Set<RID> expected = new HashSet<>(8);
+
+    expected.add(new RecordId("#77:12"));
+    expected.add(new RecordId("#77:13"));
+    expected.add(new RecordId("#77:14"));
+    expected.add(new RecordId("#77:15"));
+    expected.add(new RecordId("#77:16"));
+
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+
+    set.addAll(expected);
+    assertTrue(set.isEmbedded());
+
+    assertEquals(set.size(), 5);
+
+    Set<Identifiable> actual = new HashSet<>(5);
+    actual.addAll(set);
+
+    assertEquals(actual, expected);
     session.commit();
   }
 
