@@ -1057,4 +1057,36 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     assertTrue(expected.isEmpty());
     session.commit();
   }
+
+  public void testSaveInBackOrder() {
+    session.begin();
+    var entityA = session.newEntity();
+    entityA.setProperty("name", "A");
+
+    var entityB = session.newEntity();
+    entityB.setProperty("name", "B");
+
+    session.commit();
+
+    session.begin();
+    var set = (EntityLinkSetImpl) session.newLinkSet();
+    entityA = session.load(entityA.getIdentity());
+    entityB = session.load(entityB.getIdentity());
+
+    set.add(entityA.getIdentity());
+    set.add(entityB.getIdentity());
+
+    set.remove(entityB.getIdentity());
+
+    assertTrue(set.isEmbedded());
+
+    var result = new HashSet<>(set);
+
+    assertTrue(result.contains(entityA));
+    Assert.assertFalse(result.contains(entityB));
+    assertEquals(result.size(), 1);
+    assertEquals(set.size(), 1);
+    session.commit();
+  }
+
 }
