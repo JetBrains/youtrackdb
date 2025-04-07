@@ -957,4 +957,42 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     assertTrue(rids.isEmpty());
     session.commit();
   }
+
+  public void testRemove() {
+    final var expected = new HashSet<RID>(8);
+
+    expected.add(new RecordId("#77:12"));
+    expected.add(new RecordId("#77:13"));
+    expected.add(new RecordId("#77:14"));
+    expected.add(new RecordId("#77:15"));
+    expected.add(new RecordId("#77:16"));
+
+    final var set = (EntityLinkSetImpl) session.newLinkSet();
+    assertTrue(set.isEmbedded());
+    set.addAll(expected);
+    assertTrue(set.isEmbedded());
+
+    set.remove(new RecordId("#77:23"));
+    assertTrue(set.isEmbedded());
+
+    final var expectedTwo = new HashSet<Identifiable>(8);
+    expectedTwo.addAll(expected);
+
+    for (var identifiable : set) {
+      assertTrue(expectedTwo.remove(identifiable));
+    }
+
+    assertTrue(expectedTwo.isEmpty());
+
+    expected.remove(new RecordId("#77:14"));
+    set.remove(new RecordId("#77:14"));
+
+    assertTrue(set.isEmbedded());
+
+    expectedTwo.addAll(expected);
+
+    for (var identifiable : set) {
+      assertTrue(expectedTwo.remove(identifiable));
+    }
+  }
 }
