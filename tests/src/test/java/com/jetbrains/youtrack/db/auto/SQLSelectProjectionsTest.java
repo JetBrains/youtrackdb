@@ -235,7 +235,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   public void queryProjectionContextArray() {
     session.begin();
     var result =
-        executeQuery("select $a[0] as a0, $a as a from V let $a = outE() where outE().size() > 0");
+        executeQuery("select $a[0] as a0, $a as a, @class from GraphCar let $a = outE() where outE().size() > 0");
     Assert.assertFalse(result.isEmpty());
 
     for (var r : result) {
@@ -243,10 +243,9 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(r.hasProperty("a0"));
 
       final var a0doc = (EntityImpl) session.loadEntity(r.getProperty("a0"));
-      Identifiable identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
-      var transaction = session.getActiveTransaction();
-      final EntityImpl firstADoc =
-          transaction.load(identifiable);
+      final var identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
+      final var transaction = session.getActiveTransaction();
+      final EntityImpl firstADoc = transaction.load(identifiable);
 
       Assert.assertTrue(
           EntityHelper.hasSameContentOf(a0doc, session, firstADoc, session, null));
