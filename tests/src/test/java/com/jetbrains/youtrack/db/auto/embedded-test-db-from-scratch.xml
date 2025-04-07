@@ -97,12 +97,12 @@
   </test>
   <test name="Parsing">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.JSONTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.JSONTest"/>
     </classes>
   </test>
   <test name="Graph">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.GraphDatabaseTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.GraphDatabaseTest"/>
     </classes>
   </test>
   <test name="GEO">

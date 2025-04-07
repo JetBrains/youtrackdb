@@ -39,6 +39,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -65,6 +66,15 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   public static boolean equals(@Nullable DatabaseSessionInternal session, Object iLeft,
       Object iRight) {
+
+    if (iLeft instanceof Collection<?> col && !(iRight instanceof Collection<?>)
+        && col.size() == 1) {
+      iLeft = col.iterator().next();
+    } else if (iRight instanceof Collection<?> col && !(iLeft instanceof Collection<?>)
+        && col.size() == 1) {
+      iRight = col.iterator().next();
+    }
+
     if (iLeft == null || iRight == null) {
       return false;
     }

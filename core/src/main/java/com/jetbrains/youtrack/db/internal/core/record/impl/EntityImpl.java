@@ -644,18 +644,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
-  /**
-   * sets a property value
-   *
-   * @param propertyName  The property name
-   * @param propertyValue The property value
-   */
-  public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    validatePropertyUpdate(propertyName, propertyValue);
-
-    setPropertyInternal(propertyName, propertyValue);
-  }
-
   private void validatePropertyUpdate(String propertyName, Object propertyValue) {
     validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
@@ -998,19 +986,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (LinkMap) setProperty(name, value, PropertyType.LINKMAP);
   }
 
-  public void setPropertyInternal(String name, Object value) {
-    checkForBinding();
-
-    if (value instanceof EntityImpl entity) {
-      if (entity.isEmbedded()) {
-        setPropertyInternal(name, value, PropertyTypeInternal.EMBEDDED);
-        return;
-      }
-    }
-
-    setPropertyInternal(name, value, null);
-  }
-
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
@@ -1103,8 +1078,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * All tree based ridbags are partitioned by collections, so if we move entity to another collection we
-   * need to copy ridbags to avoid inconsistency.
+   * All tree based ridbags are partitioned by collections, so if we move entity to another
+   * collection we need to copy ridbags to avoid inconsistency.
    */
   private static Object copyRidBagIfNecessary(DatabaseSessionInternal seession, Object value,
       boolean sameCollection) {
@@ -1129,7 +1104,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * Sets
+   * Sets a property value
+   *
+   * @param propertyName  The property name
+   * @param propertyValue The property value
+   */
+  public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
+    setPropertyInternal(propertyName, propertyValue, null, null, true);
+  }
+
+  /**
+   * Sets a property value
    *
    * @param propertyName  The property name
    * @param propertyValue The property value
@@ -1137,20 +1122,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public Object setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    validatePropertyUpdate(propertyName, propertyValue);
-
-    return setPropertyInternal(propertyName, propertyValue,
-        PropertyTypeInternal.convertFromPublicType(type));
+    return setPropertyInternal(
+        propertyName, propertyValue,
+        PropertyTypeInternal.convertFromPublicType(type), null,
+        true);
   }
 
 
   public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue,
       @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
-    validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue,
+    setPropertyInternal(
+        propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(propertyType),
-        PropertyTypeInternal.convertFromPublicType(linkedType));
+        PropertyTypeInternal.convertFromPublicType(linkedType),
+        true);
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1162,16 +1148,24 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
-  public Object setPropertyInternal(String name, Object value,
-      @Nullable PropertyTypeInternal type) {
-    return setPropertyInternal(name, value, type, null);
+  public void setPropertyInternal(String name, Object value) {
+    setPropertyInternal(name, value, null);
   }
 
 
-  public Object setPropertyInternal(String name, Object value, PropertyTypeInternal type,
-      PropertyTypeInternal linkedType) {
-    checkForBinding();
+  public Object setPropertyInternal(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type
+  ) {
+    return setPropertyInternal(name, value, type, null, false);
+  }
+
+  public Object setPropertyInternal(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type,
+      @Nullable PropertyTypeInternal linkedType,
+      boolean validate
+  ) {
 
     if (name == null) {
       throw new IllegalArgumentException("Field is null");
@@ -1179,6 +1173,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     if (name.isEmpty()) {
       throw new IllegalArgumentException("Field name is empty");
+    }
+
+    if (validate) {
+      validatePropertyUpdate(name, value);
+    }
+
+    checkForBinding();
+
+    if (type == null && value instanceof EntityImpl entity && entity.isEmbedded()) {
+      type = PropertyTypeInternal.EMBEDDED;
     }
 
     if (value instanceof RecordAbstract recordAbstract) {
@@ -1200,7 +1204,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
             throw new DatabaseException(getSession().getDatabaseName(),
                 "Attribute " + EntityHelper.ATTRIBUTE_RID + " is read-only");
           }
-
         }
         case EntityHelper.ATTRIBUTE_VERSION -> {
           if (status == STATUS.UNMARSHALLING) {
@@ -2001,10 +2004,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
         map.put(EntityHelper.ATTRIBUTE_CLASS, className);
       }
 
-      if (isDirty()) {
-        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion() + 1);
-      } else {
-        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion());
+      if (!isEmbedded()) {
+        if (isDirty()) {
+          map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion() + 1);
+        } else {
+          map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion());
+        }
       }
     }
 
@@ -3854,7 +3859,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
+  protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
     if (propertyValue == null) {
       return null;
     }

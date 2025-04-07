@@ -551,7 +551,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       // AFTER TOSTREAM
       Assert.assertTrue(parent.isDirty());
       // CHANGE FIELDS VALUE (Automaticaly set dirty this child)
-      child1.setPropertyInChain("child2", session.newEntity());
+      child1.setPropertyInChain("child2", session.newEmbeddedEntity());
       Assert.assertTrue(parent.isDirty());
     });
   }

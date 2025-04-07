@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.type.MapType;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -44,6 +45,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -150,9 +152,11 @@ public class JSONSerializerJackson {
 
     String defaultClassName;
 
-    var defaultRecordType = record != null ? record.getRecordType() : null;
+    var defaultRecordType = record != null ? record.getRecordType() : EntityImpl.RECORD_TYPE;
     if (record instanceof EntityImpl entity) {
       defaultClassName = entity.getSchemaClassName();
+    } else if (record == null) {
+      defaultClassName = EntityImpl.DEFAULT_CLASS_NAME;
     } else {
       defaultClassName = null;
     }
@@ -539,15 +543,13 @@ public class JSONSerializerJackson {
         throw new SerializationException(
             "System property can not be updated from JSON: " + fieldName);
       }
-      var type = determineType(session, entity, fieldName,
-          fieldTypes.get(fieldName), schemaProperty);
-      var v = parseValue(session, entity, jsonParser, type, schemaProperty);
+      var type =
+          determineType(entity, fieldName, fieldTypes.get(fieldName), schemaProperty);
 
-      if (type != null) {
-        entity.setPropertyInternal(fieldName, v, type);
-      } else {
-        entity.setPropertyInternal(fieldName, v);
-      }
+      entity.setPropertyInternal(
+          fieldName,
+          parseValue(session, entity, jsonParser, type, schemaProperty),
+          type, null, true);
     }
   }
 
@@ -619,9 +621,9 @@ public class JSONSerializerJackson {
       JsonGenerator jsonGenerator,
       RecordAbstract record, FormatSettings formatSettings)
       throws IOException {
-    if (formatSettings.includeVersion) {
+    if (formatSettings.includeVersion && !(record instanceof EmbeddedEntity)) {
       jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_VERSION);
-      jsonGenerator.writeNumber(record.getVersion());
+      jsonGenerator.writeNumber(record.isDirty() ? record.getVersion() + 1 : record.getVersion());
     }
     if (record instanceof EntityImpl entity) {
       if (!entity.isEmbedded()) {
@@ -752,7 +754,7 @@ public class JSONSerializerJackson {
   }
 
   @Nullable
-  private static PropertyTypeInternal determineType(DatabaseSessionInternal session,
+  private static PropertyTypeInternal determineType(
       EntityImpl entity,
       String fieldName,
       String charType,
@@ -945,24 +947,24 @@ public class JSONSerializerJackson {
       }
 
       case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
-         Object num = jsonParser.getNumberValue();
-         if (type != null) {
-           num = type.convert(num, session);
-         }
-         yield num;
+        Object num = jsonParser.getNumberValue();
+        if (type != null) {
+          num = type.convert(num, session);
+        }
+        yield num;
       }
       case VALUE_FALSE -> false;
       case VALUE_TRUE -> true;
 
       case START_ARRAY -> switch (type) {
-        case EMBEDDEDLIST -> parseEmbeddedList(session, entity, jsonParser, schemaProperty);
+        case EMBEDDEDLIST -> parseEmbeddedList(session, entity, jsonParser, null, schemaProperty);
         case EMBEDDEDSET -> parseEmbeddedSet(session, entity, jsonParser, schemaProperty);
 
-        case LINKLIST -> parseLinkList(entity, jsonParser);
+        case LINKLIST -> parseLinkList(entity, jsonParser, null);
         case LINKSET -> parseLinkSet(entity, jsonParser);
         case LINKBAG -> parseLinkBag(entity, jsonParser);
 
-        case null -> parseEmbeddedList(session, entity, jsonParser, schemaProperty);
+        case null -> parseAnyList(session, entity, jsonParser, schemaProperty);
 
         default -> throw new SerializationException(session, "Unexpected value type: " + type);
       };
@@ -973,48 +975,73 @@ public class JSONSerializerJackson {
         case LINKMAP -> parseLinkMap(entity, jsonParser, null);
         case LINK -> recordFromJson(session, null, jsonParser);
 
-        case null -> {
-          var recordMetaData = parseRecordMetadata(session, jsonParser, null,
-              null, true);
-
-          if (recordMetaData != null) {
-            if (recordMetaData.isEmbedded) {
-              yield parseEmbeddedEntity(session, jsonParser, recordMetaData, schemaProperty);
-            }
-
-            yield createRecordFromJsonAfterMetadata(session, null, recordMetaData, jsonParser);
-          }
-
-          if (jsonParser.currentToken() == JsonToken.END_OBJECT) {
-            // empty map
-            yield new EntityEmbeddedMapImpl<>(entity);
-          }
-
-          //we have read the filed name already, so we need to read the value
-          var fieldName = jsonParser.currentName();
-          jsonParser.nextToken();
-
-          var value = parseValue(session, null, jsonParser, null, null);
-
-          if (value instanceof Identifiable identifiable) {
-
-            final var map = new EntityLinkMapIml(entity);
-            map.put(fieldName, identifiable);
-
-            yield parseLinkMap(entity, jsonParser, map);
-          } else {
-            final var map = new EntityEmbeddedMapImpl<>(entity);
-            map.put(fieldName, value);
-
-            yield parseEmbeddedMap(session, entity, jsonParser, map, schemaProperty);
-          }
-        }
+        case null -> parseObjectOrMap(session, entity, jsonParser, schemaProperty);
 
         default -> throw new SerializationException(session, "Unexpected value type: " + type);
       };
 
       default -> throw new SerializationException(session, "Unexpected token: " + token);
     };
+  }
+
+  private static RecordElement parseAnyList(@Nonnull DatabaseSessionInternal session,
+      @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
+      @Nullable SchemaProperty schemaProperty) throws IOException {
+
+    if (jsonParser.nextToken() == JsonToken.END_ARRAY) {
+      return new EntityEmbeddedListImpl<>();
+    }
+
+    var firstElem = parseValue(session, null, jsonParser, null, null);
+
+    if (firstElem instanceof Identifiable identifiable && !(firstElem instanceof EmbeddedEntity)) {
+      final var list = new EntityLinkListImpl(entity);
+      list.add(identifiable);
+      return parseLinkList(entity, jsonParser, list);
+    } else {
+      final var list = new EntityEmbeddedListImpl<>(entity);
+      list.add(firstElem);
+      return parseEmbeddedList(session, entity, jsonParser, list, schemaProperty);
+    }
+  }
+
+  private static RecordElement parseObjectOrMap(@Nonnull DatabaseSessionInternal session,
+      @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
+      @Nullable SchemaProperty schemaProperty) throws IOException {
+    var recordMetaData = parseRecordMetadata(session, jsonParser, null,
+        null, true);
+
+    if (recordMetaData != null) {
+      if (recordMetaData.isEmbedded) {
+        return parseEmbeddedEntity(session, jsonParser, recordMetaData, schemaProperty);
+      }
+
+      return createRecordFromJsonAfterMetadata(session, null, recordMetaData, jsonParser);
+    }
+
+    if (jsonParser.currentToken() == JsonToken.END_OBJECT) {
+      // empty map
+      return new EntityEmbeddedMapImpl<>(entity);
+    }
+
+    //we have read the filed name already, so we need to read the value
+    var fieldName = jsonParser.currentName();
+    jsonParser.nextToken();
+
+    var value = parseValue(session, null, jsonParser, null, null);
+
+    if (value instanceof Identifiable identifiable && !(value instanceof EmbeddedEntity)) {
+
+      final var map = new EntityLinkMapIml(entity);
+      map.put(fieldName, identifiable);
+
+      return parseLinkMap(entity, jsonParser, map);
+    } else {
+      final var map = new EntityEmbeddedMapImpl<>(entity);
+      map.put(fieldName, value);
+
+      return parseEmbeddedMap(session, entity, jsonParser, map, schemaProperty);
+    }
   }
 
   private static EntityLinkMapIml parseLinkMap(EntityImpl entity, JsonParser jsonParser,
@@ -1087,9 +1114,14 @@ public class JSONSerializerJackson {
     return map;
   }
 
-  private static EntityLinkListImpl parseLinkList(EntityImpl entity, JsonParser jsonParser)
-      throws IOException {
-    var list = new EntityLinkListImpl(entity);
+  private static EntityLinkListImpl parseLinkList(
+      EntityImpl entity,
+      JsonParser jsonParser,
+      @Nullable EntityLinkListImpl list
+  ) throws IOException {
+    if (list == null) {
+      list = new EntityLinkListImpl(entity);
+    }
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
@@ -1123,10 +1155,16 @@ public class JSONSerializerJackson {
     return bag;
   }
 
-  private static EntityEmbeddedListImpl<Object> parseEmbeddedList(DatabaseSessionInternal session,
+  private static EntityEmbeddedListImpl<Object> parseEmbeddedList(
+      DatabaseSessionInternal session,
       EntityImpl entity,
-      JsonParser jsonParser, @Nullable SchemaProperty schemaProperty) throws IOException {
-    var list = new EntityEmbeddedListImpl<>(entity);
+      JsonParser jsonParser,
+      @Nullable EntityEmbeddedListImpl<Object> list,
+      @Nullable SchemaProperty schemaProperty
+  ) throws IOException {
+    if (list == null) {
+      list = new EntityEmbeddedListImpl<>(entity);
+    }
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(session, null, jsonParser,
