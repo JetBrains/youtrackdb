@@ -111,13 +111,13 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
             HttpUtils.STATUS_NOTFOUND_CODE,
             HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
             HttpUtils.CONTENT_TEXT_PLAIN,
-            "Record " + result.second + " was not found.",
+            "Record " + result.second() + " was not found.",
             null);
         return false;
       }
 
-      var detached = result.first;
-      var unloaded = result.second;
+      var detached = result.first();
+      var unloaded = result.second();
       ((ResultInternal) detached).setProperty(EntityHelper.ATTRIBUTE_VERSION,
           unloaded.getVersion());
       iResponse.send(

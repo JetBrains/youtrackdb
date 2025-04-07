@@ -45,8 +45,8 @@ public class ReloadResponse implements BinaryResponse {
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
     final var collections = MessageHelper.readCollectionsArray(network);
-    collectionNames = collections.first;
-    collectionIds = collections.second;
+    collectionNames = collections.first();
+    collectionIds = collections.second();
   }
 
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,

@@ -628,15 +628,19 @@ public enum PropertyTypeInternal {
       var copy = session.newEmbeddedSet(trackedSet.size());
 
       for (var item : trackedSet) {
-        var type = PropertyTypeInternal.getTypeByValue(item);
+        if (item != null) {
+          var type = PropertyTypeInternal.getTypeByValue(item);
 
-        if (type == null) {
-          throw new DatabaseException(session, "Can not determine type of property : "
-              + item + " in set : " + value);
+          if (type == null) {
+            throw new DatabaseException(session, "Can not determine type of property : "
+                + item + " in set : " + value);
+          }
+
+          var converted = type.copy(item, session);
+          copy.add(converted);
+        } else {
+          copy.add(null);
         }
-
-        var converted = type.copy(item, session);
-        copy.add(converted);
       }
 
       return copy;
@@ -762,6 +766,12 @@ public enum PropertyTypeInternal {
       var trackedMap = (EntityEmbeddedMapImpl<?>) value;
       var copy = session.newEmbeddedMap(trackedMap.size());
       for (var entry : trackedMap.entrySet()) {
+        var entryValue = entry.getValue();
+        if (entryValue == null) {
+          copy.put(entry.getKey(), null);
+          continue;
+        }
+
         var type = PropertyTypeInternal.getTypeByValue(entry.getValue());
 
         if (type == null) {
@@ -974,7 +984,7 @@ public enum PropertyTypeInternal {
           return linkSet;
         }
         case Collection<?> collection -> {
-          var linkSet = session.newLinkSet(collection.size());
+          var linkSet = session.newLinkSet();
           for (var item : collection) {
             linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
           }
@@ -1031,7 +1041,7 @@ public enum PropertyTypeInternal {
       }
 
       var linkSet = (EntityLinkSetImpl) value;
-      var copy = session.newLinkSet(linkSet.size());
+      var copy = session.newLinkSet();
       copy.addAll(linkSet);
 
       return copy;

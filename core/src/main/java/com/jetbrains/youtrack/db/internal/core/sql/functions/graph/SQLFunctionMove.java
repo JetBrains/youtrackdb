@@ -12,8 +12,8 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
 import java.util.ArrayList;
@@ -38,7 +38,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final DatabaseSessionInternal db, final Identifiable record, final String[] labels);
 
   protected abstract Object move(
-      final DatabaseSessionInternal db, final BidirectionalLink<?> bidirectionalLink,
+      final DatabaseSessionInternal db, final Relation<?> bidirectionalLink,
       final String[] labels);
 
   public String getSyntax(DatabaseSession session) {
@@ -72,7 +72,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
     return SQLEngine.foreachRecord(
         iArgument -> {
-          if (iArgument instanceof BidirectionalLink<?> bidirectionalLink) {
+          if (iArgument instanceof Relation<?> bidirectionalLink) {
             return move(db, bidirectionalLink, labels);
           } else if (iArgument instanceof Identifiable identifiable) {
             return move(db, identifiable, labels);
@@ -162,7 +162,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   @Nullable
   protected static Object e2v(
-      final BidirectionalLink<?> bidirectionalLink,
+      final Relation<?> bidirectionalLink,
       final Direction iDirection) {
     if (bidirectionalLink != null) {
       try {

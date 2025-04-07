@@ -89,7 +89,7 @@ public class TruncateClassTest extends BaseDBTest {
 
       while (indexIterator.hasNext()) {
         var entry = indexIterator.next();
-        Assert.assertTrue(set.contains((Integer) entry.first));
+        Assert.assertTrue(set.contains((Integer) entry.first()));
       }
     }
     session.commit();

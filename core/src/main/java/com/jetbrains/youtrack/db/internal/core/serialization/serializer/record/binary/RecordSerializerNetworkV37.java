@@ -49,9 +49,11 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
@@ -69,6 +71,7 @@ import java.util.Map.Entry;
 import java.util.TimeZone;
 import java.util.UUID;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
 
@@ -329,7 +332,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         value = readEmbeddedList(session, bytes, owner);
         break;
       case LINKSET:
-        value = readLinkSet(session, bytes, owner);
+        value = readLinkSet(session, bytes);
         break;
       case LINKLIST:
         value = readLinkList(session, bytes, owner);
@@ -351,7 +354,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
-        var bag = readRidBag(session, bytes);
+        var bag = readLinkBag(session, bytes);
         bag.setOwner(owner);
         value = bag;
         break;
@@ -359,104 +362,88 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return value;
   }
 
-  private static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag bag) {
-    final var bTreeCollectionManager = session.getBTreeCollectionManager();
-    UUID uuid = null;
-    if (bTreeCollectionManager != null) {
-      uuid = bTreeCollectionManager.listenForChanges(bag, session);
-    }
-    if (uuid == null) {
-      uuid = new UUID(-1, -1);
-    }
-    var uuidPos = bytes.alloc(UUIDSerializer.UUID_SIZE);
-    UUIDSerializer.staticSerialize(uuid, bytes.bytes, uuidPos);
-
-    if (bag.isToSerializeEmbedded()) {
+  public void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+      EntityLinkSetImpl set) {
+    if (set.isToSerializeEmbedded()) {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 1;
-      VarIntSerializer.write(bytes, bag.size());
-      for (Identifiable itemValue : bag) {
-        if (itemValue == null) {
-          writeNullLink(bytes);
-        } else {
-          writeOptimizedLink(session, bytes, itemValue);
-        }
+      VarIntSerializer.write(bytes, set.size());
+
+      for (var itemValue : set) {
+        writeOptimizedLink(session, bytes, itemValue);
       }
     } else {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 2;
-      var pointer = bag.getPointer();
-      if (pointer == null || pointer == BonsaiCollectionPointer.INVALID) {
-        throw new IllegalStateException("RidBag with invalid pointer was found");
+
+      var delegate = (BTreeBasedLinkBag) set.getDelegate();
+      var pointer = delegate.getCollectionPointer();
+
+      if (pointer == null || !pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
       }
 
-      VarIntSerializer.write(bytes, pointer.getFileId());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
-      VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
-      VarIntSerializer.write(bytes, -1);
-      var changes = bag.getChanges();
-      if (changes != null) {
-        VarIntSerializer.write(bytes, changes.size());
-        for (var change : changes.entrySet()) {
-          writeOptimizedLink(session, bytes, change.getKey());
-          var posAll = bytes.alloc(1);
-          bytes.bytes[posAll] = change.getValue().getType();
-          VarIntSerializer.write(bytes, change.getValue().getValue());
-        }
-      } else {
-        VarIntSerializer.write(bytes, 0);
-      }
+      VarIntSerializer.write(bytes, delegate.size());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
     }
   }
 
-  protected RidBag readRidBag(DatabaseSessionInternal db, BytesContainer bytes) {
-    var uuid = UUIDSerializer.staticDeserialize(bytes.bytes, bytes.offset);
-    bytes.skip(UUIDSerializer.UUID_SIZE);
-    if (uuid.getMostSignificantBits() == -1 && uuid.getLeastSignificantBits() == -1) {
-      uuid = null;
+  public void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+      RidBag bag) {
+    if (bag.isToSerializeEmbedded()) {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 1;
+      VarIntSerializer.write(bytes, bag.size());
+
+      for (var itemValue : bag) {
+        writeOptimizedLink(session, bytes, itemValue);
+      }
+    } else {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 2;
+
+      var delegate = (BTreeBasedLinkBag) bag.getDelegate();
+      var pointer = delegate.getCollectionPointer();
+
+      if (pointer == null || !pointer.isValid()) {
+        throw new IllegalStateException("RidBag with invalid pointer was found");
+      }
+
+      VarIntSerializer.write(bytes, delegate.size());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
     }
+  }
+
+  public RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      var bag = new RidBag(db, uuid);
+      var bag = new RidBag(session);
       // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
       bag.enableTracking(null);
+
       var size = VarIntSerializer.readAsInteger(bytes);
       for (var i = 0; i < size; i++) {
-        Identifiable id = readOptimizedLink(db, bytes);
-        if (id.equals(NULL_RECORD_ID)) {
-          bag.add(null);
-        } else {
-          bag.add(id.getIdentity());
-        }
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
+
       bag.disableTracking(null);
       bag.transactionClear();
       return bag;
     } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
       var fileId = VarIntSerializer.readAsLong(bytes);
-      var pageIndex = VarIntSerializer.readAsLong(bytes);
-      var pageOffset = VarIntSerializer.readAsInteger(bytes);
-      //bag size
-      VarIntSerializer.readAsInteger(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
 
-      Map<RID, Change> changes = new HashMap<>();
-      var size = VarIntSerializer.readAsInteger(bytes);
-      while (size-- > 0) {
-        var link = readOptimizedLink(db, bytes);
-        var type = bytes.bytes[bytes.offset];
-        bytes.skip(1);
-        var change = VarIntSerializer.readAsInteger(bytes);
-        changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkBag with invalid pointer was found");
       }
-
-      BonsaiCollectionPointer pointer = null;
-      if (fileId != -1) {
-        pointer =
-            new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
-      }
-      return new RidBag(db, pointer, changes, uuid);
+      return new RidBag(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
     }
   }
 
@@ -516,20 +503,36 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return found;
   }
 
-  private static Collection<Identifiable> readLinkSet(DatabaseSessionInternal db,
-      BytesContainer bytes,
-      RecordElement owner) {
-    var found = new EntityLinkSetImpl(owner);
-    final var items = VarIntSerializer.readAsInteger(bytes);
-    for (var i = 0; i < items; i++) {
-      Identifiable id = readOptimizedLink(db, bytes);
-      if (id.equals(NULL_RECORD_ID)) {
-        found.addInternal(null);
-      } else {
-        found.addInternal(id);
+  public EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+      BytesContainer bytes) {
+    var b = bytes.bytes[bytes.offset];
+    bytes.skip(1);
+    if (b == 1) {
+      var bag = new EntityLinkSetImpl(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
+
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
+
+      bag.disableTracking(null);
+      bag.transactionClear();
+      return bag;
+    } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
+      }
+      return new EntityLinkSetImpl(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, 1));
     }
-    return found;
   }
 
   protected static RID readOptimizedLink(DatabaseSessionInternal db,
@@ -574,10 +577,26 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     return found;
   }
 
+  @Nullable
   private static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
       EntityImpl entity,
       PropertyTypeInternal type, String key) {
-    return RecordSerializerBinaryV0.getLinkedType(session, entity, type, key);
+    if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
+      return null;
+    }
+    SchemaImmutableClass result = null;
+    if (entity != null) {
+      result = entity.getImmutableSchemaClass(session);
+    }
+    SchemaClass immutableClass = result;
+    if (immutableClass != null) {
+      var prop = immutableClass.getProperty(key);
+      if (prop != null) {
+        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
+      }
+    }
+    return null;
   }
 
   @SuppressWarnings("unchecked")
@@ -659,6 +678,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
+        writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
       case LINKLIST:
         var ridCollection = (Collection<Identifiable>) value;
         writeLinkCollection(session, bytes, ridCollection);
@@ -677,7 +697,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
         break;
       case LINKBAG:
-        writeRidBag(session, bytes, (RidBag) value);
+        writeLinkBag(session, bytes, (RidBag) value);
         break;
     }
   }

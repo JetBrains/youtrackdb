@@ -85,7 +85,7 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
         var receivedDirtyCountersMap = new HashMap<RecordId, Long>(receivedDirtyCounters.size());
         for (var pair : receivedDirtyCounters) {
-          receivedDirtyCountersMap.put(pair.first, pair.second);
+          receivedDirtyCountersMap.put(pair.first(), pair.second());
         }
 
         var newRecordsWithNetworkOperations = new ArrayList<RawPair<RecordAbstract, NetworkRecordOperation>>(
@@ -210,7 +210,7 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
         }
 
         for (var recordWithNetworkOperationPair : newRecordsWithNetworkOperations) {
-          var record = recordWithNetworkOperationPair.first;
+          var record = recordWithNetworkOperationPair.first();
           if (record.sourceIsParsedByProperties()) {
             throw new TransactionException("Record " + record.getIdentity()
                 + " is early parsed by properties, that can lead to inconsistent state of link based properties");
@@ -224,7 +224,7 @@ public class FrontendClientServerTransaction extends FrontendTransactionImpl {
 
           //back to normal serializer for entity
           record.recordSerializer = session.getSerializer();
-          syncDirtyCounter(recordWithNetworkOperationPair.second, record.txEntry);
+          syncDirtyCounter(recordWithNetworkOperationPair.second(), record.txEntry);
         }
 
         syncDirtyCountersFromClient(receivedDirtyCountersMap.entrySet().stream()

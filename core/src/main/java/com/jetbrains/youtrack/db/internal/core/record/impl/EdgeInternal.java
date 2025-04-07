@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.ArrayList;
 import java.util.List;
 
-public interface EdgeInternal extends Edge, BidirectionalLink<Vertex> {
+public interface EdgeInternal extends Edge, Relation<Vertex> {
   static void checkPropertyName(String name) {
     if (isEdgeConnectionProperty(name)) {
       throw new IllegalArgumentException(

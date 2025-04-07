@@ -40,6 +40,7 @@ import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -424,10 +425,11 @@ public class MultiValue {
                 }
 
                 @Override
-                public void remove(Object value) {
-                  collection.remove(value);
+                public boolean remove(Object value) {
+                  return collection.remove(value);
                 }
 
+                @Nonnull
                 @Override
                 public Iterator<Object> iterator() {
                   return collection.iterator();
@@ -553,8 +555,8 @@ public class MultiValue {
                 }
 
                 @Override
-                public void remove(Object value) {
-                  collection.remove(value);
+                public boolean remove(Object value) {
+                  return collection.remove(value);
                 }
 
                 @Override

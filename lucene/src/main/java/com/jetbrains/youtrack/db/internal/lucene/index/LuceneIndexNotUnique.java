@@ -29,7 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.IndexStreamSecurityDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
@@ -108,7 +108,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid) {
     while (true) {
@@ -138,7 +138,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+  public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session) {
     while (true) {
       try {
@@ -159,7 +159,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     while (true) {

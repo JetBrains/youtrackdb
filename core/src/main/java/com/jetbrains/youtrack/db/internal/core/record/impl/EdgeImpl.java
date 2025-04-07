@@ -32,7 +32,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implements EdgeInternal {
+public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
 
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;
@@ -40,32 +40,32 @@ public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implement
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
       @Nonnull SchemaImmutableClass lightweightEdgeType) {
-    super(session, out, in, DIRECTION_IN);
+    super(session, out, in, lightweightEdgeType.getName());
     this.lightweightEdgeType = lightweightEdgeType;
   }
 
   @Nullable
   @Override
   public Vertex getFrom() {
-    return getFromEntity();
+    return fromEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getFromLink() {
-    return getFromEntity();
+    return fromEntity();
   }
 
   @Nullable
   @Override
   public Vertex getTo() {
-    return getToEntity();
+    return toEntity();
   }
 
   @Nullable
   @Override
   public Identifiable getToLink() {
-    return getToEntity();
+    return toEntity();
   }
 
   @Override
@@ -122,12 +122,17 @@ public class EdgeImpl extends LightweightBidirectionalLinkImpl<Vertex> implement
   @Override
   public String toJSON() {
     return "{\"out\":\""
-        + getFromEntity().getIdentity()
+        + fromEntity().getIdentity()
         + "\", \"in\":\""
-        + getToEntity().getIdentity()
+        + toEntity().getIdentity()
         + "\", \"@class\":\""
         + StringSerializerHelper.encode(lightweightEdgeType.getName())
         + "\"}";
+  }
+
+  @Override
+  public String label() {
+    return lightweightEdgeType.getName();
   }
 
   @Nonnull

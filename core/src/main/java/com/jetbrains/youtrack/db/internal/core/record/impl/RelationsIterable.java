@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Collection;
 import javax.annotation.Nonnull;
 
-public abstract class BidirectionalLinkIterable<E extends Entity, L extends BidirectionalLink<E>> implements
+public abstract class RelationsIterable<E extends Entity, L extends Relation<E>> implements
     Iterable<L>, Sizeable {
   @Nonnull
   protected final E sourceEntity;
@@ -24,7 +24,7 @@ public abstract class BidirectionalLinkIterable<E extends Entity, L extends Bidi
   protected final int size; // -1 = UNKNOWN
   protected final Object multiValue;
 
-  protected BidirectionalLinkIterable(@Nonnull E sourceEntity, Pair<Direction, String> connection,
+  protected RelationsIterable(@Nonnull E sourceEntity, Pair<Direction, String> connection,
       String[] labels, @Nonnull DatabaseSessionInternal session,
       @Nonnull Iterable<? extends Identifiable> iterable, int size, Object multiValue) {
     this.sourceEntity = sourceEntity;

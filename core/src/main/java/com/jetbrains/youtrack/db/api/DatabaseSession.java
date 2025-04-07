@@ -410,7 +410,6 @@ public interface DatabaseSession extends AutoCloseable {
    * Registers a hook to listen all events for Records.
    *
    * @param iHookImpl RecordHook implementation
-   * @return
    */
   RecordHook registerHook(@Nonnull RecordHook iHookImpl);
 
@@ -499,8 +498,6 @@ public interface DatabaseSession extends AutoCloseable {
   <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set);
 
   LinkSet newLinkSet();
-
-  LinkSet newLinkSet(int size);
 
   LinkSet newLinkSet(Collection<? extends Identifiable> source);
 

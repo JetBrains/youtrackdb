@@ -21,155 +21,28 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBShutdownListener;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBStartupListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
-import java.io.IOException;
-import java.lang.ref.WeakReference;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 
-/**
- *
- */
-public class BTreeCollectionManagerRemote
-    implements CloseableInStorage,
-    BTreeCollectionManager,
-    YouTrackDBStartupListener,
-    YouTrackDBShutdownListener {
-
-  private volatile ThreadLocal<Map<UUID, WeakReference<RidBag>>> pendingCollections =
-      new PendingCollectionsThreadLocal();
+public class BTreeCollectionManagerRemote implements BTreeCollectionManager {
 
   public BTreeCollectionManagerRemote() {
-
-    YouTrackDBEnginesManager.instance().registerWeakYouTrackDBStartupListener(this);
-    YouTrackDBEnginesManager.instance().registerWeakYouTrackDBShutdownListener(this);
   }
+
 
   @Override
-  public void onShutdown() {
-    pendingCollections = null;
-  }
-
-  @Override
-  public void onStartup() {
-    if (pendingCollections == null) {
-      pendingCollections = new PendingCollectionsThreadLocal();
-    }
-  }
-
-  protected EdgeBTree<RID, Integer> createEdgeTree(
-      AtomicOperation atomicOperation, final int collectionId) {
-    throw new UnsupportedOperationException(
-        "Creation of SB-Tree from remote storage is not allowed");
-  }
-
-  protected EdgeBTree<RID, Integer> loadTree(
-      BonsaiCollectionPointer collectionPointer) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public UUID listenForChanges(RidBag collection, DatabaseSessionInternal session) {
-    var id = collection.getTemporaryId();
-    if (id == null) {
-      id = UUID.randomUUID();
-    }
-
-    pendingCollections.get().put(id, new WeakReference<RidBag>(collection));
-
-    return id;
-  }
-
-  @Override
-  public void updateCollectionPointer(UUID uuid, BonsaiCollectionPointer pointer,
+  public LinkBagPointer createBTree(
+      int collectionId, AtomicOperation atomicOperation,
       DatabaseSessionInternal session) {
-    final var reference = pendingCollections.get().get(uuid);
-    if (reference == null) {
-      LogManager.instance()
-          .warn(this, "Update of collection pointer is received but collection is not registered");
-      return;
-    }
-
-    final var collection = reference.get();
-
-    if (collection != null) {
-      collection.notifySaved(pointer, session);
-    }
-  }
-
-  @Override
-  public void clearPendingCollections() {
-    pendingCollections.get().clear();
-  }
-
-  @Override
-  public Map<UUID, BonsaiCollectionPointer> changedIds(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void clearChangedIds(DatabaseSessionInternal session) {
+  public IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(
+      LinkBagPointer collectionPointer) {
     throw new UnsupportedOperationException();
-  }
-
-  private static class PendingCollectionsThreadLocal
-      extends ThreadLocal<Map<UUID, WeakReference<RidBag>>> {
-
-    @Override
-    protected Map<UUID, WeakReference<RidBag>> initialValue() {
-      return new HashMap<UUID, WeakReference<RidBag>>();
-    }
-  }
-
-  @Override
-  public BonsaiCollectionPointer createSBTree(
-      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
-      DatabaseSessionInternal session) throws IOException {
-    var tree = createEdgeTree(atomicOperation, collectionId);
-    return tree.getCollectionPointer();
-  }
-
-  @Override
-  public EdgeBTree<RID, Integer> loadSBTree(
-      BonsaiCollectionPointer collectionPointer) {
-
-    final EdgeBTree<RID, Integer> tree;
-    tree = loadTree(collectionPointer);
-
-    return tree;
-  }
-
-  @Override
-  public void releaseSBTree(BonsaiCollectionPointer collectionPointer) {
-  }
-
-  @Override
-  public void delete(BonsaiCollectionPointer collectionPointer) {
-  }
-
-  @Override
-  public void close() {
-    clear();
-  }
-
-  public void clear() {
-  }
-
-  void clearCollectionCache(final long fileId, String fileName) {
-  }
-
-  int size() {
-    return 0;
   }
 }

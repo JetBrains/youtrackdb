@@ -69,7 +69,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     try (var stream = index.stream(session)) {
       stream.forEach(
           (entry) -> {
-            Assert.assertTrue(set.contains((Integer) entry.first));
+            Assert.assertTrue(set.contains((Integer) entry.first()));
           });
     }
     session.commit();

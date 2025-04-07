@@ -6,9 +6,9 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import java.io.File;
 import java.util.Iterator;
@@ -36,9 +36,9 @@ public class BTreeTestIT {
   public static final String DB_NAME = "bTreeTest";
   public static final String DIR_NAME = "/globalBTreeTest";
   private static YouTrackDB youTrackDB;
-  private static LinkBagBTree bTree;
+  private static SharedLinkBagBTree bTree;
   private static AtomicOperationsManager atomicOperationsManager;
-  private static AbstractPaginatedStorage storage;
+  private static AbstractStorage storage;
   private static String buildDirectory;
 
   @Parameterized.Parameters
@@ -73,7 +73,7 @@ public class BTreeTestIT {
         "create database " + DB_NAME + " disk users ( admin identified by 'admin' role admin)");
 
     var databaseSession = youTrackDB.open(DB_NAME, "admin", "admin");
-    storage = (AbstractPaginatedStorage) ((DatabaseSessionInternal) databaseSession).getStorage();
+    storage = (AbstractStorage) ((DatabaseSessionInternal) databaseSession).getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseSession.close();
   }
@@ -89,7 +89,7 @@ public class BTreeTestIT {
   @Before
   public void beforeMethod() throws Exception {
 
-    bTree = new LinkBagBTree(storage, "bTree", ".sbc");
+    bTree = new SharedLinkBagBTree(storage, "bTree", ".sbc");
     atomicOperationsManager.executeInsideAtomicOperation(
         null, atomicOperation -> bTree.create(atomicOperation));
   }
@@ -625,7 +625,7 @@ public class BTreeTestIT {
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
       try (var stream =
-          bTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
+          bTree.streamEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
         indexIterator = stream.iterator();
 
         Iterator<Map.Entry<EdgeKey, Integer>> iterator;

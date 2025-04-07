@@ -9,7 +9,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSeriali
 import com.jetbrains.youtrack.db.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -41,7 +41,7 @@ public class InvalidRemovedFileIdsIT {
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     var storage = db.getStorage();
-    var writeCache = ((AbstractPaginatedStorage) storage).getWriteCache();
+    var writeCache = ((AbstractStorage) storage).getWriteCache();
     var files = writeCache.files();
 
     Map<String, Integer> filesWithIntIds = new HashMap<>();
@@ -86,7 +86,7 @@ public class InvalidRemovedFileIdsIT {
     schema.createClass("c4");
 
     storage = db.getStorage();
-    writeCache = ((AbstractPaginatedStorage) storage).getWriteCache();
+    writeCache = ((AbstractStorage) storage).getWriteCache();
 
     files = writeCache.files();
     final Set<Long> ids = new HashSet<>();

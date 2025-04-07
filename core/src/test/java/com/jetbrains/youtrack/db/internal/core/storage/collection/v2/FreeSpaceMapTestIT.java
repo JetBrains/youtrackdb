@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.File;
@@ -26,7 +26,7 @@ public class FreeSpaceMapTestIT {
 
   protected static YouTrackDB youTrackDB;
   protected static String dbName;
-  protected static AbstractPaginatedStorage storage;
+  protected static AbstractStorage storage;
   private static AtomicOperationsManager atomicOperationsManager;
 
   @BeforeClass
@@ -49,7 +49,7 @@ public class FreeSpaceMapTestIT {
     final var databaseDocumentTx =
         (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    storage = (AbstractPaginatedStorage) databaseDocumentTx.getStorage();
+    storage = (AbstractStorage) databaseDocumentTx.getStorage();
     atomicOperationsManager = storage.getAtomicOperationsManager();
     databaseDocumentTx.close();
   }

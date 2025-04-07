@@ -43,7 +43,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
 import java.util.ArrayList;
@@ -1601,7 +1601,7 @@ public abstract class SchemaClassImpl {
   }
 
   private void removeCollectionFromIndexes(DatabaseSessionInternal session, final int iId) {
-    if (session.getStorage() instanceof AbstractPaginatedStorage) {
+    if (session.getStorage() instanceof AbstractStorage) {
       final var collectionName = session.getCollectionNameById(iId);
       final List<String> indexesToRemove = new ArrayList<>();
 

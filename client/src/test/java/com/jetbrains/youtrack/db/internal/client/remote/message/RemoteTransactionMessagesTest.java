@@ -8,12 +8,10 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -79,15 +77,12 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     var channel = new MockChannel();
 
-    Map<UUID, BonsaiCollectionPointer> changes = new HashMap<>();
-    var val = UUID.randomUUID();
-    changes.put(val, new BonsaiCollectionPointer(10, new RidBagBucketPointer(30, 40)));
     var updatedRids = new HashMap<RecordId, RecordId>();
 
     updatedRids.put(new RecordId(10, 20), new RecordId(10, 30));
     updatedRids.put(new RecordId(10, 21), new RecordId(10, 31));
 
-    var response = new Commit37Response(0, updatedRids, changes, session);
+    var response = new Commit37Response(0, updatedRids, session);
     response.write(session, channel, 0, null);
     channel.close();
 
@@ -101,12 +96,6 @@ public class RemoteTransactionMessagesTest extends DbTestBase {
 
     assertEquals(new RecordId(10, 31), readResponse.getOldToUpdatedRids().get(1).getFirst());
     assertEquals(new RecordId(10, 21), readResponse.getOldToUpdatedRids().get(1).getSecond());
-
-    assertEquals(1, readResponse.getCollectionChanges().size());
-    assertNotNull(readResponse.getCollectionChanges().get(val));
-    assertEquals(10, readResponse.getCollectionChanges().get(val).getFileId());
-    assertEquals(30, readResponse.getCollectionChanges().get(val).getRootPointer().getPageIndex());
-    assertEquals(40, readResponse.getCollectionChanges().get(val).getRootPointer().getPageOffset());
   }
 
   @Test

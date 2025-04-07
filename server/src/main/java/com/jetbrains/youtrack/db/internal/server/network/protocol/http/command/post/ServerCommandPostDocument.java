@@ -43,14 +43,14 @@ public class ServerCommandPostDocument extends ServerCommandDocumentAbstract {
             var entity = transaction.createOrLoadEntityFromJson(iRequest.getContent());
             return new RawPair<>(entity, entity.detach());
           });
-      ((ResultInternal) detached.second).setProperty(EntityHelper.ATTRIBUTE_VERSION,
-          detached.first.getVersion());
+      ((ResultInternal) detached.second()).setProperty(EntityHelper.ATTRIBUTE_VERSION,
+          detached.first().getVersion());
       iResponse.send(
           HttpUtils.STATUS_CREATED_CODE,
           HttpUtils.STATUS_CREATED_DESCRIPTION,
           HttpUtils.CONTENT_JSON,
-          detached.second.toJSON(),
-          HttpUtils.HEADER_ETAG + detached.first.getVersion());
+          detached.second().toJSON(),
+          HttpUtils.HEADER_ETAG + detached.first().getVersion());
     }
     return false;
   }

@@ -37,7 +37,7 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
 @RunWith(Parameterized.class)
-public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
+public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Parameters
   public static Collection<Object[]> generateParams() {
@@ -55,7 +55,7 @@ public class DocumentSchemalessBinarySerializationTest extends DbTestBase {
   private final byte serializerVersion;
 
   // first to test for all registreted serializers , then for network serializers
-  public DocumentSchemalessBinarySerializationTest(byte serializerVersion) {
+  public EntitySchemalessBinarySerializationTest(byte serializerVersion) {
     var numOfRegistretedSerializers =
         RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions();
     if (serializerVersion < numOfRegistretedSerializers) {

@@ -38,7 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.index.iterator.IndexCursorStream;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
@@ -66,7 +66,7 @@ public abstract class IndexAbstract implements Index {
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
   protected static final String CONFIG_MAP_RID = "mapRid";
   private static final String CONFIG_COLLECTIONS = "collections";
-  protected final AbstractPaginatedStorage storage;
+  protected final AbstractStorage storage;
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
   protected volatile int indexId = -1;
@@ -79,7 +79,7 @@ public abstract class IndexAbstract implements Index {
     acquireExclusiveLock();
     try {
       this.im = im;
-      this.storage = (AbstractPaginatedStorage) storage;
+      this.storage = (AbstractStorage) storage;
     } finally {
       releaseExclusiveLock();
     }
@@ -184,7 +184,7 @@ public abstract class IndexAbstract implements Index {
       Map<String, String> engineProperties = new HashMap<>();
       indexMetadata.setVersion(im.getVersion());
       indexId = storage.addIndexEngine(indexMetadata, engineProperties);
-      apiVersion = AbstractPaginatedStorage.extractEngineAPIVersion(indexId);
+      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
       assert indexId >= 0;
       assert apiVersion >= 0;
@@ -214,7 +214,7 @@ public abstract class IndexAbstract implements Index {
 
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
-    apiVersion = AbstractPaginatedStorage.extractEngineAPIVersion(indexId);
+    apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
     if (indexId < 0) {
       throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
@@ -233,12 +233,12 @@ public abstract class IndexAbstract implements Index {
 
       try {
         indexId = storage.loadIndexEngine(im.getName());
-        apiVersion = AbstractPaginatedStorage.extractEngineAPIVersion(indexId);
+        apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
         if (indexId == -1) {
           Map<String, String> engineProperties = new HashMap<>();
           indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
-          apiVersion = AbstractPaginatedStorage.extractEngineAPIVersion(indexId);
+          apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
         }
 
         if (indexId == -1) {
@@ -369,7 +369,7 @@ public abstract class IndexAbstract implements Index {
     try (final var stream = descStream(session)) {
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
-        return iterator.next().first;
+        return iterator.next().first();
       }
 
       return null;
@@ -455,7 +455,7 @@ public abstract class IndexAbstract implements Index {
       var indexMetadata = this.loadMetadata(session, updateConfiguration(session));
       Map<String, String> engineProperties = new HashMap<>();
       indexId = storage.addIndexEngine(indexMetadata, engineProperties);
-      apiVersion = AbstractPaginatedStorage.extractEngineAPIVersion(indexId);
+      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
       onIndexEngineChange(session, indexId);
     } catch (Exception e) {
@@ -540,7 +540,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     return doRemove(storage, key, session);
@@ -560,7 +560,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+  public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException {
     return storage.removeKeyFromIndex(indexId, key);
@@ -603,7 +603,7 @@ public abstract class IndexAbstract implements Index {
         try {
           try (final var stream = stream(session)) {
             session.executeInTxBatches(stream, (db, entry) -> {
-              remove(session, entry.first, entry.second);
+              remove(session, entry.first(), entry.second());
             });
           }
         } catch (IndexEngineException e) {

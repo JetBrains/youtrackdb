@@ -6,10 +6,10 @@ import java.util.Iterator;
 
 public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iterator<T> {
 
-  private final Iterator<? extends BidirectionalLink<T>> linksIterator;
+  private final Iterator<? extends Relation<T>> linksIterator;
   private final Direction direction;
 
-  public BidirectionalLinkToEntityIterator(Iterator<? extends BidirectionalLink<T>> iterator,
+  public BidirectionalLinkToEntityIterator(Iterator<? extends Relation<T>> iterator,
       Direction direction) {
     if (direction == Direction.BOTH) {
       throw new IllegalArgumentException(
@@ -28,8 +28,8 @@ public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iter
   public T next() {
     var edge = linksIterator.next();
     return switch (direction) {
-      case OUT -> edge.getToEntity();
-      case IN -> edge.getFromEntity();
+      case OUT -> edge.toEntity();
+      case IN -> edge.fromEntity();
       default -> throw new IllegalStateException("Unexpected direction: " + direction);
     };
   }

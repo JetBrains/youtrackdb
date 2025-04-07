@@ -332,15 +332,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             }
             response = request.execute(connection.getExecutor());
           } catch (RuntimeException t) {
-            // This should be moved in the execution of the command that manipulate data
-            var session = connection.getDatabaseSession();
-            if (session != null) {
-              final var collectionManager =
-                  connection.getDatabaseSession().getBTreeCollectionManager();
-              if (collectionManager != null) {
-                collectionManager.clearChangedIds(session);
-              }
-            }
             exception = t;
           } catch (Throwable err) {
             sendShutdown();

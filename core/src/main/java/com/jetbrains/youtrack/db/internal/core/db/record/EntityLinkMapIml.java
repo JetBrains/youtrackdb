@@ -154,7 +154,6 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
       return v;
     });
 
-
     if (containsKey && oldValue == value) {
       return oldValue;
     }
@@ -357,10 +356,7 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
 
     var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
-      if (!(sourceRecord instanceof RecordAbstract)
-          || !((RecordAbstract) sourceRecord).isDirty()) {
-        sourceRecord.setDirty();
-      }
+      sourceRecord.setDirty();
     }
   }
 
@@ -605,7 +601,6 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
     this.transactionDirty = false;
   }
 
-  @Override
   public boolean addInternal(Identifiable e) {
     throw new UnsupportedOperationException();
   }

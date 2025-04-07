@@ -107,11 +107,6 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     return sourceRecord;
   }
 
-  @Override
-  public boolean addInternal(T e) {
-    throw new UnsupportedOperationException();
-  }
-
   public void putInternal(final String key, final T value) {
     if (key == null) {
       throw new IllegalArgumentException("null key not supported by embedded map");
@@ -202,10 +197,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
 
     var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
-      if (!(sourceRecord instanceof RecordAbstract)
-          || !((RecordAbstract) sourceRecord).isDirty()) {
-        sourceRecord.setDirty();
-      }
+      sourceRecord.setDirty();
     }
   }
 

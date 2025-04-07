@@ -52,7 +52,7 @@ public class BrowseCollectionTest {
     }
     var collection = db.getSchema().getClass("One").getCollectionIds()[0];
     var browser =
-        ((AbstractPaginatedStorage) ((DatabaseSessionInternal) db).getStorage())
+        ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())
             .browseCollection(collection);
     var count = 0;
 

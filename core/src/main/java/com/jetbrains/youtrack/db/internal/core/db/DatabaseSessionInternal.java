@@ -69,10 +69,11 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -275,8 +276,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default boolean isRemote() {
     return false;
   }
-
-  Map<UUID, BonsaiCollectionPointer> getCollectionsChanges();
 
   boolean dropCollectionInternal(int collectionId);
 
@@ -1156,11 +1155,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param args  query parameters (positional)
    * @return the query result set
    */
-  default ResultSet query(String query, Object... args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
-
+  ResultSet query(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException;
   /**
    * Executes an SQL query (idempotent). The result set has to be closed after usage <br>
    * <br>
@@ -1176,10 +1172,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param args  query parameters (named)
    * @return the query result set
    */
-  default ResultSet query(String query, Map args)
-      throws CommandSQLParsingException, CommandExecutionException {
-    throw new UnsupportedOperationException();
-  }
+  ResultSet query(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException;
+
+  ResultSet query(String query, boolean syncTx, Map args)
+      throws CommandSQLParsingException, CommandExecutionException;
 
   /**
    * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed

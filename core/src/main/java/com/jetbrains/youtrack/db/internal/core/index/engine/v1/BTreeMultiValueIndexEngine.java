@@ -16,7 +16,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -42,10 +42,10 @@ public final class BTreeMultiValueIndexEngine
   private final String name;
   private final int id;
   private final String nullTreeName;
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
 
   public BTreeMultiValueIndexEngine(
-      int id, @Nonnull String name, AbstractPaginatedStorage storage, final int version) {
+      int id, @Nonnull String name, AbstractStorage storage, final int version) {
     this.id = id;
     this.name = name;
     this.storage = storage;
@@ -126,7 +126,7 @@ public final class BTreeMultiValueIndexEngine
         stream.forEach(
             (pair) -> {
               try {
-                svTree.remove(atomicOperation, pair.first);
+                svTree.remove(atomicOperation, pair.first());
               } catch (IOException e) {
                 throw BaseException.wrapException(
                     new IndexException(storage.getName(), "Error during index cleaning"), e,
@@ -146,7 +146,7 @@ public final class BTreeMultiValueIndexEngine
           stream.forEach(
               (pair) -> {
                 try {
-                  nullTree.remove(atomicOperation, pair.first);
+                  nullTree.remove(atomicOperation, pair.first());
                 } catch (IOException e) {
                   throw BaseException.wrapException(
                       new IndexException(storage.getName(), "Error during index cleaning"), e,
@@ -184,7 +184,7 @@ public final class BTreeMultiValueIndexEngine
           stream.forEach(
               (pair) -> {
                 try {
-                  final var result = svTree.remove(atomicOperation, pair.first) != null;
+                  final var result = svTree.remove(atomicOperation, pair.first()) != null;
                   removed[0] = result || removed[0];
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
@@ -231,13 +231,13 @@ public final class BTreeMultiValueIndexEngine
 
       return svTree
           .iterateEntriesBetween(firstKey, true, lastKey, true, true)
-          .map((pair) -> pair.second);
+          .map(RawPair::second);
     } else {
       return nullTree
           .iterateEntriesBetween(
               new RecordId(0, 0), true, new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
               true)
-          .map((pair) -> pair.second);
+          .map(RawPair::second);
     }
   }
 
@@ -253,7 +253,7 @@ public final class BTreeMultiValueIndexEngine
 
   private static Stream<RawPair<Object, RID>> mapSVStream(
       Stream<RawPair<CompositeKey, RID>> stream) {
-    return stream.map((entry) -> new RawPair<>(extractKey(entry.first), entry.second));
+    return stream.map((entry) -> new RawPair<>(extractKey(entry.first()), entry.second()));
   }
 
   private static Stream<RawPair<Object, RID>> emptyStream() {

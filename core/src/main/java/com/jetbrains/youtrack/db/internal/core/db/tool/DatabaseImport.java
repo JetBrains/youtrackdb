@@ -964,8 +964,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           final var clazz =
               session.getMetadata().getSchema().getClassByCollectionId(createdCollectionId);
           if (clazz instanceof SchemaClassEmbedded) {
-            throw new DatabaseImportException("Can not drop collection with id " + createdCollectionId
-                + " because it is used by class " + clazz.getName());
+            throw new DatabaseImportException(
+                "Can not drop collection with id " + createdCollectionId
+                    + " because it is used by class " + clazz.getName());
           }
 
           session.dropCollection(createdCollectionId);
@@ -974,7 +975,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
       collectionToCollectionMapping.put(collectionIdFromJson, createdCollectionId);
 
-      listener.onMessage("OK, assigned id=" + createdCollectionId + ", was " + collectionIdFromJson);
+      listener.onMessage(
+          "OK, assigned id=" + createdCollectionId + ", was " + collectionIdFromJson);
 
       total++;
 
@@ -996,7 +998,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 @Override
                 public void onBegin(Object iTask, long iTotal, Object metadata) {
                   listener.onMessage(
-                      "\n- Collection content was updated: rebuilding index '" + indexName + "'...");
+                      "\n- Collection content was updated: rebuilding index '" + indexName
+                          + "'...");
                 }
 
                 @Override
@@ -1052,8 +1055,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 null
             );
 
-        var record = recordWithMetadata.first;
-        var metadata = recordWithMetadata.second;
+        var record = recordWithMetadata.first();
+        var metadata = recordWithMetadata.second();
 
         switch (metadata.internalRecordType()) {
           case SCHEMA -> {
@@ -1109,7 +1112,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         }
       } catch (Exception t) {
         if (recordWithMetadata != null) {
-          var record = recordWithMetadata.first;
+          var record = recordWithMetadata.first();
 
           LogManager.instance()
               .error(
@@ -1138,7 +1141,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
 
       ok = true;
-      return recordWithMetadata.first.getIdentity();
+      return recordWithMetadata.first().getIdentity();
     } finally {
       if (ok) {
         session.commit();
@@ -1569,7 +1572,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
       listener.onMessage(
           String.format(
-              "%s Completed migration of %,d records in current collection", prefix[0], entities[0]));
+              "%s Completed migration of %,d records in current collection", prefix[0],
+              entities[0]));
     }
 
     listener.onMessage(String.format("\nTotal links updated: %,d", totalEntities[0]));
@@ -1578,11 +1582,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   protected static void rewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
     entity = doRewriteLinksInDocument(session, entity, brokenRids);
-
-    if (!entity.isDirty()) {
-      // nothing changed
-    }
-  }
+ }
 
   protected static EntityImpl doRewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {

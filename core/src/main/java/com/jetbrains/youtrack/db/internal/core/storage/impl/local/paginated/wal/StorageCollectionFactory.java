@@ -23,7 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.v2.PaginatedCollectionV2;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 
 /**
  * @since 10/8/13
@@ -34,7 +34,7 @@ public final class StorageCollectionFactory {
       final String name,
       final int configurationVersion,
       final int binaryVersion,
-      final AbstractPaginatedStorage storage) {
+      final AbstractStorage storage) {
     if (configurationVersion >= 0 && configurationVersion < 6) {
       throw new StorageException(storage.getName(),
           "You use deprecated version of storage collection, this version is not supported in current"
@@ -55,7 +55,7 @@ public final class StorageCollectionFactory {
   public static PaginatedCollection createCollection(
       final String name,
       final int binaryVersion,
-      final AbstractPaginatedStorage storage,
+      final AbstractStorage storage,
       final String dataExtension,
       final String cpmExtension,
       final String fsmExtension) {

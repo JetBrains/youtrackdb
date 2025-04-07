@@ -526,18 +526,18 @@ public class LinkMapIndexTest extends BaseDBTest {
     checkEmbeddedDB();
 
     session.begin();
-    final var docOne = ((EntityImpl) session.newEntity());
+    final var docOne = session.newEntity();
 
-    final var docTwo = ((EntityImpl) session.newEntity());
+    final var docTwo = session.newEntity();
 
-    final var docThree = ((EntityImpl) session.newEntity());
+    final var docThree = session.newEntity();
 
     var map = session.newLinkMap();
 
-    map.put("key1", docOne.getIdentity());
-    map.put("key2", docTwo.getIdentity());
+    map.put("key1", docOne);
+    map.put("key2", docTwo);
 
-    final var document = ((EntityImpl) session.newEntity("LinkMapIndexTestClass"));
+    final var document = session.newEntity("LinkMapIndexTestClass");
     document.setProperty("linkMap", map);
 
     session.commit();

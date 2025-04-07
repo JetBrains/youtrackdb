@@ -18,7 +18,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -65,7 +65,7 @@ public class SharedContextEmbedded extends SharedContext {
     this.registerListener(executionPlanCache);
 
     queryStats = new QueryStats();
-    ((AbstractPaginatedStorage) storage)
+    ((AbstractStorage) storage)
         .setStorageConfigurationUpdateListener(
             update -> {
               for (var listener : browseListeners()) {
@@ -179,7 +179,7 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public void reInit(AbstractPaginatedStorage storage2, DatabaseSessionInternal database) {
+  public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
     lock.lock();
     try {
       this.close();

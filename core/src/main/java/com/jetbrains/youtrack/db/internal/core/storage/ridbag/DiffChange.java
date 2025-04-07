@@ -13,28 +13,33 @@ public class DiffChange implements Change {
   }
 
   @Override
-  public void increment() {
-    delta++;
+  public boolean increment(int maxCap) {
+    var oldDelta = delta;
+    delta = Math.min(oldDelta + 1, maxCap);
+    return delta > oldDelta;
   }
 
   @Override
-  public void decrement() {
+  public boolean decrement() {
     delta--;
+    return true;
   }
 
   @Override
-  public int applyTo(Integer value) {
+  public int clear() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int applyTo(Integer value, int maxCap) {
     int result;
     if (value == null) {
       result = delta;
     } else {
-      result = value + delta;
+      result = Math.min(value + delta, maxCap);
     }
 
-    if (result < 0) {
-      result = 0;
-    }
-
+    assert result <= maxCap;
     return result;
   }
 
@@ -46,16 +51,6 @@ public class DiffChange implements Change {
   @Override
   public int getValue() {
     return delta;
-  }
-
-  @Override
-  public boolean isUndefined() {
-    return delta < 0;
-  }
-
-  @Override
-  public void applyDiff(int delta) {
-    this.delta += delta;
   }
 
   @Override

@@ -7,7 +7,8 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class LightweightBidirectionalLinkImpl<T extends Entity> implements BidirectionalLink<T> {
+public class LightweightRelationImpl<T extends Entity> implements
+    Relation<T> {
 
   @Nullable
   protected final T out;
@@ -19,7 +20,7 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   protected final String label;
 
-  public LightweightBidirectionalLinkImpl(@Nonnull DatabaseSessionInternal session,
+  public LightweightRelationImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable T out, @Nullable T in,
       String label) {
     this.out = out;
@@ -31,13 +32,13 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   @Nullable
   @Override
-  public T getFromEntity() {
+  public T fromEntity() {
     return out;
   }
 
   @Nullable
   @Override
-  public T getToEntity() {
+  public T toEntity() {
     return in;
   }
 
@@ -77,7 +78,7 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
 
   @Override
   public Map<String, Object> toMap() {
-    return Map.of("out", out, "in", in);
+    return Map.of("out", out, "in", in, "label", label);
   }
 
   @Override
@@ -86,6 +87,42 @@ public class LightweightBidirectionalLinkImpl<T extends Entity> implements Bidir
         + out.getIdentity()
         + "\", \"in\":\""
         + in.getIdentity()
+        + "\", \"label\":\""
+        + label
         + "\"}";
+  }
+
+  @Override
+  public String label() {
+    return label;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (!(obj instanceof Relation<?> bidirectionalRelation)) {
+      return false;
+    }
+
+    if (!bidirectionalRelation.isLightweight()) {
+      return false;
+    }
+
+    return out.equals(bidirectionalRelation.fromEntity()) && in.equals(
+        bidirectionalRelation.toEntity())
+        && label.equals(bidirectionalRelation.label());
+
+  }
+
+  @Override
+  public int hashCode() {
+    return super.hashCode();
+  }
+
+  @Override
+  public String toString() {
+    return super.toString();
   }
 }

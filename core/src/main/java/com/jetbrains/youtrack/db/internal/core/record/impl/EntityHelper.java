@@ -1053,7 +1053,7 @@ public class EntityHelper {
         }
       } else if (myFieldValue instanceof RidBag && otherFieldValue instanceof RidBag) {
         if (!compareBags(
-            iMyDb, (RidBag) myFieldValue, iOtherDb, (RidBag) otherFieldValue, ridMapper)) {
+            (RidBag) myFieldValue, (RidBag) otherFieldValue, ridMapper)) {
           return false;
         }
       } else if (myFieldValue instanceof Map && otherFieldValue instanceof Map) {
@@ -1175,9 +1175,7 @@ public class EntityHelper {
   }
 
   public static boolean compareBags(
-      DatabaseSessionInternal iMyDb,
       RidBag myFieldValue,
-      DatabaseSessionInternal iOtherDb,
       RidBag otherFieldValue,
       RIDMapper ridMapper) {
     final var mySize = myFieldValue.size();

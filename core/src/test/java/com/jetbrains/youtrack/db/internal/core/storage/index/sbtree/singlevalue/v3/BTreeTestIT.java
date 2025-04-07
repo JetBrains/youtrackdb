@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
 import java.util.Iterator;
@@ -50,10 +50,10 @@ public class BTreeTestIT {
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
-    AbstractPaginatedStorage storage;
+    AbstractStorage storage;
     try (var databaseDocumentTx = youTrackDB.open(dbName, "admin", "admin")) {
       storage =
-          (AbstractPaginatedStorage) ((DatabaseSessionInternal) databaseDocumentTx).getStorage();
+          (AbstractStorage) ((DatabaseSessionInternal) databaseDocumentTx).getStorage();
     }
     singleValueTree = new BTree<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager = storage.getAtomicOperationsManager();
@@ -838,8 +838,8 @@ public class BTreeTestIT {
           final var indexEntry = indexIterator.next();
           final var entry = iterator.next();
 
-          Assert.assertEquals(indexEntry.first, entry.getKey());
-          Assert.assertEquals(indexEntry.second, entry.getValue());
+          Assert.assertEquals(indexEntry.first(), entry.getKey());
+          Assert.assertEquals(indexEntry.second(), entry.getValue());
         }
 
         //noinspection ConstantConditions
@@ -885,8 +885,8 @@ public class BTreeTestIT {
           var indexEntry = indexIterator.next();
           var entry = iterator.next();
 
-          Assert.assertEquals(indexEntry.first, entry.getKey());
-          Assert.assertEquals(indexEntry.second, entry.getValue());
+          Assert.assertEquals(indexEntry.first(), entry.getKey());
+          Assert.assertEquals(indexEntry.second(), entry.getValue());
         }
 
         //noinspection ConstantConditions
@@ -958,8 +958,8 @@ public class BTreeTestIT {
           Assert.assertNotNull(indexEntry);
 
           var mapEntry = iterator.next();
-          Assert.assertEquals(indexEntry.first, mapEntry.getKey());
-          Assert.assertEquals(indexEntry.second, mapEntry.getValue());
+          Assert.assertEquals(indexEntry.first(), mapEntry.getKey());
+          Assert.assertEquals(indexEntry.second(), mapEntry.getValue());
         }
         //noinspection ConstantConditions
         Assert.assertFalse(iterator.hasNext());

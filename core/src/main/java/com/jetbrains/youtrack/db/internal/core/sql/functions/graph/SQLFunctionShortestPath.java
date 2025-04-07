@@ -299,10 +299,10 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           getVerticesAndEdges(srcVertex, Direction.OUT, types);
       var pair2 =
           getVerticesAndEdges(srcVertex, Direction.IN, types);
-      vertexIterator.add(pair1.first);
-      vertexIterator.add(pair2.first);
-      edgeIterator.add(pair1.second);
-      edgeIterator.add(pair2.second);
+      vertexIterator.add(pair1.first());
+      vertexIterator.add(pair2.first());
+      edgeIterator.add(pair1.second());
+      edgeIterator.add(pair2.second());
       return new RawPair<>(vertexIterator, edgeIterator);
     } else {
       var edges1 = srcVertex.getEdges(direction, types);
@@ -368,8 +368,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         } else {
           neighbors = getVerticesAndEdges(ctx.current, ctx.directionLeft, ctx.edgeTypeParam);
         }
-        var vertexIterator = neighbors.first.iterator();
-        var edgeIterator = neighbors.second.iterator();
+        var vertexIterator = neighbors.first().iterator();
+        var edgeIterator = neighbors.second().iterator();
         while (vertexIterator.hasNext() && edgeIterator.hasNext()) {
           var v = vertexIterator.next();
           final var neighborVertexIdentity = v.getIdentity();
@@ -442,8 +442,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           neighbors = getVerticesAndEdges(ctx.currentRight, ctx.directionRight, ctx.edgeTypeParam);
         }
 
-        var vertexIterator = neighbors.first.iterator();
-        var edgeIterator = neighbors.second.iterator();
+        var vertexIterator = neighbors.first().iterator();
+        var edgeIterator = neighbors.second().iterator();
         while (vertexIterator.hasNext() && edgeIterator.hasNext()) {
           final var v = vertexIterator.next();
           final var neighborVertexIdentity = v.getIdentity();

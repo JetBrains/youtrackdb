@@ -6,14 +6,14 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import org.junit.Test;
 
 public class RidBagBasicTest extends DbTestBase {
 
   @Test(expected = IllegalArgumentException.class)
   public void testExceptionInCaseOfNull() {
-    var bag = new EmbeddedRidBag(session);
+    var bag = new EmbeddedLinkBag(session, Integer.MAX_VALUE);
     bag.add(null);
   }
 

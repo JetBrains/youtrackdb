@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquality;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
@@ -571,15 +571,15 @@ public interface Index extends Comparable<Index> {
   Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes);
 
-  void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage, Object key,
+  void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage, Object key,
+  boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(AbstractPaginatedStorage storage, Object key, DatabaseSessionInternal session)
+  boolean doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException;
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key);

@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSerializer;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -22,7 +21,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.ResultSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -30,10 +28,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
 import javax.annotation.Nullable;
 
 public class MessageHelper {
@@ -94,33 +89,6 @@ public class MessageHelper {
     return stream;
   }
 
-  public static Map<UUID, BonsaiCollectionPointer> readCollectionChanges(ChannelDataInput network)
-      throws IOException {
-    Map<UUID, BonsaiCollectionPointer> collectionsUpdates = new HashMap<>();
-    var count = network.readInt();
-    for (var i = 0; i < count; i++) {
-      final var mBitsOfId = network.readLong();
-      final var lBitsOfId = network.readLong();
-
-      final var pointer =
-          CollectionNetworkSerializer.INSTANCE.readCollectionPointer(network);
-
-      collectionsUpdates.put(new UUID(mBitsOfId, lBitsOfId), pointer);
-    }
-    return collectionsUpdates;
-  }
-
-  public static void writeCollectionChanges(
-      ChannelDataOutput channel, Map<UUID, BonsaiCollectionPointer> changedIds)
-      throws IOException {
-    channel.writeInt(changedIds.size());
-    for (var entry : changedIds.entrySet()) {
-      channel.writeLong(entry.getKey().getMostSignificantBits());
-      channel.writeLong(entry.getKey().getLeastSignificantBits());
-      CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(channel, entry.getValue());
-    }
-  }
-
   public static void writePhysicalPositions(
       ChannelDataOutput channel, PhysicalPosition[] previousPositions) throws IOException {
     if (previousPositions == null) {
@@ -177,8 +145,8 @@ public class MessageHelper {
   public static void writeCollectionsArray(
       ChannelDataOutput channel, RawPair<String[], int[]> collections, int protocolVersion)
       throws IOException {
-    final var collectionNames = collections.first;
-    final var collectionIds = collections.second;
+    final var collectionNames = collections.first();
+    final var collectionIds = collections.second();
 
     channel.writeShort((short) collectionNames.length);
 

@@ -96,8 +96,8 @@ public class TableFormatter {
     if (columnSorting != null) {
       resultSet.sort(
           (o1, o2) -> {
-            @SuppressWarnings("unchecked") var rec1 = (Map<String, Object>) o1.second;
-            @SuppressWarnings("unchecked") var rec2 = (Map<String, Object>) o2.second;
+            @SuppressWarnings("unchecked") var rec1 = (Map<String, Object>) o1.second();
+            @SuppressWarnings("unchecked") var rec2 = (Map<String, Object>) o2.second();
 
             final var value1 = rec1.get(columnSorting.getKey());
             final var value2 = rec2.get(columnSorting.getKey());
@@ -122,9 +122,9 @@ public class TableFormatter {
 
     var fetched = 0;
     for (var record : resultSet) {
-      dumpRecordInTable(fetched++, record.first, record.second, columns, session);
+      dumpRecordInTable(fetched++, record.first(), record.second(), columns, session);
       if (iAfterDump != null) {
-        iAfterDump.call(record.second);
+        iAfterDump.call(record.second());
       }
 
       if (limit > -1 && fetched >= limit) {
@@ -474,8 +474,8 @@ public class TableFormatter {
     var fetched = 0;
     for (var entry : resultSet) {
 
-      var rid = entry.first;
-      var record = entry.second;
+      var rid = entry.first();
+      var record = entry.second();
 
       for (var c : prefixedColumns) {
         columns.put(c,

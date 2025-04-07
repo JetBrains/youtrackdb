@@ -89,7 +89,7 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
 
   @Override
   public Comparator<? super RawPair<K, RID>> getComparator() {
-    return (pairOne, pairTwo) -> btree.comparator.compare(pairOne.first, pairTwo.first);
+    return (pairOne, pairTwo) -> btree.comparator.compare(pairOne.first(), pairTwo.first());
   }
 
   public K getFromKey() {

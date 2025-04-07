@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
@@ -48,7 +48,7 @@ import javax.annotation.Nonnull;
 public class AtomicOperationsManager {
   private final ThreadLocal<AtomicOperation> currentOperation = new ThreadLocal<>();
 
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
@@ -66,7 +66,7 @@ public class AtomicOperationsManager {
   private final AtomicOperationsTable atomicOperationsTable;
 
   public AtomicOperationsManager(
-      AbstractPaginatedStorage storage, AtomicOperationsTable atomicOperationsTable) {
+      AbstractStorage storage, AtomicOperationsTable atomicOperationsTable) {
     this.storage = storage;
     this.writeAheadLog = storage.getWALInstance();
     this.readCache = storage.getReadCache();

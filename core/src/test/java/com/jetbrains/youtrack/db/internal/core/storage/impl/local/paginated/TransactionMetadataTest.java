@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransacationMetadataHolder;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionId;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionSequenceStatus;
@@ -57,7 +57,7 @@ public class TransactionMetadataTest {
             YouTrackDBConfig.defaultConfig());
     var db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");
     var fromStorage =
-        ((AbstractPaginatedStorage) ((DatabaseSessionInternal) db1).getStorage())
+        ((AbstractStorage) ((DatabaseSessionInternal) db1).getStorage())
             .getLastMetadata();
     assertTrue(fromStorage.isPresent());
     assertArrayEquals(fromStorage.get(), metadata);

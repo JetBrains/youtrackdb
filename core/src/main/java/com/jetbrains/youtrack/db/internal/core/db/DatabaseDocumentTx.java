@@ -58,10 +58,11 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Date;
@@ -1228,12 +1229,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkSet newLinkSet(int size) {
-    checkOpenness();
-    return internal.newLinkSet(size);
-  }
-
-  @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);
@@ -1357,6 +1352,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public ResultSet query(String query, boolean syncTx, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    return internal.query(query, syncTx, args);
+  }
+
+  @Override
   public ResultSet execute(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
@@ -1441,7 +1442,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeDeleteOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+  public void beforeDeleteOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
     internal.beforeDeleteOperations(recordAbstract, collectionName);
   }
 
@@ -1451,7 +1453,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeUpdateOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+  public void beforeUpdateOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
     internal.beforeUpdateOperations(recordAbstract, collectionName);
   }
 
@@ -1478,11 +1481,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public String getCollectionName(@Nonnull DBRecord record) {
     return internal.getCollectionName(record);
-  }
-
-  @Override
-  public Map<UUID, BonsaiCollectionPointer> getCollectionsChanges() {
-    return internal.getCollectionsChanges();
   }
 
   @Override

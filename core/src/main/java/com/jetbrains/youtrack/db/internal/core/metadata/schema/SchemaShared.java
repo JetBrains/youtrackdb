@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselecti
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -411,7 +411,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         // by sql commands and we need to reload local replica
 
         if (iSave) {
-          if (session.getStorage() instanceof AbstractPaginatedStorage) {
+          if (session.getStorage() instanceof AbstractStorage) {
             saveInternal(session);
           } else {
             reload(session);
@@ -580,7 +580,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
       if (!hasGlobalProperties) {
-        if (session.getStorage() instanceof AbstractPaginatedStorage) {
+        if (session.getStorage() instanceof AbstractStorage) {
           saveInternal(session);
         }
       }

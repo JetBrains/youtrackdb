@@ -23,9 +23,11 @@ import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.r
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeOptimizedLink;
 import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
@@ -34,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSeriali
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -55,7 +58,16 @@ import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.MapRecordInfo;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.RecordInfo;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.Tuple;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -67,6 +79,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class RecordSerializerBinaryV1 implements EntitySerializer {
@@ -777,15 +790,169 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return retList;
   }
 
-  protected static int writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag ridbag) {
+  protected static int writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+      EntityLinkSetImpl linkSet) {
     var positionOffset = bytes.offset;
-    HelperClasses.writeRidBag(session, bytes, ridbag);
+    linkSet.checkAndConvert();
+    byte configByte = 0;
+
+    if (linkSet.isEmbedded()) {
+      configByte |= 1;
+    }
+
+    // alloc will move offset and do skip
+    HelperClasses.writeByte(bytes, configByte);
+
+    var delegate = (AbstractLinkBag) linkSet.getDelegate();
+    VarIntSerializer.write(bytes, delegate.size());
+
+    if (linkSet.isEmbedded()) {
+      writeEmbeddedLinkBagDelegate(bytes, delegate);
+    } else {
+      var btreeLinkBag = (BTreeBasedLinkBag) delegate;
+      writeBTreeBasedLinkBag(session, bytes, btreeLinkBag);
+    }
+
     return positionOffset;
   }
 
-  protected static RidBag readRidbag(DatabaseSessionInternal session, BytesContainer bytes) {
-    return HelperClasses.readRidbag(session, bytes);
+  protected static int writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+      RidBag ridbag) {
+    var positionOffset = bytes.offset;
+    ridbag.checkAndConvert();
+    byte configByte = 0;
+
+    if (ridbag.isEmbedded()) {
+      configByte |= 1;
+    }
+
+    // alloc will move offset and do skip
+    HelperClasses.writeByte(bytes, configByte);
+
+    var delegate = (AbstractLinkBag) ridbag.getDelegate();
+    VarIntSerializer.write(bytes, delegate.size());
+
+    if (ridbag.isEmbedded()) {
+      writeEmbeddedLinkBagDelegate(bytes, delegate);
+    } else {
+      var btreeLinkBag = (BTreeBasedLinkBag) delegate;
+      writeBTreeBasedLinkBag(session, bytes, btreeLinkBag);
+    }
+
+    return positionOffset;
+  }
+
+  private static void writeBTreeBasedLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
+      BTreeBasedLinkBag btreeLinkBag) {
+    var pointer = btreeLinkBag.getCollectionPointer();
+
+    final var context = RecordSerializationContext.peekContext();
+    if (pointer == null) {
+      final var collectionId = btreeLinkBag.getOwnerEntity().getIdentity().getCollectionId();
+      assert collectionId > -1;
+      try {
+        final var storage = (AbstractStorage) session.getStorage();
+        final var atomicOperation =
+            storage.getAtomicOperationsManager().getCurrentOperation();
+        assert atomicOperation != null;
+        pointer = session
+            .getBTreeCollectionManager()
+            .createBTree(collectionId, atomicOperation, session);
+
+        btreeLinkBag.setCollectionPointer(pointer);
+      } catch (IOException e) {
+        throw BaseException.wrapException(
+            new DatabaseException(session.getDatabaseName(), "Error during creation of linkbag"),
+            e,
+            session.getDatabaseName());
+      }
+    }
+
+    VarIntSerializer.write(bytes, pointer.fileId());
+    VarIntSerializer.write(bytes, pointer.linkBagId());
+
+    btreeLinkBag.handleContextSBTree(context, pointer);
+  }
+
+  private static void writeEmbeddedLinkBagDelegate(BytesContainer bytes, AbstractLinkBag delegate) {
+    delegate.getChanges().forEach(ridChangeRawPair -> {
+      var recId = ridChangeRawPair.first();
+      assert recId.isPersistent();
+
+      var change = ridChangeRawPair.second().getValue();
+      assert change >= 0;
+      if (change > 0) {
+        HelperClasses.writeByte(bytes, (byte) 1);
+        HelperClasses.writeLinkOptimized(bytes, recId);
+        VarIntSerializer.write(bytes, change);
+      }
+    });
+    HelperClasses.writeByte(bytes, (byte) 0);
+  }
+
+  protected static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+      BytesContainer bytes) {
+    var configByte = bytes.bytes[bytes.offset++];
+    var isEmbedded = (configByte & 1) != 0;
+
+    EntityLinkSetImpl ridbag;
+    var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (isEmbedded) {
+      var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, 1);
+      ridbag = new EntityLinkSetImpl(session, embeddedBagDelegate);
+    } else {
+      var btreeLinkBag = readBTreeBasedLinkBag(session, bytes, linkBagSize, 1);
+      ridbag = new EntityLinkSetImpl(session, btreeLinkBag);
+    }
+
+    return ridbag;
+  }
+
+  protected static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+    var configByte = bytes.bytes[bytes.offset++];
+    var isEmbedded = (configByte & 1) != 0;
+
+    RidBag ridbag;
+    var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (isEmbedded) {
+      var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
+      ridbag = new RidBag(session, embeddedBagDelegate);
+    } else {
+      var btreeLinkBag = readBTreeBasedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
+      ridbag = new RidBag(session, btreeLinkBag);
+    }
+
+    return ridbag;
+  }
+
+  @Nonnull
+  private static BTreeBasedLinkBag readBTreeBasedLinkBag(DatabaseSessionInternal session,
+      BytesContainer bytes,
+      int linkBagSize, int counterMaxValue) {
+    var fileId = VarIntSerializer.readAsLong(bytes);
+    var linkBagId = VarIntSerializer.readAsLong(bytes);
+    assert fileId > -1;
+
+    var pointer = new LinkBagPointer(fileId, linkBagId);
+
+    return new BTreeBasedLinkBag(session, pointer, linkBagSize, counterMaxValue);
+  }
+
+  @Nonnull
+  private static EmbeddedLinkBag readEmbeddedLinkBag(DatabaseSessionInternal session,
+      BytesContainer bytes,
+      int linkBagSize, int counterMaxValue) {
+    var changes = new ArrayList<RawPair<RID, Change>>();
+    var continueFlag = readByte(bytes);
+
+    while (continueFlag > 0) {
+      var rid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
+      var counter = VarIntSerializer.readAsInteger(bytes);
+      changes.add(new RawPair<>(rid, new AbsoluteChange(counter)));
+      continueFlag = readByte(bytes);
+    }
+
+    return new EmbeddedLinkBag(changes, session, linkBagSize, counterMaxValue);
   }
 
   public Object deserializeValue(
@@ -900,11 +1067,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         }
         break;
       case LINKSET:
-        EntityLinkSetImpl collectionSet = null;
-        if (!justRunThrough) {
-          collectionSet = new EntityLinkSetImpl(owner);
-        }
-        value = readLinkCollection(bytes, collectionSet, justRunThrough);
+        value = readLinkSet(session, bytes);
         break;
       case LINKLIST:
         EntityLinkListImpl collectionList = null;
@@ -939,7 +1102,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
-        var bag = readRidbag(session, bytes);
+        var bag = readLinkBag(session, bytes);
         bag.setOwner(owner);
         value = bag;
         break;
@@ -1038,17 +1201,20 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         pointer = writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
+        pointer = writeLinkSet(session, bytes, (EntityLinkSetImpl) value);
+        break;
       case LINKLIST:
         var ridCollection = (Collection<Identifiable>) value;
         pointer = writeLinkCollection(session, bytes, ridCollection);
         break;
       case LINK:
-        if (!(value instanceof Identifiable)) {
+        if (!(value instanceof Identifiable identifiable)) {
           throw new ValidationException(session.getDatabaseName(),
               "Value '" + value + "' is not a Identifiable");
         }
 
-        pointer = writeOptimizedLink(session, bytes, (Identifiable) value);
+        assert identifiable.getIdentity().isPersistent();
+        pointer = writeOptimizedLink(session, bytes, identifiable);
         break;
       case LINKMAP:
         pointer = writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
@@ -1057,7 +1223,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
         break;
       case LINKBAG:
-        pointer = writeRidBag(session, bytes, (RidBag) value);
+        pointer = writeLinkBag(session, bytes, (RidBag) value);
         break;
     }
     return pointer;
@@ -1252,7 +1418,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected static void skipClassName(BytesContainer bytes) {
-    RecordSerializerBinaryV0.skipClassName(bytes);
+    final var classNameLen = VarIntSerializer.readAsInteger(bytes);
+    bytes.skip(classNameLen);
   }
 
   @Override

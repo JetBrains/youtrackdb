@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -33,6 +34,7 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("A");
+    var record = session.load(new RecordId(1,3));
     session.commit();
 
     session.getMetadata().getSchema().getClasses().stream()

@@ -20,15 +20,7 @@ package com.jetbrains.youtrack.db.internal.common.util;
  *
  * @since 2.2
  */
-public class RawPair<V1, V2> {
-
-  public final V1 first;
-  public final V2 second;
-
-  public RawPair(V1 first, V2 second) {
-    this.first = first;
-    this.second = second;
-  }
+public record RawPair<V1, V2>(V1 first, V2 second) {
 
   public V1 getFirst() {
     return first;
@@ -36,29 +28,5 @@ public class RawPair<V1, V2> {
 
   public V2 getSecond() {
     return second;
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-
-    var rawPair = (RawPair<?, ?>) o;
-
-    if (!first.equals(rawPair.first)) {
-      return false;
-    }
-    return second.equals(rawPair.second);
-  }
-
-  @Override
-  public int hashCode() {
-    var result = first.hashCode();
-    result = 31 * result + second.hashCode();
-    return result;
   }
 }

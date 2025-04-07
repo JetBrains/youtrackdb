@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
-import java.util.Collections;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -69,7 +68,7 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
     Thread.sleep(100);
     var tree =
-        session.getBTreeCollectionManager().loadSBTree(pointer);
-    assertEquals(0, tree.getRealBagSize(Collections.emptyMap()));
+        session.getBTreeCollectionManager().loadIsolatedBTree(pointer);
+    assertEquals(0, tree.getRealBagSize());
   }
 }

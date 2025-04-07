@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.api.exception.BackupInProgressException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
@@ -66,7 +67,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPosi
 import com.jetbrains.youtrack.db.internal.core.storage.collection.v2.FreeSpaceMap;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.EnterpriseStorageOperationListener;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
@@ -76,6 +77,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.BufferedInputStream;
@@ -134,7 +136,7 @@ import net.jpountz.xxhash.XXHashFactory;
 /**
  * @since 28.03.13
  */
-public class LocalPaginatedStorage extends AbstractPaginatedStorage {
+public class LocalStorage extends AbstractStorage {
 
   private static final String INCREMENTAL_BACKUP_LOCK = "backup.ibl";
 
@@ -142,7 +144,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
   private static final ThreadLocal<Cipher> CIPHER =
-      ThreadLocal.withInitial(LocalPaginatedStorage::getCipherInstance);
+      ThreadLocal.withInitial(LocalStorage::getCipherInstance);
 
   private static final String IBU_EXTENSION_V3 = ".ibu3";
   private static final int INCREMENTAL_BACKUP_VERSION = 423;
@@ -208,7 +210,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
 
   protected volatile byte[] iv;
 
-  public LocalPaginatedStorage(
+  public LocalStorage(
       final String name,
       final String filePath,
       final int id,
@@ -683,7 +685,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
           if (!dbDir.delete()) {
             LogManager.instance()
                 .error(
-                    LocalPaginatedStorage.class,
+                    LocalStorage.class,
                     "Cannot delete storage directory with path "
                         + dbDir.getAbsolutePath()
                         + " because directory is not empty. Files: "
@@ -697,7 +699,7 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
       }
       LogManager.instance()
           .debug(
-              LocalPaginatedStorage.class,
+              LocalStorage.class,
               "Cannot delete database files because they are still locked by the YouTrackDB process:"
                   + " waiting %d ms and retrying %d/%d...",
               waitTime,
@@ -1980,6 +1982,17 @@ public class LocalPaginatedStorage extends AbstractPaginatedStorage {
     } finally {
       listeners.forEach(EnterpriseStorageOperationListener::onRead);
     }
+  }
+
+  @Override
+  public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

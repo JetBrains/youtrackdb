@@ -24,8 +24,8 @@ import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinkIterator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -244,11 +244,8 @@ public class MultiCollectionIterator<T>
       if (o != null) {
         if (o instanceof Set<?> || o instanceof RidBag) {
           // OK
-        } else if (o instanceof BidirectionalLinkIterator<?, ?>) {
-          return true;
-        } else {
-          return false;
-        }
+        } else
+          return o instanceof RelationsIteratorAbstract<?, ?>;
       }
     }
 
@@ -259,7 +256,7 @@ public class MultiCollectionIterator<T>
   public boolean contains(final Object value) {
     for (var o : sources) {
       if (o != null) {
-        if (o instanceof BidirectionalLinkIterator<?, ?> bidirectionalLinkIterator) {
+        if (o instanceof RelationsIteratorAbstract<?, ?> bidirectionalLinkIterator) {
           o = bidirectionalLinkIterator.getMultiValue();
         }
 

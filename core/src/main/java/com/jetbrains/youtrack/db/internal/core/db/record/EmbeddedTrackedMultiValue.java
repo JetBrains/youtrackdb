@@ -11,10 +11,22 @@ import java.util.Map;
 public interface EmbeddedTrackedMultiValue<K, V> extends TrackedMultiValue<K, V> {
 
   default void checkValue(V value) {
-    if ((value instanceof RID
-        || value instanceof Entity entity && !entity.isEmbedded())) {
+    if (value instanceof RID) {
       throw new SchemaException(
           "Cannot add a RID or a non-embedded entity to a embedded data container");
+    }
+
+    if (value instanceof Entity entity) {
+      if (!entity.isEmbedded()) {
+        throw new SchemaException(
+            "Cannot add a non-embedded entity to a embedded data container");
+      }
+
+      if (isOneOfOwners((RecordElement) entity)) {
+        throw new IllegalStateException(
+            "Cannot add an entity to a embedded data container as this entity is "
+                + "owner of this container");
+      }
     }
 
     if (PropertyTypeInternal.isSingleValueType(value) || ((value instanceof Entity entity)

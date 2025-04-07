@@ -7,8 +7,10 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -70,11 +72,11 @@ public class LinkBagIndexTest extends BaseDBTest {
     checkEmbeddedDB();
 
     session.begin();
-    final var docOne = ((EntityImpl) session.newEntity());
+    final var docOne = session.newEntity();
+    final var docTwo = session.newEntity();
 
-    final var docTwo = ((EntityImpl) session.newEntity());
+    final var document = session.newEntity("RidBagIndexTestClass");
 
-    final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
     final var ridBag = new RidBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
@@ -675,12 +677,12 @@ public class LinkBagIndexTest extends BaseDBTest {
             "select * from RidBagIndexTestClass where ridBag contains ?", docOne.getIdentity());
     var res = result.next();
 
-    List<Identifiable> listResult = new ArrayList<>();
+    var resultSet = new HashSet<>();
     for (Identifiable identifiable : res.<RidBag>getProperty("ridBag")) {
-      listResult.add(identifiable);
+      resultSet.add(identifiable);
     }
     result.close();
 
-    Assert.assertEquals(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()), listResult);
+    Assert.assertEquals(Set.of(docOne.getIdentity(), docTwo.getIdentity()), resultSet);
   }
 }

@@ -26,12 +26,12 @@ public class IndexCursorStream extends IndexAbstractCursor {
       return new Map.Entry<Object, Identifiable>() {
         @Override
         public Object getKey() {
-          return pair.first;
+          return pair.first();
         }
 
         @Override
         public Identifiable getValue() {
-          return pair.second;
+          return pair.second();
         }
 
         @Override

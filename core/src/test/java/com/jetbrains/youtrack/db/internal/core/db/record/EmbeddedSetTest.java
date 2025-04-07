@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -253,17 +254,23 @@ public class EmbeddedSetTest extends DbTestBase {
     Assert.assertEquals(
         original,
         trackedSet.returnOriginalState(session,
-            (List) trackedSet.getTimeLine().getMultiValueChangeEvents()));
+            trackedSet.getTimeLine().getMultiValueChangeEvents()));
     session.rollback();
   }
 
   @Test
   public void testStackOverflowOnRecursion() {
-    session.begin();
-    final var entity = (EntityImpl) session.newEmbeddedEntity();
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new EntityEmbeddedSetImpl<EntityImpl>(
-        entity);
-    trackedSet.add(entity);
-    session.rollback();
+    try {
+      session.executeInTx(transaction -> {
+        final var entity = (EntityImpl) session.newEmbeddedEntity();
+        @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") final var trackedSet = new EntityEmbeddedSetImpl<EntityImpl>(
+            entity);
+        trackedSet.add(entity);
+        Assert.fail();
+      });
+    } catch (IllegalStateException e) {
+      // Expected exception
+    }
+
   }
 }

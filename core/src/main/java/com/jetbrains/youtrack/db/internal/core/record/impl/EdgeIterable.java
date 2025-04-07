@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
-public class EdgeIterable extends BidirectionalLinkIterable<Vertex, EdgeInternal>  {
+public class EdgeIterable extends RelationsIterable<Vertex, EdgeInternal> {
 
   protected EdgeIterable(@Nonnull Vertex sourceEntity,
       Pair<Direction, String> connection,

@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLink;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItemFirst;
@@ -25,7 +25,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
   }
 
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
     Iterable<Identifiable> possibleResults = null;
     //    if (this.edge.edge.item.getFilter() != null) {
@@ -42,15 +42,15 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
     //    }
 
     var item = (SQLMultiMatchPathItem) this.item;
-    List<Result> result = new ArrayList<>();
+    List<ResultInternal> result = new ArrayList<>();
 
-    List<Object> nextStep = new ArrayList<>();
+    List<Result> nextStep = new ArrayList<>();
     nextStep.add(startingPoint);
 
     var db = iCommandContext.getDatabaseSession();
     var oldCurrent = iCommandContext.getVariable("$current");
     for (var sub : item.getItems()) {
-      List<Result> rightSide = new ArrayList<>();
+      List<ResultInternal> rightSide = new ArrayList<>();
       for (var o : nextStep) {
         var whileCond =
             sub.getFilter() == null ? null : sub.getFilter().getWhileCondition();
@@ -61,16 +61,12 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
         }
 
         if (whileCond != null) {
-          var current = o;
-          if (current instanceof Result) {
-            current = ((Result) current).asEntityOrNull();
-          }
           var subtraverser = new MatchEdgeTraverser(null, sub);
           var rightStream =
-              subtraverser.executeTraversal(iCommandContext, sub, (Identifiable) current, 0,
+              subtraverser.executeTraversal(iCommandContext, sub, o, 0,
                   null);
           while (rightStream.hasNext(iCommandContext)) {
-            rightSide.add(rightStream.next(iCommandContext));
+            rightSide.add((ResultInternal) rightStream.next(iCommandContext));
           }
 
         } else {
@@ -86,6 +82,11 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
                 .forEach(rightSide::add);
           } else if (nextSteps instanceof Identifiable) {
             var res = new ResultInternal(db, (Identifiable) nextSteps);
+            if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
+              rightSide.add(res);
+            }
+          } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
+            var res = new ResultInternal(db, bidirectionalLink);
             if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
               rightSide.add(res);
             }
@@ -138,7 +139,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       return resultInternal;
     } else if (x instanceof Identifiable identifiable) {
       return new ResultInternal(session, identifiable);
-    } else if (x instanceof BidirectionalLink<?> bidirectionalLink) {
+    } else if (x instanceof Relation<?> bidirectionalLink) {
       return new ResultInternal(session, bidirectionalLink);
     }
     throw new CommandExecutionException(session, "Cannot execute traversal on " + x);

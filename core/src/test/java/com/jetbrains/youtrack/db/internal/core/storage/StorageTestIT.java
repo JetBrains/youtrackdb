@@ -12,7 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.IOException;
@@ -70,7 +70,7 @@ public class StorageTestIT {
     }
 
     var storage =
-        (LocalPaginatedStorage) session.getStorage();
+        (LocalStorage) session.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = session.getSharedContext();
     session.close();
@@ -136,7 +136,7 @@ public class StorageTestIT {
     }
 
     var storage =
-        (LocalPaginatedStorage) db.getStorage();
+        (LocalStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();
@@ -199,7 +199,7 @@ public class StorageTestIT {
     }
 
     var storage =
-        (LocalPaginatedStorage) db.getStorage();
+        (LocalStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();
@@ -262,7 +262,7 @@ public class StorageTestIT {
     }
 
     var storage =
-        (LocalPaginatedStorage) db.getStorage();
+        (LocalStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();

@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
@@ -28,38 +27,23 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSeriali
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.embedded.EmbeddedRidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedCollection;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.UUID;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  *
  */
 public class HelperClasses {
-
   public static final String CHARSET_UTF_8 = "UTF-8";
   protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   public static final long MILLISEC_PER_DAY = 86400000;
@@ -270,18 +254,14 @@ public class HelperClasses {
     VarIntSerializer.write(bytes, value.size());
 
     for (var itemValue : value) {
-      // TODO: handle the null links
-      if (itemValue == null) {
-        writeNullLink(bytes);
-      } else {
-        writeOptimizedLink(db, bytes, itemValue);
-      }
+      assert itemValue.getIdentity().isPersistent();
+      writeOptimizedLink(db, bytes, itemValue);
     }
 
     return pointer;
   }
 
-  public static <T extends TrackedMultiValue<?, Identifiable>> T readLinkCollection(
+  public static <T extends TrackedCollection<?, Identifiable>> T readLinkCollection(
       final BytesContainer bytes, final T found, boolean justRunThrough) {
     var type = bytes.bytes[bytes.offset++];
     if (type != 0) {
@@ -317,11 +297,9 @@ public class HelperClasses {
     VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
       writeString(bytes, entry.getKey().toString());
-      if (entry.getValue() == null) {
-        writeNullLink(bytes);
-      } else {
-        writeOptimizedLink(db, bytes, entry.getValue());
-      }
+      var entryValue = entry.getValue();
+      assert entryValue.getIdentity().isPersistent();
+      writeOptimizedLink(db, bytes, entryValue);
     }
     return fullPos;
   }
@@ -355,196 +333,13 @@ public class HelperClasses {
     bytes.bytes[pos] = val;
   }
 
-  public static void writeRidBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag ridbag) {
-    ridbag.checkAndConvert();
-
-    var ownerUuid = ridbag.getTemporaryId();
-    var positionOffset = bytes.offset;
-    final var bTreeCollectionManager = session.getBTreeCollectionManager();
-    UUID uuid = null;
-    if (bTreeCollectionManager != null) {
-      uuid = bTreeCollectionManager.listenForChanges(ridbag, session);
-    }
-
-    byte configByte = 0;
-    if (ridbag.isEmbedded()) {
-      configByte |= 1;
-    }
-
-    if (uuid != null) {
-      configByte |= 2;
-    }
-
-    // alloc will move offset and do skip
-    var posForWrite = bytes.alloc(ByteSerializer.BYTE_SIZE);
-    bytes.bytes[posForWrite] = configByte;
-
-    // removed serializing UUID
-    if (ridbag.isEmbedded()) {
-      writeEmbeddedRidbag(session, bytes, ridbag);
-    } else {
-      writeSBTreeRidbag(session, bytes, ridbag, ownerUuid);
-    }
-  }
-
-  protected static void writeEmbeddedRidbag(@Nonnull DatabaseSessionInternal session,
-      BytesContainer bytes,
-      RidBag ridbag) {
-    var size = ridbag.size();
-    var entries = ((EmbeddedRidBag) ridbag.getDelegate()).getEntries();
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i];
-      var txInternal = session.getTransactionInternal();
-      if (entry instanceof Identifiable itemValue) {
-        if (!session.isClosed()
-            && session.getTransactionInternal().isActive()
-            && !itemValue.getIdentity().isPersistent()) {
-          itemValue = session.getTransactionInternal().getRecord(itemValue.getIdentity());
-        }
-
-        if (itemValue == null) {
-          entries[i] = null;
-          // Decrease size, nulls are ignored
-          size--;
-        } else {
-          entries[i] = itemValue.getIdentity();
-        }
-      }
-    }
-
-    VarIntSerializer.write(bytes, size);
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i];
-      // Obviously this exclude nulls as well
-      if (entry instanceof Identifiable) {
-        writeLinkOptimized(bytes, ((Identifiable) entry).getIdentity());
-      }
-    }
-  }
-
-  protected static void writeSBTreeRidbag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag ridbag, UUID ownerUuid) {
-    ((BTreeBasedRidBag) ridbag.getDelegate()).applyNewEntries();
-
-    var pointer = ridbag.getPointer();
-
-    final RecordSerializationContext context;
-    var tx = session.getTransactionInternal();
-    if (!(tx instanceof FrontendTransactionImpl optimisticTx)) {
-      throw new DatabaseException(session.getDatabaseName(),
-          "Transaction is not active. Changes are not allowed");
-    }
-
-    var remoteMode = session.isRemote();
-
-    if (remoteMode) {
-      context = null;
-    } else {
-      context = RecordSerializationContext.getContext();
-    }
-
-    if (pointer == null && context != null) {
-      final var collectionId = getHighLevelDocCollectionId(ridbag);
-      assert collectionId > -1;
-      try {
-        final var storage = (AbstractPaginatedStorage) session.getStorage();
-        final var atomicOperation =
-            storage.getAtomicOperationsManager().getCurrentOperation();
-
-        assert atomicOperation != null;
-        pointer = session
-            .getBTreeCollectionManager()
-            .createSBTree(collectionId, atomicOperation, ownerUuid, session);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new DatabaseException(session.getDatabaseName(), "Error during creation of ridbag"), e,
-            session.getDatabaseName());
-      }
-    }
-
-    ((BTreeBasedRidBag) ridbag.getDelegate()).setCollectionPointer(pointer);
-
-    VarIntSerializer.write(bytes, pointer.getFileId());
-    VarIntSerializer.write(bytes, pointer.getRootPointer().getPageIndex());
-    VarIntSerializer.write(bytes, pointer.getRootPointer().getPageOffset());
-    VarIntSerializer.write(bytes, 0);
-
-    if (context != null) {
-      ((BTreeBasedRidBag) ridbag.getDelegate()).handleContextSBTree(context, pointer);
-      VarIntSerializer.write(bytes, 0);
-    } else {
-      VarIntSerializer.write(bytes, 0);
-
-      // removed changes serialization
-    }
-  }
-
-  private static int getHighLevelDocCollectionId(RidBag ridbag) {
-    var delegate = ridbag.getDelegate();
-    var owner = delegate.getOwner();
-    while (owner != null && owner.getOwner() != null) {
-      owner = owner.getOwner();
-    }
-
-    if (owner != null) {
-      return ((Identifiable) owner).getIdentity().getCollectionId();
-    }
-
-    return -1;
-  }
-
   public static void writeLinkOptimized(final BytesContainer bytes, Identifiable link) {
     var id = link.getIdentity();
     VarIntSerializer.write(bytes, id.getCollectionId());
     VarIntSerializer.write(bytes, id.getCollectionPosition());
   }
 
-  public static RidBag readRidbag(DatabaseSessionInternal db, BytesContainer bytes) {
-    var configByte = bytes.bytes[bytes.offset++];
-    var isEmbedded = (configByte & 1) != 0;
-
-    UUID uuid = null;
-    // removed deserializing UUID
-
-    RidBag ridbag = null;
-    if (isEmbedded) {
-      ridbag = new RidBag(db);
-      var size = VarIntSerializer.readAsInteger(bytes);
-      ridbag.getDelegate().setSize(size);
-      for (var i = 0; i < size; i++) {
-        var rid = readLinkOptimizedEmbedded(db, bytes);
-        ridbag.getDelegate().addInternal(rid);
-      }
-    } else {
-      var fileId = VarIntSerializer.readAsLong(bytes);
-      var pageIndex = VarIntSerializer.readAsLong(bytes);
-      var pageOffset = VarIntSerializer.readAsInteger(bytes);
-      // read bag size
-      VarIntSerializer.readAsInteger(bytes);
-
-      BonsaiCollectionPointer pointer = null;
-      if (fileId != -1) {
-        pointer =
-            new BonsaiCollectionPointer(fileId, new RidBagBucketPointer(pageIndex, pageOffset));
-      }
-
-      Map<RID, Change> changes = new HashMap<>();
-
-      var changesSize = VarIntSerializer.readAsInteger(bytes);
-      for (var i = 0; i < changesSize; i++) {
-        var recId = readLinkOptimizedSBTree(db, bytes);
-        var change = deserializeChange(bytes);
-        changes.put(recId, change);
-      }
-
-      ridbag = new RidBag(db, pointer, changes, uuid);
-      ridbag.getDelegate().setSize(-1);
-    }
-    return ridbag;
-  }
-
-  private static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
+  public static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
       final BytesContainer bytes) {
     var rid =
         new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
@@ -553,29 +348,6 @@ public class HelperClasses {
     }
 
     return rid;
-  }
-
-  private static RID readLinkOptimizedSBTree(DatabaseSessionInternal session,
-      final BytesContainer bytes) {
-    RID rid =
-        new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
-    if (!rid.isPersistent()) {
-      try {
-        rid = session.refreshRid(rid);
-      } catch (RecordNotFoundException rnf) {
-        //ignore
-      }
-    }
-
-    return rid;
-  }
-
-  private static Change deserializeChange(BytesContainer bytes) {
-    var type = bytes.bytes[bytes.offset];
-    bytes.skip(ByteSerializer.BYTE_SIZE);
-    var change = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
-    bytes.skip(IntegerSerializer.INT_SIZE);
-    return ChangeSerializationHelper.createChangeInstance(type, change);
   }
 
   @Nullable

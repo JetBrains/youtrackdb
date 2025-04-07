@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.engine.RemoteIndexEngine;
 import java.util.Collections;
 import java.util.HashSet;
@@ -128,7 +128,7 @@ public class DefaultIndexFactory implements IndexFactory {
     switch (storageType) {
       case "memory":
       case "disk":
-        var realStorage = (AbstractPaginatedStorage) storage;
+        var realStorage = (AbstractStorage) storage;
         if (data.getAlgorithm().equals(BTREE_ALGORITHM)) {
           if (data.isMultivalue()) {
             indexEngine =

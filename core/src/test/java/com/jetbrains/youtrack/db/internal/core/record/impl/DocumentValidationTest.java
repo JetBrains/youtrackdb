@@ -838,10 +838,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     try {
       var session = toCheck.getBoundedToSession();
       var newD = (EntityImpl) session.getActiveTransaction().newEntity(toCheck.getSchemaClass());
-
-      newD.unsetDirty();
-      newD.fromStream(((EntityImpl) toCheck).toStream());
-
+      newD.copyProperties((EntityImpl) toCheck);
       newD.setProperty(field, newValue);
       newD.validate();
       fail();

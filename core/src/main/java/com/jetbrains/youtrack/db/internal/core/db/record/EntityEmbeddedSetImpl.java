@@ -19,7 +19,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
-    implements RecordElement, EmbeddedTrackedMultiValue<T, T>, Serializable, EmbeddedSet<T> {
+    implements RecordElement, EmbeddedTrackedMultiValue<T, T>, Serializable, EmbeddedSet<T>,
+    TrackedCollection<T, T> {
+
   protected RecordElement sourceRecord;
 
   private boolean dirty = false;
@@ -114,13 +116,11 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     return false;
   }
 
-  public boolean addInternal(final T e) {
+  public void addInternal(final T e) {
     checkValue(e);
     if (set.add(e)) {
       addOwner(e);
-      return true;
     }
-    return false;
   }
 
   @SuppressWarnings("unchecked")
@@ -167,10 +167,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
 
     var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
-      if (!(sourceRecord instanceof RecordAbstract)
-          || !((RecordAbstract) sourceRecord).isDirty()) {
-        sourceRecord.setDirty();
-      }
+      sourceRecord.setDirty();
     }
   }
 

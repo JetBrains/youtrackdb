@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.storage.collection.v2;
 
-import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -18,7 +17,7 @@ public final class FreeSpaceMap extends DurableComponent {
   private long fileId;
 
   public FreeSpaceMap(
-      @Nonnull AbstractPaginatedStorage storage,
+      @Nonnull AbstractStorage storage,
       @Nonnull String name,
       String extension,
       String lockName) {

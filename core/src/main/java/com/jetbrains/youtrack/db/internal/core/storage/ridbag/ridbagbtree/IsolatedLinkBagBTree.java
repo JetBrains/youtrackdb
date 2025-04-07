@@ -24,12 +24,15 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySeria
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
-import java.util.Map;
+import java.util.Spliterator;
+import java.util.stream.Stream;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
+public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
 
   /**
    * Gets id of file where this bonsai tree is stored.
@@ -46,7 +49,7 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
   /**
    * @return pointer to a collection.
    */
-  BonsaiCollectionPointer getCollectionPointer();
+  LinkBagPointer getCollectionPointer();
 
   /**
    * Search for entry with specific key and return its value.
@@ -54,6 +57,7 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
    * @param key
    * @return value associated with given key, NULL if no value is associated.
    */
+  @Nullable
   V get(K key);
 
   boolean put(AtomicOperation atomicOperation, K key, V value) throws IOException;
@@ -79,8 +83,14 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
   void loadEntriesMajor(
       K key, boolean inclusive, boolean ascSortOrder, RangeResultListener<K, V> listener);
 
+  @Nonnull
+  Spliterator<ObjectIntPair<K>> spliteratorEntriesBetween(
+      @Nonnull K keyFrom, boolean fromInclusive,@Nonnull K keyTo, boolean toInclusive, boolean ascSortOrder);
+
+  @Nullable
   K firstKey();
 
+  @Nullable
   K lastKey();
 
   /**
@@ -88,10 +98,9 @@ public interface EdgeBTree<K, V> extends TreeInternal<K, V> {
    *
    * <p>Don't make any changes to tree.
    *
-   * @param changes Bag changes
    * @return real bag size
    */
-  int getRealBagSize(Map<K, Change> changes);
+  int getRealBagSize();
 
   BinarySerializer<K> getKeySerializer();
 
