@@ -773,4 +773,43 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  public void testCycle() {
+    session.begin();
+    var entityOne = session.newEntity();
+    var linkSetOne = (EntityLinkSetImpl) session.newLinkSet();
+
+    var entityTwo = session.newEntity();
+    var linkSetTwo = (EntityLinkSetImpl) session.newLinkSet();
+
+    entityOne.setProperty("linkSet", linkSetOne);
+    entityTwo.setProperty("linkSet", linkSetTwo);
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entityOne = activeTx.load(entityOne);
+    entityTwo = activeTx.load(entityTwo);
+
+    linkSetOne = entityOne.getProperty("linkSet");
+    linkSetOne.add(entityTwo.getIdentity());
+
+    linkSetTwo = entityTwo.getProperty("linkSet");
+    linkSetTwo.add(entityOne.getIdentity());
+
+    session.commit();
+
+    activeTx = session.begin();
+    entityOne = activeTx.load(entityOne.getIdentity());
+    linkSetOne = entityOne.getProperty("linkSet");
+
+    entityTwo = activeTx.load(entityTwo.getIdentity());
+    linkSetTwo = entityTwo.getProperty("linkSet");
+
+    assertEquals(linkSetOne.iterator().next(), entityTwo);
+    assertEquals(linkSetTwo.iterator().next(), entityOne);
+    activeTx.commit();
+  }
+
+
 }
