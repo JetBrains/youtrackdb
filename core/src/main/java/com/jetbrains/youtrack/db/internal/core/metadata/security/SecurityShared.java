@@ -464,16 +464,16 @@ public class SecurityShared implements SecurityInternal {
     var policy = getSecurityPolicy(session, policyName);
     if (policy == null) {
       policy = createSecurityPolicy(session, policyName);
-      policy.setCreateRule(session,
+      policy.setCreateRule(
           (legacyPolicy & Role.PERMISSION_CREATE) > 0 ? "true" : "false");
-      policy.setReadRule(session, (legacyPolicy & Role.PERMISSION_READ) > 0 ? "true" : "false");
-      policy.setBeforeUpdateRule(session,
+      policy.setReadRule((legacyPolicy & Role.PERMISSION_READ) > 0 ? "true" : "false");
+      policy.setBeforeUpdateRule(
           (legacyPolicy & Role.PERMISSION_UPDATE) > 0 ? "true" : "false");
-      policy.setAfterUpdateRule(session,
+      policy.setAfterUpdateRule(
           (legacyPolicy & Role.PERMISSION_UPDATE) > 0 ? "true" : "false");
-      policy.setDeleteRule(session,
+      policy.setDeleteRule(
           (legacyPolicy & Role.PERMISSION_DELETE) > 0 ? "true" : "false");
-      policy.setExecuteRule(session,
+      policy.setExecuteRule(
           (legacyPolicy & Role.PERMISSION_EXECUTE) > 0 ? "true" : "false");
       saveSecurityPolicy(session, policy);
     }
@@ -541,7 +541,7 @@ public class SecurityShared implements SecurityInternal {
     var sessionInternal = (DatabaseSessionInternal) session;
     var elem = sessionInternal.newEntity(SecurityPolicy.CLASS_NAME);
     elem.setProperty("name", name);
-    var policy = new SecurityPolicyImpl(elem);
+    var policy = new SecurityPolicyImpl((EntityImpl) elem);
     saveSecurityPolicy(session, policy);
     return policy;
   }
@@ -563,7 +563,7 @@ public class SecurityShared implements SecurityInternal {
             "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
       if (rs.hasNext()) {
         var result = rs.next();
-        return new SecurityPolicyImpl(result.asEntity());
+        return new SecurityPolicyImpl((EntityImpl) result.asEntity());
       }
     }
     return null;
@@ -572,7 +572,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public void saveSecurityPolicy(DatabaseSession session, SecurityPolicyImpl policy) {
     var sessionInternal = (DatabaseSessionInternal) session;
-    policy.getEntity(sessionInternal);
+    policy.save(sessionInternal);
   }
 
   @Override
@@ -786,7 +786,8 @@ public class SecurityShared implements SecurityInternal {
     readerRole.addRule(session,
         ResourceGeneric.COLLECTION,
         MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
-    readerRole.addRule(session, ResourceGeneric.COLLECTION, Role.CLASS_NAME.toLowerCase(Locale.ROOT),
+    readerRole.addRule(session, ResourceGeneric.COLLECTION,
+        Role.CLASS_NAME.toLowerCase(Locale.ROOT),
         Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
@@ -1269,8 +1270,8 @@ public class SecurityShared implements SecurityInternal {
                   if (isClassInvolved(session, clazz, res)
                       && !isAllAllowed(
                       session,
-                      new ImmutableSecurityPolicy(session,
-                          new SecurityPolicyImpl(policy)))) {
+                      new ImmutableSecurityPolicy(
+                          new SecurityPolicyImpl((EntityImpl) policy)))) {
                     var roleMap =
                         result.computeIfAbsent(roleName, k -> new HashMap<>());
                     roleMap.put(clazz.getName(), true);
@@ -1805,10 +1806,10 @@ public class SecurityShared implements SecurityInternal {
               var res = SecurityResource.getInstance(policyEntry.getKey());
               if (res instanceof SecurityResourceProperty) {
                 var transaction = db.getActiveTransaction();
-                final Entity element = transaction.load(policyEntry.getValue());
+                final Entity entity = transaction.load(policyEntry.getValue());
                 final SecurityPolicy policy =
-                    new ImmutableSecurityPolicy(db, new SecurityPolicyImpl(element));
-                final var readRule = policy.getReadRule(db);
+                    new ImmutableSecurityPolicy(new SecurityPolicyImpl((EntityImpl) entity));
+                final var readRule = policy.getReadRule();
                 if (readRule != null && !readRule.trim().equalsIgnoreCase("true")) {
                   result.add((SecurityResourceProperty) res);
                 }

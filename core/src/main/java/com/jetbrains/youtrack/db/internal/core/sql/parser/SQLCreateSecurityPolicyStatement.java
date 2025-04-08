@@ -33,24 +33,24 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
     var db = ctx.getDatabaseSession();
     var security = db.getSharedContext().getSecurity();
     var policy = security.createSecurityPolicy(db, name.getStringValue());
-    policy.setActive(ctx.getDatabaseSession(), true);
+    policy.setActive(true);
     if (create != null) {
-      policy.setCreateRule(ctx.getDatabaseSession(), create.toString());
+      policy.setCreateRule(create.toString());
     }
     if (read != null) {
-      policy.setReadRule(db, read.toString());
+      policy.setReadRule(read.toString());
     }
     if (beforeUpdate != null) {
-      policy.setBeforeUpdateRule(db, beforeUpdate.toString());
+      policy.setBeforeUpdateRule(beforeUpdate.toString());
     }
     if (afterUpdate != null) {
-      policy.setAfterUpdateRule(db, afterUpdate.toString());
+      policy.setAfterUpdateRule(afterUpdate.toString());
     }
     if (delete != null) {
-      policy.setDeleteRule(db, delete.toString());
+      policy.setDeleteRule(delete.toString());
     }
     if (execute != null) {
-      policy.setExecuteRule(db, execute.toString());
+      policy.setExecuteRule(execute.toString());
     }
 
     security.saveSecurityPolicy(db, policy);

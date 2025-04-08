@@ -42,7 +42,7 @@ public class ImmutableRole implements SecurityRole {
     if (policies != null) {
       Map<String, SecurityPolicy> result = new HashMap<>();
       policies
-          .forEach((key, value) -> result.put(key, new ImmutableSecurityPolicy(session, value)));
+          .forEach((key, value) -> result.put(key, new ImmutableSecurityPolicy(value)));
       this.policies = result;
     } else {
       this.policies = null;

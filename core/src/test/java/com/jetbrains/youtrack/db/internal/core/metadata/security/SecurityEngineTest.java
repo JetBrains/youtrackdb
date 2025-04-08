@@ -64,8 +64,8 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'admin'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'admin'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.*",
         policy);
@@ -86,8 +86,8 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
@@ -109,8 +109,8 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
@@ -133,15 +133,15 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
 
     policy = security.createSecurityPolicy(session, "policy2");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'bar'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'bar'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "admin"), "database.class.Employee", policy);
@@ -164,15 +164,15 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'admin'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'admin'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
 
     policy = security.createSecurityPolicy(session, "policy2");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'bar' OR name = 'admin'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'bar' OR name = 'admin'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.*",
         policy);
@@ -196,15 +196,15 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
 
     policy = security.createSecurityPolicy(session, "policy2");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "surname = 'bar'");
+    policy.setActive(true);
+    policy.setReadRule("surname = 'bar'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Foo",
         policy);
@@ -239,15 +239,15 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
 
     policy = security.createSecurityPolicy(session, "policy2");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "surname = 'bar'");
+    policy.setActive(true);
+    policy.setReadRule("surname = 'bar'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -285,8 +285,8 @@ public class SecurityEngineTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
         policy);
