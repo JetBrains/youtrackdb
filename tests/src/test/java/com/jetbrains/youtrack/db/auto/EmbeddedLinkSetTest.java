@@ -24,6 +24,7 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
+import org.testng.annotations.Test;
 
 public class EmbeddedLinkSetTest extends BaseDBTest {
 
@@ -73,6 +74,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
   }
 
 
+  @Test
   public void testAdd() {
     session.begin();
     var set = (EntityLinkSetImpl) session.newLinkSet();
@@ -91,6 +93,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testAdd2() {
     session.begin();
     var set = (EntityLinkSetImpl) session.newLinkSet();
@@ -106,6 +109,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   @SuppressWarnings("OverwrittenKey")
   public void testAddRemoveInTheMiddleOfIteration() {
 
@@ -208,6 +212,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   @SuppressWarnings("OverwrittenKey")
   public void testAddRemove() {
     session.begin();
@@ -292,6 +297,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   @SuppressWarnings("OverwrittenKey")
   public void testAddRemoveContainsValues() {
     session.begin();
@@ -384,6 +390,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   @SuppressWarnings("OverwrittenKey")
   public void testAddRemoveDuringIterationContainsValues() {
     session.begin();
@@ -493,6 +500,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testEmptyIterator() {
     session.begin();
     var set = (EntityLinkSetImpl) session.newLinkSet();
@@ -505,6 +513,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testAddRemoveNotExisting() {
 
     session.begin();
@@ -621,6 +630,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testContentChange() {
     session.begin();
     var entity = session.newEntity();
@@ -1521,6 +1531,149 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     }
 
     assertTrue(entitiesToAdd.isEmpty());
+    session.commit();
+  }
+
+  @Test
+  public void testSizeNotChangeAfterRemoveNotExistentElement() {
+    session.begin();
+    final var bob = session.newEntity();
+    final var fred = session.newEntity();
+    final var jim = session.newEntity();
+    session.commit();
+
+    session.begin();
+    var teamMates = session.newLinkSet();
+
+    teamMates.add(bob.getIdentity());
+    teamMates.add(fred.getIdentity());
+
+    assertEquals(teamMates.size(), 2);
+    teamMates.remove(jim.getIdentity());
+    assertEquals(teamMates.size(), 2);
+    session.commit();
+  }
+
+  @Test
+  public void testRemoveNotExistentElementAndAddIt() {
+    session.begin();
+    var teamMates = session.newLinkSet();
+
+    final var bob = session.newEntity();
+    session.commit();
+
+    teamMates.remove(bob.getIdentity());
+
+    assertEquals(teamMates.size(), 0);
+
+    teamMates.add(bob.getIdentity());
+
+    assertEquals(teamMates.size(), 1);
+    assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
+  }
+
+  @Test
+  public void testAddNewItemsAndRemoveThem() {
+    session.begin();
+    var rids = new HashSet<RID>();
+    var linkSet = (EntityLinkSetImpl) session.newLinkSet();
+
+    var size = 0;
+    for (var i = 0; i < 10; i++) {
+      var entityToAdd = session.newEntity();
+
+      for (var k = 0; k < 2; k++) {
+        linkSet.add(entityToAdd.getIdentity());
+
+        if (rids.add(entityToAdd.getIdentity())) {
+          size++;
+        }
+      }
+    }
+
+    assertEquals(linkSet.size(), size);
+    var entity = session.newEntity();
+    entity.setProperty("linkSet", linkSet);
+
+    session.commit();
+
+    rids = new HashSet<>(rids);
+    session.begin();
+    entity = session.loadEntity(entity.getIdentity());
+    linkSet = entity.getProperty("linkSet");
+    assertEquals(linkSet.size(), size);
+
+    final var newEntities = new HashSet<RID>();
+    for (var i = 0; i < 10; i++) {
+      var entityToAdd = session.newEntity();
+
+      for (var k = 0; k < 2; k++) {
+        linkSet.add(entityToAdd.getIdentity());
+
+        if (rids.add(entityToAdd.getIdentity())) {
+          newEntities.add(entityToAdd.getIdentity());
+          size++;
+        }
+      }
+    }
+
+    session.commit();
+
+    rids = new HashSet<>(rids);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    assertEquals(linkSet.size(), size);
+
+    var rnd = new Random();
+
+    for (var newEntity : newEntities) {
+      if (rnd.nextBoolean()) {
+        rids.remove(newEntity);
+        linkSet.remove(newEntity.getIdentity());
+        newEntities.remove(newEntity);
+        size--;
+      }
+    }
+
+    for (var identifiable : linkSet) {
+      if (newEntities.contains(identifiable.getIdentity()) && rnd.nextBoolean()) {
+        linkSet.remove(identifiable.getIdentity());
+        if (rids.remove(identifiable.getIdentity())) {
+          size--;
+        }
+      }
+    }
+
+    session.commit();
+    session.begin();
+
+    rids = new HashSet<>(rids);
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    assertEquals(linkSet.size(), size);
+    var ridsCopy = new HashSet<>(rids);
+
+    for (var identifiable : linkSet) {
+      assertTrue(rids.remove(identifiable.getIdentity()));
+    }
+
+    assertTrue(rids.isEmpty());
+
+    session.begin();
+    entity = session.loadEntity(entity.getIdentity());
+    linkSet = entity.getProperty("linkSet");
+
+    rids.addAll(ridsCopy);
+    for (var identifiable : linkSet) {
+      assertTrue(rids.remove(identifiable.getIdentity()));
+    }
+
+    assertTrue(rids.isEmpty());
+    assertEquals(linkSet.size(), size);
     session.commit();
   }
 
