@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import java.io.IOException;
@@ -1674,6 +1675,46 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
 
     assertTrue(rids.isEmpty());
     assertEquals(linkSet.size(), size);
+    session.commit();
+  }
+
+  @Test
+  public void testJsonSerialization() {
+    session.begin();
+    final var externalEntity = session.newEntity();
+
+    final var highLevelLinkSet = session.newLinkSet();
+
+    for (var i = 0; i < 10; i++) {
+      var entity = session.newEntity();
+      highLevelLinkSet.add(entity.getIdentity());
+    }
+
+    var testEntity = session.newEntity();
+    testEntity.setProperty("type", "testEntity");
+    testEntity.setProperty("linkSet", highLevelLinkSet);
+    testEntity.setProperty("externalEntity", externalEntity);
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    testEntity = activeTx.loadEntity(testEntity);
+    final var origContent = testEntity.toMap();
+    final var json = testEntity.toJSON("keepTypes,rid,class");
+
+    final var map = session.createOrLoadEntityFromJson(json).toMap();
+
+    origContent.remove(EntityHelper.ATTRIBUTE_RID);
+    map.remove(EntityHelper.ATTRIBUTE_RID);
+
+    assertEquals(map.get("@class"), origContent.get("@class"));
+    assertEquals(map.get("externalEntity"), origContent.get("externalEntity"));
+    assertEquals(map.get("type"), origContent.get("type"));
+    assertEquals(
+        map.get("linkSet"),
+        origContent.get("linkSet")
+    );
     session.commit();
   }
 
