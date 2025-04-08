@@ -5,13 +5,16 @@ import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Random;
 import java.util.Set;
 import org.testng.Assert;
@@ -1126,6 +1129,84 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.begin();
     var activeTx = session.getActiveTransaction();
     activeTx.<EntityImpl>load(entity).delete();
+    session.commit();
+  }
+
+  public void testSimultaneousIterationAndRemove() {
+    session.begin();
+    var linkSet = (EntityLinkSetImpl) session.newLinkSet();
+    var entity = session.newEntity();
+    entity.setLinkSet("linkSet", linkSet);
+    assertTrue(linkSet.isEmbedded());
+
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      linkSet.add(docToAdd.getIdentity());
+    }
+
+    session.commit();
+
+    assertTrue(linkSet.isEmbedded());
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    var entities = Collections.newSetFromMap(new IdentityHashMap<Entity, Boolean>());
+    for (var id : linkSet) {
+      // cache record inside session
+      entities.add(activeTx.load(id));
+    }
+
+    linkSet = entity.getProperty("linkSet");
+    assertTrue(linkSet.isEmbedded());
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var entityToAdd = session.newEntity();
+
+      entities.add(entityToAdd);
+      linkSet.add(entityToAdd.getIdentity());
+      session.commit();
+    }
+
+    assertTrue(linkSet.isEmbedded());
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var entityToAdd = session.newEntity();
+      entities.add(entityToAdd);
+      linkSet.add(entityToAdd.getIdentity());
+      session.commit();
+    }
+
+    assertTrue(linkSet.isEmbedded());
+    for (var identifiable : linkSet) {
+      assertTrue(entities.remove(activeTx.loadEntity(identifiable)));
+      linkSet.remove(identifiable.getIdentity());
+      assertEquals(linkSet.size(), entities.size());
+
+      var counter = 0;
+      for (var id : linkSet) {
+        var transaction = session.getActiveTransaction();
+        assertTrue(entities.contains(transaction.loadEntity(id)));
+        counter++;
+      }
+
+      assertEquals(counter, entities.size());
+      assertTrue(linkSet.isEmbedded());
+    }
+
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    assertEquals(linkSet.size(), 0);
+    assertEquals(entities.size(), 0);
     session.commit();
   }
 
