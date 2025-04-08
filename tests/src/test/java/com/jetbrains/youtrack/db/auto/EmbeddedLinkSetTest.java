@@ -1112,13 +1112,12 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     var rid = entity.getIdentity();
 
     for (var i = 0; i < 10; i++) {
-      rids.clear();
       session.begin();
       entity = session.load(rid);
 
       set = (EntityLinkSetImpl) entity.getLinkSet("linkSet");
       assertTrue(set.isEmbedded());
-      rids.addAll(set);
+      rids = new HashSet<>(rids);
 
       massiveInsertionIteration(random, rids, set);
       assertTrue(set.isEmbedded());
@@ -1209,6 +1208,105 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     assertEquals(entities.size(), 0);
     session.commit();
   }
+
+  public void testAddMixedValues() {
+    session.begin();
+    var linkSet = (EntityLinkSetImpl) session.newLinkSet();
+    var entity = session.newEntity();
+    entity.setProperty("linkSet", linkSet);
+    assertTrue(linkSet.isEmbedded());
+
+    var itemsToAdd = new HashSet<RID>();
+
+    for (var i = 0; i < 10; i++) {
+      var entityToAdd = session.newEntity();
+      linkSet = entity.getProperty("linkSet");
+
+      for (var k = 0; k < 2; k++) {
+        linkSet.add(entityToAdd.getIdentity());
+        itemsToAdd.add(entityToAdd.getIdentity());
+      }
+    }
+    session.commit();
+
+    assertTrue(linkSet.isEmbedded());
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var entityToAdd = session.newEntity();
+
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
+      linkSet = entity.getProperty("linkSet");
+
+      for (var k = 0; k < 2; k++) {
+        linkSet.add(entityToAdd.getIdentity());
+        itemsToAdd.add(entityToAdd.getIdentity());
+      }
+
+      session.commit();
+    }
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var entityToAdd = session.newEntity();
+
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.loadEntity(entity);
+      linkSet = entity.getProperty("linkSet");
+
+      linkSet.add(entityToAdd.getIdentity());
+      itemsToAdd.add(entityToAdd.getIdentity());
+
+      session.commit();
+    }
+
+    assertTrue(linkSet.isEmbedded());
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    for (var i = 0; i < 10; i++) {
+      var entitiesToAdd = session.newEntity();
+
+      for (var k = 0; k < 2; k++) {
+        linkSet.add(entitiesToAdd.getIdentity());
+        itemsToAdd.add(entitiesToAdd.getIdentity());
+      }
+    }
+
+    for (var i = 0; i < 10; i++) {
+      var entityToAdd = session.newEntity();
+
+      linkSet.add(entityToAdd.getIdentity());
+      itemsToAdd.add(entityToAdd.getIdentity());
+    }
+
+    assertTrue(linkSet.isEmbedded());
+
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    assertTrue(linkSet.isEmbedded());
+
+    assertEquals(linkSet.size(), itemsToAdd.size());
+
+    itemsToAdd = new HashSet<>(itemsToAdd);
+
+    for (var id : linkSet) {
+      assertTrue(itemsToAdd.remove(id.getIdentity()));
+    }
+
+    assertTrue(itemsToAdd.isEmpty());
+    session.commit();
+  }
+
 
   private void massiveInsertionIteration(Random rnd, Set<Identifiable> rids,
       EntityLinkSetImpl linkSet) {
