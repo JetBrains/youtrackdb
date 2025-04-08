@@ -1444,6 +1444,86 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  public void testRemoveSavedInCommit() {
+    session.begin();
+    var entitiesToAdd = new HashSet<Identifiable>();
+
+    var linkSet = (EntityLinkSetImpl) session.newLinkSet();
+    var entity = session.newEntity();
+    entity.setProperty("linkSet", linkSet);
+
+    for (var i = 0; i < 5; i++) {
+      var entityToAdd = session.newEntity();
+
+      linkSet = entity.getProperty("linkSet");
+      linkSet.add(entityToAdd.getIdentity());
+
+      entitiesToAdd.add(entityToAdd.getIdentity());
+    }
+
+    session.commit();
+
+    entitiesToAdd = new HashSet<>(entitiesToAdd);
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    assertTrue(linkSet.isEmbedded());
+
+    linkSet = entity.getProperty("linkSet");
+    assertTrue(linkSet.isEmbedded());
+
+    linkSet = entity.getProperty("linkSet");
+    for (var i = 0; i < 5; i++) {
+      var entityToAdd = session.newEntity();
+      linkSet.add(entityToAdd.getIdentity());
+      entitiesToAdd.add(entityToAdd);
+    }
+
+    var iterator = entitiesToAdd.iterator();
+    for (var i = 0; i < 7; i++) {
+      if (iterator.hasNext()) {
+        iterator.next();
+      }
+    }
+
+    Assert.assertTrue(iterator.hasNext());
+
+    while (iterator.hasNext()) {
+      var entryToAdd = iterator.next();
+      linkSet.remove(entryToAdd.getIdentity());
+      iterator.remove();
+    }
+
+    session.commit();
+
+    activeTx = session.begin();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    assertTrue(linkSet.isEmbedded());
+
+    entitiesToAdd = new HashSet<>(entitiesToAdd);
+    var entriesToAddCopy = new HashSet<>(entitiesToAdd);
+
+    for (var id : linkSet) {
+      assertTrue(entitiesToAdd.remove(id));
+    }
+
+    assertTrue(entitiesToAdd.isEmpty());
+
+    entitiesToAdd.addAll(entriesToAddCopy);
+
+    linkSet = entity.getProperty("linkSet");
+
+    for (var id : linkSet) {
+      assertTrue(entitiesToAdd.remove(id));
+    }
+
+    assertTrue(entitiesToAdd.isEmpty());
+    session.commit();
+  }
+
 
   private void massiveInsertionIteration(Random rnd, Set<Identifiable> rids,
       EntityLinkSetImpl linkSet) {
