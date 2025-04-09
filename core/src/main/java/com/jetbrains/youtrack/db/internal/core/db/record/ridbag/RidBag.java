@@ -40,6 +40,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -252,10 +253,10 @@ public class RidBag
 
   @Override
   public Object returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    return new RidBag(session,
-        (LinkBagDelegate) delegate.returnOriginalState(session, multiValueChangeEvents));
+    return new RidBag(transaction.getSession(),
+        (LinkBagDelegate) delegate.returnOriginalState(transaction, multiValueChangeEvents));
   }
 
 

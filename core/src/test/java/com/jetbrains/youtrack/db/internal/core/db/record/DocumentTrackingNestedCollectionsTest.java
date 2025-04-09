@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -120,7 +121,7 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
   public void testChangesValuesNestedTrackingMap() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
-    var objects = entity.<Map<String, Object>>newEmbeddedMap("objects");
+    var objects = entity.<EmbeddedMap<Object>>newEmbeddedMap("objects");
 
     var subObjects = session.newEmbeddedMap();
     objects.put("first", subObjects);

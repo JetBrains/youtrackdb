@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
 import java.util.List;
 
@@ -38,10 +38,11 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   /**
    * Reverts all operations that were performed on collection and return original collection state.
    *
+   * @param transaction
    * @param changeEvents List of operations that were performed on collection.
    * @return Original collection state.
    */
-  Object returnOriginalState(DatabaseSessionInternal session,
+  Object returnOriginalState(FrontendTransaction transaction,
       List<MultiValueChangeEvent<K, V>> changeEvents);
 
   void enableTracking(RecordElement parent);

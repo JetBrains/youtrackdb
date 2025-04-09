@@ -72,6 +72,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final var inKeyValue = keyParams.get(0);
       Collection<Object> inParams;
@@ -103,15 +104,15 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       final List<Object> inKeys = new ArrayList<Object>();
 
       var containsNotCompatibleKey = false;
+
       for (final var keyValue : inParams) {
         final Object key;
         if (indexDefinition instanceof IndexDefinitionMultiValue) {
           key =
               ((IndexDefinitionMultiValue) indexDefinition)
-                  .createSingleValue(iContext.getDatabaseSession(), SQLHelper.getValue(keyValue));
+                  .createSingleValue(transaction, SQLHelper.getValue(keyValue));
         } else {
-          key = indexDefinition.createValue(iContext.getDatabaseSession(),
-              SQLHelper.getValue(keyValue));
+          key = indexDefinition.createValue(transaction, SQLHelper.getValue(keyValue));
         }
 
         if (key == null) {
@@ -151,11 +152,10 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
 
       var containsNotCompatibleKey = false;
       for (final var keyValue : inParams) {
-        List<Object> fullKey = new ArrayList<Object>();
-        fullKey.addAll(partialKey);
+        List<Object> fullKey = new ArrayList<Object>(partialKey);
         fullKey.add(keyValue);
         final Object key =
-            compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), fullKey);
+            compositeIndexDefinition.createSingleValue(transaction, fullKey);
         if (key == null) {
           containsNotCompatibleKey = true;
           break;

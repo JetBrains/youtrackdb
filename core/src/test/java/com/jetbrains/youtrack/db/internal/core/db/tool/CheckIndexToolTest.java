@@ -35,8 +35,8 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 
     session.begin();
     var idx = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.name");
-    var key = idx.getDefinition().createValue(session, "a");
-    idx.remove(session, key, rid);
+    var key = idx.getDefinition().createValue(session.getActiveTransaction(), "a");
+    idx.remove(session.getActiveTransaction(), key, rid);
     session.commit();
 
     session.begin();

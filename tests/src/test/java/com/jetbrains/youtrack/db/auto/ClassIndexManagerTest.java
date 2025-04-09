@@ -439,7 +439,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var rids =
         compositeIndex
 
-            .getRids(session, compositeIndexDefinition.createValue(session, "a", 1))) {
+            .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
+                "a", 1))) {
       Assert.assertTrue(rids.findFirst().isPresent());
     }
     Assert.assertEquals(compositeIndex.size(session), 1);
@@ -579,7 +580,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     try (var stream =
         compositeIndex
 
-            .getRids(session, compositeIndexDefinition.createValue(session, "a", 2))) {
+            .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
+                "a", 2))) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
@@ -621,8 +623,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
     try (var stream =
         compositeIndex
-
-            .getRids(session, compositeIndexDefinition.createValue(session, "a", 2))) {
+            .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
+                "a", 2))) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
   }
@@ -631,7 +633,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final Schema schema = session.getMetadata().getSchema();
-    final var oClass = schema.getClass("classIndexManagerTestClass");
+    schema.getClass("classIndexManagerTestClass");
 
     final var propFourIndex = session.getMetadata().getIndexManagerInternal()
         .getIndex(session, "classIndexManagerTestClass.prop4");

@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -145,16 +146,6 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     enterReadAccess(session);
     try {
       return indexes.containsKey(iName);
-    } finally {
-      leaveReadAccess(session);
-    }
-  }
-
-
-  public EntityImpl getConfiguration(DatabaseSessionInternal session) {
-    enterReadAccess(session);
-    try {
-      return getEntity(session);
     } finally {
       leaveReadAccess(session);
     }
@@ -481,7 +472,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     throw new UnsupportedOperationException();
   }
 
-  public EntityImpl toStream(DatabaseSessionInternal session) {
+  public void save(FrontendTransaction transaction) {
     throw new UnsupportedOperationException("Remote index cannot be streamed");
   }
 
@@ -491,7 +482,17 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   }
 
   @Override
-  public void recreateIndexes(DatabaseSessionInternal database) {
+  public void markMetadataDirty() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void recreateIndexes(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException("recreateIndexes(DatabaseSessionInternal)");
   }
 
@@ -517,7 +518,8 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       if (idxs != null) {
         for (var configMap : idxs) {
           try {
-            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(session, configMap);
+            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(
+                session.getActiveTransaction(), configMap);
 
             var type = newIndexMetadata.getType();
             var name = newIndexMetadata.getName();
@@ -555,7 +557,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     session
         .getSharedContext()
         .getSchema()
-        .forceSnapshot(session);
+        .forceSnapshot();
     internalReleaseExclusiveLock(session);
   }
 

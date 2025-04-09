@@ -19,6 +19,7 @@ package com.jetbrains.youtrack.db.internal.lucene;
 import static com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 
 public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListener {
@@ -83,7 +86,9 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
   }
 
   @Override
-  public Index createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(
+      @Nonnull IndexMetadata im, @Nullable RID identity, @Nonnull IndexManagerAbstract indexManager,
+      @Nonnull Storage storage)
       throws ConfigurationException {
     var metadata = im.getMetadata();
     final var indexType = im.getType();
@@ -102,7 +107,7 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
     }
 
     if (FULLTEXT.toString().equalsIgnoreCase(indexType)) {
-      return new LuceneFullTextIndex(im, storage);
+      return new LuceneFullTextIndex(im, identity, indexManager, storage);
     }
 
     throw new ConfigurationException(storage.getName(), "Unsupported type : " + algorithm);
@@ -145,7 +150,7 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
       session.getMetadata().getIndexManagerInternal().getIndexes(session).stream()
           .filter(idx -> idx instanceof LuceneFullTextIndex)
           .peek(idx -> LogManager.instance().debug(this, "deleting index " + idx.getName()))
-          .forEach(idx -> idx.delete(session));
+          .forEach(idx -> session.executeInTxInternal(idx::delete));
 
     } catch (Exception e) {
       LogManager.instance().warn(this, "Error on dropping Lucene indexes", e);

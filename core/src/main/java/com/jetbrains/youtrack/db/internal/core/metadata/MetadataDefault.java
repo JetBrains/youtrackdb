@@ -96,6 +96,17 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
+  @Override
+  public void forceClearThreadLocalSchemaSnapshot() {
+    if (this.immutableCount == 0) {
+      this.immutableSchema = null;
+    } else {
+      throw new IllegalStateException("Attempted to force clear local schema snapshot for thread " +
+          Thread.currentThread().getName() + " but the snapshot usage count is not zero: "
+          + this.immutableCount);
+    }
+  }
+
   @Nullable
   @Override
   public ImmutableSchema getImmutableSchemaSnapshot() {

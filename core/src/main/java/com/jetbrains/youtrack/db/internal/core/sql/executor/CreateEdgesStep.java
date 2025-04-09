@@ -172,7 +172,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     var key =
         uniqueIndex
             .getDefinition()
-            .createValue(db, currentFrom.getIdentity(), currentTo.getIdentity());
+            .createValue(db.getActiveTransaction(), currentFrom.getIdentity(),
+                currentTo.getIdentity());
 
     final Iterator<RID> iterator;
     try (var stream = uniqueIndex.getRids(db, key)) {

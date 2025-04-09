@@ -491,7 +491,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public DatabaseSessionInternal copy() {
     assertIfNotActive();
     var storage = (Storage) getSharedContext().getStorage();
-    storage.open(this, null, null, config.getConfiguration());
+    storage.open(this, null, null, getConfiguration());
     String user;
     if (getCurrentUser() != null) {
       user = getCurrentUser().getName(this);

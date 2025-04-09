@@ -96,7 +96,7 @@ public class ImmutableSchema implements SchemaInternal {
       var indexName = index.getName();
       var metadata = index.getMetadata();
 
-      if (metadata != null) {
+      if (metadata == null) {
         metadata = Collections.emptyMap();
       }
 

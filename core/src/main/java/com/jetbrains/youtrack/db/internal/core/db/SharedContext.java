@@ -138,4 +138,8 @@ public abstract class SharedContext extends ListenerManger<MetadataUpdateListene
   public StringCache getStringCache() {
     return this.stringCache;
   }
+
+  public boolean isLoaded() {
+    return loaded;
+  }
 }

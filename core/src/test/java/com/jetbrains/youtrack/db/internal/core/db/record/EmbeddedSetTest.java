@@ -253,7 +253,7 @@ public class EmbeddedSetTest extends DbTestBase {
 
     Assert.assertEquals(
         original,
-        trackedSet.returnOriginalState(session,
+        trackedSet.returnOriginalState(session.getActiveTransaction(),
             trackedSet.getTimeLine().getMultiValueChangeEvents()));
     session.rollback();
   }

@@ -47,28 +47,30 @@ public class ServerCommandDeleteIndex extends ServerCommandDocumentAbstract {
         throw new IllegalArgumentException("Index name '" + urlParts[2] + "' not found");
       }
 
-      final boolean found;
-      if (urlParts.length > 4) {
-        found = index.remove(db, urlParts[3], new RecordId(urlParts[3]));
-      } else {
-        found = index.remove(db, urlParts[3]);
-      }
+      db.executeInTxInternal(transaction -> {
+        final boolean found;
+        if (urlParts.length > 4) {
+          found = index.remove(transaction, urlParts[3], new RecordId(urlParts[3]));
+        } else {
+          found = index.remove(transaction, urlParts[3]);
+        }
 
-      if (found) {
-        iResponse.send(
-            HttpUtils.STATUS_OK_CODE,
-            HttpUtils.STATUS_OK_DESCRIPTION,
-            HttpUtils.CONTENT_TEXT_PLAIN,
-            null,
-            null);
-      } else {
-        iResponse.send(
-            HttpUtils.STATUS_NOTFOUND_CODE,
-            HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
-            HttpUtils.CONTENT_TEXT_PLAIN,
-            null,
-            null);
-      }
+        if (found) {
+          iResponse.send(
+              HttpUtils.STATUS_OK_CODE,
+              HttpUtils.STATUS_OK_DESCRIPTION,
+              HttpUtils.CONTENT_TEXT_PLAIN,
+              null,
+              null);
+        } else {
+          iResponse.send(
+              HttpUtils.STATUS_NOTFOUND_CODE,
+              HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
+              HttpUtils.CONTENT_TEXT_PLAIN,
+              null,
+              null);
+        }
+      });
     } finally {
       if (db != null) {
         db.close();

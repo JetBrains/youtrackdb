@@ -26,8 +26,11 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator
 import com.jetbrains.youtrack.db.internal.core.index.engine.UniqueIndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation that allows only one value for a key.
@@ -37,13 +40,10 @@ public class IndexUnique extends IndexOneValue {
   private final IndexEngineValidator<Object, RID> uniqueValidator =
       new UniqueIndexEngineValidator(this);
 
-  public IndexUnique(IndexMetadata im, final Storage storage) {
-    super(im, storage);
-  }
-
-  @Override
-  public boolean isNativeTxSupported() {
-    return true;
+  public IndexUnique(@Nonnull IndexMetadata im, @Nullable RID identity,
+      @Nonnull final IndexManagerAbstract indexManager,
+      @Nonnull final Storage storage) {
+    super(im, identity, indexManager, storage);
   }
 
   @Override

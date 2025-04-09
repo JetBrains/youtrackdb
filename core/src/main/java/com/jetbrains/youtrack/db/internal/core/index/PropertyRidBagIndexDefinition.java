@@ -21,18 +21,19 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
 /**
- * Index definition for index which is bound to field with type {@link PropertyTypeInternal#LINKBAG} .
+ * Index definition for index which is bound to field with type {@link PropertyTypeInternal#LINKBAG}
+ * .
  *
  * @since 1/30/14
  */
@@ -47,23 +48,24 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object createSingleValue(DatabaseSessionInternal session, Object... param) {
-    return keyType.convert(refreshRid(session, param[0]), null, null, session);
+  public Object createSingleValue(FrontendTransaction transaction, Object... param) {
+    return keyType.convert(refreshRid(transaction.getSession(),
+        param[0]), null, null, transaction.getSession());
   }
 
   public void processChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD: {
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         break;
       }
       case REMOVE: {
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
         break;
       }
       default:
@@ -72,19 +74,19 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object getDocumentValueToIndex(DatabaseSessionInternal session, EntityImpl entity) {
-    return createValue(session, entity.<Object>getPropertyInternal(field));
+  public Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity) {
+    return createValue(transaction, entity.<Object>getPropertyInternal(field));
   }
 
   @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, final List<?> params) {
+  public Object createValue(FrontendTransaction transaction, final List<?> params) {
     if (!(params.get(0) instanceof RidBag ridBag)) {
       return null;
     }
     final List<Object> values = new ArrayList<>();
     for (final Identifiable item : ridBag) {
-      values.add(createSingleValue(session, item.getIdentity()));
+      values.add(createSingleValue(transaction, item.getIdentity()));
     }
 
     return values;
@@ -92,13 +94,13 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
 
   @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, final Object... params) {
+  public Object createValue(FrontendTransaction transaction, final Object... params) {
     if (!(params[0] instanceof RidBag ridBag)) {
       return null;
     }
     final List<Object> values = new ArrayList<>();
     for (final Identifiable item : ridBag) {
-      values.add(createSingleValue(session, item.getIdentity()));
+      values.add(createSingleValue(transaction, item.getIdentity()));
     }
 
     return values;

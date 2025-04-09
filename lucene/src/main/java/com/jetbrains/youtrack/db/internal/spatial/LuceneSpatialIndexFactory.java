@@ -16,6 +16,7 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static com.jetbrains.youtrack.db.internal.lucene.LuceneIndexFactory.LUCENE_ALGORITHM;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -24,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 
 public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycleListener {
@@ -85,7 +88,9 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public Index createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(
+      @Nonnull IndexMetadata im, @Nullable RID identity, @Nonnull IndexManagerAbstract indexManager,
+      @Nonnull Storage storage)
       throws ConfigurationException {
     var metadata = im.getMetadata();
     final var indexType = im.getType();
@@ -104,7 +109,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
     }
 
     if (SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
-      return new LuceneSpatialIndex(im, storage);
+      return new LuceneSpatialIndex(im, identity, indexManager, storage);
     }
 
     throw new ConfigurationException(storage.getName(), "Unsupported type : " + algorithm);

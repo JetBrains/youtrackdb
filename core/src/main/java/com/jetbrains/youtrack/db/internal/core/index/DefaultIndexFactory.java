@@ -16,6 +16,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
@@ -29,6 +30,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.index.engine.RemoteIndexE
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Default YouTrackDB index factory for indexes based on SBTree.<br> Supports index types:
@@ -83,7 +86,9 @@ public class DefaultIndexFactory implements IndexFactory {
     return ALGORITHMS;
   }
 
-  public Index createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(
+      @Nonnull IndexMetadata im, @Nullable RID identity, @Nonnull IndexManagerAbstract indexManager,
+      @Nonnull Storage storage)
       throws ConfigurationException {
     var version = im.getVersion();
     final var indexType = im.getType();
@@ -95,9 +100,9 @@ public class DefaultIndexFactory implements IndexFactory {
     }
 
     if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
-      return new IndexUnique(im, storage);
+      return new IndexUnique(im, identity, indexManager, storage);
     } else if (SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
-      return new IndexNotUnique(im, storage);
+      return new IndexNotUnique(im, identity, indexManager, storage);
     }
 
     throw new ConfigurationException(storage.getName(), "Unsupported type: " + indexType);

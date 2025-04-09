@@ -20,20 +20,17 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
 import java.util.AbstractSet;
 import java.util.Collection;
@@ -41,9 +38,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
-import java.util.function.IntFunction;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -164,7 +158,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
   public Set<Identifiable> returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Identifiable, Identifiable>> multiValueChangeEvents) {
     var reverted = new HashSet<>(this);
 

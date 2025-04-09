@@ -16,7 +16,16 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import java.util.Collection;
+import java.util.Date;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -386,4 +395,118 @@ public interface Transaction {
   @SuppressWarnings("rawtypes")
   void command(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException;
+
+  default <T> EmbeddedList<T> newEmbeddedList() {
+    return getSession().newEmbeddedList();
+  }
+
+  default <T> EmbeddedList<T> newEmbeddedList(int size) {
+    return getSession().newEmbeddedList(size);
+  }
+
+  default <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    return getSession().newEmbeddedList(list);
+  }
+
+  default EmbeddedList<String> newEmbeddedList(String[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Short> newEmbeddedList(short[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Long> newEmbeddedList(long[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Float> newEmbeddedList(float[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Double> newEmbeddedList(double[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    return getSession().newEmbeddedList(source);
+  }
+
+  default LinkList newLinkList() {
+    return getSession().newLinkList();
+  }
+
+  default LinkList newLinkList(int size) {
+    return getSession().newLinkList(size);
+  }
+
+  default LinkList newLinkList(Collection<? extends Identifiable> source) {
+    return getSession().newLinkList(source);
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet() {
+    return getSession().newEmbeddedSet();
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    return getSession().newEmbeddedSet(size);
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    return getSession().newEmbeddedSet(set);
+  }
+
+  default LinkSet newLinkSet() {
+    return getSession().newLinkSet();
+  }
+
+  default LinkSet newLinkSet(Collection<? extends Identifiable> source) {
+    return getSession().newLinkSet(source);
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap() {
+    return getSession().newEmbeddedMap();
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap(int size) {
+    return getSession().newEmbeddedMap(size);
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
+    return getSession().newEmbeddedMap(map);
+  }
+
+  default LinkMap newLinkMap() {
+    return getSession().newLinkMap();
+  }
+
+  default LinkMap newLinkMap(int size) {
+    return getSession().newLinkMap(size);
+  }
+
+  default LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
+    return getSession().newLinkMap(source);
+  }
+
+  /**
+   * Returns the schema of the database.
+   *
+   * @return the schema of the database
+   */
+  default Schema getSchema() {
+    return getSession().getSchema();
+  }
+
 }

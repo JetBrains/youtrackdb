@@ -142,7 +142,7 @@ public class CheckIndexTool extends DatabaseTool {
       vals[i] = entity.getProperty(fields.get(i));
     }
 
-    var indexKey = index.getDefinition().createValue(session, vals);
+    var indexKey = index.getDefinition().createValue(session.getActiveTransaction(), vals);
     if (indexKey == null) {
       return;
     }

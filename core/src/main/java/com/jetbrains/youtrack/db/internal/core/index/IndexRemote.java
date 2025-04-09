@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
@@ -92,7 +93,7 @@ public class IndexRemote implements Index {
     return this;
   }
 
-  public IndexRemote delete(DatabaseSessionInternal session) {
+  public IndexRemote delete(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 
@@ -109,16 +110,16 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public IndexRemote put(DatabaseSessionInternal session, final Object key,
+  public IndexRemote put(FrontendTransaction session, final Object key,
       final Identifiable value) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key) {
+  public boolean remove(FrontendTransaction transaction, final Object key) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key,
+  public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
     throw new UnsupportedOperationException();
   }
@@ -159,12 +160,12 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public boolean loadFromConfiguration(DatabaseSessionInternal session, Map<String, ?> config) {
+  public void load(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Map<String, ?> updateConfiguration(DatabaseSessionInternal session) {
+  public RID save(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 
@@ -189,7 +190,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public IndexMetadata loadMetadata(DatabaseSessionInternal session, Map<String, ?> config) {
+  public IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config) {
     throw new UnsupportedOperationException();
   }
 
@@ -253,11 +254,6 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public boolean isNativeTxSupported() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes) {
     throw new UnsupportedOperationException();
@@ -288,7 +284,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Index create(DatabaseSessionInternal session, IndexMetadata metadata, boolean rebuild,
+  public Index create(FrontendTransaction transaction, IndexMetadata metadata,
       ProgressListener progressListener) {
     throw new UnsupportedOperationException();
   }
@@ -314,7 +310,7 @@ public class IndexRemote implements Index {
     return algorithm;
   }
 
-  public Map<String, ?> getConfiguration(DatabaseSessionInternal session) {
+  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
@@ -332,8 +328,13 @@ public class IndexRemote implements Index {
     return rid;
   }
 
+  @Override
+  public void markDirty() {
+    throw new UnsupportedOperationException();
+  }
+
   public long rebuild(DatabaseSessionInternal session,
-      final ProgressListener iProgressListener) {
+      final ProgressListener progressListener) {
     return rebuild(session);
   }
 

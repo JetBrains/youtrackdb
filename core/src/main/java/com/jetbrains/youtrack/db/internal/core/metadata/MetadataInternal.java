@@ -51,6 +51,8 @@ public interface MetadataInternal extends Metadata {
 
   void clearThreadLocalSchemaSnapshot();
 
+  void forceClearThreadLocalSchemaSnapshot();
+
   ImmutableSchema getImmutableSchemaSnapshot();
 
   SchemaInternal getSchemaInternal();

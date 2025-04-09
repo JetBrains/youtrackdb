@@ -21,25 +21,24 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,18 +53,21 @@ import javax.annotation.Nullable;
  * Contentions are managed by r/w locks.
  */
 public class IndexManagerShared implements IndexManagerAbstract {
+  private volatile Thread recreateIndexesThread = null;
 
-  private transient volatile Thread recreateIndexesThread = null;
   volatile boolean rebuildCompleted = false;
+
   final Storage storage;
-  // values of this Map should be IMMUTABLE !! for thread safety reasons.
   protected final Map<String, Map<MultiKey, Set<Index>>> classPropertyIndex =
       new ConcurrentHashMap<>();
   protected Map<String, Index> indexes = new ConcurrentHashMap<>();
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
 
-  protected final ReadWriteLock lock = new ReentrantReadWriteLock();
-  protected RID identity;
+  private boolean contentDirty;
+  private boolean metadataDirty;
+
+  private final ReadWriteLock lock = new ReentrantReadWriteLock();
+  private RID identity;
 
   public IndexManagerShared(Storage storage) {
     super();
@@ -74,42 +76,31 @@ public class IndexManagerShared implements IndexManagerAbstract {
 
   public void load(DatabaseSessionInternal session) {
     if (!autoRecreateIndexesAfterCrash(session)) {
-      acquireExclusiveLock(session);
-      try {
-        if (session.getStorageInfo().getConfiguration().getIndexMgrRecordId() == null)
-        // @COMPATIBILITY: CREATE THE INDEX MGR
-        {
-          create(session);
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          identity =
+              new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+          var entity = (EntityImpl) session.loadEntity(identity);
+          fromStream(transaction, entity);
+        } finally {
+          releaseExclusiveLock(session, transaction);
         }
-        identity =
-            new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
-        // RELOAD IT
-        EntityImpl entity = session.load(identity);
-        fromStream(session, entity);
-        final var rec = (RecordAbstract) entity;
-        rec.unsetDirty();
-        entity.unload();
-      } finally {
-        releaseExclusiveLock(session);
-      }
+      });
     }
   }
 
   public void reload(DatabaseSessionInternal session) {
-    acquireExclusiveLock(session);
-    try {
-      session.executeInTx(
-          transaction -> {
-            EntityImpl entity = session.load(identity);
-            fromStream(session, entity);
-          });
-    } finally {
-      releaseExclusiveLock(session);
-    }
-  }
-
-  public void save(DatabaseSessionInternal session) {
-    internalSave(session);
+    session.executeInTxInternal(
+        transaction -> {
+          acquireExclusiveLock(transaction);
+          try {
+            var entity = (EntityImpl) transaction.loadEntity(identity);
+            fromStream(transaction, entity);
+          } finally {
+            releaseExclusiveLock(session, transaction);
+          }
+        });
   }
 
   public void addCollectionToIndex(DatabaseSessionInternal session, final String collectionName,
@@ -123,22 +114,26 @@ public class IndexManagerShared implements IndexManagerAbstract {
     } finally {
       releaseSharedLock();
     }
-    acquireExclusiveLock(session);
-    try {
-      final var index = indexes.get(indexName);
-      if (index == null) {
-        throw new IndexException(session.getDatabaseName(),
-            "Index with name " + indexName + " does not exist.");
+
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        final var index = indexes.get(indexName);
+        if (index == null) {
+          throw new IndexException(session,
+              "Index with name " + indexName + " does not exist.");
+        }
+        if (!index.getCollections().contains(collectionName)) {
+          index.addCollection(transaction.getSession(), collectionName);
+        }
+      } finally {
+        releaseExclusiveLock(session, transaction);
       }
-      if (!index.getCollections().contains(collectionName)) {
-        index.addCollection(session, collectionName);
-      }
-    } finally {
-      releaseExclusiveLock(session, true);
-    }
+    });
   }
 
-  public void removeCollectionFromIndex(DatabaseSessionInternal session, final String collectionName,
+  public void removeCollectionFromIndex(DatabaseSessionInternal session,
+      final String collectionName,
       final String indexName) {
     acquireSharedLock();
     try {
@@ -149,28 +144,35 @@ public class IndexManagerShared implements IndexManagerAbstract {
     } finally {
       releaseSharedLock();
     }
-    acquireExclusiveLock(session);
-    try {
-      final var index = indexes.get(indexName);
-      if (index == null) {
-        throw new IndexException(session.getDatabaseName(),
-            "Index with name " + indexName + " does not exist.");
+
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        final var index = indexes.get(indexName);
+        if (index == null) {
+          throw new IndexException(session.getDatabaseName(),
+              "Index with name " + indexName + " does not exist.");
+        }
+        index.removeCollection(session, collectionName);
+      } finally {
+        releaseExclusiveLock(session, transaction);
       }
-      index.removeCollection(session, collectionName);
-    } finally {
-      releaseExclusiveLock(session, true);
-    }
+    });
   }
 
   public void create(DatabaseSessionInternal session) {
-    acquireExclusiveLock(session);
-    try {
-      var entity = session.computeInTx(transaction -> session.newInternalInstance());
-      identity = entity.getIdentity();
-      session.getStorage().setIndexMgrRecordId(entity.getIdentity().toString());
-    } finally {
-      releaseExclusiveLock(session);
-    }
+    var rid = session.computeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        var entity = session.newInternalInstance();
+        identity = entity.getIdentity();
+        return identity;
+      } finally {
+        releaseExclusiveLock(session, transaction);
+      }
+    });
+
+    session.getStorage().setIndexMgrRecordId(rid.toString());
   }
 
   public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
@@ -183,15 +185,6 @@ public class IndexManagerShared implements IndexManagerAbstract {
 
   public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
     return indexes.containsKey(iName);
-  }
-
-  public EntityImpl getConfiguration(DatabaseSessionInternal session) {
-    acquireSharedLock();
-    try {
-      return getEntity(session);
-    } finally {
-      releaseSharedLock();
-    }
   }
 
   @Override
@@ -211,16 +204,16 @@ public class IndexManagerShared implements IndexManagerAbstract {
     }
 
     final var rawResult = propertyIndex.get(multiKey);
-    final Set<Index> transactionalResult = new HashSet<>(rawResult.size());
+    final Set<Index> result = new HashSet<>(rawResult.size());
     for (final var index : rawResult) {
       // ignore indexes that ignore null values on partial match
       if (fields.size() == index.getDefinition().getFields().size()
           || !index.getDefinition().isNullValuesIgnored()) {
-        transactionalResult.add(index);
+        result.add(index);
       }
     }
 
-    return transactionalResult;
+    return result;
   }
 
   public Set<Index> getClassInvolvedIndexes(
@@ -318,75 +311,47 @@ public class IndexManagerShared implements IndexManagerAbstract {
     lock.readLock().unlock();
   }
 
-  protected void acquireExclusiveLock(DatabaseSessionInternal db) {
-    internalAcquireExclusiveLock(db);
+  protected void acquireExclusiveLock(FrontendTransaction transaction) {
+    transaction.getSession().startExclusiveMetadataChange();
+
+    lock.writeLock().lock();
     writeLockNesting.incrementAndGet();
   }
 
-  void internalAcquireExclusiveLock(DatabaseSessionInternal db) {
-    if (!db.isClosed()) {
-      final var metadata = db.getMetadata();
-      if (metadata != null) {
-        metadata.makeThreadLocalSchemaSnapshot();
-      }
-      db.startExclusiveMetadataChange();
-    }
 
-    lock.writeLock().lock();
-  }
-
-  protected void releaseExclusiveLock(DatabaseSessionInternal session) {
-    releaseExclusiveLock(session, false);
-  }
-
-  protected void releaseExclusiveLock(DatabaseSessionInternal session, boolean save) {
+  protected void releaseExclusiveLock(DatabaseSessionInternal session,
+      FrontendTransaction transaction) {
     var val = writeLockNesting.decrementAndGet();
     try {
       if (val == 0) {
-        if (save) {
-          internalSave(session);
+        if (transaction.isActive()) {
+          save(transaction);
         }
       }
-    } finally {
-      internalReleaseExclusiveLock(session);
-    }
-    if (val == 0) {
-      session
-          .getSharedContext()
-          .getSchema()
-          .forceSnapshot(session);
-    }
-  }
 
-  void internalReleaseExclusiveLock(DatabaseSessionInternal db) {
-    lock.writeLock().unlock();
+      if (val == 0) {
+        session
+            .getSharedContext()
+            .getSchema()
+            .forceSnapshot();
 
-    if (!db.isClosed()) {
-      db.endExclusiveMetadataChange();
-      final var metadata = db.getMetadata();
-      if (metadata != null) {
-        metadata.clearThreadLocalSchemaSnapshot();
       }
-    }
-  }
-
-  void clearMetadata(DatabaseSessionInternal session) {
-    acquireExclusiveLock(session);
-    try {
-      indexes.clear();
-      classPropertyIndex.clear();
     } finally {
-      releaseExclusiveLock(session);
+      lock.writeLock().unlock();
+      session.endExclusiveMetadataChange();
     }
+
+    session.getMetadata().forceClearThreadLocalSchemaSnapshot();
   }
 
 
-  void addIndexInternal(DatabaseSessionInternal session, final Index index) {
-    acquireExclusiveLock(session);
+  void addIndexInternal(DatabaseSessionInternal session, FrontendTransaction transaction,
+      final Index index) {
+    acquireExclusiveLock(transaction);
     try {
       addIndexInternalNoLock(index);
     } finally {
-      releaseExclusiveLock(session);
+      releaseExclusiveLock(session, transaction);
     }
   }
 
@@ -449,12 +414,13 @@ public class IndexManagerShared implements IndexManagerAbstract {
   /**
    * Create a new index with default algorithm.
    *
-   * @param iName             - name of index
-   * @param iType             - index type. Specified by plugged index factories.
-   * @param indexDefinition   metadata that describes index structure
+   * @param iName                - name of index
+   * @param iType                - index type. Specified by plugged index factories.
+   * @param indexDefinition      metadata that describes index structure
    * @param collectionIdsToIndex ids of collections that index should track for changes.
-   * @param progressListener  listener to track task progress.
-   * @param metadata          entity with additional properties that can be used by index engine.
+   * @param progressListener     listener to track task progress.
+   * @param metadata             entity with additional properties that can be used by index
+   *                             engine.
    * @return a newly created index instance
    */
   public Index createIndex(
@@ -481,13 +447,14 @@ public class IndexManagerShared implements IndexManagerAbstract {
    *
    * <p>May require quite a long time if big amount of data should be indexed.
    *
-   * @param iName             name of index
-   * @param type              index type. Specified by plugged index factories.
-   * @param indexDefinition   metadata that describes index structure
+   * @param iName                name of index
+   * @param type                 index type. Specified by plugged index factories.
+   * @param indexDefinition      metadata that describes index structure
    * @param collectionIdsToIndex ids of collections that index should track for changes.
-   * @param progressListener  listener to track task progress.
-   * @param metadata          entity with additional properties that can be used by index engine.
-   * @param algorithm         tip to an index factory what algorithm to use
+   * @param progressListener     listener to track task progress.
+   * @param metadata             entity with additional properties that can be used by index
+   *                             engine.
+   * @param algorithm            tip to an index factory what algorithm to use
    * @return a newly created index instance
    */
   public Index createIndex(
@@ -520,68 +487,73 @@ public class IndexManagerShared implements IndexManagerAbstract {
           "Invalid index name '" + iName + "'. Character '" + c + "' is invalid");
     }
 
-    if (indexDefinition == null) {
-      throw new IllegalArgumentException("Index definition cannot be null");
-    }
-
     type = type.toUpperCase();
     if (algorithm == null) {
       algorithm = Indexes.chooseDefaultIndexAlgorithm(type);
     }
 
-    final Index index;
-    acquireExclusiveLock(session);
-    try {
+    var indexType = type;
+    var indexAlgorithm = algorithm;
+    var idx = session.computeInTxInternal(transaction -> {
+      final Index index;
+      acquireExclusiveLock(transaction);
+      try {
 
-      if (indexes.containsKey(iName)) {
-        throw new IndexException(session.getDatabaseName(),
-            "Index with name " + iName + " already exists.");
+        if (indexes.containsKey(iName)) {
+          throw new IndexException(session.getDatabaseName(),
+              "Index with name " + iName + " already exists.");
+        }
+
+        var currentIndexMetadata = metadata;
+        if (currentIndexMetadata == null) {
+          currentIndexMetadata = new HashMap<>();
+        }
+
+        final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
+        var ignoreNullValues = currentIndexMetadata.get("ignoreNullValues");
+        if (Boolean.TRUE.equals(ignoreNullValues)) {
+          indexDefinition.setNullValuesIgnored(true);
+        } else if (Boolean.FALSE.equals(ignoreNullValues)) {
+          indexDefinition.setNullValuesIgnored(false);
+        } else {
+          indexDefinition.setNullValuesIgnored(
+              storage
+                  .getConfiguration()
+                  .getContextConfiguration()
+                  .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
+        }
+
+        var im =
+            new IndexMetadata(
+                iName,
+                indexDefinition,
+                collectionsToIndex,
+                indexType,
+                indexAlgorithm,
+                -1,
+                metadata);
+
+        index = createIndexFromMetadata(transaction, storage, im, progressListener);
+
+        addIndexInternalNoLock(index);
+        index.markDirty();
+        contentDirty = true;
+      } finally {
+        releaseExclusiveLock(session, transaction);
       }
+      return index;
+    });
 
-      if (metadata == null) {
-        metadata = new HashMap<>();
-      }
+    idx.rebuild(session);
 
-      final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
-      var ignoreNullValues = metadata.get("ignoreNullValues");
-      if (Boolean.TRUE.equals(ignoreNullValues)) {
-        indexDefinition.setNullValuesIgnored(true);
-      } else if (Boolean.FALSE.equals(ignoreNullValues)) {
-        indexDefinition.setNullValuesIgnored(false);
-      } else {
-        indexDefinition.setNullValuesIgnored(
-            storage
-                .getConfiguration()
-                .getContextConfiguration()
-                .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
-      }
-
-      var im =
-          new IndexMetadata(
-              iName,
-              indexDefinition,
-              collectionsToIndex,
-              type,
-              algorithm,
-              -1,
-              metadata);
-
-      index = createIndexFromMetadata(session, storage, im, progressListener);
-
-      addIndexInternal(session, index);
-
-    } finally {
-      releaseExclusiveLock(session, true);
-    }
-
-    return index;
+    return idx;
   }
 
   private Index createIndexFromMetadata(
-      DatabaseSessionInternal session, Storage storage, IndexMetadata indexMetadata,
+      FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata,
       ProgressListener progressListener) {
 
-    var index = Indexes.createIndex(storage, indexMetadata);
+    var index = Indexes.createIndex(indexMetadata, null, this, storage);
     if (progressListener == null)
     // ASSIGN DEFAULT PROGRESS LISTENER
     {
@@ -589,7 +561,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     }
     indexes.put(index.getName(), index);
     try {
-      index.create(session, indexMetadata, true, progressListener);
+      index.create(transaction, indexMetadata, progressListener);
     } catch (Throwable e) {
       indexes.remove(index.getName());
       throw e;
@@ -668,79 +640,87 @@ public class IndexManagerShared implements IndexManagerAbstract {
       throw new IllegalStateException("Cannot drop an index inside a transaction");
     }
 
-    int[] collectionIdsToIndex;
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        Index idx;
+        idx = indexes.get(iIndexName);
+        if (idx != null) {
+          removeClassPropertyIndexInternal(idx);
+          idx.delete(transaction);
+          indexes.remove(iIndexName);
 
-    acquireExclusiveLock(session);
+          var indexEntity = transaction.loadEntity(idx.getIdentity());
+          indexEntity.delete();
 
-    Index idx;
-    try {
-      idx = indexes.get(iIndexName);
-      if (idx != null) {
-        final var collections = idx.getCollections();
-        if (collections != null && !collections.isEmpty()) {
-          collectionIdsToIndex = new int[collections.size()];
-          var i = 0;
-          for (var cl : collections) {
-            collectionIdsToIndex[i++] = session.getCollectionIdByName(cl);
-          }
+          contentDirty = true;
         }
-
-        removeClassPropertyIndex(session, idx);
-
-        idx.delete(session);
-        indexes.remove(iIndexName);
+      } finally {
+        releaseExclusiveLock(session, transaction);
       }
-    } finally {
-      releaseExclusiveLock(session, true);
-    }
+    });
   }
 
   /**
    * Binds POJO to EntityImpl.
    */
-  public EntityImpl toStream(DatabaseSessionInternal session) {
-    internalAcquireExclusiveLock(session);
-    try {
-      EntityImpl entity = session.load(identity);
-      final var indexes = new EntityEmbeddedSetImpl<Map<String, ?>>(entity);
+  private void save(FrontendTransaction transaction) {
+    if (contentDirty) {
+      var entity = (EntityImpl) transaction.loadEntity(identity);
+      var indexLinks = transaction.newLinkSet();
 
       for (final var index : this.indexes.values()) {
-        indexes.add(index.updateConfiguration(session));
+        indexLinks.add(index.save(transaction));
       }
 
-      entity.setProperty(CONFIG_INDEXES, indexes, PropertyType.EMBEDDEDSET);
-      entity.setDirty();
+      entity.setLinkSet(CONFIG_INDEXES, indexLinks);
+    } else if (metadataDirty) {
+      for (final var index : this.indexes.values()) {
+        index.save(transaction);
+      }
+    }
 
-      return entity;
+    metadataDirty = false;
+    contentDirty = false;
+  }
+
+  @Override
+  public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session) {
+    acquireSharedLock();
+    try {
+      return indexes.values().stream()
+          .map(index -> index.getConfiguration(session))
+          .collect(Collectors.toList());
     } finally {
-      internalReleaseExclusiveLock(session);
+      releaseSharedLock();
     }
   }
 
   @Override
-  public void recreateIndexes(DatabaseSessionInternal database) {
-    acquireExclusiveLock(database);
-    try {
-      if (recreateIndexesThread != null && recreateIndexesThread.isAlive())
-      // BUILDING ALREADY IN PROGRESS
-      {
-        return;
+  public void recreateIndexes(DatabaseSessionInternal session) {
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        if (recreateIndexesThread != null && recreateIndexesThread.isAlive())
+        // BUILDING ALREADY IN PROGRESS
+        {
+          return;
+        }
+
+        Runnable recreateIndexesTask = new RecreateIndexesTask(this, session.getSharedContext());
+        recreateIndexesThread = new Thread(recreateIndexesTask, "YouTrackDB rebuild indexes");
+        recreateIndexesThread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
+        recreateIndexesThread.start();
+      } finally {
+        releaseExclusiveLock(session, transaction);
       }
+    });
 
-      Runnable recreateIndexesTask = new RecreateIndexesTask(this, database.getSharedContext());
-      recreateIndexesThread = new Thread(recreateIndexesTask, "YouTrackDB rebuild indexes");
-      recreateIndexesThread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
-      recreateIndexesThread.start();
-    } finally {
-      releaseExclusiveLock(database);
-    }
-
-    if (database
+    if (session
         .getConfiguration()
         .getValueAsBoolean(GlobalConfiguration.INDEX_SYNCHRONOUS_AUTO_REBUILD)) {
       waitTillIndexRestore();
-
-      database.getMetadata().reload();
+      session.getMetadata().reload();
     }
   }
 
@@ -776,130 +756,79 @@ public class IndexManagerShared implements IndexManagerAbstract {
     return false;
   }
 
-  protected void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
-    internalAcquireExclusiveLock(session);
-    try {
-      final Map<String, Index> oldIndexes = new HashMap<>(indexes);
-      clearMetadata(session);
+  private void fromStream(FrontendTransaction transaction, EntityImpl entity) {
+    indexes.clear();
+    classPropertyIndex.clear();
 
-      final Collection<Map<String, ?>> indexEntities = entity.getProperty(CONFIG_INDEXES);
+    final var indexEntities = entity.getLinkSet(CONFIG_INDEXES);
+    if (indexEntities != null) {
+      for (var indexIdentifiable : indexEntities) {
+        var indexEntity = transaction.loadEntity(indexIdentifiable);
+        final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(transaction,
+            indexEntity.toMap(false));
 
-      if (indexEntities != null) {
-        Index index;
-        var configUpdated = false;
-        var indexConfigurationIterator = indexEntities.iterator();
-        while (indexConfigurationIterator.hasNext()) {
-          final var d = indexConfigurationIterator.next();
-          try {
+        var index =
+            Indexes.createIndex(newIndexMetadata, indexEntity.getIdentity(), this,
+                storage);
 
-            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(session, d);
-
-            index = Indexes.createIndex(storage, newIndexMetadata);
-
-            final var normalizedName = newIndexMetadata.getName();
-
-            var oldIndex = oldIndexes.remove(normalizedName);
-            if (oldIndex != null) {
-              var oldIndexMetadata =
-                  oldIndex.loadMetadata(session, oldIndex.getConfiguration(session));
-
-              if (!(oldIndexMetadata.equals(newIndexMetadata)
-                  || newIndexMetadata.getIndexDefinition() == null)) {
-                oldIndex.delete(session);
-              }
-
-              if (index.loadFromConfiguration(session, d)) {
-                addIndexInternalNoLock(index);
-              } else {
-                indexConfigurationIterator.remove();
-                configUpdated = true;
-              }
-            } else {
-              if (index.loadFromConfiguration(session, d)) {
-                addIndexInternalNoLock(index);
-              } else {
-                indexConfigurationIterator.remove();
-                configUpdated = true;
-              }
-            }
-          } catch (RuntimeException e) {
-            indexConfigurationIterator.remove();
-            configUpdated = true;
-            LogManager.instance().error(this, "Error on loading index by configuration: %s", e, d);
-          }
-        }
-
-        for (var oldIndex : oldIndexes.values()) {
-          try {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "Index '%s' was not found after reload and will be removed",
-                    oldIndex.getName());
-
-            oldIndex.delete(session);
-          } catch (Exception e) {
-            LogManager.instance()
-                .error(this, "Error on deletion of index '%s'", e, oldIndex.getName());
-          }
-        }
-
-        if (configUpdated) {
-          entity.setProperty(CONFIG_INDEXES, indexEntities);
-          save(session);
-        }
+        index.load(transaction);
+        addIndexInternalNoLock(index);
       }
-    } finally {
-      internalReleaseExclusiveLock(session);
     }
   }
 
   public void removeClassPropertyIndex(DatabaseSessionInternal session, final Index idx) {
-    acquireExclusiveLock(session);
-    try {
-      final var indexDefinition = idx.getDefinition();
-      if (indexDefinition == null || indexDefinition.getClassName() == null) {
-        return;
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        removeClassPropertyIndexInternal(idx);
+      } finally {
+        releaseExclusiveLock(session, transaction);
+      }
+    });
+  }
+
+  private void removeClassPropertyIndexInternal(Index idx) {
+    final var indexDefinition = idx.getDefinition();
+    if (indexDefinition == null || indexDefinition.getClassName() == null) {
+      return;
+    }
+
+    var map =
+        classPropertyIndex.get(indexDefinition.getClassName().toLowerCase());
+
+    if (map == null) {
+      return;
+    }
+
+    map = new HashMap<>(map);
+
+    final var paramCount = indexDefinition.getParamCount();
+
+    for (var i = 1; i <= paramCount; i++) {
+      final var fields = indexDefinition.getFields().subList(0, i);
+      final var multiKey = new MultiKey(fields);
+
+      var indexSet = map.get(multiKey);
+      if (indexSet == null) {
+        continue;
       }
 
-      var map =
-          classPropertyIndex.get(indexDefinition.getClassName().toLowerCase());
+      indexSet = new HashSet<>(indexSet);
+      indexSet.remove(idx);
 
-      if (map == null) {
-        return;
-      }
-
-      map = new HashMap<>(map);
-
-      final var paramCount = indexDefinition.getParamCount();
-
-      for (var i = 1; i <= paramCount; i++) {
-        final var fields = indexDefinition.getFields().subList(0, i);
-        final var multiKey = new MultiKey(fields);
-
-        var indexSet = map.get(multiKey);
-        if (indexSet == null) {
-          continue;
-        }
-
-        indexSet = new HashSet<>(indexSet);
-        indexSet.remove(idx);
-
-        if (indexSet.isEmpty()) {
-          map.remove(multiKey);
-        } else {
-          map.put(multiKey, indexSet);
-        }
-      }
-
-      if (map.isEmpty()) {
-        classPropertyIndex.remove(indexDefinition.getClassName().toLowerCase());
+      if (indexSet.isEmpty()) {
+        map.remove(multiKey);
       } else {
-        classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(), copyPropertyMap(map));
+        map.put(multiKey, indexSet);
       }
+    }
 
-    } finally {
-      releaseExclusiveLock(session);
+    if (map.isEmpty()) {
+      classPropertyIndex.remove(indexDefinition.getClassName().toLowerCase());
+    } else {
+      classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(),
+          copyPropertyMap(map));
     }
   }
 
@@ -908,20 +837,12 @@ public class IndexManagerShared implements IndexManagerAbstract {
     return identity;
   }
 
+  @Override
+  public void markMetadataDirty() {
+    metadataDirty = true;
+  }
+
   protected Storage getStorage() {
     return storage;
   }
-
-  @Override
-  public EntityImpl getEntity(DatabaseSessionInternal session) {
-    return toStream(session);
-  }
-
-  private void internalSave(DatabaseSessionInternal session) {
-    session.begin();
-    var entity = toStream(session);
-
-    session.commit();
-  }
-
 }

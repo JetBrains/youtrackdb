@@ -83,11 +83,11 @@ public class SharedContextEmbedded extends SharedContext {
     try {
       database.executeInTx(transaction -> {
         schema.load(database);
-        schema.forceSnapshot(database);
+        schema.forceSnapshot();
         indexManager.load(database);
         // The Immutable snapshot should be after index and schema that require and before
         // everything else that use it
-        schema.forceSnapshot(database);
+        schema.forceSnapshot();
         security.load(database);
         functionLibrary.load(database);
         scheduler.load(database);
@@ -120,6 +120,8 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
+
+
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {
@@ -127,7 +129,7 @@ public class SharedContextEmbedded extends SharedContext {
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       functionLibrary.load(database);
       sequenceLibrary.load(database);
@@ -146,7 +148,7 @@ public class SharedContextEmbedded extends SharedContext {
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
       SchedulerImpl.create(session);
-      schema.forceSnapshot(session);
+      schema.forceSnapshot();
 
       // CREATE BASE VERTEX AND EDGE CLASSES
       schema.createClass(session, Entity.DEFAULT_CLASS_NAME);

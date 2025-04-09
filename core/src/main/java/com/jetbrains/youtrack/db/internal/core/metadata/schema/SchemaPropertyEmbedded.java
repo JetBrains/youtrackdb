@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -153,7 +154,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       if ((this.collate != null && !this.collate.equals(oldCollate))
           || (this.collate == null && oldCollate != null)) {
         final var indexes = owner.getClassIndexesInternal(session);
-        final List<Index> indexesToRecreate = new ArrayList<Index>();
+        final List<Index> indexesToRecreate = new ArrayList<>();
 
         for (var index : indexes) {
           var definition = index.getDefinition();
@@ -175,9 +176,9 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
               session.getMetadata().getIndexManagerInternal();
 
           for (var indexToRecreate : indexesToRecreate) {
-            final var indexMetadata =
+            final var indexMetadata = session.computeInTxInternal(transaction ->
                 indexToRecreate
-                    .loadMetadata(session, indexToRecreate.getConfiguration(session));
+                    .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
             final var fields = indexMetadata.getIndexDefinition().getFields();
             final var fieldsToIndex = fields.toArray(new String[0]);

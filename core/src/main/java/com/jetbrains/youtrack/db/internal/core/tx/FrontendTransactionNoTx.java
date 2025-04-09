@@ -104,7 +104,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public @Nonnull DatabaseSession getSession() {
+  public @Nonnull DatabaseSessionInternal getSession() {
     return session;
   }
 

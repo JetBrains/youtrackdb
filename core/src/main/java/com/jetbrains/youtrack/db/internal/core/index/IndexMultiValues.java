@@ -35,6 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxMultiValueBe
 import com.jetbrains.youtrack.db.internal.core.index.multivalue.MultiValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
@@ -49,6 +50,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -56,8 +58,10 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexMultiValues extends IndexAbstract {
 
-  IndexMultiValues(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  IndexMultiValues(@Nonnull IndexMetadata im, @Nullable RID identity,
+      @Nonnull final IndexManagerAbstract indexManager,
+      @Nonnull final Storage storage) {
+    super(im, identity, indexManager, storage);
   }
 
   @Deprecated
@@ -128,7 +132,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
             txChanges.stream().map(Identifiable::getIdentity)), session);
   }
 
-  public IndexMultiValues put(DatabaseSessionInternal db, Object key,
+  public IndexMultiValues put(FrontendTransaction transaction, Object key,
       final Identifiable singleValue) {
     final var rid = (RecordId) singleValue.getIdentity();
 
@@ -143,8 +147,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     key = getCollatingValue(key);
 
-    var singleTx = db.getTransactionInternal();
-    singleTx.addIndexEntry(
+    transaction.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key, singleValue);
     return this;
   }
@@ -163,23 +166,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
   }
 
-  @Override
-  public boolean isNativeTxSupported() {
-    return true;
-  }
-
   private static void doPutV1(
       AbstractStorage storage, int indexId, Object key, RID identity)
       throws InvalidIndexEngineIdException {
     storage.putRidIndexEntry(indexId, key, identity);
-  }
-
-  @Override
-  public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable value) {
-    key = getCollatingValue(key);
-    session.getTransactionInternal()
-        .addIndexEntry(this, super.getName(), OPERATION.REMOVE, key, value);
-    return true;
   }
 
   @Override

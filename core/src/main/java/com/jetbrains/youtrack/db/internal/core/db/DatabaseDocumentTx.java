@@ -27,8 +27,10 @@ import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -58,11 +60,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Date;
@@ -72,7 +72,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -519,11 +518,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public DatabaseSession getUnderlying() {
-    return internal.getUnderlying();
-  }
-
-  @Override
   public void setInternal(ATTRIBUTES attribute, Object iValue) {
     checkOpenness();
     internal.setInternal(attribute, iValue);
@@ -704,7 +698,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Transaction begin() {
+  public FrontendTransaction begin() {
     checkOpenness();
     return internal.begin();
   }
@@ -1103,7 +1097,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public @Nonnull Transaction getActiveTransaction() {
+  public @Nonnull FrontendTransaction getActiveTransaction() {
     checkOpenness();
     return internal.getActiveTransaction();
   }
@@ -1235,37 +1229,37 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap() {
+  public <V> EmbeddedMap<V> newEmbeddedMap() {
     checkOpenness();
     return internal.newEmbeddedMap();
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(int size) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
     checkOpenness();
     return internal.newEmbeddedMap(size);
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(Map<String, V> map) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
     checkOpenness();
     return internal.newEmbeddedMap(map);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap() {
+  public LinkMap newLinkMap() {
     checkOpenness();
     return internal.newLinkMap();
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(int size) {
+  public LinkMap newLinkMap(int size) {
     checkOpenness();
     return internal.newLinkMap(size);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
+  public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkMap(source);
   }
@@ -1368,6 +1362,17 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     return internal.execute(query, args);
+  }
+
+  @Override
+  public void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code) {
+    internal.executeInTxInternal(code);
+  }
+
+  @Nullable
+  @Override
+  public <R> R computeInTxInternal(Function<FrontendTransaction, R> supplier) {
+    return internal.computeInTxInternal(supplier);
   }
 
   @Override
@@ -1524,11 +1529,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTx(@Nonnull Consumer<Transaction> code) {
-    internal.executeInTx(code);
-  }
-
-  @Override
   public <T> void executeInTxBatches(
       @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterator, batchSize, consumer);
@@ -1538,6 +1538,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public <T> void executeInTxBatches(
       Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     internal.executeInTxBatches(iterator, consumer);
+  }
+
+  @Override
+  public <T> void executeInTxBatchesInternal(@Nonnull Iterator<T> iterator, int batchSize,
+      BiConsumer<FrontendTransaction, T> consumer) {
+    internal.executeInTxBatchesInternal(iterator, batchSize, consumer);
   }
 
   @Override
@@ -1564,8 +1570,20 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public <T> void executeInTxBatchesInternal(Iterator<T> iterator,
+      BiConsumer<FrontendTransaction, T> consumer) {
+    internal.executeInTxBatchesInternal(iterator, consumer);
+  }
+
+  @Override
   public <R> R computeInTx(Function<Transaction, R> supplier) {
     return internal.computeInTx(supplier);
+  }
+
+  @Override
+  public <T> void executeInTxBatchesInternal(Stream<T> stream,
+      BiConsumer<FrontendTransaction, T> consumer) {
+    internal.executeInTxBatchesInternal(stream, consumer);
   }
 
   @Override

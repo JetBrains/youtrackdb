@@ -701,18 +701,18 @@ public class FrontendTransactionImpl implements
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterCreate(entityImpl, this);
             }
             session.beforeCreateOperations(record, collectionName);
           } else {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
             }
             session.beforeUpdateOperations(record, collectionName);
           }
         } else {
           if (className != null) {
-            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
           }
           session.beforeUpdateOperations(record, collectionName);
         }
@@ -738,7 +738,7 @@ public class FrontendTransactionImpl implements
       recordOperation.record.processingInCallback = true;
       try {
         if (className != null && !session.isRemote()) {
-          ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+          ClassIndexManager.checkIndexesAfterDelete(entityImpl, this);
         }
         session.beforeDeleteOperations(record, collectionName);
       } finally {
@@ -1252,7 +1252,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public @Nonnull DatabaseSession getSession() {
+  public @Nonnull DatabaseSessionInternal getSession() {
     checkIfActive();
     return session;
   }

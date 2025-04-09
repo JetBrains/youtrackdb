@@ -19,12 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -94,14 +93,17 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
         algorithm);
   }
 
-  public EntityImpl getConfiguration(DatabaseSession session) {
-    return delegate.getConfiguration((DatabaseSessionInternal) session);
-  }
 
   public IndexManager dropIndex(final String iIndexName) {
     delegate.dropIndex(session, iIndexName);
     return this;
   }
+
+  @Override
+  public List<Map<String, Object>> getConfiguration() {
+    return delegate.getIndexesConfiguration(session);
+  }
+
 
   public Set<Index> getClassInvolvedIndexes(
       final String className, final Collection<String> fields) {
@@ -154,29 +156,22 @@ public class IndexManagerProxy extends ProxedResource<IndexManagerAbstract>
   }
 
   @Override
-  public void addCollectionToIndex(DatabaseSession session, String collectionName, String indexName) {
-    delegate.addCollectionToIndex((DatabaseSessionInternal) session, collectionName, indexName);
-  }
-
-  @Override
-  public void removeCollectionFromIndex(DatabaseSession session, String collectionName,
+  public void addCollectionToIndex(String collectionName,
       String indexName) {
-    delegate.removeCollectionFromIndex((DatabaseSessionInternal) session, collectionName, indexName);
+    assert session.assertIfNotActive();
+    delegate.addCollectionToIndex(session, collectionName, indexName);
   }
 
   @Override
-  public IndexManager save(DatabaseSession session) {
-    delegate.save((DatabaseSessionInternal) session);
-    return this;
+  public void removeCollectionFromIndex(String collectionName,
+      String indexName) {
+    delegate.removeCollectionFromIndex(this.session, collectionName,
+        indexName);
   }
 
-  public void removeClassPropertyIndex(DatabaseSession session, final Index idx) {
-    //noinspection deprecation
-    delegate.removeClassPropertyIndex((DatabaseSessionInternal) session, idx);
-  }
-
-  public void getClassRawIndexes(String name, Collection<Index> indexes) {
-    delegate.getClassRawIndexes(session, name, indexes);
+  @Override
+  public void removeClassPropertyIndex(Index idx) {
+      delegate.removeClassPropertyIndex(this.session, idx);
   }
 
   public IndexManagerAbstract delegate() {

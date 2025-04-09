@@ -134,7 +134,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata im) {
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
     this.indexDefinition = im.getIndexDefinition();
     this.metadata = im.getMetadata();
 
@@ -142,7 +142,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     indexAnalyzer = fc.createAnalyzer(indexDefinition, INDEX, metadata);
     queryAnalyzer = fc.createAnalyzer(indexDefinition, QUERY, metadata);
 
-    checkCollectionIndex(db, indexDefinition);
+    checkCollectionIndex(session, indexDefinition);
 
     flushIndexInterval =
         Optional.ofNullable((Integer) metadata.get("flushIndexInterval"))

@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.Reco
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RidBagDeleteSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.LinkBagUpdateSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Spliterator;
@@ -62,7 +63,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
 
   @Override
   public Object returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
     assert assertIfNotActive();
 

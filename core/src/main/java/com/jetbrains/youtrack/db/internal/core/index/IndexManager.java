@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -141,7 +140,7 @@ public interface IndexManager {
    *
    * @return a document that used to store index configurations.
    */
-  EntityImpl getConfiguration(DatabaseSession session);
+  List<Map<String, Object>> getConfiguration();
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -240,38 +239,27 @@ public interface IndexManager {
    *
    * <p>IMPORTANT! Only for internal usage.
    *
-   * @param session
    * @param collectionName collection to add.
-   * @param indexName   name of index.
+   * @param indexName      name of index.
    */
-  void addCollectionToIndex(DatabaseSession session, String collectionName, String indexName);
+  void addCollectionToIndex(String collectionName, String indexName);
 
   /**
    * Removes a collection from tracked collection list of specified index.
    *
    * <p>IMPORTANT! Only for internal usage.
    *
-   * @param session
    * @param collectionName collection to remove.
-   * @param indexName   name of index.
+   * @param indexName      name of index.
    */
-  void removeCollectionFromIndex(DatabaseSession session, String collectionName, String indexName);
-
-  /**
-   * Saves index manager data.
-   *
-   * <p>IMPORTANT! Only for internal usage.
-   */
-  @Deprecated
-  IndexManager save(DatabaseSession session);
+  void removeCollectionFromIndex(String collectionName, String indexName);
 
   /**
    * Removes index from class-property map.
    *
    * <p>IMPORTANT! Only for internal usage.
    *
-   * @param session
-   * @param idx     index to remove.
+   * @param idx index to remove.
    */
-  void removeClassPropertyIndex(DatabaseSession session, Index idx);
+  void removeClassPropertyIndex(Index idx);
 }

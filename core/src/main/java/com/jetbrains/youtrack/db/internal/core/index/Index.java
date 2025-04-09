@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInterna
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquality;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
@@ -70,39 +71,29 @@ public interface Index extends Comparable<Index> {
   /**
    * Inserts a new entry in the index. The behaviour depends by the index implementation.
    *
-   * @param db
-   * @param key   Entry's key
-   * @param value Entry's value as Identifiable instance
+   * @param transaction
+   * @param key         Entry's key
+   * @param value       Entry's value as Identifiable instance
    * @return The index instance itself to allow in chain calls
    */
-  Index put(DatabaseSessionInternal db, Object key, Identifiable value);
+  Index put(FrontendTransaction transaction, Object key, Identifiable value);
 
   /**
    * Removes an entry by its key.
    *
-   * @param session
-   * @param key     The entry's key to remove
+   * @param transaction
+   * @param key         The entry's key to remove
    * @return True if the entry has been found and removed, otherwise false
    */
-  boolean remove(DatabaseSessionInternal session, Object key);
+  boolean remove(FrontendTransaction transaction, Object key);
 
   /**
    * Removes an entry by its key and value.
    *
-   * @param session
-   * @param key     The entry's key to remove
+   * @param key The entry's key to remove
    * @return True if the entry has been found and removed, otherwise false
    */
-  boolean remove(DatabaseSessionInternal session, Object key, Identifiable rid);
-
-  /**
-   * Clears the index removing all the entries in one shot.
-   *
-   * @return The index instance itself to allow in chain calls
-   * @deprecated Manual indexes are deprecated and will be removed
-   */
-  @Deprecated
-  Index clear(DatabaseSessionInternal session);
+  boolean remove(FrontendTransaction transaction, Object key, Identifiable rid);
 
   /**
    * @return number of entries in the index.
@@ -185,7 +176,7 @@ public interface Index extends Comparable<Index> {
    *
    * @return The index instance itself to allow in chain calls
    */
-  Index delete(DatabaseSessionInternal session);
+  Index delete(FrontendTransaction transaction);
 
   /**
    * Returns the index name.
@@ -232,14 +223,14 @@ public interface Index extends Comparable<Index> {
   /**
    * Populate the index with all the existent records.
    */
-  long rebuild(DatabaseSessionInternal session, ProgressListener iProgressListener);
+  long rebuild(DatabaseSessionInternal session, ProgressListener progressListener);
 
   /**
    * Returns the index configuration.
    *
    * @return An EntityImpl object containing all the index properties
    */
-  Map<String, ?> getConfiguration(DatabaseSessionInternal session);
+  Map<String, Object> getConfiguration(DatabaseSessionInternal session);
 
 
   IndexDefinition getDefinition();
@@ -343,19 +334,15 @@ public interface Index extends Comparable<Index> {
 
   /**
    * Loads the index giving the configuration.
-   *
-   * @param session
-   * @param config  EntityImpl instance containing the configuration
    */
-  boolean loadFromConfiguration(DatabaseSessionInternal session, Map<String, ?> config);
+  void load(FrontendTransaction transaction);
 
   /**
    * Saves the index configuration to disk.
    *
-   * @return The configuration as EntityImpl instance
-   * @see Index#getConfiguration(DatabaseSessionInternal)
+   * @return The RID of the index configuration
    */
-  Map<String, ?> updateConfiguration(DatabaseSessionInternal session);
+  RID save(FrontendTransaction transaction);
 
   /**
    * Add given collection to the list of collections that should be automatically indexed.
@@ -369,10 +356,9 @@ public interface Index extends Comparable<Index> {
   /**
    * Remove given collection from the list of collections that should be automatically indexed.
    *
-   * @param session
-   * @param iCollectionName Collection to remove.
+   * @param collectionName Collection to remove.
    */
-  void removeCollection(DatabaseSessionInternal session, final String iCollectionName);
+  void removeCollection(DatabaseSessionInternal session, final String collectionName);
 
   /**
    * Indicates whether given index can be used to calculate result of {@link QueryOperatorEquality}
@@ -385,7 +371,7 @@ public interface Index extends Comparable<Index> {
 
   boolean hasRangeQuerySupport();
 
-  IndexMetadata loadMetadata(DatabaseSessionInternal session, Map<String, ?> config);
+  IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config);
 
   void close();
 
@@ -566,8 +552,6 @@ public interface Index extends Comparable<Index> {
     return false;
   }
 
-  boolean isNativeTxSupported();
-
   Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes);
 
@@ -584,9 +568,13 @@ public interface Index extends Comparable<Index> {
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key);
 
-  Index create(DatabaseSessionInternal session, IndexMetadata metadata, boolean rebuild,
+  Index create(FrontendTransaction transaction, IndexMetadata metadata,
       ProgressListener progressListener);
 
   int getIndexId();
 
+  @Nullable
+  RID getIdentity();
+
+  void markDirty();
 }

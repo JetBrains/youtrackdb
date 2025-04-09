@@ -1433,9 +1433,7 @@ public class IndexTest extends BaseDBTest {
       }
     }
 
-    final var storageLocalAbstract =
-        (AbstractStorage)
-            ((DatabaseSessionInternal) session.getUnderlying()).getStorage();
+    final var storageLocalAbstract = (AbstractStorage) session.getStorage();
 
     final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));

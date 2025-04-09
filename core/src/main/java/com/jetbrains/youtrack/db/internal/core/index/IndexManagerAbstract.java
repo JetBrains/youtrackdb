@@ -23,8 +23,8 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -36,7 +36,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
 
   String CONFIG_INDEXES = "indexes";
 
-  void recreateIndexes(DatabaseSessionInternal database);
+  void recreateIndexes(DatabaseSessionInternal session);
 
   default void create() {
     throw new UnsupportedOperationException();
@@ -71,18 +71,15 @@ public interface IndexManagerAbstract extends CloseableInStorage {
 
   void reload(DatabaseSessionInternal session);
 
-  void addCollectionToIndex(DatabaseSessionInternal session, String collectionName, String indexName);
+  void addCollectionToIndex(DatabaseSessionInternal session, String collectionName,
+      String indexName);
 
   void load(DatabaseSessionInternal session);
 
   void removeCollectionFromIndex(DatabaseSessionInternal session, String collectionName,
       String indexName);
 
-  void save(DatabaseSessionInternal session);
-
   void getClassRawIndexes(DatabaseSessionInternal session, String name, Collection<Index> indexes2);
-
-  EntityImpl getConfiguration(DatabaseSessionInternal session);
 
   Set<Index> getClassInvolvedIndexes(
       DatabaseSessionInternal session, String className, Collection<String> fields);
@@ -113,9 +110,9 @@ public interface IndexManagerAbstract extends CloseableInStorage {
 
   boolean existsIndex(DatabaseSessionInternal session, String iName);
 
-  EntityImpl getEntity(DatabaseSessionInternal session);
-
-  EntityImpl toStream(DatabaseSessionInternal session);
-
   RID getIdentity();
+
+  void markMetadataDirty();
+
+  List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session);
 }

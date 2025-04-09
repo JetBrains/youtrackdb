@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Collections;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -15,41 +16,49 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
 
   @Before
   public void beforeMethod() {
+    session.begin();
     propertyIndex = new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER);
+  }
+
+  @After
+  public void afterMethod() {
+    session.rollback();
   }
 
   @Test
   public void testCreateValueSingleParameter() {
-    final var result = propertyIndex.createValue(session, Collections.singletonList("12"));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Collections.singletonList("12"));
     Assert.assertEquals(12, result);
   }
 
   @Test
   public void testCreateValueTwoParameters() {
-    final var result = propertyIndex.createValue(session, Arrays.asList("12", "25"));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Arrays.asList("12", "25"));
     Assert.assertEquals(12, result);
   }
 
   @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameter() {
-    propertyIndex.createValue(session, Collections.singletonList("tt"));
+    propertyIndex.createValue(session.getActiveTransaction(), Collections.singletonList("tt"));
   }
 
   @Test
   public void testCreateValueSingleParameterArrayParams() {
-    final var result = propertyIndex.createValue(session, "12");
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), "12");
     Assert.assertEquals(12, result);
   }
 
   @Test
   public void testCreateValueTwoParametersArrayParams() {
-    final var result = propertyIndex.createValue(session, "12", "25");
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), "12", "25");
     Assert.assertEquals(12, result);
   }
 
   @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameterArrayParams() {
-    propertyIndex.createValue(session, "tt");
+    propertyIndex.createValue(session.getActiveTransaction(), "tt");
   }
 
   @Test
@@ -60,7 +69,8 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
     document.setProperty("fOne", "15");
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndex.getDocumentValueToIndex(session, document);
+    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
     Assert.assertEquals(15, result);
     session.rollback();
   }

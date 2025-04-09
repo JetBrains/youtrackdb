@@ -23,8 +23,10 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.OneEntryPerKeyLockManager;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
@@ -36,9 +38,11 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.IndexCursorStream;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
@@ -52,6 +56,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -64,8 +69,11 @@ public abstract class IndexAbstract implements Index {
 
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
+
   protected static final String CONFIG_MAP_RID = "mapRid";
   private static final String CONFIG_COLLECTIONS = "collections";
+
+  @Nonnull
   protected final AbstractStorage storage;
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -73,28 +81,39 @@ public abstract class IndexAbstract implements Index {
   protected volatile int apiVersion = -1;
 
   protected Set<String> collectionsToIndex = new HashSet<>();
+  @Nonnull
   protected IndexMetadata im;
 
-  public IndexAbstract(IndexMetadata im, final Storage storage) {
+  private boolean dirty;
+  @Nullable
+  private RID identity;
+  @Nonnull
+  private final IndexManagerAbstract indexManager;
+
+  public IndexAbstract(@Nonnull IndexMetadata im, @Nullable RID identity,
+      @Nonnull final IndexManagerAbstract indexManager,
+      @Nonnull final Storage storage) {
     acquireExclusiveLock();
     try {
       this.im = im;
+      this.identity = identity;
       this.storage = (AbstractStorage) storage;
+      this.indexManager = indexManager;
     } finally {
       releaseExclusiveLock();
     }
   }
 
-  public static IndexMetadata loadMetadataFromMap(DatabaseSessionInternal db,
+  public static IndexMetadata loadMetadataFromMap(Transaction transaction,
       final Map<String, ?> config) {
-    return loadMetadataInternal(db,
+    return loadMetadataInternal(transaction,
         config,
         (String) config.get(CONFIG_TYPE),
         (String) config.get(ALGORITHM));
   }
 
   public static IndexMetadata loadMetadataInternal(
-      DatabaseSessionInternal db, final Map<String, ?> config,
+      Transaction transaction, final Map<String, ?> config,
       final String type,
       final String algorithm) {
     final var indexName = (String) config.get(CONFIG_NAME);
@@ -116,9 +135,9 @@ public abstract class IndexAbstract implements Index {
                      | InvocationTargetException
                      | NoSuchMethodException e) {
         throw BaseException.wrapException(
-            new IndexException(db.getDatabaseName(),
+            new IndexException(transaction.getSession(),
                 "Error during deserialization of index definition"), e,
-            db.getDatabaseName());
+            transaction.getSession());
       }
     }
 
@@ -160,8 +179,7 @@ public abstract class IndexAbstract implements Index {
    * Creates the index.
    */
   public Index create(
-      DatabaseSessionInternal session, final IndexMetadata indexMetadata,
-      boolean rebuild,
+      FrontendTransaction transaction, final IndexMetadata indexMetadata,
       final ProgressListener progressListener) {
     acquireExclusiveLock();
     try {
@@ -189,22 +207,21 @@ public abstract class IndexAbstract implements Index {
       assert indexId >= 0;
       assert apiVersion >= 0;
 
-      onIndexEngineChange(session, indexId);
+      onIndexEngineChange(transaction.getSession(), indexId);
 
-      if (rebuild) {
-        fillIndex(session, progressListener, false);
-      }
+      dirty = true;
+      indexManager.markMetadataDirty();
     } catch (Exception e) {
       LogManager.instance().error(this, "Exception during index '%s' creation", e, im.getName());
       // index is created inside of storage
       if (indexId >= 0) {
-        doDelete(session);
+        doDelete(transaction);
       }
       throw BaseException.wrapException(
-          new IndexException(session.getDatabaseName(),
+          new IndexException(transaction.getSession(),
               "Cannot create the index '" + im.getName() + "'"),
           e,
-          session.getDatabaseName());
+          transaction.getSession());
     } finally {
       releaseExclusiveLock();
     }
@@ -221,70 +238,43 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public boolean loadFromConfiguration(DatabaseSessionInternal session,
-      final Map<String, ?> config) {
+  public void load(FrontendTransaction transaction) {
     acquireExclusiveLock();
     try {
-      collectionsToIndex.clear();
+      if (dirty) {
+        throw new IndexException("Index contains not stored changes and can not be reloaded.");
+      }
 
-      final var indexMetadata = loadMetadata(session, config);
+      collectionsToIndex.clear();
+      var entity = transaction.loadEntity(identity);
+      final var indexMetadata = loadMetadata(transaction, entity.toMap(false));
+
       this.im = indexMetadata;
       collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
 
-      try {
-        indexId = storage.loadIndexEngine(im.getName());
+      indexId = storage.loadIndexEngine(im.getName());
+      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
+
+      if (indexId == -1) {
+        Map<String, String> engineProperties = new HashMap<>();
+        indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
         apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
-
-        if (indexId == -1) {
-          Map<String, String> engineProperties = new HashMap<>();
-          indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
-          apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
-        }
-
-        if (indexId == -1) {
-          return false;
-        }
-
-        onIndexEngineChange(session, indexId);
-
-      } catch (Exception e) {
-        LogManager.instance()
-            .error(
-                this,
-                "Error during load of index '%s'",
-                e,
-                im.getName());
-
-        if (isAutomatic()) {
-          // AUTOMATIC REBUILD IT
-          LogManager.instance()
-              .warn(this, "Cannot load index '%s' rebuilt it from scratch", im.getName());
-          try {
-            rebuild(session);
-          } catch (Exception t) {
-            LogManager.instance()
-                .error(
-                    this,
-                    "Cannot rebuild index '%s' because '"
-                        + t
-                        + "'. The index will be removed in configuration",
-                    e,
-                    im.getName());
-            // REMOVE IT
-            return false;
-          }
-        }
       }
 
-      return true;
+      if (indexId == -1) {
+        throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
+      }
+
+      onIndexEngineChange(transaction.getSession(), indexId);
     } finally {
       releaseExclusiveLock();
     }
   }
 
   @Override
-  public IndexMetadata loadMetadata(DatabaseSessionInternal session, final Map<String, ?> config) {
-    return loadMetadataInternal(session,
+  public IndexMetadata loadMetadata(FrontendTransaction transaction,
+      final Map<String, Object> config) {
+    return loadMetadataInternal(transaction,
         config, im.getType(), im.getAlgorithm());
   }
 
@@ -439,22 +429,21 @@ public abstract class IndexAbstract implements Index {
    * {@inheritDoc}
    */
   public long rebuild(DatabaseSessionInternal session,
-      final ProgressListener iProgressListener) {
+      final ProgressListener progressListener) {
     long entitiesIndexed;
 
     acquireExclusiveLock();
     try {
       try {
         if (indexId >= 0) {
-          doDelete(session);
+          clearAllEntries(session);
         }
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
       }
 
-      var indexMetadata = this.loadMetadata(session, updateConfiguration(session));
       Map<String, String> engineProperties = new HashMap<>();
-      indexId = storage.addIndexEngine(indexMetadata, engineProperties);
+      indexId = storage.addIndexEngine(im, engineProperties);
       apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
       onIndexEngineChange(session, indexId);
@@ -470,16 +459,16 @@ public abstract class IndexAbstract implements Index {
       }
 
       throw BaseException.wrapException(
-          new IndexException(session.getDatabaseName(),
+          new IndexException(session,
               "Error on rebuilding the index for collections: " + collectionsToIndex),
-          e, session.getDatabaseName());
+          e, session);
     } finally {
       releaseExclusiveLock();
     }
 
     acquireSharedLock();
     try {
-      entitiesIndexed = fillIndex(session, iProgressListener, true);
+      entitiesIndexed = fillIndex(session, progressListener);
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during index rebuild", e);
       try {
@@ -493,9 +482,9 @@ public abstract class IndexAbstract implements Index {
       }
 
       throw BaseException.wrapException(
-          new IndexException(session.getDatabaseName(),
+          new IndexException(session,
               "Error on rebuilding the index for collections: " + collectionsToIndex),
-          e, session.getDatabaseName());
+          e, session);
     } finally {
       releaseSharedLock();
     }
@@ -504,7 +493,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   private long fillIndex(DatabaseSessionInternal session,
-      final ProgressListener iProgressListener, final boolean rebuild) {
+      final ProgressListener iProgressListener) {
     long entitiesIndexed = 0;
     try {
       long entityNum = 0;
@@ -515,7 +504,7 @@ public abstract class IndexAbstract implements Index {
       }
 
       if (iProgressListener != null) {
-        iProgressListener.onBegin(this, entitiesTotal, rebuild);
+        iProgressListener.onBegin(this, entitiesTotal, true);
       }
 
       // INDEX ALL COLLECTIONS
@@ -546,16 +535,16 @@ public abstract class IndexAbstract implements Index {
     return doRemove(storage, key, session);
   }
 
-  public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable rid) {
+  public boolean remove(FrontendTransaction transaction, Object key, final Identifiable rid) {
     key = getCollatingValue(key);
-    session.getTransactionInternal().addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
+    transaction.addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
     return true;
   }
 
-  public boolean remove(DatabaseSessionInternal session, Object key) {
+  public boolean remove(FrontendTransaction transaction, Object key) {
     key = getCollatingValue(key);
 
-    session.getTransactionInternal().addIndexEntry(this, getName(), OPERATION.REMOVE, key, null);
+    transaction.addIndexEntry(this, getName(), OPERATION.REMOVE, key, null);
     return true;
   }
 
@@ -566,24 +555,12 @@ public abstract class IndexAbstract implements Index {
     return storage.removeKeyFromIndex(indexId, key);
   }
 
-  /**
-   * {@inheritDoc}
-   *
-   * @deprecated Manual indexes are deprecated and will be removed
-   */
-  @Override
-  @Deprecated
-  public Index clear(DatabaseSessionInternal session) {
-    session.getTransactionInternal()
-        .addIndexEntry(this, this.getName(), OPERATION.CLEAR, null, null);
-    return this;
-  }
-
-  public Index delete(DatabaseSessionInternal session) {
+  public Index delete(FrontendTransaction transaction) {
     acquireExclusiveLock();
 
     try {
-      doDelete(session);
+      doDelete(transaction);
+      var session = transaction.getSession();
       // REMOVE THE INDEX ALSO FROM CLASS MAP
       if (session.getMetadata() != null) {
         session.getMetadata().getIndexManagerInternal()
@@ -596,27 +573,11 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  protected void doDelete(DatabaseSessionInternal session) {
+  protected void doDelete(FrontendTransaction transaction) {
     while (true) {
       try {
-        //noinspection ObjectAllocationInLoop
         try {
-          try (final var stream = stream(session)) {
-            session.executeInTxBatches(stream, (db, entry) -> {
-              remove(session, entry.first(), entry.second());
-            });
-          }
-        } catch (IndexEngineException e) {
-          throw e;
-        } catch (RuntimeException e) {
-          LogManager.instance().error(this, "Error Dropping Index %s", e, getName());
-          // Just log errors of removing keys while dropping and keep dropping
-        }
-
-        try {
-          try (var stream = getRids(session, null)) {
-            stream.forEach((rid) -> remove(session, null, rid));
-          }
+          clearAllEntries(transaction.getSession());
         } catch (IndexEngineException e) {
           throw e;
         } catch (RuntimeException e) {
@@ -628,6 +589,33 @@ public abstract class IndexAbstract implements Index {
         break;
       } catch (InvalidIndexEngineIdException ignore) {
         doReloadIndexEngine();
+      }
+    }
+  }
+
+  private void clearAllEntries(DatabaseSessionInternal session) {
+    FrontendTransaction transaction = null;
+    if (session.isTxActive()) {
+      transaction = session.getTransactionInternal();
+    }
+
+    try (var containsStream = stream(session)) {
+      if (containsStream.findAny().isEmpty()) {
+        return;
+      }
+    }
+
+    try (var deletionSession = session.copy()) {
+      try (final var stream = stream(deletionSession)) {
+        deletionSession.executeInTxBatchesInternal(stream,
+            (deletionTransaction, entry) ->
+                remove(deletionTransaction, entry.first(),
+                    entry.second()));
+      } catch (Exception e) {
+        if (transaction != null) {
+          transaction.rollback();
+          throw e;
+        }
       }
     }
   }
@@ -674,22 +662,34 @@ public abstract class IndexAbstract implements Index {
     try {
       if (collectionsToIndex.add(collectionName)) {
         // INDEX SINGLE COLLECTION
-        indexCollection(session, collectionName, null, 0, 0, 0);
-      }
+        var collectionId = session.getCollectionIdByName(collectionName);
+        if (session.countCollectionElements(collectionId) > 0) {
+          throw new IndexException("Collection " + collectionName
+              + " is not empty. Please remove all records from it before adding to index");
+        }
 
+        indexManager.markMetadataDirty();
+        dirty = true;
+      }
       return this;
     } finally {
       releaseExclusiveLock();
     }
   }
 
-  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
+  public void removeCollection(DatabaseSessionInternal session, String collectionName) {
     acquireExclusiveLock();
     try {
-      if (collectionsToIndex.remove(iCollectionName)) {
-        rebuild(session);
+      var collectionId = session.getCollectionIdByName(collectionName);
+      if (session.countCollectionElements(collectionId) > 0) {
+        throw new IndexException("Collection " + collectionName
+            + " is not empty. Please remove all records from it before adding to index");
       }
 
+      if (collectionsToIndex.remove(collectionName)) {
+        dirty = true;
+        indexManager.markMetadataDirty();
+      }
     } finally {
       releaseExclusiveLock();
     }
@@ -700,27 +700,39 @@ public abstract class IndexAbstract implements Index {
     return im.getVersion();
   }
 
-  public Map<String, ?> updateConfiguration(DatabaseSessionInternal session) {
-    var map = session.newEmbeddedMap();
+  public RID save(FrontendTransaction transaction) {
+    if (!dirty && identity.isPersistent()) {
+      return identity;
+    }
 
-    map.put(CONFIG_TYPE, im.getType());
-    map.put(CONFIG_NAME, im.getName());
-    map.put(INDEX_VERSION, im.getVersion());
+    Entity entity;
+    if (identity == null) {
+      entity = transaction.getSession().newInternalInstance();
+    } else {
+      entity = transaction.loadEntity(identity);
+    }
+
+    entity.setString(CONFIG_TYPE, im.getType());
+    entity.setString(CONFIG_NAME, im.getName());
+    entity.setInt(INDEX_VERSION, im.getVersion());
 
     if (im.getIndexDefinition() != null) {
-      final var indexDefEntity = im.getIndexDefinition().toMap(session);
-      map.put(INDEX_DEFINITION, indexDefEntity);
-      map.put(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
+      final var indexDefEntity = im.getIndexDefinition().toMap(transaction.getSession());
+      entity.setEmbeddedMap(INDEX_DEFINITION, indexDefEntity);
+      entity.setString(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
     }
 
-    map.put(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
-    map.put(ALGORITHM, im.getAlgorithm());
+    var session = transaction.getSession();
+    entity.setEmbeddedSet(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
+    entity.setString(ALGORITHM, im.getAlgorithm());
 
     if (im.getMetadata() != null) {
-      map.put(METADATA, session.newEmbeddedMap(im.getMetadata()));
+      entity.setEmbeddedMap(METADATA, session.newEmbeddedMap(im.getMetadata()));
     }
 
-    return map;
+    identity = entity.getIdentity();
+    dirty = false;
+    return identity;
   }
 
   /**
@@ -739,8 +751,32 @@ public abstract class IndexAbstract implements Index {
     return changes.getEntriesAsList();
   }
 
-  public Map<String, ?> getConfiguration(DatabaseSessionInternal session) {
-    return updateConfiguration(session);
+  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
+    acquireSharedLock();
+    try {
+      var map = new HashMap<String, Object>();
+      map.put(CONFIG_TYPE, im.getType());
+      map.put(CONFIG_NAME, im.getName());
+      map.put(INDEX_VERSION, im.getVersion());
+
+      if (im.getIndexDefinition() != null) {
+        final var indexDefEntity = im.getIndexDefinition().toMap(session);
+        map.put(INDEX_DEFINITION, indexDefEntity);
+        map.put(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
+      }
+
+      map.put(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
+      map.put(ALGORITHM, im.getAlgorithm());
+
+      if (im.getMetadata() != null) {
+        map.put(METADATA, session.newEmbeddedMap(im.getMetadata()));
+      }
+
+      map.put(EntityHelper.ATTRIBUTE_RID, identity);
+      return map;
+    } finally {
+      releaseSharedLock();
+    }
   }
 
   @Override
@@ -874,7 +910,7 @@ public abstract class IndexAbstract implements Index {
       long documentTotal) {
     if (im.getIndexDefinition() == null) {
       throw new ConfigurationException(
-          session.getDatabaseName(), "Index '"
+          session, "Index '"
           + im.getName()
           + "' cannot be rebuilt because has no a valid definition ("
           + im.getIndexDefinition()
@@ -883,25 +919,42 @@ public abstract class IndexAbstract implements Index {
 
     var stat = new long[]{documentNum, documentIndexed};
 
-    var collectionIterator = session.browseCollection(collectionName);
-    session.executeInTxBatches(collectionIterator, (db, record) -> {
-      if (Thread.interrupted()) {
-        throw new CommandExecutionException(session.getDatabaseName(),
-            "The index rebuild has been interrupted");
-      }
+    FrontendTransaction currentTransaction = null;
+    if (session.isTxActive()) {
+      currentTransaction = session.getTransactionInternal();
+    }
 
-      if (record instanceof EntityImpl entity) {
-        ClassIndexManager.reIndex(session, entity, this);
-        ++stat[1];
-      }
+    var collectionId = session.getCollectionIdByName(collectionName);
+    var collectionCount = session.countCollectionElements(collectionId);
 
-      stat[0]++;
+    if (collectionCount > 0) {
+      try (var fillSession = session.copy()) {
+        var collectionIterator = fillSession.browseCollection(collectionName);
+        fillSession.executeInTxBatchesInternal(collectionIterator, (fillTransaction, record) -> {
+          if (Thread.interrupted()) {
+            throw new CommandExecutionException(session,
+                "The index rebuild has been interrupted");
+          }
 
-      if (iProgressListener != null) {
-        iProgressListener.onProgress(
-            this, documentNum, (float) (documentNum * 100.0 / documentTotal));
+          if (record instanceof EntityImpl entity) {
+            ClassIndexManager.reIndex(fillTransaction, entity, this);
+            ++stat[1];
+          }
+
+          stat[0]++;
+
+          if (iProgressListener != null) {
+            iProgressListener.onProgress(
+                this, documentNum, (float) (documentNum * 100.0 / documentTotal));
+          }
+        });
+      } catch (Exception e) {
+        if (currentTransaction != null) {
+          currentTransaction.rollback();
+        }
+        throw e;
       }
-    });
+    }
 
     return stat;
   }
@@ -922,14 +975,14 @@ public abstract class IndexAbstract implements Index {
     rwLock.readLock().lock();
   }
 
-  protected void onIndexEngineChange(DatabaseSessionInternal db, final int indexId) {
+  protected void onIndexEngineChange(DatabaseSessionInternal session, final int indexId) {
     while (true) {
       try {
         storage.callIndexEngine(
             false,
             indexId,
             engine -> {
-              engine.init(db, im);
+              engine.init(session, im);
               return null;
             });
         break;
@@ -1038,5 +1091,16 @@ public abstract class IndexAbstract implements Index {
 
     keyFrom = enhanceCompositeKey(keyFrom, partialSearchModeFrom, getDefinition());
     return keyFrom;
+  }
+
+  @Nullable
+  @Override
+  public RID getIdentity() {
+    return identity;
+  }
+
+  @Override
+  public void markDirty() {
+    dirty = true;
   }
 }

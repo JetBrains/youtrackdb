@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.DescComparator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxBetweenIndexBackwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxBetweenIndexForwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -51,8 +53,10 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexOneValue extends IndexAbstract {
 
-  public IndexOneValue(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public IndexOneValue(@Nonnull IndexMetadata im, @Nullable RID identity,
+      @Nonnull final IndexManagerAbstract indexManager,
+      @Nonnull final Storage storage) {
+    super(im, identity, indexManager, storage);
   }
 
   @Nullable
@@ -522,7 +526,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public IndexOneValue put(DatabaseSessionInternal db, Object key,
+  public IndexOneValue put(FrontendTransaction transaction, Object key,
       final Identifiable value) {
     final var rid = (RecordId) value.getIdentity();
 
@@ -536,8 +540,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
     key = getCollatingValue(key);
 
-    var singleTx = db.getTransactionInternal();
-    singleTx.addIndexEntry(
+    transaction.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key,
         value.getIdentity());
     return this;

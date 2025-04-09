@@ -51,7 +51,7 @@ public class SharedContextRemote extends SharedContext {
       indexManager.load(database);
       // The Immutable snapshot should be after index and schema that require and before
       // everything else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       sequenceLibrary.load(database);
       loaded = true;
@@ -82,7 +82,7 @@ public class SharedContextRemote extends SharedContext {
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       scheduler.load(database);
       sequenceLibrary.load(database);

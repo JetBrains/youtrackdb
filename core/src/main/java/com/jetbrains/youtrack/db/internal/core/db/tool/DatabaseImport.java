@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
+import static com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson.EntityType.INDEX_MANAGER;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
@@ -1058,8 +1060,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         var record = recordWithMetadata.first();
         var metadata = recordWithMetadata.second();
 
-        switch (metadata.internalRecordType()) {
-          case SCHEMA -> {
+        switch (metadata.entityType()) {
+          case SCHEMA_MANAGER -> {
             recordsBeforeImport.remove(schemaRecordId);
             if (!schemaImported) {
               return null;
@@ -1075,7 +1077,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             recordsBeforeImport.remove(indexMgrRecordId);
             return null;
           }
-          case null -> {
+          default -> {
             final RID rid = record.getIdentity();
             final var collectionId = rid.getCollectionId();
 
@@ -1582,7 +1584,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   protected static void rewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
     entity = doRewriteLinksInDocument(session, entity, brokenRids);
- }
+  }
 
   protected static EntityImpl doRewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
