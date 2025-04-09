@@ -70,7 +70,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
 
         if (change.getType() == DiffChange.TYPE) {
           var storedCounter = tree.get(rid);
-          newCounter = entry.second().applyTo(storedCounter, maxCounterValue);
+          newCounter = entry.second().applyTo(storedCounter, Integer.MAX_VALUE);
 
           if (newCounter > maxCounterValue) {
             throw new DatabaseException(paginatedStorage.getName(),
