@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import java.io.Serializable;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Specify the Collating strategy when comparison in SQL statement is required.
@@ -43,8 +44,8 @@ public interface Collate extends Serializable {
   @Nonnull
   String getName();
 
-  @Nonnull
-  Object transform(@Nonnull Object obj);
+  @Nullable
+  Object transform(@Nullable Object obj);
 
   default int compareForOrderBy(@Nonnull Object o1, @Nonnull Object o2) {
     return DefaultComparator.INSTANCE.compare(transform(o1), transform(o2));
