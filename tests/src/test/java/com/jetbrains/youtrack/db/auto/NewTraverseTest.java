@@ -405,13 +405,13 @@ public class NewTraverseTest extends BaseDBTest {
                 + tomCruise.getIdentity()
                 + " while $depth < 2)");
     var found = false;
-    Integer i = 0;
+    var i = 0;
     while (result1.hasNext()) {
       var doc = result1.next();
       Integer depth = doc.getProperty("d");
       Assert.assertEquals(depth, i++);
     }
-    Assert.assertEquals(i.intValue(), 2);
+    Assert.assertEquals(i, 2);
     result1.close();
     session.commit();
   }
@@ -423,13 +423,13 @@ public class NewTraverseTest extends BaseDBTest {
     var result1 = db.query(q);
     Assert.assertTrue(result1.hasNext());
     var found = false;
-    Integer i = 0;
+    var i = 0;
     Result doc;
     while (result1.hasNext()) {
       doc = result1.next();
       i++;
     }
-    Assert.assertEquals(i.intValue(), 2);
+    Assert.assertEquals(i, 2);
     result1.close();
   }
 }

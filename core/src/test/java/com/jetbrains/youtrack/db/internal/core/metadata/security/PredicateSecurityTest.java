@@ -71,8 +71,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setCreateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setCreateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -108,8 +108,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setCreateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setCreateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -142,8 +142,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -184,8 +184,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -224,8 +224,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "surname = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("surname = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -266,8 +266,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setBeforeUpdateRule(session, "name = 'bar'");
+    policy.setActive(true);
+    policy.setBeforeUpdateRule("name = 'bar'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -313,8 +313,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setBeforeUpdateRule(session, "name = 'bar'");
+    policy.setActive(true);
+    policy.setBeforeUpdateRule("name = 'bar'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -367,8 +367,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setAfterUpdateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setAfterUpdateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -411,8 +411,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setAfterUpdateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setAfterUpdateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -453,8 +453,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setDeleteRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setDeleteRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -506,8 +506,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setDeleteRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setDeleteRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "writer"),
         "database.class.Person", policy);
@@ -559,8 +559,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -599,8 +599,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -643,8 +643,8 @@ public class PredicateSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);

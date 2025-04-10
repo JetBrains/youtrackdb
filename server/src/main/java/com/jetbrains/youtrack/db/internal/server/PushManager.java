@@ -40,12 +40,8 @@ public class PushManager implements MetadataUpdateListener {
   }
 
   public synchronized void cleanPushSockets() {
-    var iter = distributedConfigPush.iterator();
-    while (iter.hasNext()) {
-      if (iter.next().get() == null) {
-        iter.remove();
-      }
-    }
+    distributedConfigPush.removeIf(
+        networkProtocolBinaryWeakReference -> networkProtocolBinaryWeakReference.get() == null);
     storageConfigurations.cleanListeners();
     schema.cleanListeners();
     indexManager.cleanListeners();
@@ -130,13 +126,6 @@ public class PushManager implements MetadataUpdateListener {
       String database,
       PushEventType pack) {
     try {
-      DatabaseSessionInternal sessionCopy;
-      if (session != null) {
-        sessionCopy = session.copy();
-      } else {
-        sessionCopy = null;
-      }
-
       executor.submit(
           () -> {
             Set<WeakReference<NetworkProtocolBinary>> clients = null;
@@ -153,12 +142,7 @@ public class PushManager implements MetadataUpdateListener {
                   try {
                     var request = pack.getRequest(database);
                     if (request != null) {
-                      if (sessionCopy != null) {
-                        sessionCopy.activateOnCurrentThread();
-                        protocolBinary.push(sessionCopy, request);
-                      } else {
-                        protocolBinary.push(null, request);
-                      }
+                      protocolBinary.push(null, request);
                     }
                   } catch (IOException e) {
                     synchronized (PushManager.this) {

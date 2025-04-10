@@ -54,12 +54,12 @@ public class SecurityPolicyTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "test");
-    policy.setCreateRule(session, "name = 'create'");
-    policy.setReadRule(session, "name = 'read'");
-    policy.setBeforeUpdateRule(session, "name = 'beforeUpdate'");
-    policy.setAfterUpdateRule(session, "name = 'afterUpdate'");
-    policy.setDeleteRule(session, "name = 'delete'");
-    policy.setExecuteRule(session, "name = 'execute'");
+    policy.setCreateRule("name = 'create'");
+    policy.setReadRule("name = 'read'");
+    policy.setBeforeUpdateRule("name = 'beforeUpdate'");
+    policy.setAfterUpdateRule("name = 'afterUpdate'");
+    policy.setDeleteRule("name = 'delete'");
+    policy.setExecuteRule("name = 'execute'");
 
     security.saveSecurityPolicy(session, policy);
     session.commit();
@@ -67,12 +67,12 @@ public class SecurityPolicyTest extends DbTestBase {
     session.begin();
     SecurityPolicy readPolicy = security.getSecurityPolicy(session, "test");
     Assert.assertNotNull(policy);
-    Assert.assertEquals("name = 'create'", readPolicy.getCreateRule(session));
-    Assert.assertEquals("name = 'read'", readPolicy.getReadRule(session));
-    Assert.assertEquals("name = 'beforeUpdate'", readPolicy.getBeforeUpdateRule(session));
-    Assert.assertEquals("name = 'afterUpdate'", readPolicy.getAfterUpdateRule(session));
-    Assert.assertEquals("name = 'delete'", readPolicy.getDeleteRule(session));
-    Assert.assertEquals("name = 'execute'", readPolicy.getExecuteRule(session));
+    Assert.assertEquals("name = 'create'", readPolicy.getCreateRule());
+    Assert.assertEquals("name = 'read'", readPolicy.getReadRule());
+    Assert.assertEquals("name = 'beforeUpdate'", readPolicy.getBeforeUpdateRule());
+    Assert.assertEquals("name = 'afterUpdate'", readPolicy.getAfterUpdateRule());
+    Assert.assertEquals("name = 'delete'", readPolicy.getDeleteRule());
+    Assert.assertEquals("name = 'execute'", readPolicy.getExecuteRule());
     session.commit();
   }
 
@@ -86,42 +86,42 @@ public class SecurityPolicyTest extends DbTestBase {
     session.commit();
     try {
       session.begin();
-      policy.setCreateRule(session, "foo bar");
+      policy.setCreateRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
       session.begin();
-      policy.setReadRule(session, "foo bar");
+      policy.setReadRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
       session.begin();
-      policy.setBeforeUpdateRule(session, "foo bar");
+      policy.setBeforeUpdateRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
       session.begin();
-      policy.setAfterUpdateRule(session, "foo bar");
+      policy.setAfterUpdateRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
       session.begin();
-      policy.setDeleteRule(session, "foo bar");
+      policy.setDeleteRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
       session.begin();
-      policy.setExecuteRule(session, "foo bar");
+      policy.setExecuteRule("foo bar");
       session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
@@ -135,9 +135,9 @@ public class SecurityPolicyTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "test");
-    policy.setCreateRule(session, "1 = 1");
-    policy.setBeforeUpdateRule(session, "1 = 2");
-    policy.setActive(session, true);
+    policy.setCreateRule("1 = 1");
+    policy.setBeforeUpdateRule("1 = 2");
+    policy.setActive(true);
     security.saveSecurityPolicy(session, policy);
     session.commit();
 
@@ -148,7 +148,7 @@ public class SecurityPolicyTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var policyRid = policy.getEntity(session).getIdentity();
+    var policyRid = policy.getIdentity();
     try (var rs = session.query("select from " + Role.CLASS_NAME + " where name = 'reader'")) {
       Map<String, Identifiable> rolePolicies = rs.next().getProperty("policies");
       var id = rolePolicies.get(resource);
@@ -168,9 +168,9 @@ public class SecurityPolicyTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "test");
-    policy.setCreateRule(session, "1 = 1");
-    policy.setBeforeUpdateRule(session, "1 = 2");
-    policy.setActive(session, true);
+    policy.setCreateRule("1 = 1");
+    policy.setBeforeUpdateRule("1 = 2");
+    policy.setActive(true);
     security.saveSecurityPolicy(session, policy);
     session.commit();
 

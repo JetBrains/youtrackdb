@@ -493,37 +493,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         connectionManager.release(network);
         handleDBFreeze();
         serverUrl = null;
-      } catch (TokenException | TokenSecurityException e) {
-        connectionManager.release(network);
-        session.removeServerSession(network.getServerURL());
-
-        if (session.isStickToSession()) {
-          retry--;
-          if (retry <= 0) {
-            throw BaseException.wrapException(new StorageException(name, errorMessage), e, name);
-          } else {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "Caught Network I/O errors on %s, trying an automatic reconnection... (error:"
-                        + " %s)",
-                    network.getServerURL(),
-                    e.getMessage());
-            LogManager.instance().debug(this, "I/O error stack: ", e);
-
-            connectionManager.remove(network);
-            try {
-              Thread.sleep(connectionRetryDelay);
-            } catch (java.lang.InterruptedException e1) {
-              LogManager.instance()
-                  .error(this, "Exception was suppressed, original exception is ", e);
-              throw BaseException.wrapException(new ThreadInterruptedException(e1.getMessage()),
-                  e1, name);
-            }
-          }
-        }
-
-        serverUrl = null;
       } catch (OfflineNodeException e) {
         connectionManager.release(network);
         // Remove the current url because the node is offline

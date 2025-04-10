@@ -36,15 +36,15 @@ public class SecuritySharedTest extends DbTestBase {
     var security = session.getSharedContext().getSecurity();
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     session.commit();
 
     session.begin();
-    Assert.assertTrue(security.getSecurityPolicy(session, "testPolicy").isActive(session));
+    Assert.assertTrue(security.getSecurityPolicy(session, "testPolicy").isActive());
     Assert.assertEquals("name = 'foo'",
-        security.getSecurityPolicy(session, "testPolicy").getReadRule(session));
+        security.getSecurityPolicy(session, "testPolicy").getReadRule());
     session.commit();
   }
 
@@ -56,8 +56,8 @@ public class SecuritySharedTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -69,7 +69,7 @@ public class SecuritySharedTest extends DbTestBase {
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(session));
+            .getName());
     session.commit();
   }
 
@@ -81,8 +81,8 @@ public class SecuritySharedTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
