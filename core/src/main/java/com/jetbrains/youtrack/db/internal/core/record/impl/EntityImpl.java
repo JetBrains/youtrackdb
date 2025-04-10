@@ -1154,11 +1154,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public Object setPropertyInternal(
+  public void setPropertyInternal(
       String name, Object value,
       @Nullable PropertyTypeInternal type
   ) {
-    return setPropertyInternal(name, value, type, null, false);
+    setPropertyInternal(name, value, type, null, false);
   }
 
   public Object setPropertyInternal(
