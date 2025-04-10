@@ -210,6 +210,11 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     }
   }
 
+  @Override
+  protected void clearAllEntries(DatabaseSessionInternal session) {
+    session.executeInTxInternal(this::doDelete);
+  }
+
   protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     return key;
   }

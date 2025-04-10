@@ -55,7 +55,7 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class LuceneAutomaticBackupRestoreTest {
 
-  private static final String DBNAME = "OLuceneAutomaticBackupRestoreTest";
+  private static final String DBNAME = "LuceneAutomaticBackupRestoreTest";
   private File tempFolder;
 
   @Rule

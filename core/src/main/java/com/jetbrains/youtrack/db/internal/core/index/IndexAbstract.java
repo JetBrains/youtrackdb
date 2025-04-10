@@ -242,9 +242,9 @@ public abstract class IndexAbstract implements Index {
     final var indexMetadata = loadMetadata(transaction, entity.toMap(false));
 
     this.im = indexMetadata;
-    collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
     collectionsToIndex.clear();
 
+    collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
     indexId = storage.loadIndexEngine(im.getName());
 
     if (indexId == -1) {
@@ -581,7 +581,7 @@ public abstract class IndexAbstract implements Index {
     entity.delete();
   }
 
-  private void clearAllEntries(DatabaseSessionInternal session) {
+  protected void clearAllEntries(DatabaseSessionInternal session) {
     FrontendTransaction transaction = null;
     if (session.isTxActive()) {
       transaction = session.getTransactionInternal();
