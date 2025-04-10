@@ -4,8 +4,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerShared;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -24,7 +23,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  *
  */
-public class SharedContextEmbedded extends SharedContext {
+public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
 
   private final ReentrantLock lock = new ReentrantLock();
 
@@ -43,7 +42,7 @@ public class SharedContextEmbedded extends SharedContext {
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
     schema = new SchemaEmbedded();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
-    indexManager = new IndexManagerShared(storage);
+    indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
     sequenceLibrary = new SequenceLibraryImpl();
@@ -166,7 +165,7 @@ public class SharedContextEmbedded extends SharedContext {
 
       // create geospatial classes
       try {
-        IndexFactory factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
+        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
         if (factory instanceof DatabaseLifecycleListener) {
           ((DatabaseLifecycleListener) factory).onCreate(session);

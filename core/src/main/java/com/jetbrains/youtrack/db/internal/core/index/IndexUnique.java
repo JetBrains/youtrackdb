@@ -40,10 +40,13 @@ public class IndexUnique extends IndexOneValue {
   private final IndexEngineValidator<Object, RID> uniqueValidator =
       new UniqueIndexEngineValidator(this);
 
-  public IndexUnique(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
-    super(im, identity, indexManager, storage);
+  public IndexUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override

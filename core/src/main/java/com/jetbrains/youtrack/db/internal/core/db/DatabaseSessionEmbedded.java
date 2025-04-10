@@ -53,6 +53,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -108,7 +109,7 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
+public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManagerEmbedded>
     implements QueryLifecycleListener {
 
   private YouTrackDBConfigImpl config;
@@ -158,7 +159,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     throw new UnsupportedOperationException("Use YouTrackDB");
   }
 
-  public void init(YouTrackDBConfigImpl config, SharedContext sharedContext) {
+  public void init(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> sharedContext) {
     this.sharedContext = sharedContext;
     activateOnCurrentThread();
     this.config = config;
@@ -305,7 +306,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   /**
    * {@inheritDoc}
    */
-  public void internalCreate(YouTrackDBConfigImpl config, SharedContext ctx) {
+  public void internalCreate(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> ctx) {
     var serializer = RecordSerializerFactory.instance().getDefaultRecordSerializer();
     if (serializer.toString().equals("ORecordDocument2csv")) {
       throw new DatabaseException(getDatabaseName(),
@@ -336,7 +337,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  protected void createMetadata(SharedContext shared) {
+  protected void createMetadata(SharedContext<IndexManagerEmbedded> shared) {
     assert assertIfNotActive();
     metadata.init(shared);
     ((SharedContextEmbedded) shared).create(this);
@@ -520,8 +521,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   public void rebuildIndexes() {
     assert assertIfNotActive();
-    if (metadata.getIndexManagerInternal().autoRecreateIndexesAfterCrash(this)) {
-      metadata.getIndexManagerInternal().recreateIndexes(this);
+    var indexManager = sharedContext.getIndexManager();
+    if (indexManager.autoRecreateIndexesAfterCrash(this)) {
+      indexManager.recreateIndexes(this);
     }
   }
 
@@ -1132,12 +1134,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             var schema = sharedContext.getSchema();
             for (var listener : sharedContext.browseListeners()) {
               listener.onSchemaUpdate(this, getDatabaseName(), schema);
-            }
-          } else if (record.getIdentity()
-              .equals(metadata.getIndexManagerInternal().getIdentity())) {
-            var indexManager = sharedContext.getIndexManager();
-            for (var listener : sharedContext.browseListeners()) {
-              listener.onIndexManagerUpdate(this, getDatabaseName(), indexManager);
             }
           }
         }

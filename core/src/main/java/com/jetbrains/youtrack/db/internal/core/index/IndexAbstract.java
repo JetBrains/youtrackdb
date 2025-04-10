@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.lock.OneEntryPerKeyLockM
 import com.jetbrains.youtrack.db.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey;
@@ -75,30 +76,40 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected final AbstractStorage storage;
+  @Nonnull
   private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
   protected volatile int indexId = -1;
-  protected volatile int apiVersion = -1;
 
-  protected Set<String> collectionsToIndex = new HashSet<>();
   @Nonnull
+  protected Set<String> collectionsToIndex = new HashSet<>();
+  @Nullable
   protected IndexMetadata im;
 
-  private boolean dirty;
   @Nullable
   private RID identity;
-  @Nonnull
-  private final IndexManagerAbstract indexManager;
 
-  public IndexAbstract(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
+  public IndexAbstract(@Nullable RID identity,
+      @Nonnull FrontendTransaction transaction, @Nonnull final Storage storage) {
     acquireExclusiveLock();
     try {
-      this.im = im;
+      if (!identity.isPersistent()) {
+        throw new IllegalStateException(
+            "RID passed to index is not persistent and can not be used to load metadata");
+      }
       this.identity = identity;
       this.storage = (AbstractStorage) storage;
-      this.indexManager = indexManager;
+
+      load(transaction);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  public IndexAbstract(@Nonnull final Storage storage) {
+    acquireExclusiveLock();
+    try {
+      this.storage = (AbstractStorage) storage;
     } finally {
       releaseExclusiveLock();
     }
@@ -135,9 +146,9 @@ public abstract class IndexAbstract implements Index {
                      | InvocationTargetException
                      | NoSuchMethodException e) {
         throw BaseException.wrapException(
-            new IndexException(transaction.getSession(),
+            new IndexException(transaction.getDatabaseSession(),
                 "Error during deserialization of index definition"), e,
-            transaction.getSession());
+            transaction.getDatabaseSession());
       }
     }
 
@@ -183,34 +194,24 @@ public abstract class IndexAbstract implements Index {
       final ProgressListener progressListener) {
     acquireExclusiveLock();
     try {
-      var collectionsToIndex = indexMetadata.getCollectionsToIndex();
+      this.im = indexMetadata;
 
+      var collectionsToIndex = indexMetadata.getCollectionsToIndex();
       if (collectionsToIndex != null) {
         this.collectionsToIndex = new HashSet<>(collectionsToIndex);
       } else {
         this.collectionsToIndex = new HashSet<>();
       }
 
-      // do not remove this, it is needed to remove index garbage if such one exists
-      try {
-        if (apiVersion == 0) {
-          throw new UnsupportedOperationException("Index engine API version 0 is not supported");
-        }
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Error during deletion of index '%s'", e, im.getName());
-      }
       Map<String, String> engineProperties = new HashMap<>();
       indexMetadata.setVersion(im.getVersion());
       indexId = storage.addIndexEngine(indexMetadata, engineProperties);
-      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
       assert indexId >= 0;
-      assert apiVersion >= 0;
 
-      onIndexEngineChange(transaction.getSession(), indexId);
+      onIndexEngineChange(transaction.getDatabaseSession(), indexId);
 
-      dirty = true;
-      indexManager.markMetadataDirty();
+      save(transaction);
     } catch (Exception e) {
       LogManager.instance().error(this, "Exception during index '%s' creation", e, im.getName());
       // index is created inside of storage
@@ -218,10 +219,10 @@ public abstract class IndexAbstract implements Index {
         doDelete(transaction);
       }
       throw BaseException.wrapException(
-          new IndexException(transaction.getSession(),
+          new IndexException(transaction.getDatabaseSession(),
               "Cannot create the index '" + im.getName() + "'"),
           e,
-          transaction.getSession());
+          transaction.getDatabaseSession());
     } finally {
       releaseExclusiveLock();
     }
@@ -231,51 +232,38 @@ public abstract class IndexAbstract implements Index {
 
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
-    apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
-
     if (indexId < 0) {
       throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
     }
   }
 
-  public void load(FrontendTransaction transaction) {
-    acquireExclusiveLock();
-    try {
-      if (dirty) {
-        throw new IndexException("Index contains not stored changes and can not be reloaded.");
-      }
+  private void load(FrontendTransaction transaction) {
+    var entity = transaction.loadEntity(identity);
+    final var indexMetadata = loadMetadata(transaction, entity.toMap(false));
 
-      collectionsToIndex.clear();
-      var entity = transaction.loadEntity(identity);
-      final var indexMetadata = loadMetadata(transaction, entity.toMap(false));
+    this.im = indexMetadata;
+    collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
+    collectionsToIndex.clear();
 
-      this.im = indexMetadata;
-      collectionsToIndex.addAll(indexMetadata.getCollectionsToIndex());
+    indexId = storage.loadIndexEngine(im.getName());
 
-      indexId = storage.loadIndexEngine(im.getName());
-      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
-
-      if (indexId == -1) {
-        Map<String, String> engineProperties = new HashMap<>();
-        indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
-        apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
-      }
-
-      if (indexId == -1) {
-        throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
-      }
-
-      onIndexEngineChange(transaction.getSession(), indexId);
-    } finally {
-      releaseExclusiveLock();
+    if (indexId == -1) {
+      Map<String, String> engineProperties = new HashMap<>();
+      indexId = storage.loadExternalIndexEngine(indexMetadata, engineProperties);
     }
+
+    if (indexId == -1) {
+      throw new IllegalStateException("Index " + im.getName() + " can not be loaded");
+    }
+
+    onIndexEngineChange(transaction.getDatabaseSession(), indexId);
   }
 
   @Override
   public IndexMetadata loadMetadata(FrontendTransaction transaction,
       final Map<String, Object> config) {
     return loadMetadataInternal(transaction,
-        config, im.getType(), im.getAlgorithm());
+        config, (String) config.get(CONFIG_TYPE), (String) config.get(ALGORITHM));
   }
 
   /**
@@ -444,7 +432,6 @@ public abstract class IndexAbstract implements Index {
 
       Map<String, String> engineProperties = new HashMap<>();
       indexId = storage.addIndexEngine(im, engineProperties);
-      apiVersion = AbstractStorage.extractEngineAPIVersion(indexId);
 
       onIndexEngineChange(session, indexId);
     } catch (Exception e) {
@@ -560,12 +547,10 @@ public abstract class IndexAbstract implements Index {
 
     try {
       doDelete(transaction);
-      var session = transaction.getSession();
+      var session = (DatabaseSessionEmbedded) transaction.getDatabaseSession();
       // REMOVE THE INDEX ALSO FROM CLASS MAP
-      if (session.getMetadata() != null) {
-        session.getMetadata().getIndexManagerInternal()
-            .removeClassPropertyIndex(session, this);
-      }
+      session.getSharedContext().getIndexManager()
+          .removeClassPropertyIndex(session, this);
 
       return this;
     } finally {
@@ -577,7 +562,7 @@ public abstract class IndexAbstract implements Index {
     while (true) {
       try {
         try {
-          clearAllEntries(transaction.getSession());
+          clearAllEntries(transaction.getDatabaseSession());
         } catch (IndexEngineException e) {
           throw e;
         } catch (RuntimeException e) {
@@ -591,6 +576,9 @@ public abstract class IndexAbstract implements Index {
         doReloadIndexEngine();
       }
     }
+
+    var entity = transaction.loadEntity(identity);
+    entity.delete();
   }
 
   private void clearAllEntries(DatabaseSessionInternal session) {
@@ -657,9 +645,10 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public IndexAbstract addCollection(DatabaseSessionInternal session, final String collectionName) {
+  public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName) {
     acquireExclusiveLock();
     try {
+      var session = transaction.getDatabaseSession();
       if (collectionsToIndex.add(collectionName)) {
         // INDEX SINGLE COLLECTION
         var collectionId = session.getCollectionIdByName(collectionName);
@@ -668,8 +657,7 @@ public abstract class IndexAbstract implements Index {
               + " is not empty. Please remove all records from it before adding to index");
         }
 
-        indexManager.markMetadataDirty();
-        dirty = true;
+        save(transaction);
       }
       return this;
     } finally {
@@ -677,9 +665,10 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public void removeCollection(DatabaseSessionInternal session, String collectionName) {
+  public void removeCollection(FrontendTransaction transaction, String collectionName) {
     acquireExclusiveLock();
     try {
+      var session = transaction.getDatabaseSession();
       var collectionId = session.getCollectionIdByName(collectionName);
       if (session.countCollectionElements(collectionId) > 0) {
         throw new IndexException("Collection " + collectionName
@@ -687,8 +676,7 @@ public abstract class IndexAbstract implements Index {
       }
 
       if (collectionsToIndex.remove(collectionName)) {
-        dirty = true;
-        indexManager.markMetadataDirty();
+        save(transaction);
       }
     } finally {
       releaseExclusiveLock();
@@ -700,14 +688,10 @@ public abstract class IndexAbstract implements Index {
     return im.getVersion();
   }
 
-  public RID save(FrontendTransaction transaction) {
-    if (!dirty && identity.isPersistent()) {
-      return identity;
-    }
-
+  private void save(FrontendTransaction transaction) {
     Entity entity;
     if (identity == null) {
-      entity = transaction.getSession().newInternalInstance();
+      entity = transaction.getDatabaseSession().newInternalInstance();
     } else {
       entity = transaction.loadEntity(identity);
     }
@@ -717,12 +701,12 @@ public abstract class IndexAbstract implements Index {
     entity.setInt(INDEX_VERSION, im.getVersion());
 
     if (im.getIndexDefinition() != null) {
-      final var indexDefEntity = im.getIndexDefinition().toMap(transaction.getSession());
+      final var indexDefEntity = im.getIndexDefinition().toMap(transaction.getDatabaseSession());
       entity.setEmbeddedMap(INDEX_DEFINITION, indexDefEntity);
       entity.setString(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
     }
 
-    var session = transaction.getSession();
+    var session = transaction.getDatabaseSession();
     entity.setEmbeddedSet(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
     entity.setString(ALGORITHM, im.getAlgorithm());
 
@@ -731,8 +715,6 @@ public abstract class IndexAbstract implements Index {
     }
 
     identity = entity.getIdentity();
-    dirty = false;
-    return identity;
   }
 
   /**
@@ -1097,10 +1079,5 @@ public abstract class IndexAbstract implements Index {
   @Override
   public RID getIdentity() {
     return identity;
-  }
-
-  @Override
-  public void markDirty() {
-    dirty = true;
   }
 }

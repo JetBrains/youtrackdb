@@ -692,7 +692,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       Object value,
       boolean orderAsc,
       SQLBooleanExpression condition) {
-    var session = transaction.getSession();
+    var session = transaction.getDatabaseSession();
     if (operator instanceof SQLEqualsCompareOperator
         || operator instanceof SQLContainsKeyOperator
         || operator instanceof SQLContainsValueOperator) {
@@ -878,7 +878,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         additionalRangeCondition = new SQLBinaryCondition(-1);
         additionalRangeCondition.deserialize(fromResult.getProperty("additionalRangeCondition"));
       }
-      var index = session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
+      var index = session.getSharedContext().getIndexManager().getIndex(session, indexName);
       desc = new IndexSearchDescriptor(index, condition, additionalRangeCondition, null);
       orderAsc = fromResult.getProperty("orderAsc");
     } catch (Exception e) {

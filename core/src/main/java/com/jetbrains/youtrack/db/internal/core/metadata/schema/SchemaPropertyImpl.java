@@ -183,7 +183,7 @@ public abstract class SchemaPropertyImpl {
 
     acquireSchemaReadLock(session);
     try {
-      final var indexManager = session.getMetadata().getIndexManagerInternal();
+      final var indexManager = session.getSharedContext().getIndexManager();
 
       final var relatedIndexes = new ArrayList<Index>();
       for (final var index : indexManager.getClassIndexes(session, owner.getName(session))) {
@@ -205,7 +205,8 @@ public abstract class SchemaPropertyImpl {
       }
 
       for (final var index : relatedIndexes) {
-        session.getMetadata().getIndexManagerInternal().dropIndex(session, index.getName());
+        session.getSharedContext().getIndexManager()
+            .dropIndex(session, index.getName());
       }
     } finally {
       releaseSchemaReadLock(session);

@@ -38,7 +38,7 @@ import javax.annotation.Nullable;
 public class RemoteTreeLinkBag extends AbstractLinkBag {
 
   private String fieldName;
-  private LinkBagPointer pointer;
+  private final LinkBagPointer pointer;
 
   public RemoteTreeLinkBag(@Nonnull DatabaseSessionInternal session,
       int counterMaxValue, int size) {
@@ -97,7 +97,7 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   public Object returnOriginalState(
       FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    final var reverted = new RemoteTreeLinkBag(transaction.getSession(),
+    final var reverted = new RemoteTreeLinkBag(transaction.getDatabaseSession(),
         counterMaxValue, 0);
 
     for (var identifiable : this) {

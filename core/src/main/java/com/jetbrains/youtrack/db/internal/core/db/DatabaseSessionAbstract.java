@@ -75,6 +75,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedExce
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
@@ -136,7 +137,8 @@ import javax.annotation.Nullable;
  * Entity API entrypoint.
  */
 @SuppressWarnings("unchecked")
-public abstract class DatabaseSessionAbstract extends ListenerManger<SessionListener>
+public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> extends
+    ListenerManger<SessionListener>
     implements DatabaseSessionInternal {
 
   protected final HashMap<String, Object> properties = new HashMap<>();
@@ -156,7 +158,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   protected boolean initialized = false;
   protected FrontendTransaction currentTx;
 
-  protected SharedContext sharedContext;
+  protected SharedContext<IM> sharedContext;
 
   private boolean prefetchRecords;
 
@@ -2072,7 +2074,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
 
   @Override
-  public SharedContext getSharedContext() {
+  public SharedContext<IM> getSharedContext() {
     assert assertIfNotActive();
     return sharedContext;
   }

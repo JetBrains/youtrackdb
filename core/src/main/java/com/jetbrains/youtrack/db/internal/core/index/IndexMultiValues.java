@@ -45,7 +45,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -58,10 +57,13 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexMultiValues extends IndexAbstract {
 
-  IndexMultiValues(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
-    super(im, identity, indexManager, storage);
+  public IndexMultiValues(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexMultiValues(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Deprecated
@@ -83,20 +85,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       Stream<RID> stream;
       while (true) {
         try {
-          if (apiVersion == 0) {
-            //noinspection unchecked
-            final var values =
-                (Collection<RID>) storage.getIndexValue(session, indexId, collatedKey);
-            if (values != null) {
-              stream = values.stream();
-            } else {
-              stream = Stream.empty();
-            }
-          } else if (apiVersion == 1) {
-            stream = storage.getIndexValues(indexId, collatedKey);
-          } else {
-            throw new IllegalStateException("Invalid version of index API - " + apiVersion);
-          }
+          stream = storage.getIndexValues(indexId, collatedKey);
           backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -157,13 +146,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
-    if (apiVersion == 0) {
-      throw new UnsupportedOperationException("Index API of version 0 is not supported");
-    } else if (apiVersion == 1) {
-      doPutV1(storage, indexId, key, rid);
-    } else {
-      throw new IllegalStateException("Invalid API version, " + apiVersion);
-    }
+    doPutV1(storage, indexId, key, rid);
   }
 
   private static void doPutV1(
@@ -176,15 +159,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
-    if (apiVersion == 0) {
-      throw new UnsupportedOperationException("Index API of version 0 is not supported");
-    }
-
-    if (apiVersion == 1) {
-      return doRemoveV1(indexId, storage, key, rid);
-    }
-
-    throw new IllegalStateException("Invalid API version, " + apiVersion);
+    return doRemoveV1(indexId, storage, key, rid);
   }
 
   private static boolean doRemoveV1(
@@ -426,18 +401,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     try {
       while (true) {
         try {
-          if (apiVersion == 0) {
-            //noinspection unchecked,resource
-            return Optional.ofNullable(
-                    (Collection<RID>) storage.getIndexValue(db, indexId, key))
-                .map((rids) -> rids.stream().map((rid) -> new RawPair<>(entryKey, rid)))
-                .orElse(Stream.empty());
-          } else if (apiVersion == 1) {
-            //noinspection resource
-            return storage.getIndexValues(indexId, key).map((rid) -> new RawPair<>(entryKey, rid));
-          } else {
-            throw new IllegalStateException("Invalid version of index API - " + apiVersion);
-          }
+          return storage.getIndexValues(indexId, key).map((rid) -> new RawPair<>(entryKey, rid));
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
         }

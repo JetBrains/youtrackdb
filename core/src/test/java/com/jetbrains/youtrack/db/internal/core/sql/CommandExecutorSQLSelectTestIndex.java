@@ -35,10 +35,10 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
       session.execute("insert into Foo set bar = ['yep']").close();
     });
     var results = session.query("select from Foo where bar = 'yep'");
-    assertEquals(results.stream().count(), 1);
+    assertEquals(1, results.stream().count());
 
-    final var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
-    assertEquals(index.size(session), 1);
+    final var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
+    assertEquals(1, index.size(session));
   }
 
   @Test
@@ -54,7 +54,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     session.execute("ALTER CLASS Derived SUPERCLASSES Base").close();
 
     var results = session.query("SELECT * FROM Derived WHERE uuid='abcdef'");
-    assertEquals(results.stream().count(), 1);
+    assertEquals(1, results.stream().count());
   }
 
   @Test
@@ -67,20 +67,20 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     });
 
     var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
-    assertEquals(result.stream().count(), 1);
+    assertEquals(1, result.stream().count());
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    assertEquals(1, result.stream().count());
 
     session.execute("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
 
     result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
-    assertEquals(result.stream().count(), 1);
+    assertEquals(1, result.stream().count());
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    assertEquals(1, result.stream().count());
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    assertEquals(1, result.stream().count());
   }
 }

@@ -518,7 +518,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   DatabaseSession open(final Token iToken);
 
-  SharedContext getSharedContext();
+  SharedContext<?> getSharedContext();
 
   /**
    * @return an endpoint for Enterprise features. Null in Community Edition
@@ -1168,10 +1168,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param args  query parameters (named)
    * @return the query result set
    */
-  ResultSet query(String query, Map args)
+  ResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException;
 
-  ResultSet query(String query, boolean syncTx, Map args)
+  ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException;
 
   /**
@@ -1203,7 +1203,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * rs.close();
    * </code>
    */
-  default ResultSet execute(String query, Map args)
+  default ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     throw new UnsupportedOperationException();
   }
@@ -1239,7 +1239,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param args query arguments
    */
-  default void command(String query, Map args)
+  default void command(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     execute(query, args).close();
   }
@@ -1445,8 +1445,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   FrontendTransaction begin();
 
   default Index getIndex(String indexName) {
-    var metadata = getMetadata();
-    var indexManager = metadata.getIndexManagerInternal();
+    var indexManager = getSharedContext().getIndexManager();
     return indexManager.getIndex(this, indexName);
   }
 

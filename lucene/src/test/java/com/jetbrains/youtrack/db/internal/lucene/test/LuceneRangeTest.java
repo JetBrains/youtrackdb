@@ -57,8 +57,8 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.age")
 
             .size(session))
@@ -84,8 +84,8 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.date")
 
             .size(session))
@@ -116,8 +116,8 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.composite")
 
             .size(session))
@@ -168,8 +168,8 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.composite")
 
             .size(session))
@@ -183,7 +183,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     // name and age range
     final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "Person.composite");
+        session.getSharedContext().getIndexManager().getIndex(session, "Person.composite");
     try (var stream = index.getRids(session, "name:luke  age:[5 TO 6]")) {
       assertThat(stream.count()).isEqualTo(2);
     }

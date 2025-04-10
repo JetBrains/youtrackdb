@@ -176,15 +176,15 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     var prev0 =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne0")
 
             .size(session);
     var prev1 =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne1")
 
             .size(session);
@@ -203,16 +203,16 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne0")
 
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne1")
 
             .size(session),
@@ -225,15 +225,15 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     var prev0 =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne0")
 
             .size(session);
     var prev1 =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne1")
 
             .size(session);
@@ -251,16 +251,16 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne0")
 
             .size(session),
         prev0 + 1);
     Assert.assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "propOne1")
 
             .size(session),
@@ -286,18 +286,18 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     var indexes = oClass.getInvolvedIndexes(session, "prop4");
     for (var index : indexes) {
-      session.getMetadata().getIndexManagerInternal().dropIndex(session, index);
+      session.getSharedContext().getIndexManager().dropIndex(session, index);
     }
 
     Assert.assertNull(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "PropertyIndexFirstIndex"));
     Assert.assertNull(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "PropertyIndexSecondIndex"));
   }
 

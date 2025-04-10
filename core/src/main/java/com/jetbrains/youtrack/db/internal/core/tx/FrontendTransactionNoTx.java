@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -103,10 +102,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     return 0;
   }
 
-  @Override
-  public @Nonnull DatabaseSessionInternal getSession() {
-    return session;
-  }
 
   @Nonnull
   @Override
@@ -414,6 +409,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 
+  @Nonnull
   @Override
   public DatabaseSessionInternal getDatabaseSession() {
     return session;

@@ -18,7 +18,6 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeIndexEngine;
@@ -27,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeSingleValueI
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.index.engine.RemoteIndexEngine;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -64,20 +64,7 @@ public class DefaultIndexFactory implements IndexFactory {
     ALGORITHMS = Collections.unmodifiableSet(algorithms);
   }
 
-  static boolean isMultiValueIndex(final String indexType) {
-    return INDEX_TYPE.valueOf(indexType) != INDEX_TYPE.UNIQUE;
-  }
 
-  /**
-   * Index types :
-   *
-   * <ul>
-   *   <li>UNIQUE
-   *   <li>NOTUNIQUE
-   *   <li>FULLTEXT
-   *   <li>DICTIONARY
-   * </ul>
-   */
   public Set<String> getTypes() {
     return TYPES;
   }
@@ -86,23 +73,27 @@ public class DefaultIndexFactory implements IndexFactory {
     return ALGORITHMS;
   }
 
-  public Index createIndex(
-      @Nonnull IndexMetadata im, @Nullable RID identity, @Nonnull IndexManagerAbstract indexManager,
-      @Nonnull Storage storage)
+  @Override
+  public Index createIndex(String indexType, @Nonnull Storage storage)
       throws ConfigurationException {
-    var version = im.getVersion();
-    final var indexType = im.getType();
-    final var algorithm = im.getAlgorithm();
-
-    if (version < 0) {
-      version = getLastVersion(algorithm);
-      im.setVersion(version);
+    if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
+      return new IndexUnique(storage);
+    } else if (SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
+      return new IndexNotUnique(storage);
     }
 
+    throw new ConfigurationException(storage.getName(), "Unsupported type: " + indexType);
+  }
+
+  @Override
+  public Index createIndex(@Nonnull String indexType, @Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage)
+      throws ConfigurationException {
     if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
-      return new IndexUnique(im, identity, indexManager, storage);
+      return new IndexUnique(identity, transaction, storage);
     } else if (SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
-      return new IndexNotUnique(im, identity, indexManager, storage);
+      return new IndexNotUnique(identity, transaction, storage);
     }
 
     throw new ConfigurationException(storage.getName(), "Unsupported type: " + indexType);
@@ -130,6 +121,11 @@ public class DefaultIndexFactory implements IndexFactory {
       storageType = storage.getType();
     }
 
+    var version = data.getVersion();
+    if (version < 0) {
+      version = getLastVersion(data.getAlgorithm());
+    }
+
     switch (storageType) {
       case "memory":
       case "disk":
@@ -138,11 +134,11 @@ public class DefaultIndexFactory implements IndexFactory {
           if (data.isMultivalue()) {
             indexEngine =
                 new BTreeMultiValueIndexEngine(
-                    data.getIndexId(), data.getName(), realStorage, data.getVersion());
+                    data.getIndexId(), data.getName(), realStorage, version);
           } else {
             indexEngine =
                 new BTreeSingleValueIndexEngine(
-                    data.getIndexId(), data.getName(), realStorage, data.getVersion());
+                    data.getIndexId(), data.getName(), realStorage, version);
           }
         } else {
           throw new IllegalStateException("Invalid name of algorithm :'" + "'");

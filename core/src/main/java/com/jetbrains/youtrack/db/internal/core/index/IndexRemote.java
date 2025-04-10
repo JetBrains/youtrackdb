@@ -160,22 +160,12 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public void load(FrontendTransaction transaction) {
+  public Index addCollection(FrontendTransaction transaction, String collectionName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public RID save(FrontendTransaction transaction) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Index addCollection(DatabaseSessionInternal session, String iCollectionName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
+  public void removeCollection(FrontendTransaction transaction, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
@@ -326,11 +316,6 @@ public class IndexRemote implements Index {
 
   public RID getIdentity() {
     return rid;
-  }
-
-  @Override
-  public void markDirty() {
-    throw new UnsupportedOperationException();
   }
 
   public long rebuild(DatabaseSessionInternal session,

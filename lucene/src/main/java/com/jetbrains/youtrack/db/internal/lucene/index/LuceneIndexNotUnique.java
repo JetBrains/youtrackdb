@@ -26,8 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdExc
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.IndexStreamSecurityDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
@@ -51,10 +49,14 @@ import org.apache.lucene.search.IndexSearcher;
 
 public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex {
 
-  public LuceneIndexNotUnique(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
-    super(im, identity, indexManager, storage);
+
+  public LuceneIndexNotUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneIndexNotUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
@@ -71,7 +73,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           rid);
       var transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(transaction.getSession(), key, rid);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, rid);
       return true;
     }
     return true;
@@ -84,7 +86,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           null);
       var transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(transaction.getSession(), key, null);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, null);
       return true;
     }
     return true;
@@ -310,7 +312,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   indexId,
                   engine -> {
                     var oIndexEngine = (LuceneIndexEngine) engine;
-                    return oIndexEngine.buildDocument(transaction.getSession(), key, value);
+                    return oIndexEngine.buildDocument(transaction.getDatabaseSession(), key, value);
                   });
           break;
         } catch (InvalidIndexEngineIdException e) {

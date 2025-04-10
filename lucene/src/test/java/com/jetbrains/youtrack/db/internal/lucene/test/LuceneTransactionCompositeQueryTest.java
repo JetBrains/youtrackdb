@@ -72,7 +72,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     doc.setProperty("name", "Test");
     doc.setProperty("bar", "abc");
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
 
     session.commit();
 
@@ -110,7 +110,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   @Test
   public void txUpdateTest() {
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
     var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
     c1.truncate();
 
@@ -171,7 +171,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   @Test
   public void txUpdateTestComplex() {
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Foo.bar");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
     var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
     c1.truncate();
 

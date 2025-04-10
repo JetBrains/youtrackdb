@@ -73,7 +73,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     var param = params[0];
     if (!(param instanceof Collection<?>)) {
       try {
-        var session = transaction.getSession();
+        var session = transaction.getDatabaseSession();
         return keyType.convert(refreshRid(session, param), null, null, session);
       } catch (Exception e) {
         return null;
@@ -91,13 +91,13 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
 
   public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
     try {
-      var value = refreshRid(transaction.getSession(), param[0]);
-      return keyType.convert(value, null, null, transaction.getSession());
+      var value = refreshRid(transaction.getDatabaseSession(), param[0]);
+      return keyType.convert(value, null, null, transaction.getDatabaseSession());
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new IndexException(transaction.getSession(),
+          new IndexException(transaction.getDatabaseSession(),
               "Invalid key for index: " + param[0] + " cannot be converted to " + keyType),
-          e, transaction.getSession());
+          e, transaction.getDatabaseSession());
     }
   }
 

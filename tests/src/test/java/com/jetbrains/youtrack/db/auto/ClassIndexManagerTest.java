@@ -138,15 +138,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       Assert.assertEquals(
           session
-              .getMetadata()
-              .getIndexManagerInternal()
+              .getSharedContext()
+              .getIndexManager()
               .getIndex(session, "classIndexManagerTestClass.prop1")
               .size(session),
           0);
       Assert.assertEquals(
           session
-              .getMetadata()
-              .getIndexManagerInternal()
+              .getSharedContext()
+              .getIndexManager()
               .getIndex(session, "classIndexManagerTestClass.prop2")
               .size(session),
           0);
@@ -313,7 +313,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final var beforeIndexes =
-        session.getMetadata().getIndexManagerInternal().getIndexes(session);
+        session.getSharedContext().getIndexManager().getIndexes(session);
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
@@ -330,7 +330,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final var afterIndexes =
-        session.getMetadata().getIndexManagerInternal().getIndexes(session);
+        session.getSharedContext().getIndexManager().getIndexes(session);
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
@@ -341,7 +341,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     checkEmbeddedDB();
 
     final var beforeIndexes =
-        session.getMetadata().getIndexManagerInternal().getIndexes(session);
+        session.getSharedContext().getIndexManager().getIndexes(session);
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
@@ -360,7 +360,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final var afterIndexes =
-        session.getMetadata().getIndexManagerInternal().getIndexes(session);
+        session.getSharedContext().getIndexManager().getIndexes(session);
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
@@ -425,14 +425,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var oClass = schema.getClass("classIndexManagerTestClass");
     final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
     try (var stream = propOneIndex.getRids(session, "a")) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
     Assert.assertEquals(propOneIndex.size(session), 1);
 
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
 
     final var compositeIndexDefinition = compositeIndex.getDefinition();
@@ -445,7 +445,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     }
     Assert.assertEquals(compositeIndex.size(session), 1);
 
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
     try (var stream = propZeroIndex.getRids(session, "x")) {
       Assert.assertTrue(stream.findFirst().isPresent());
@@ -468,11 +468,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -508,11 +508,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propOneIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -547,11 +547,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
@@ -599,9 +599,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
@@ -635,7 +635,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSchema();
     schema.getClass("classIndexManagerTestClass");
 
-    final var propFourIndex = session.getMetadata().getIndexManagerInternal()
+    final var propFourIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop4");
 
     Assert.assertEquals(propFourIndex.size(session), 0);
@@ -685,10 +685,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testMapUpdate() {
     checkEmbeddedDB();
 
-    final var propFiveIndexKey = session.getMetadata().getIndexManagerInternal()
+    final var propFiveIndexKey = session.getSharedContext().getIndexManager()
         .getIndex(session,
             "classIndexManagerTestIndexByKey");
-    final var propFiveIndexValue = session.getMetadata().getIndexManagerInternal()
+    final var propFiveIndexValue = session.getSharedContext().getIndexManager()
         .getIndex(session,
             "classIndexManagerTestIndexByValue");
 
@@ -761,7 +761,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testSetUpdate() {
     checkEmbeddedDB();
 
-    final var propSixIndex = session.getMetadata().getIndexManagerInternal()
+    final var propSixIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop6");
 
     Assert.assertEquals(propSixIndex.size(session), 0);
@@ -810,7 +810,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testListDelete() {
     checkEmbeddedDB();
 
-    final var propFourIndex = session.getMetadata().getIndexManagerInternal()
+    final var propFourIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop4");
 
     Assert.assertEquals(propFourIndex.size(session), 0);
@@ -873,10 +873,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testMapDelete() {
     checkEmbeddedDB();
 
-    final var propFiveIndexKey = session.getMetadata().getIndexManagerInternal()
+    final var propFiveIndexKey = session.getSharedContext().getIndexManager()
         .getIndex(session,
             "classIndexManagerTestIndexByKey");
-    final var propFiveIndexValue = session.getMetadata().getIndexManagerInternal()
+    final var propFiveIndexValue = session.getSharedContext().getIndexManager()
         .getIndex(session,
             "classIndexManagerTestIndexByValue");
 
@@ -966,7 +966,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testSetDelete() {
     checkEmbeddedDB();
-    final var propSixIndex = session.getMetadata().getIndexManagerInternal()
+    final var propSixIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop6");
 
     Assert.assertEquals(propSixIndex.size(session), 0);
@@ -1034,11 +1034,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
 
     Assert.assertEquals(propZeroIndex.size(session), 1);
@@ -1066,12 +1066,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
 
-    final var propZeroIndex = session.getMetadata().getIndexManagerInternal().getIndex(session,
+    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(session,
         "classIndexManagerTestSuperClass.prop0");
     Assert.assertEquals(propZeroIndex.size(session), 1);
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1101,9 +1101,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1128,9 +1128,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getMetadata().getIndexManagerInternal()
+    final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getMetadata().getIndexManagerInternal()
+    final var compositeIndex = session.getSharedContext().getIndexManager()
         .getIndex(session, "classIndexManagerComposite");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1200,8 +1200,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1236,8 +1236,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 0);
 
@@ -1261,8 +1261,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 0);
 
@@ -1286,8 +1286,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1330,8 +1330,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1374,8 +1374,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1431,8 +1431,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1490,8 +1490,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1525,8 +1525,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1562,8 +1562,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx1.load(doc);
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1596,8 +1596,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1638,8 +1638,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1667,8 +1667,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1696,8 +1696,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1731,8 +1731,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1764,8 +1764,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1796,8 +1796,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1823,8 +1823,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1854,8 +1854,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1884,8 +1884,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1922,7 +1922,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchema();
     final var index =
-        session.getMetadata().getIndexManagerInternal()
+        session.getSharedContext().getIndexManager()
             .getIndex(session, "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
 
     Assert.assertEquals(index.size(session), 2);

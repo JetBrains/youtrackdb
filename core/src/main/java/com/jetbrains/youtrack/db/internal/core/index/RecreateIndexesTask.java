@@ -14,13 +14,13 @@ import java.util.Map;
 
 public class RecreateIndexesTask implements Runnable {
 
-  private final IndexManagerShared indexManager;
+  private final IndexManagerEmbedded indexManager;
 
   private final SharedContext ctx;
   private int ok;
   private int errors;
 
-  public RecreateIndexesTask(IndexManagerShared indexManager, SharedContext ctx) {
+  public RecreateIndexesTask(IndexManagerEmbedded indexManager, SharedContext ctx) {
     this.indexManager = indexManager;
     this.ctx = ctx;
   }
@@ -70,7 +70,7 @@ public class RecreateIndexesTask implements Runnable {
   private void recreateIndex(Map<String, Object> indexMap, DatabaseSessionEmbedded session) {
     session.executeInTxInternal(transaction -> {
       var indexManager = session.getSharedContext().getIndexManager();
-      final var index = createIndex(transaction, indexMap, indexManager, session.getStorage());
+      final var index = createIndex(transaction, indexMap, indexManager.storage);
 
       final var indexMetadata = index.loadMetadata(transaction, indexMap);
       final var indexDefinition = indexMetadata.getIndexDefinition();
@@ -129,7 +129,6 @@ public class RecreateIndexesTask implements Runnable {
       IndexMetadata indexMetadata,
       IndexDefinition indexDefinition) {
     session.executeInTxInternal(transaction -> {
-      index.load(transaction);
       index.delete(transaction);
 
       final var indexName = indexMetadata.getName();
@@ -140,7 +139,7 @@ public class RecreateIndexesTask implements Runnable {
         LogManager.instance().info(this, "Start creation of index '%s'", indexName);
         index.create(transaction, indexMetadata, new IndexRebuildOutputListener(index));
 
-        indexManager.addIndexInternal(session, transaction, index);
+        indexManager.addIndexInternal(session, transaction, index, true);
 
         LogManager.instance()
             .info(
@@ -173,8 +172,7 @@ public class RecreateIndexesTask implements Runnable {
   private void addIndexAsIs(
       DatabaseSessionInternal session, Index index, FrontendTransaction transaction) {
     try {
-      index.load(transaction);
-      indexManager.addIndexInternal(session, transaction, index);
+      indexManager.addIndexInternal(session, transaction, index, false);
       ok++;
       LogManager.instance().info(this, "Index '%s' was added in DB index list", index.getName());
     } catch (Exception e) {
@@ -192,16 +190,17 @@ public class RecreateIndexesTask implements Runnable {
   }
 
   private Index createIndex(FrontendTransaction transaction, Map<String, Object> idx,
-      IndexManagerAbstract indexManager, Storage storage) {
+      Storage storage) {
     final var indexType = (String) idx.get(Index.CONFIG_TYPE);
 
     if (indexType == null) {
       LogManager.instance().error(this, "Index type is null, will process other record", null);
-      throw new IndexException(transaction.getSession(),
+      throw new IndexException(transaction.getDatabaseSession(),
           "Index type is null, will process other record. Index configuration: " + idx);
     }
 
     var m = IndexAbstract.loadMetadataFromMap(transaction, idx);
-    return Indexes.createIndex(m, (RID) idx.get(EntityHelper.ATTRIBUTE_RID), indexManager, storage);
+    return Indexes.createIndexInstance(m.getType(), m.getAlgorithm(), storage, transaction,
+        (RID) idx.get(EntityHelper.ATTRIBUTE_RID));
   }
 }

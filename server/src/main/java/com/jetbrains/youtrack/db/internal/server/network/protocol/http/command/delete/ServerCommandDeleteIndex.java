@@ -42,7 +42,7 @@ public class ServerCommandDeleteIndex extends ServerCommandDocumentAbstract {
     try {
       db = getProfiledDatabaseSessionInstance(iRequest);
 
-      final var index = db.getMetadata().getIndexManagerInternal().getIndex(db, urlParts[2]);
+      final var index = db.getSharedContext().getIndexManager().getIndex(db, urlParts[2]);
       if (index == null) {
         throw new IllegalArgumentException("Index name '" + urlParts[2] + "' not found");
       }

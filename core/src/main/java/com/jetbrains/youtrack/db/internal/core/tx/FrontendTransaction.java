@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -59,6 +58,7 @@ public interface FrontendTransaction extends Transaction {
 
   void rollbackInternal(boolean force, int commitLevelDiff);
 
+  @Nonnull
   DatabaseSessionInternal getDatabaseSession();
 
   @Deprecated
@@ -244,7 +244,4 @@ public interface FrontendTransaction extends Transaction {
   void internalRollback();
 
   boolean isScheduledForCallbackProcessing(RecordId rid);
-
-  @Nonnull
-  DatabaseSessionInternal getSession();
 }

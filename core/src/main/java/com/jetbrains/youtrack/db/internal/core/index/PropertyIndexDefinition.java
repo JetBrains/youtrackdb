@@ -139,15 +139,15 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   }
 
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
-    return keyType.convert(params.getFirst(), null, null, transaction.getSession());
+    return keyType.convert(params.getFirst(), null, null, transaction.getDatabaseSession());
   }
 
   /**
    * {@inheritDoc}
    */
   public Object createValue(FrontendTransaction transaction, final Object... params) {
-    return keyType.convert(refreshRid(transaction.getSession(), params[0]), null, null,
-        transaction.getSession());
+    return keyType.convert(refreshRid(transaction.getDatabaseSession(), params[0]), null, null,
+        transaction.getDatabaseSession());
   }
 
   public int getParamCount() {

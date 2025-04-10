@@ -52,7 +52,7 @@ public class ClassIndexManager {
       EntityImpl entity) {
     SchemaImmutableClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getSession());
+      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
     }
     if (cls != null) {
       final Collection<Index> indexes = cls.getRawIndexes();
@@ -69,7 +69,7 @@ public class ClassIndexManager {
       EntityImpl entity) {
     SchemaImmutableClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getSession());
+      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
     }
     if (cls == null) {
       return;
@@ -421,7 +421,7 @@ public class ClassIndexManager {
       EntityImpl entity) {
     SchemaImmutableClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getSession());
+      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
     }
     if (cls == null) {
       return;

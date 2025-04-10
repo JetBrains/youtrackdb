@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
@@ -33,45 +33,32 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Manages indexes at database level. A single instance is shared among multiple databases.
  * Contentions are managed by r/w locks.
  */
-public class IndexManagerShared implements IndexManagerAbstract {
+public class IndexManagerEmbedded extends IndexManagerAbstract {
+
   private volatile Thread recreateIndexesThread = null;
 
   volatile boolean rebuildCompleted = false;
 
-  final Storage storage;
-  protected final Map<String, Map<MultiKey, Set<Index>>> classPropertyIndex =
-      new ConcurrentHashMap<>();
-  protected Map<String, Index> indexes = new ConcurrentHashMap<>();
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
 
-  private boolean contentDirty;
-  private boolean metadataDirty;
-
   private final ReadWriteLock lock = new ReentrantReadWriteLock();
-  private RID identity;
 
-  public IndexManagerShared(Storage storage) {
-    super();
-    this.storage = storage;
+  public IndexManagerEmbedded(Storage storage) {
+    super(storage);
   }
 
   public void load(DatabaseSessionInternal session) {
@@ -79,12 +66,12 @@ public class IndexManagerShared implements IndexManagerAbstract {
       session.executeInTxInternal(transaction -> {
         acquireExclusiveLock(transaction);
         try {
-          identity =
+          indexManagerIdentity =
               new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
-          var entity = (EntityImpl) session.loadEntity(identity);
-          fromStream(transaction, entity);
+          var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
+          load(transaction, entity);
         } finally {
-          releaseExclusiveLock(session, transaction);
+          releaseExclusiveLock(session, false);
         }
       });
     }
@@ -95,10 +82,10 @@ public class IndexManagerShared implements IndexManagerAbstract {
         transaction -> {
           acquireExclusiveLock(transaction);
           try {
-            var entity = (EntityImpl) transaction.loadEntity(identity);
-            fromStream(transaction, entity);
+            var entity = (EntityImpl) transaction.loadEntity(indexManagerIdentity);
+            load(transaction, entity);
           } finally {
-            releaseExclusiveLock(session, transaction);
+            releaseExclusiveLock(session, true);
           }
         });
   }
@@ -124,10 +111,10 @@ public class IndexManagerShared implements IndexManagerAbstract {
               "Index with name " + indexName + " does not exist.");
         }
         if (!index.getCollections().contains(collectionName)) {
-          index.addCollection(transaction.getSession(), collectionName);
+          index.addCollection(transaction, collectionName);
         }
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
     });
   }
@@ -153,9 +140,9 @@ public class IndexManagerShared implements IndexManagerAbstract {
           throw new IndexException(session.getDatabaseName(),
               "Index with name " + indexName + " does not exist.");
         }
-        index.removeCollection(session, collectionName);
+        index.removeCollection(transaction, collectionName);
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
     });
   }
@@ -165,142 +152,20 @@ public class IndexManagerShared implements IndexManagerAbstract {
       acquireExclusiveLock(transaction);
       try {
         var entity = session.newInternalInstance();
-        identity = entity.getIdentity();
-        return identity;
+        indexManagerIdentity = entity.getIdentity();
+        return indexManagerIdentity;
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, false);
       }
     });
 
     session.getStorage().setIndexMgrRecordId(rid.toString());
   }
 
-  public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
-    return indexes.values();
-  }
-
-  public Index getIndex(DatabaseSessionInternal session, final String iName) {
-    return indexes.get(iName);
-  }
-
-  public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
-    return indexes.containsKey(iName);
-  }
-
   @Override
   public void close() {
     indexes.clear();
     classPropertyIndex.clear();
-  }
-
-  public Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, final String className, Collection<String> fields) {
-    final var multiKey = new MultiKey(fields);
-
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex == null || !propertyIndex.containsKey(multiKey)) {
-      return Collections.emptySet();
-    }
-
-    final var rawResult = propertyIndex.get(multiKey);
-    final Set<Index> result = new HashSet<>(rawResult.size());
-    for (final var index : rawResult) {
-      // ignore indexes that ignore null values on partial match
-      if (fields.size() == index.getDefinition().getFields().size()
-          || !index.getDefinition().isNullValuesIgnored()) {
-        result.add(index);
-      }
-    }
-
-    return result;
-  }
-
-  public Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, final String className, final String... fields) {
-    return getClassInvolvedIndexes(session, className, Arrays.asList(fields));
-  }
-
-  public boolean areIndexed(DatabaseSessionInternal session, final String className,
-      Collection<String> fields) {
-    final var multiKey = new MultiKey(fields);
-
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex == null) {
-      return false;
-    }
-
-    return propertyIndex.containsKey(multiKey) && !propertyIndex.get(multiKey).isEmpty();
-  }
-
-  public boolean areIndexed(DatabaseSessionInternal session, final String className,
-      final String... fields) {
-    return areIndexed(session, className, Arrays.asList(fields));
-  }
-
-  public Set<Index> getClassIndexes(DatabaseSessionInternal session, final String className) {
-    final var coll = new HashSet<Index>(4);
-    getClassIndexes(session, className, coll);
-    return coll;
-  }
-
-  public void getClassIndexes(
-      DatabaseSessionInternal session, final String className,
-      final Collection<Index> indexes) {
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex == null) {
-      return;
-    }
-
-    for (final var propertyIndexes : propertyIndex.values()) {
-      indexes.addAll(propertyIndexes);
-    }
-  }
-
-  public void getClassRawIndexes(DatabaseSessionInternal session,
-      final String className, final Collection<Index> indexes) {
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex == null) {
-      return;
-    }
-
-    for (final var propertyIndexes : propertyIndex.values()) {
-      indexes.addAll(propertyIndexes);
-    }
-  }
-
-  public IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, final String className) {
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex != null) {
-      for (final var propertyIndexes : propertyIndex.values()) {
-        for (final var index : propertyIndexes) {
-          if (index instanceof IndexUnique) {
-            return (IndexUnique) index;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  @Nullable
-  public Index getClassIndex(
-      DatabaseSessionInternal session, String className, String indexName) {
-    className = className.toLowerCase();
-
-    final var index = indexes.get(indexName);
-    if (index != null
-        && index.getDefinition() != null
-        && index.getDefinition().getClassName() != null
-        && className.equals(index.getDefinition().getClassName().toLowerCase())) {
-      return index;
-    }
-    return null;
   }
 
   private void acquireSharedLock() {
@@ -312,104 +177,60 @@ public class IndexManagerShared implements IndexManagerAbstract {
   }
 
   protected void acquireExclusiveLock(FrontendTransaction transaction) {
-    transaction.getSession().startExclusiveMetadataChange();
+    transaction.getDatabaseSession().startExclusiveMetadataChange();
 
     lock.writeLock().lock();
     writeLockNesting.incrementAndGet();
   }
 
+  @Override
+  protected Index createIndexInstance(FrontendTransaction transaction,
+      Identifiable indexIdentifiable,
+      IndexMetadata newIndexMetadata) {
+    return Indexes.createIndexInstance(newIndexMetadata.getType(), newIndexMetadata.getAlgorithm(),
+        storage, transaction, indexIdentifiable.getIdentity());
+  }
 
-  protected void releaseExclusiveLock(DatabaseSessionInternal session,
-      FrontendTransaction transaction) {
+
+  protected void releaseExclusiveLock(DatabaseSessionInternal session, boolean notifyChanges) {
     var val = writeLockNesting.decrementAndGet();
     try {
-      if (val == 0) {
-        if (transaction.isActive()) {
-          save(transaction);
-        }
-      }
-
       if (val == 0) {
         session
             .getSharedContext()
             .getSchema()
             .forceSnapshot();
+        session.getMetadata().forceClearThreadLocalSchemaSnapshot();
 
+        if (notifyChanges) {
+          var sharedContext = session.getSharedContext();
+          for (var listener : sharedContext.browseListeners()) {
+            try {
+              listener.onIndexManagerUpdate(session, session.getDatabaseName(), this);
+            } catch (Exception e) {
+              LogManager.instance()
+                  .error(this, "Error notifying index manager update for listener %s", e, listener);
+            }
+          }
+        }
       }
     } finally {
       lock.writeLock().unlock();
       session.endExclusiveMetadataChange();
     }
-
-    session.getMetadata().forceClearThreadLocalSchemaSnapshot();
   }
 
 
   void addIndexInternal(DatabaseSessionInternal session, FrontendTransaction transaction,
-      final Index index) {
+      final Index index, boolean updateEntity) {
     acquireExclusiveLock(transaction);
     try {
-      addIndexInternalNoLock(index);
+      addIndexInternalNoLock(index, transaction, updateEntity);
     } finally {
-      releaseExclusiveLock(session, transaction);
+      releaseExclusiveLock(session, true);
     }
   }
 
-  private void addIndexInternalNoLock(final Index index) {
-    indexes.put(index.getName(), index);
-
-    final var indexDefinition = index.getDefinition();
-    if (indexDefinition == null || indexDefinition.getClassName() == null) {
-      return;
-    }
-
-    var propertyIndex = getIndexOnProperty(indexDefinition.getClassName());
-
-    if (propertyIndex == null) {
-      propertyIndex = new HashMap<>();
-    } else {
-      propertyIndex = new HashMap<>(propertyIndex);
-    }
-
-    final var paramCount = indexDefinition.getParamCount();
-
-    for (var i = 1; i <= paramCount; i++) {
-      final var fields = indexDefinition.getFields().subList(0, i);
-      final var multiKey = new MultiKey(fields);
-      var indexSet = propertyIndex.get(multiKey);
-
-      if (indexSet == null) {
-        indexSet = new HashSet<>();
-      } else {
-        indexSet = new HashSet<>(indexSet);
-      }
-
-      indexSet.add(index);
-      propertyIndex.put(multiKey, indexSet);
-    }
-
-    classPropertyIndex.put(
-        indexDefinition.getClassName().toLowerCase(), copyPropertyMap(propertyIndex));
-  }
-
-  static Map<MultiKey, Set<Index>> copyPropertyMap(Map<MultiKey, Set<Index>> original) {
-    final Map<MultiKey, Set<Index>> result = new HashMap<>();
-
-    for (var entry : original.entrySet()) {
-      Set<Index> indexes = new HashSet<>(entry.getValue());
-      assert indexes.equals(entry.getValue());
-
-      result.put(entry.getKey(), Collections.unmodifiableSet(indexes));
-    }
-
-    assert result.equals(original);
-
-    return Collections.unmodifiableMap(result);
-  }
-
-  private Map<MultiKey, Set<Index>> getIndexOnProperty(final String className) {
-    return classPropertyIndex.get(className.toLowerCase());
-  }
 
   /**
    * Create a new index with default algorithm.
@@ -534,12 +355,9 @@ public class IndexManagerShared implements IndexManagerAbstract {
                 metadata);
 
         index = createIndexFromMetadata(transaction, storage, im, progressListener);
-
-        addIndexInternalNoLock(index);
-        index.markDirty();
-        contentDirty = true;
+        addIndexInternalNoLock(index, transaction, true);
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
       return index;
     });
@@ -553,19 +371,16 @@ public class IndexManagerShared implements IndexManagerAbstract {
       FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata,
       ProgressListener progressListener) {
 
-    var index = Indexes.createIndex(indexMetadata, null, this, storage);
+    var index = Indexes.createIndexInstance(indexMetadata.getType(), indexMetadata.getAlgorithm(),
+        storage);
     if (progressListener == null)
     // ASSIGN DEFAULT PROGRESS LISTENER
     {
       progressListener = new IndexRebuildOutputListener(index);
     }
-    indexes.put(index.getName(), index);
-    try {
-      index.create(transaction, indexMetadata, progressListener);
-    } catch (Throwable e) {
-      indexes.remove(index.getName());
-      throw e;
-    }
+
+    index.create(transaction, indexMetadata, progressListener);
+    indexes.put(indexMetadata.getName(), index);
 
     return index;
   }
@@ -650,41 +465,15 @@ public class IndexManagerShared implements IndexManagerAbstract {
           idx.delete(transaction);
           indexes.remove(iIndexName);
 
-          var indexEntity = transaction.loadEntity(idx.getIdentity());
-          indexEntity.delete();
-
-          contentDirty = true;
+          var indexEntity = transaction.loadEntity(indexManagerIdentity);
+          indexEntity.getLinkSet(CONFIG_INDEXES).remove(idx.getIdentity());
         }
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
     });
   }
 
-  /**
-   * Binds POJO to EntityImpl.
-   */
-  private void save(FrontendTransaction transaction) {
-    if (contentDirty) {
-      var entity = (EntityImpl) transaction.loadEntity(identity);
-      var indexLinks = transaction.newLinkSet();
-
-      for (final var index : this.indexes.values()) {
-        indexLinks.add(index.save(transaction));
-      }
-
-      entity.setLinkSet(CONFIG_INDEXES, indexLinks);
-    } else if (metadataDirty) {
-      for (final var index : this.indexes.values()) {
-        index.save(transaction);
-      }
-    }
-
-    metadataDirty = false;
-    contentDirty = false;
-  }
-
-  @Override
   public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session) {
     acquireSharedLock();
     try {
@@ -696,7 +485,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
     }
   }
 
-  @Override
+
   public void recreateIndexes(DatabaseSessionInternal session) {
     session.executeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
@@ -712,7 +501,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
         recreateIndexesThread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
         recreateIndexesThread.start();
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
     });
 
@@ -756,26 +545,6 @@ public class IndexManagerShared implements IndexManagerAbstract {
     return false;
   }
 
-  private void fromStream(FrontendTransaction transaction, EntityImpl entity) {
-    indexes.clear();
-    classPropertyIndex.clear();
-
-    final var indexEntities = entity.getLinkSet(CONFIG_INDEXES);
-    if (indexEntities != null) {
-      for (var indexIdentifiable : indexEntities) {
-        var indexEntity = transaction.loadEntity(indexIdentifiable);
-        final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(transaction,
-            indexEntity.toMap(false));
-
-        var index =
-            Indexes.createIndex(newIndexMetadata, indexEntity.getIdentity(), this,
-                storage);
-
-        index.load(transaction);
-        addIndexInternalNoLock(index);
-      }
-    }
-  }
 
   public void removeClassPropertyIndex(DatabaseSessionInternal session, final Index idx) {
     session.executeInTxInternal(transaction -> {
@@ -783,7 +552,7 @@ public class IndexManagerShared implements IndexManagerAbstract {
       try {
         removeClassPropertyIndexInternal(idx);
       } finally {
-        releaseExclusiveLock(session, transaction);
+        releaseExclusiveLock(session, true);
       }
     });
   }
@@ -830,16 +599,6 @@ public class IndexManagerShared implements IndexManagerAbstract {
       classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(),
           copyPropertyMap(map));
     }
-  }
-
-  @Override
-  public RID getIdentity() {
-    return identity;
-  }
-
-  @Override
-  public void markMetadataDirty() {
-    metadataDirty = true;
   }
 
   protected Storage getStorage() {

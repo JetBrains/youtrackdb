@@ -97,7 +97,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
       return null;
     }
 
-    var session = transaction.getSession();
+    var session = transaction.getDatabaseSession();
     if (keyTypes.length == 1) {
       return keyTypes[0].convert(refreshRid(session, params[0]), null, null,
           session);
@@ -222,7 +222,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
 
   public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
-    throw new IndexException(transaction.getSession(),
+    throw new IndexException(transaction.getDatabaseSession(),
         "This method is not supported in given index definition.");
   }
 

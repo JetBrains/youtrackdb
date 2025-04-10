@@ -92,7 +92,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
               () -> {
                 try (final var session = openDatabase()) {
                   final var index =
-                      session.getMetadata().getIndexManagerInternal()
+                      session.getSharedContext().getIndexManager()
                           .getIndex(session, "Person.name");
                   for (var i1 = 0; i1 < ITERATIONS; ++i1) {
                     switch (random.nextInt(2)) {

@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import javax.annotation.Nonnull;
@@ -32,10 +33,14 @@ import javax.annotation.Nullable;
  */
 public class IndexNotUnique extends IndexMultiValues {
 
-  public IndexNotUnique(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
-    super(im, identity, indexManager, storage);
+  public IndexNotUnique(@Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexNotUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   public boolean canBeUsedInEqualityOperators() {

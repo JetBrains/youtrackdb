@@ -4,12 +4,12 @@ import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -172,9 +172,8 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                   "Collate value was changed, following indexes will be rebuilt %s",
                   indexesToRecreate);
 
-          final var indexManager =
-              session.getMetadata().getIndexManagerInternal();
-
+          final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+              .getIndexManager();
           for (var indexToRecreate : indexesToRecreate) {
             final var indexMetadata = session.computeInTxInternal(transaction ->
                 indexToRecreate

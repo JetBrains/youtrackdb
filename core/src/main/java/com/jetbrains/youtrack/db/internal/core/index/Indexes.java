@@ -24,12 +24,12 @@ import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * Utility class to create indexes. New IndexFactory can be registered
@@ -126,14 +126,19 @@ public final class Indexes {
         "Index with type " + indexType + " and algorithm " + algorithm + " does not exist.");
   }
 
-  public static Index createIndex(@Nonnull IndexMetadata metadata,
-      @Nullable RID identity, @Nonnull IndexManagerAbstract indexManager, @Nonnull Storage storage)
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage)
       throws ConfigurationException, IndexException {
-    var indexType = metadata.getType();
-    var algorithm = metadata.getAlgorithm();
 
-    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(metadata, identity,
-        indexManager, storage);
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
+  }
+
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage, @Nonnull FrontendTransaction transaction, @Nonnull RID identity)
+      throws ConfigurationException, IndexException {
+
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,
+        transaction, storage);
   }
 
   private static IndexFactory findFactoryByAlgorithmAndType(String algorithm, String indexType) {
@@ -161,7 +166,6 @@ public final class Indexes {
 
     final var factory =
         findFactoryByAlgorithmAndType(metadata.getAlgorithm(), metadata.getIndexType());
-
     return factory.createIndexEngine(storage, metadata);
   }
 

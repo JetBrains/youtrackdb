@@ -349,15 +349,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var ok = true;
 
-    final var indexManagerOne = sessionOne.getMetadata().getIndexManager();
-    final var indexManagerTwo = sessionTwo.getMetadata().getIndexManager();
+    final var indexManagerOne = sessionOne.getSharedContext().getIndexManager();
+    final var indexManagerTwo = sessionTwo.getSharedContext().getIndexManager();
 
-    final var indexesOne = indexManagerOne.getIndexes();
+    final var indexesOne = indexManagerOne.getIndexes(sessionOne);
     var indexesSizeOne = indexesOne.size();
 
-    var indexesSizeTwo = indexManagerTwo.getIndexes().size();
+    var indexesSizeTwo = indexManagerTwo.getIndexes(sessionTwo).size();
 
-    if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
+    if (indexManagerTwo.getIndex(sessionTwo, DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
       indexesSizeTwo--;
     }
 
@@ -376,7 +376,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
+      final var indexTwo = indexManagerTwo.getIndex(sessionTwo, indexOne.getName());
       if (indexTwo == null) {
         ok = false;
         listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");

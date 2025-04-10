@@ -53,10 +53,13 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexOneValue extends IndexAbstract {
 
-  public IndexOneValue(@Nonnull IndexMetadata im, @Nullable RID identity,
-      @Nonnull final IndexManagerAbstract indexManager,
-      @Nonnull final Storage storage) {
-    super(im, identity, indexManager, storage);
+  public IndexOneValue(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexOneValue(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Nullable
@@ -83,14 +86,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
-          if (apiVersion == 0) {
-            final var rid = (RID) storage.getIndexValue(session, indexId, key);
-            stream = Stream.ofNullable(rid);
-          } else if (apiVersion == 1) {
-            stream = storage.getIndexValues(indexId, key);
-          } else {
-            throw new IllegalStateException("Unknown version of index API " + apiVersion);
-          }
+          stream = storage.getIndexValues(indexId, key);
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -160,21 +156,9 @@ public abstract class IndexOneValue extends IndexAbstract {
                       try {
                         while (true) {
                           try {
-                            if (apiVersion == 0) {
-                              final var rid = (RID) storage.getIndexValue(session, indexId,
-                                  collatedKey);
-                              if (rid == null) {
-                                return Stream.empty();
-                              }
-                              return Stream.of(new RawPair<>(collatedKey, rid));
-                            } else if (apiVersion == 1) {
-                              return storage
-                                  .getIndexValues(indexId, collatedKey)
-                                  .map((rid) -> new RawPair<>(collatedKey, rid));
-                            } else {
-                              throw new IllegalStateException(
-                                  "Invalid version of index API - " + apiVersion);
-                            }
+                            return storage
+                                .getIndexValues(indexId, collatedKey)
+                                .map((rid) -> new RawPair<>(collatedKey, rid));
                           } catch (InvalidIndexEngineIdException ignore) {
                             doReloadIndexEngine();
                           }

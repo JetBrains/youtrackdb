@@ -49,8 +49,8 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
 
   @Override
   public Object createSingleValue(FrontendTransaction transaction, Object... param) {
-    return keyType.convert(refreshRid(transaction.getSession(),
-        param[0]), null, null, transaction.getSession());
+    return keyType.convert(refreshRid(transaction.getDatabaseSession(),
+        param[0]), null, null, transaction.getDatabaseSession());
   }
 
   public void processChangeEvent(

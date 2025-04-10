@@ -180,7 +180,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
 
       session.executeInTx(transaction -> {
         iResponse.writeResult(response, formatCopy, accept, additionalContent, modeCopy,
-            (DatabaseSessionInternal) transaction.getSession());
+            (DatabaseSessionInternal) transaction.getDatabaseSession());
       });
     } finally {
       if (session != null) {

@@ -258,7 +258,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
 
         // exportSecurityInfo(db, json);
       }
-      final var idxManager = session.getMetadata().getIndexManagerInternal();
+      final var idxManager = session.getSharedContext().getIndexManager();
       json.beginCollection(session, "indexes");
       for (var index : idxManager.getIndexes(session)) {
         json.beginObject();

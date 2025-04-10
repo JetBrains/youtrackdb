@@ -134,12 +134,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     assert session.assertIfNotActive();
     var superImpl =
         iSuperClass != null ? ((SchemaClassInternal) iSuperClass).getImplementation() : null;
-    return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpl, iCollectionIds),
+    return new SchemaClassProxy(
+        delegate.createClass(session, iClassName, superImpl, iCollectionIds),
         session);
   }
 
   @Override
-  public SchemaClass createClass(String className, int[] collectionIds, SchemaClass... superClasses) {
+  public SchemaClass createClass(String className, int[] collectionIds,
+      SchemaClass... superClasses) {
     assert session.assertIfNotActive();
     var superImpls = new SchemaClassImpl[superClasses.length];
     for (var i = 0; i < superClasses.length; i++) {
@@ -226,9 +228,9 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public Collection<String> getIndexes() {
     assert session.assertIfNotActive();
-    var indexManager = session.getMetadata().getIndexManager();
+    var indexManager = session.getSharedContext().getIndexManager();
 
-    var indexesInternal = indexManager.getIndexes();
+    var indexesInternal = indexManager.getIndexes(session);
     var indexes = new HashSet<String>(indexesInternal.size());
     for (var index : indexesInternal) {
       indexes.add(index.getName());
@@ -240,7 +242,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public boolean indexExists(String indexName) {
     assert session.assertIfNotActive();
-    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var indexManager = session.getSharedContext().getIndexManager();
 
     return indexManager.existsIndex(session, indexName);
   }
@@ -248,7 +250,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
     assert session.assertIfNotActive();
-    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var indexManager = session.getSharedContext().getIndexManager();
     var index = indexManager.getIndex(session, indexName);
 
     if (index == null) {

@@ -21,11 +21,11 @@ public class LuceneFunctionsUtils {
   protected static LuceneFullTextIndex getLuceneFullTextIndex(
       final CommandContext ctx, final String indexName) {
     final var documentDatabase = ctx.getDatabaseSession();
-    final var metadata = documentDatabase.getMetadata();
+    final var sharedContext = documentDatabase.getSharedContext();
 
     final var index =
         (LuceneFullTextIndex)
-            metadata.getIndexManagerInternal().getIndex(documentDatabase, indexName);
+            sharedContext.getIndexManager().getIndex(documentDatabase, indexName);
     if (!(index instanceof LuceneFullTextIndex)) {
       throw new IllegalArgumentException("Not a valid Lucene index:: " + indexName);
     }

@@ -333,32 +333,21 @@ public interface Index extends Comparable<Index> {
   Object getCollatingValue(final Object key);
 
   /**
-   * Loads the index giving the configuration.
-   */
-  void load(FrontendTransaction transaction);
-
-  /**
-   * Saves the index configuration to disk.
-   *
-   * @return The RID of the index configuration
-   */
-  RID save(FrontendTransaction transaction);
-
-  /**
    * Add given collection to the list of collections that should be automatically indexed.
    *
-   * @param session
-   * @param iCollectionName Collection to add.
+   * @param transaction
+   * @param collectionName Collection to add.
    * @return Current index instance.
    */
-  Index addCollection(DatabaseSessionInternal session, final String iCollectionName);
+  Index addCollection(FrontendTransaction transaction, final String collectionName);
 
   /**
    * Remove given collection from the list of collections that should be automatically indexed.
    *
+   * @param transaction
    * @param collectionName Collection to remove.
    */
-  void removeCollection(DatabaseSessionInternal session, final String collectionName);
+  void removeCollection(FrontendTransaction transaction, final String collectionName);
 
   /**
    * Indicates whether given index can be used to calculate result of {@link QueryOperatorEquality}
@@ -575,6 +564,4 @@ public interface Index extends Comparable<Index> {
 
   @Nullable
   RID getIdentity();
-
-  void markDirty();
 }

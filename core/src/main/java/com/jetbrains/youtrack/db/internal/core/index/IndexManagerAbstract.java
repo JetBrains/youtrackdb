@@ -19,32 +19,45 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
+import java.util.Arrays;
 import java.util.Collection;
-import java.util.List;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
 /**
  * Abstract class to manage indexes.
  */
-public interface IndexManagerAbstract extends CloseableInStorage {
+public abstract class IndexManagerAbstract implements CloseableInStorage {
+
+  protected final Map<String, Map<MultiKey, Set<Index>>> classPropertyIndex =
+      new ConcurrentHashMap<>();
+  protected Map<String, Index> indexes = new ConcurrentHashMap<>();
+  final Storage storage;
 
   String CONFIG_INDEXES = "indexes";
 
-  void recreateIndexes(DatabaseSessionInternal session);
+  protected RID indexManagerIdentity;
 
-  default void create() {
-    throw new UnsupportedOperationException();
+  protected IndexManagerAbstract(Storage storage) {
+    this.storage = storage;
   }
 
-  boolean autoRecreateIndexesAfterCrash(DatabaseSessionInternal session);
 
-  Index createIndex(
+  public abstract Index createIndex(
       DatabaseSessionInternal session,
       final String iName,
       final String iType,
@@ -53,7 +66,7 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       final ProgressListener progressListener,
       Map<String, Object> metadata);
 
-  Index createIndex(
+  public abstract Index createIndex(
       DatabaseSessionInternal session,
       final String iName,
       final String iType,
@@ -63,56 +76,223 @@ public interface IndexManagerAbstract extends CloseableInStorage {
       Map<String, Object> metadata,
       String algorithm);
 
-  void waitTillIndexRestore();
+  public abstract void dropIndex(DatabaseSessionInternal session, final String iIndexName);
 
-  void removeClassPropertyIndex(DatabaseSessionInternal session, Index idx);
+  public abstract void reload(DatabaseSessionInternal session);
 
-  void dropIndex(DatabaseSessionInternal session, String iIndexName);
 
-  void reload(DatabaseSessionInternal session);
+  public abstract void load(DatabaseSessionInternal session);
 
-  void addCollectionToIndex(DatabaseSessionInternal session, String collectionName,
-      String indexName);
+  public void getClassRawIndexes(DatabaseSessionInternal session,
+      final String className, final Collection<Index> indexes) {
+    final var propertyIndex = getIndexOnProperty(className);
 
-  void load(DatabaseSessionInternal session);
+    if (propertyIndex == null) {
+      return;
+    }
 
-  void removeCollectionFromIndex(DatabaseSessionInternal session, String collectionName,
-      String indexName);
+    for (final var propertyIndexes : propertyIndex.values()) {
+      indexes.addAll(propertyIndexes);
+    }
+  }
 
-  void getClassRawIndexes(DatabaseSessionInternal session, String name, Collection<Index> indexes2);
+  protected Map<MultiKey, Set<Index>> getIndexOnProperty(final String className) {
+    return classPropertyIndex.get(className.toLowerCase());
+  }
 
-  Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, String className, Collection<String> fields);
+  public Set<Index> getClassInvolvedIndexes(
+      DatabaseSessionInternal session, final String className, Collection<String> fields) {
+    final var multiKey = new MultiKey(fields);
 
-  Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, String className, String... fields);
+    final var propertyIndex = getIndexOnProperty(className);
 
-  boolean areIndexed(DatabaseSessionInternal session, String className, String... fields);
+    if (propertyIndex == null || !propertyIndex.containsKey(multiKey)) {
+      return Collections.emptySet();
+    }
 
-  boolean areIndexed(DatabaseSessionInternal session, final String className,
-      final Collection<String> fields);
+    final var rawResult = propertyIndex.get(multiKey);
+    final Set<Index> result = new HashSet<>(rawResult.size());
+    for (final var index : rawResult) {
+      // ignore indexes that ignore null values on partial match
+      if (fields.size() == index.getDefinition().getFields().size()
+          || !index.getDefinition().isNullValuesIgnored()) {
+        result.add(index);
+      }
+    }
 
-  void getClassIndexes(
-      DatabaseSessionInternal session, String className, Collection<Index> indexes2);
+    return result;
+  }
 
-  Set<Index> getClassIndexes(DatabaseSessionInternal session, String className);
 
-  Index getClassIndex(DatabaseSessionInternal session, String className, String indexName);
+  public Set<Index> getClassInvolvedIndexes(
+      DatabaseSessionInternal session, final String className, final String... fields) {
+    return getClassInvolvedIndexes(session, className, Arrays.asList(fields));
+  }
+
+  public boolean areIndexed(DatabaseSessionInternal session, final String className,
+      final String... fields) {
+    return areIndexed(session, className, Arrays.asList(fields));
+  }
+
+  public boolean areIndexed(DatabaseSessionInternal session, final String className,
+      Collection<String> fields) {
+    final var multiKey = new MultiKey(fields);
+
+    final var propertyIndex = getIndexOnProperty(className);
+
+    if (propertyIndex == null) {
+      return false;
+    }
+
+    return propertyIndex.containsKey(multiKey) && !propertyIndex.get(multiKey).isEmpty();
+  }
+
+  public Set<Index> getClassIndexes(DatabaseSessionInternal session, final String className) {
+    final var coll = new HashSet<Index>(4);
+    getClassIndexes(session, className, coll);
+    return coll;
+  }
 
   @Nullable
-  IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, String className);
+  public Index getClassIndex(
+      DatabaseSessionInternal session, String className, String indexName) {
+    className = className.toLowerCase();
 
-  void create(DatabaseSessionInternal session);
+    final var index = indexes.get(indexName);
+    if (index != null
+        && index.getDefinition() != null
+        && index.getDefinition().getClassName() != null
+        && className.equals(index.getDefinition().getClassName().toLowerCase())) {
+      return index;
+    }
+    return null;
+  }
 
-  Collection<? extends Index> getIndexes(DatabaseSessionInternal session);
+  public void getClassIndexes(DatabaseSessionInternal session, final String className,
+      final Collection<Index> indexes) {
+    final var propertyIndex = getIndexOnProperty(className);
 
-  Index getIndex(DatabaseSessionInternal session, String iName);
+    if (propertyIndex == null) {
+      return;
+    }
 
-  boolean existsIndex(DatabaseSessionInternal session, String iName);
+    for (final var propertyIndexes : propertyIndex.values()) {
+      indexes.addAll(propertyIndexes);
+    }
+  }
 
-  RID getIdentity();
 
-  void markMetadataDirty();
+  @Nullable
+  public IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, final String className) {
+    final var propertyIndex = getIndexOnProperty(className);
 
-  List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionInternal session);
+    if (propertyIndex != null) {
+      for (final var propertyIndexes : propertyIndex.values()) {
+        for (final var index : propertyIndexes) {
+          if (index instanceof IndexUnique) {
+            return (IndexUnique) index;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+
+  public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
+    return indexes.values();
+  }
+
+
+  public Index getIndex(DatabaseSessionInternal session, final String iName) {
+    return indexes.get(iName);
+  }
+
+  public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
+    return indexes.containsKey(iName);
+  }
+
+  protected void load(FrontendTransaction transaction, EntityImpl entity) {
+    indexes.clear();
+    classPropertyIndex.clear();
+
+    final var indexEntities = entity.getLinkSet(CONFIG_INDEXES);
+    if (indexEntities != null) {
+      for (var indexIdentifiable : indexEntities) {
+        var indexEntity = transaction.loadEntity(indexIdentifiable);
+        final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(transaction,
+            indexEntity.toMap(false));
+        var index =
+            createIndexInstance(transaction, indexIdentifiable, newIndexMetadata);
+        addIndexInternalNoLock(index, transaction, false);
+      }
+    }
+  }
+
+  protected abstract Index createIndexInstance(FrontendTransaction transaction,
+      Identifiable indexIdentifiable,
+      IndexMetadata newIndexMetadata);
+
+  protected void addIndexInternalNoLock(final Index index, FrontendTransaction transaction,
+      boolean updateEntity) {
+    if (updateEntity) {
+      var indexEntity = transaction.loadEntity(indexManagerIdentity);
+      indexEntity.getOrCreateLinkSet(CONFIG_INDEXES).add(index.getIdentity());
+    }
+
+    indexes.put(index.getName(), index);
+
+    final var indexDefinition = index.getDefinition();
+    if (indexDefinition == null || indexDefinition.getClassName() == null) {
+      return;
+    }
+
+    var propertyIndex = getIndexOnProperty(indexDefinition.getClassName());
+
+    if (propertyIndex == null) {
+      propertyIndex = new HashMap<>();
+    } else {
+      propertyIndex = new HashMap<>(propertyIndex);
+    }
+
+    final var paramCount = indexDefinition.getParamCount();
+
+    for (var i = 1; i <= paramCount; i++) {
+      final var fields = indexDefinition.getFields().subList(0, i);
+      final var multiKey = new MultiKey(fields);
+      var indexSet = propertyIndex.get(multiKey);
+
+      if (indexSet == null) {
+        indexSet = new HashSet<>();
+      } else {
+        indexSet = new HashSet<>(indexSet);
+      }
+
+      indexSet.add(index);
+      propertyIndex.put(multiKey, indexSet);
+    }
+
+    classPropertyIndex.put(
+        indexDefinition.getClassName().toLowerCase(), copyPropertyMap(propertyIndex));
+  }
+
+  public RID getIdentity() {
+    return indexManagerIdentity;
+  }
+
+  static Map<MultiKey, Set<Index>> copyPropertyMap(Map<MultiKey, Set<Index>> original) {
+    final Map<MultiKey, Set<Index>> result = new HashMap<>();
+
+    for (var entry : original.entrySet()) {
+      Set<Index> indexes = new HashSet<>(entry.getValue());
+      assert indexes.equals(entry.getValue());
+
+      result.put(entry.getKey(), Collections.unmodifiableSet(indexes));
+    }
+
+    assert result.equals(original);
+
+    return Collections.unmodifiableMap(result);
+  }
 }

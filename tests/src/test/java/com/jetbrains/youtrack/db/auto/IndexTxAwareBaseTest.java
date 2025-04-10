@@ -58,7 +58,7 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
-    index = session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
+    index = session.getSharedContext().getIndexManager().getIndex(session, indexName);
   }
 
   protected EntityImpl newDoc(int fieldValue) {

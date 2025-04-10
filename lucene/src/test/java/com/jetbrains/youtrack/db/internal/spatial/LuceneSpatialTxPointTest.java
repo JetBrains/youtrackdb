@@ -20,7 +20,6 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Before;
@@ -111,7 +110,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
     Assert.assertEquals(1, docs.stream().count());
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
 
     session.begin();
     Assert.assertEquals(1, index.size(session));
@@ -140,7 +139,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.begin();
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
 
     Assert.assertEquals(2, index.size(session));
     session.commit();

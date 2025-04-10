@@ -44,7 +44,7 @@ public interface Transaction {
   int activeTxCount();
 
   @Nonnull
-  DatabaseSession getSession();
+  DatabaseSession getDatabaseSession();
 
 
   /**
@@ -397,107 +397,107 @@ public interface Transaction {
       throws CommandSQLParsingException, CommandExecutionException;
 
   default <T> EmbeddedList<T> newEmbeddedList() {
-    return getSession().newEmbeddedList();
+    return getDatabaseSession().newEmbeddedList();
   }
 
   default <T> EmbeddedList<T> newEmbeddedList(int size) {
-    return getSession().newEmbeddedList(size);
+    return getDatabaseSession().newEmbeddedList(size);
   }
 
   default <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
-    return getSession().newEmbeddedList(list);
+    return getDatabaseSession().newEmbeddedList(list);
   }
 
   default EmbeddedList<String> newEmbeddedList(String[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Date> newEmbeddedList(Date[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Byte> newEmbeddedList(byte[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Short> newEmbeddedList(short[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Integer> newEmbeddedList(int[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Long> newEmbeddedList(long[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Float> newEmbeddedList(float[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Double> newEmbeddedList(double[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
-    return getSession().newEmbeddedList(source);
+    return getDatabaseSession().newEmbeddedList(source);
   }
 
   default LinkList newLinkList() {
-    return getSession().newLinkList();
+    return getDatabaseSession().newLinkList();
   }
 
   default LinkList newLinkList(int size) {
-    return getSession().newLinkList(size);
+    return getDatabaseSession().newLinkList(size);
   }
 
   default LinkList newLinkList(Collection<? extends Identifiable> source) {
-    return getSession().newLinkList(source);
+    return getDatabaseSession().newLinkList(source);
   }
 
   default <T> EmbeddedSet<T> newEmbeddedSet() {
-    return getSession().newEmbeddedSet();
+    return getDatabaseSession().newEmbeddedSet();
   }
 
   default <T> EmbeddedSet<T> newEmbeddedSet(int size) {
-    return getSession().newEmbeddedSet(size);
+    return getDatabaseSession().newEmbeddedSet(size);
   }
 
   default <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
-    return getSession().newEmbeddedSet(set);
+    return getDatabaseSession().newEmbeddedSet(set);
   }
 
   default LinkSet newLinkSet() {
-    return getSession().newLinkSet();
+    return getDatabaseSession().newLinkSet();
   }
 
   default LinkSet newLinkSet(Collection<? extends Identifiable> source) {
-    return getSession().newLinkSet(source);
+    return getDatabaseSession().newLinkSet(source);
   }
 
   default <V> EmbeddedMap<V> newEmbeddedMap() {
-    return getSession().newEmbeddedMap();
+    return getDatabaseSession().newEmbeddedMap();
   }
 
   default <V> EmbeddedMap<V> newEmbeddedMap(int size) {
-    return getSession().newEmbeddedMap(size);
+    return getDatabaseSession().newEmbeddedMap(size);
   }
 
   default <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
-    return getSession().newEmbeddedMap(map);
+    return getDatabaseSession().newEmbeddedMap(map);
   }
 
   default LinkMap newLinkMap() {
-    return getSession().newLinkMap();
+    return getDatabaseSession().newLinkMap();
   }
 
   default LinkMap newLinkMap(int size) {
-    return getSession().newLinkMap(size);
+    return getDatabaseSession().newLinkMap(size);
   }
 
   default LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
-    return getSession().newLinkMap(source);
+    return getDatabaseSession().newLinkMap(source);
   }
 
   /**
@@ -506,7 +506,7 @@ public interface Transaction {
    * @return the schema of the database
    */
   default Schema getSchema() {
-    return getSession().getSchema();
+    return getDatabaseSession().getSchema();
   }
 
 }

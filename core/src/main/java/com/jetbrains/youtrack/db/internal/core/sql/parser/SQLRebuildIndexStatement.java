@@ -4,9 +4,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Map;
 import java.util.Objects;
 
@@ -25,13 +25,13 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    final var session = ctx.getDatabaseSession();
+    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
     var result = new ResultInternal(session);
     result.setProperty("operation", "rebuild index");
 
     if (all) {
       long totalIndexed = 0;
-      for (var idx : session.getMetadata().getIndexManagerInternal().getIndexes(session)) {
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
         if (idx.isAutomatic()) {
           totalIndexed += idx.rebuild(session);
         }
@@ -39,7 +39,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
       result.setProperty("totalIndexed", totalIndexed);
     } else {
       final var idx =
-          session.getMetadata().getIndexManagerInternal().getIndex(session, name.getValue());
+          session.getSharedContext().getIndexManager().getIndex(session, name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(session, "Index '" + name + "' not found");
       }

@@ -5,6 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -29,11 +30,11 @@ public class SQLDropIndexStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     List<Result> rs = new ArrayList<>();
-    var session = ctx.getDatabaseSession();
-    var idxMgr = session.getMetadata().getIndexManagerInternal();
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var idxMgr = session.getSharedContext().getIndexManager();
     if (all) {
       for (var idx : idxMgr.getIndexes(session)) {
-        session.getMetadata().getIndexManagerInternal().dropIndex(session, idx.getName());
+        idxMgr.dropIndex(session, idx.getName());
         var result = new ResultInternal(session);
         result.setProperty("operation", "drop index");
         result.setProperty("collectionName", idx.getName());

@@ -52,7 +52,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
       FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
     assert assertIfNotActive();
-    final var reverted = new EmbeddedLinkBag(transaction.getSession(), counterMaxValue);
+    final var reverted = new EmbeddedLinkBag(transaction.getDatabaseSession(), counterMaxValue);
     for (var identifiable : this) {
       reverted.add(identifiable);
     }

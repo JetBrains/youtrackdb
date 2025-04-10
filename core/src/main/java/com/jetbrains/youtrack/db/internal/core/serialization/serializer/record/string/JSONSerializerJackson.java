@@ -662,7 +662,7 @@ public class JSONSerializerJackson {
         if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
           var metadata = session.getMetadata();
           var schema = metadata.getSchemaInternal();
-          var indexManager = metadata.getIndexManagerInternal();
+          var indexManager = session.getSharedContext().getIndexManager();
 
           if (schema.getIdentity().equals(record.getIdentity())) {
             jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_SCHEMA_MANAGER_ENTITY);
