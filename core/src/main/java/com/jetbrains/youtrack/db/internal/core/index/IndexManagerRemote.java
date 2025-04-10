@@ -352,7 +352,7 @@ public class IndexManagerRemote extends IndexManagerAbstract {
       Identifiable indexIdentifiable, IndexMetadata newIndexMetadata) {
     return new IndexRemote(newIndexMetadata.getName(), newIndexMetadata.getType(),
         newIndexMetadata.getAlgorithm(), indexIdentifiable.getIdentity(),
-        newIndexMetadata.getIndexDefinition(), null,
+        newIndexMetadata.getIndexDefinition(), newIndexMetadata.getMetadata(),
         newIndexMetadata.getCollectionsToIndex(),
         transaction.getDatabaseSession().getDatabaseName());
   }

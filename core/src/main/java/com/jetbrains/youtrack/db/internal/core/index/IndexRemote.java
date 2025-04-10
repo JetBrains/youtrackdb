@@ -34,7 +34,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -50,9 +49,7 @@ public class IndexRemote implements Index {
   private final RID rid;
   protected IndexDefinition indexDefinition;
   protected String name;
-  protected Map<String, Object> configuration;
 
-  private final int version;
   protected final Map<String, Object> metadata;
   protected Set<String> collectionsToIndex;
 
@@ -62,7 +59,7 @@ public class IndexRemote implements Index {
       final String algorithm,
       final RID iRid,
       final IndexDefinition iIndexDefinition,
-      final Map<String, Object> iConfiguration,
+      final Map<String, Object> metadata,
       final Set<String> collectionsToIndex,
       String database) {
     this.name = iName;
@@ -70,21 +67,15 @@ public class IndexRemote implements Index {
     this.algorithm = algorithm;
     this.rid = iRid;
     this.indexDefinition = iIndexDefinition;
-    this.configuration = iConfiguration;
 
-    @SuppressWarnings("unchecked")
-    var metadata = (Map<String, Object>) iConfiguration.get("metadata");
-    this.metadata = Collections.unmodifiableMap(metadata);
+    if (metadata == null) {
+      this.metadata = Collections.emptyMap();
+    } else {
+      this.metadata = Collections.unmodifiableMap(metadata);
+    }
 
     this.collectionsToIndex = new HashSet<>(collectionsToIndex);
     this.databaseName = database;
-
-    if (configuration == null) {
-      version = -1;
-    } else {
-      final var version = (Integer) configuration.get(Index.INDEX_VERSION);
-      this.version = Objects.requireNonNullElse(version, -1);
-    }
   }
 
   public IndexRemote create(
@@ -126,7 +117,7 @@ public class IndexRemote implements Index {
 
   @Override
   public int getVersion() {
-    return version;
+    return -1;
   }
 
   public long rebuild(DatabaseSessionInternal session) {
