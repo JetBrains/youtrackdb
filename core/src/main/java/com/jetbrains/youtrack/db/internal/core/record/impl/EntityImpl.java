@@ -4017,4 +4017,34 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Vertices or Edges cannot be stored as embedded");
     }
   }
+
+  public void clearSystemProps() {
+    checkForBinding();
+    checkForProperties();
+
+    for (var prop : getPropertyNamesInternal(true, false)) {
+      if (isSystemProperty(prop)) {
+        removePropertyInternal(prop);
+      }
+    }
+  }
+
+  public void markAllLinksAsChanged() {
+    checkForBinding();
+    checkForProperties();
+
+    var dirty = false;
+    for (var rawEntry : getRawEntries()) {
+      final var value = rawEntry.getValue();
+
+      if (value.type.isLink()) {
+        value.markCreated();
+        value.markChanged();
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      setDirty();
+    }
+  }
 }

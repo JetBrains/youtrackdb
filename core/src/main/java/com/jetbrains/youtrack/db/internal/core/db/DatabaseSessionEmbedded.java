@@ -114,11 +114,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   private YouTrackDBConfigImpl config;
   private final Storage storage; // todo: make this final when "removeStorage" is removed
 
-
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
 
   private final TransactionMeters transactionMeters;
+
+  private boolean ensureLinkConsistency = true;
 
   public DatabaseSessionEmbedded(final Storage storage) {
     activateOnCurrentThread();
@@ -1819,6 +1820,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
+    if (!ensureLinkConsistency) {
+      return;
+    }
     var properties = entity.getPropertyNamesInternal(true, false);
     var clazz = entity.getImmutableSchemaClass(this);
 
@@ -1827,7 +1831,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       linksToUpdateMap.clear();
 
       if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
-        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName);
+        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName, false);
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
@@ -1927,6 +1931,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity,
       @Nullable SchemaImmutableClass clazz) {
+    if (!ensureLinkConsistency) {
+      return;
+    }
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
     if (clazz != null) {
@@ -1942,7 +1949,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       linksToUpdateMap.clear();
 
       var originalValue = entity.getOriginalValue(propertyName);
-      var currentPropertyValue = entity.getPropertyInternal(propertyName);
+      var currentPropertyValue = entity.getPropertyInternal(propertyName, false);
 
       if (originalValue == null) {
         var timeLine = entity.getCollectionTimeLine(propertyName);
@@ -2175,4 +2182,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return result;
   }
 
+  public void disableLinkConsistencyCheck() {
+    this.ensureLinkConsistency = false;
+  }
+
+  public void enableLinkConsistencyCheck() {
+    this.ensureLinkConsistency = true;
+  }
 }

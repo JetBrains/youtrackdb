@@ -15,11 +15,13 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.google.common.collect.ImmutableList;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -32,13 +34,13 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -132,7 +134,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   }
 
   @Test
-  public void embeddedListMigration() throws Exception {
+  public void testLinksMigration() throws Exception {
     if (remoteDB) {
       return;
     }
@@ -152,49 +154,67 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         config)) {
       youTrackDB.create("original", DatabaseType.DISK);
 
+      final var childDocCount = 50;
+
       try (final var session = (DatabaseSessionInternal) youTrackDB.open(
           "original", "admin", "admin")) {
         final Schema schema = session.getMetadata().getSchema();
 
         final var rootCls = schema.createClass("RootClass");
+        rootCls.createProperty("no", PropertyType.INTEGER);
+        rootCls.createProperty("circular_link", PropertyType.LINK);
         rootCls.createProperty("linkList", PropertyType.LINKLIST);
+        rootCls.createProperty("linkSet", PropertyType.LINKSET);
+        rootCls.createProperty("linkMap", PropertyType.LINKMAP);
 
         final var childCls = schema.createClass("ChildClass");
+        childCls.createProperty("no", PropertyType.INTEGER);
 
+        // creating and deleting some records to shift the next available IDs.
         final List<RID> ridsToDelete = new ArrayList<>();
         for (var i = 0; i < 100; i++) {
-          session.begin();
-          final var document = ((EntityImpl) session.newEntity(childCls));
-
-          session.commit();
-
-          ridsToDelete.add(document.getIdentity());
+          ridsToDelete.add(
+              session.computeInTx(tx -> tx.newEntity(rootCls).getIdentity())
+          );
+          ridsToDelete.add(
+              session.computeInTx(tx -> tx.newEntity(childCls).getIdentity())
+          );
         }
-
         for (final var rid : ridsToDelete) {
-          session.begin();
-          var transaction = session.getActiveTransaction();
-          transaction.load(rid).delete();
-          session.commit();
+          session.executeInTx(tx -> tx.load(rid).delete());
         }
 
-        session.begin();
-        final var rootDocument = ((EntityImpl) session.newEntity(rootCls));
-        final var documents = session.newLinkList();
+        session.executeInTx(tx -> {
+          final var rootDoc1 = tx.newEntity(rootCls);
+          rootDoc1.setProperty("no", 1);
+          final var rootDoc2 = tx.newEntity(rootCls);
+          rootDoc2.setProperty("no", 2);
 
-        for (var i = 0; i < 10; i++) {
-          final var embeddedDocument = ((EntityImpl) session.newEntity());
+          rootDoc1.setProperty("circular_link", rootDoc2.getIdentity());
+          rootDoc2.setProperty("circular_link", rootDoc1.getIdentity());
 
-          final var doc = ((EntityImpl) session.newEntity(childCls));
+          final var docList = rootDoc1.getOrCreateLinkList("linkList");
+          final var docSet = rootDoc1.getOrCreateLinkSet("linkSet");
+          final var docMap = rootDoc1.getOrCreateLinkMap("linkMap");
 
+          for (var i = 0; i < childDocCount; i++) {
+            final var linkedDoc = tx.newEntity();
+            final var doc = tx.newEntity(childCls);
+            doc.setProperty("no", i);
+            linkedDoc.setProperty("link", doc.getIdentity());
+            linkedDoc.setProperty("no", i);
 
-          embeddedDocument.setProperty("link", doc.getIdentity());
-          documents.add(embeddedDocument);
-        }
+            docList.add(linkedDoc);
 
-        rootDocument.setProperty("linkList", documents);
+            if (i % 2 == 0) {
+              docSet.add(linkedDoc);
+            }
 
-        session.commit();
+            if (i % 3 == 0) {
+              docMap.put("" + i, linkedDoc);
+            }
+          }
+        });
 
         final var databaseExport =
             new DatabaseExport(
@@ -209,23 +229,71 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
             new DatabaseImport(session, exportPath.getPath(), System.out::println);
         databaseImport.run();
 
-        session.begin();
-        final Iterator<EntityImpl> classIterator = session.browseClass("RootClass");
-        final var rootDocument = classIterator.next();
+        session.executeInTx(tx -> {
+          final var rootDocs =
+              ImmutableList.copyOf(session.browseClass("RootClass"))
+                  .stream()
+                  .collect(Collectors.toMap(r -> r.getInt("no"), Function.identity()));
 
-        final var documents = rootDocument.getLinkList("linkList");
-        for (var i = 0; i < 10; i++) {
-          final var docId = documents.get(i);
-          final var embeddedDocument = ((EntityImpl) session.loadEntity(docId.getIdentity()));
+          Assert.assertEquals(rootDocs.size(), 2);
 
-          embeddedDocument.setLazyLoad(false);
-          final RecordId link = embeddedDocument.getProperty("link");
+          final var rootDoc1 = rootDocs.get(1);
+          final var rootDoc2 = rootDocs.get(2);
 
-          Assert.assertNotNull(link);
-          var transaction = session.getActiveTransaction();
-          Assert.assertNotNull(transaction.load(link));
-        }
-        session.commit();
+          Assert.assertNotNull(rootDoc1);
+          Assert.assertNotNull(rootDoc2);
+
+          Assert.assertEquals(rootDoc1.getLink("circular_link"), rootDoc2.getIdentity());
+          Assert.assertEquals(rootDoc2.getLink("circular_link"), rootDoc1.getIdentity());
+
+          final var docList = rootDoc1.getLinkList("linkList");
+
+          final var docListEntities = docList
+              .stream()
+              .map(tx::loadEntity)
+              .collect(Collectors.toMap(r -> r.getInt("no"), Function.identity()));
+
+          final var docSetEntities = rootDoc1.getLinkSet("linkSet")
+              .stream()
+              .map(tx::loadEntity)
+              .collect(Collectors.toMap(r -> r.getInt("no"), Function.identity()));
+
+          final var docMapEntities = rootDoc1.getLinkMap("linkMap")
+              .entrySet()
+              .stream()
+              .collect(Collectors.toMap(
+                  Entry::getKey,
+                  e -> tx.loadEntity(e.getValue().getIdentity())
+              ));
+
+          Assert.assertEquals(docListEntities.size(), 50);
+          Assert.assertEquals(docSetEntities.size(), Math.ceilDiv(childDocCount, 2));
+          Assert.assertEquals(docMapEntities.size(), Math.ceilDiv(childDocCount, 3));
+
+          for (var i = 0; i < childDocCount; i++) {
+
+            final var docId = docList.get(i).getIdentity();
+
+            final var docs = new ArrayList<Entity>();
+            docs.add(docListEntities.get(i));
+            if (i % 2 == 0) {
+              docs.add(docSetEntities.get(i));
+            }
+            if (i % 3 == 0) {
+              docs.add(docMapEntities.get("" + i));
+            }
+
+            for (var doc : docs) {
+              Assert.assertNotNull(doc);
+              Assert.assertEquals(doc.getIdentity(), docId);
+              Assert.assertEquals(doc.getInt("no"), i);
+            }
+
+            final var child = docs.getFirst().getEntity("link");
+            Assert.assertNotNull(child);
+            Assert.assertEquals(child.getInt("no"), i);
+          }
+        });
       }
     }
   }
