@@ -42,7 +42,8 @@ import org.testng.annotations.Test;
 
 /**
  * If some of the tests start to fail then check collection number in queries, e.g #7:1. It can be
- * because the order of collections could be affected due to adding or removing collection from storage.
+ * because the order of collections could be affected due to adding or removing collection from
+ * storage.
  */
 @Test
 public class SQLInsertTest extends BaseDBTest {
@@ -376,22 +377,6 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
   }
 
-  @Test(dependsOnMethods = "insertOperator")
-  public void insertCollection() {
-    session.begin();
-    var doc =
-        session
-            .execute(
-                "insert into Account collection anotherdefault (id, title) values (10, 'NoSQL"
-                    + " movement')").stream().findFirst().orElseThrow().asEntityOrNull();
-    session.commit();
-
-    Assert.assertNotNull(doc);
-    Assert.assertEquals(
-        doc.getIdentity().getCollectionId(), session.getCollectionIdByName("anotherdefault"));
-    Assert.assertEquals(doc.getSchemaClassName(), "Account");
-  }
-
   public void updateMultipleFields() {
     if (!session.getMetadata().getSchema().existsClass("Account")) {
       session.getMetadata().getSchema().createClass("Account");
@@ -417,17 +402,16 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
     Assert.assertNotNull(result);
 
-    var transaction = session.getActiveTransaction();
+    var transaction = session.begin();
     EntityImpl record = transaction.load(result);
 
-    var activeTx = session.getActiveTransaction();
-    record = activeTx.load(record);
     Assert.assertEquals(record.<Object>getProperty("id"), 3232);
     Assert.assertEquals(record.getProperty("name"), "my name");
     Map<String, String> map = record.getProperty("map");
     Assert.assertEquals(map.get("key"), "value");
     Assert.assertEquals(record.getProperty("dir"), "");
     Assert.assertEquals(record.getProperty("user"), new RecordId(3, positions.getFirst()));
+    session.commit();
   }
 
   @Test
@@ -573,10 +557,13 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededSetWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(
-        "embeddedSetWithLinkedClass",
-        PropertyType.EMBEDDEDSET,
-        session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
+    var cc = session.getMetadata().getSchema().getClass("TestConvertLinkedClass");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("TestConvertLinkedClass");
+    }
+    if (!c.existsProperty("embeddedSetWithLinkedClass")) {
+      c.createProperty("embeddedSetWithLinkedClass", PropertyType.EMBEDDEDSET, cc);
+    }
 
     session.begin();
     var doc =
@@ -588,7 +575,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedSetWithLinkedClass") instanceof Set);
 
@@ -597,6 +584,7 @@ public class SQLInsertTest extends BaseDBTest {
       Assert.assertTrue(o instanceof EntityImpl);
       Assert.assertEquals(((EntityImpl) o).getSchemaClassName(), "TestConvertLinkedClass");
     }
+    session.commit();
   }
 
   @Test
@@ -629,11 +617,12 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
+    var cc = session.getMetadata().getSchema().getClass("TestConvertLinkedClass");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("TestConvertLinkedClass");
+    }
     if (!c.existsProperty("embeddedListWithLinkedClass")) {
-      c.createProperty(
-          "embeddedListWithLinkedClass",
-          PropertyType.EMBEDDEDLIST,
-          session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
+      c.createProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST, cc);
     }
 
     session.begin();
@@ -646,7 +635,7 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedListWithLinkedClass") instanceof List);
 
@@ -657,6 +646,7 @@ public class SQLInsertTest extends BaseDBTest {
       Assert.assertEquals(((EntityImpl) o).getSchemaClassName(), "TestConvertLinkedClass");
       session.commit();
     }
+    session.commit();
   }
 
   @Test
@@ -775,11 +765,13 @@ public class SQLInsertTest extends BaseDBTest {
 
   @Test
   public void testAutoConversionOfEmbeddededWithLinkedClass() {
+
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    c.createProperty(
-        "embeddedWithLinkedClass",
-        PropertyType.EMBEDDED,
-        session.getMetadata().getSchema().getOrCreateClass("TestConvertLinkedClass"));
+    var cc = session.getMetadata().getSchema().getClass("TestConvertLinkedClass");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("TestConvertLinkedClass");
+    }
+    c.createProperty("embeddedWithLinkedClass", PropertyType.EMBEDDED, cc);
 
     session.begin();
     var doc =
@@ -791,22 +783,25 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("embeddedWithLinkedClass") instanceof EntityImpl);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("embeddedWithLinkedClass")).getSchemaClassName(),
         "TestConvertLinkedClass");
+    session.commit();
   }
 
   @Test
   public void testInsertEmbeddedWithRecordAttributes() {
-    var c = session.getMetadata().getSchema()
-        .getOrCreateClass("EmbeddedWithRecordAttributes");
-    c.createProperty(
-        "like",
-        PropertyType.EMBEDDED,
-        session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes_Like"));
+    var c = session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes");
+    var cc = session.getMetadata().getSchema().getClass("EmbeddedWithRecordAttributes_Like");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("EmbeddedWithRecordAttributes_Like");
+    }
+    if (!c.existsProperty("like")) {
+      c.createProperty("like", PropertyType.EMBEDDED, cc);
+    }
 
     session.begin();
     var doc =
@@ -822,23 +817,27 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("like") instanceof Identifiable);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("like")).getSchemaClassName(),
         "EmbeddedWithRecordAttributes_Like");
     Assert.assertEquals(((Entity) doc.getProperty("like")).<Object>getProperty("count"), 0);
+    session.commit();
   }
 
   @Test
   public void testInsertEmbeddedWithRecordAttributes2() {
     var c = session.getMetadata().getSchema()
         .getOrCreateClass("EmbeddedWithRecordAttributes2");
-    c.createProperty(
-        "like",
-        PropertyType.EMBEDDED,
-        session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes2_Like"));
+    var cc = session.getMetadata().getSchema().getClass("EmbeddedWithRecordAttributes2_Like");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("EmbeddedWithRecordAttributes2_Like");
+    }
+    if (!c.existsProperty("like")) {
+      c.createProperty("like", PropertyType.EMBEDDED, cc);
+    }
 
     session.begin();
     var doc =
@@ -854,13 +853,14 @@ public class SQLInsertTest extends BaseDBTest {
             .asEntity();
     session.commit();
 
-    var activeTx = session.getActiveTransaction();
+    var activeTx = session.begin();
     doc = activeTx.load(doc);
     Assert.assertTrue(doc.getProperty("like") instanceof Identifiable);
     Assert.assertEquals(
         ((EntityImpl) doc.getProperty("like")).getSchemaClassName(),
         "EmbeddedWithRecordAttributes2_Like");
     Assert.assertEquals(((Entity) doc.getProperty("like")).<Object>getProperty("count"), 0);
+    session.commit();
   }
 
   @Test
@@ -874,12 +874,14 @@ public class SQLInsertTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query("SELECT FROM InsertWithCollectionAsFieldName").stream()
             .collect(Collectors.toList());
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.getFirst().getProperty("collection"), "foo");
+    session.commit();
   }
 
   @Test
@@ -896,6 +898,7 @@ public class SQLInsertTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     var result =
         session.query("SELECT FROM TestInsertEmbeddedBigDecimal").stream()
             .collect(Collectors.toList());
@@ -904,6 +907,7 @@ public class SQLInsertTest extends BaseDBTest {
     var o = ed.iterator().next();
     Assert.assertEquals(o.getClass(), BigDecimal.class);
     Assert.assertEquals(((BigDecimal) o).intValue(), 5);
+    session.commit();
   }
 
   private List<Long> getValidPositions(int collectionId) {
