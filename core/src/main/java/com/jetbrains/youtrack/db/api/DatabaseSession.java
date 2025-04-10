@@ -27,8 +27,10 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -501,17 +503,17 @@ public interface DatabaseSession extends AutoCloseable {
 
   LinkSet newLinkSet(Collection<? extends Identifiable> source);
 
-  <V> Map<String, V> newEmbeddedMap();
+  <V> EmbeddedMap<V> newEmbeddedMap();
 
-  <V> Map<String, V> newEmbeddedMap(int size);
+  <V> EmbeddedMap<V> newEmbeddedMap(int size);
 
-  <V> Map<String, V> newEmbeddedMap(Map<String, V> map);
+  <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map);
 
-  Map<String, Identifiable> newLinkMap();
+  LinkMap newLinkMap();
 
-  Map<String, Identifiable> newLinkMap(int size);
+  LinkMap newLinkMap(int size);
 
-  Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source);
+  LinkMap newLinkMap(Map<String, ? extends Identifiable> source);
 
   enum ATTRIBUTES {
     DATEFORMAT,

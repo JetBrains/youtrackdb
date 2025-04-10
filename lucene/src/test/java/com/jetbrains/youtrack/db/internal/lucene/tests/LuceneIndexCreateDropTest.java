@@ -45,7 +45,7 @@ public class LuceneIndexCreateDropTest extends LuceneBaseTest {
 
     session.execute("drop index City.name");
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.name");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.name");
 
     assertThat(index).isNull();
   }

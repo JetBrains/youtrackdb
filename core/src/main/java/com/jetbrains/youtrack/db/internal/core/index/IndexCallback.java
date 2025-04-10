@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 
 public interface IndexCallback {
 
-  Object getDocumentValueToIndex(DatabaseSessionInternal session, EntityImpl entity);
+  Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity);
 }

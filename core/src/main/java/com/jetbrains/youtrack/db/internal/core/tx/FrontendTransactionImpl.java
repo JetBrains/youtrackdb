@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -701,18 +700,18 @@ public class FrontendTransactionImpl implements
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterCreate(entityImpl, this);
             }
             session.beforeCreateOperations(record, collectionName);
           } else {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
             }
             session.beforeUpdateOperations(record, collectionName);
           }
         } else {
           if (className != null) {
-            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
           }
           session.beforeUpdateOperations(record, collectionName);
         }
@@ -738,7 +737,7 @@ public class FrontendTransactionImpl implements
       recordOperation.record.processingInCallback = true;
       try {
         if (className != null && !session.isRemote()) {
-          ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+          ClassIndexManager.checkIndexesAfterDelete(entityImpl, this);
         }
         session.beforeDeleteOperations(record, collectionName);
       } finally {
@@ -822,7 +821,7 @@ public class FrontendTransactionImpl implements
     }
     final var database = session;
     if (!database.isRemote()) {
-      final var indexManager = database.getMetadata().getIndexManagerInternal();
+      final var indexManager = database.getSharedContext().getIndexManager();
       for (var entry : indexEntries.entrySet()) {
         final var index = indexManager.getIndex(database, entry.getKey());
         if (index == null) {
@@ -1249,12 +1248,6 @@ public class FrontendTransactionImpl implements
 
   public void setSession(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
-  }
-
-  @Override
-  public @Nonnull DatabaseSession getSession() {
-    checkIfActive();
-    return session;
   }
 
   @Nonnull

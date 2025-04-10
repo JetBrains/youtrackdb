@@ -218,7 +218,7 @@ public class JSONSerializerJackson {
       } else {
         if (EntityHelper.isEntity(recordMetaData.recordType)) {
           if (recordMetaData.className == null) {
-            if (recordMetaData.internalRecordType != null) {
+            if (recordMetaData.entityType.isInternal()) {
               record = session.newInternalInstance();
             } else {
               record = session.newInstance();
@@ -335,7 +335,7 @@ public class JSONSerializerJackson {
     var recordType = defaultRecordType;
     var className = defaultClassName;
     Map<String, String> fieldTypes = new HashMap<>();
-    InternalRecordType internalRecordType = null;
+    var entityType = EntityType.PUBLIC;
     Boolean embeddedFlag = null;
     Integer recordVersion = null;
 
@@ -390,7 +390,7 @@ public class JSONSerializerJackson {
             className = "null".equals(fieldValueAsString) ? null : fieldValueAsString;
             token = jsonParser.nextToken();
           }
-          case EntityHelper.ATTRIBUTE_INTERNAL_SCHEMA -> {
+          case EntityHelper.ATTRIBUTE_INTERNAL_ENTITY -> {
             token = jsonParser.nextToken();
             if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
               throw new SerializationException(session,
@@ -398,16 +398,11 @@ public class JSONSerializerJackson {
             }
             var internalRecord = jsonParser.getBooleanValue();
             if (internalRecord) {
-              if (internalRecordType != null) {
-                throw new SerializationException(session,
-                    "Multiple internal record types found. Expected only one. Found: "
-                        + internalRecordType + " and " + InternalRecordType.SCHEMA);
-              }
-              internalRecordType = InternalRecordType.SCHEMA;
+              entityType = EntityType.INTERNAL;
             }
             token = jsonParser.nextToken();
           }
-          case EntityHelper.ATTRIBUTE_INTERNAL_INDEX_MANAGER -> {
+          case EntityHelper.ATTRIBUTE_INDEX_MANAGER_ENTITY -> {
             token = jsonParser.nextToken();
             if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
               throw new SerializationException(session,
@@ -415,12 +410,28 @@ public class JSONSerializerJackson {
             }
             var internalRecord = jsonParser.getBooleanValue();
             if (internalRecord) {
-              if (internalRecordType != null) {
-                throw new SerializationException(session,
-                    "Multiple internal record types found. Expected only one. Found: "
-                        + internalRecordType + " and " + InternalRecordType.INDEX_MANAGER);
+              if (entityType != EntityType.PUBLIC) {
+                throw new SerializationException(
+                    "Entity type already marked as internal : " + entityType);
               }
-              internalRecordType = InternalRecordType.INDEX_MANAGER;
+              entityType = EntityType.INDEX_MANAGER;
+            }
+            token = jsonParser.nextToken();
+          }
+
+          case EntityHelper.ATTRIBUTE_SCHEMA_MANAGER_ENTITY -> {
+            token = jsonParser.nextToken();
+            if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
+              throw new SerializationException(session,
+                  "Expected field value as boolean");
+            }
+            var internalRecord = jsonParser.getBooleanValue();
+            if (internalRecord) {
+              if (entityType != EntityType.PUBLIC) {
+                throw new SerializationException(
+                    "Entity type already marked as internal : " + entityType);
+              }
+              entityType = EntityType.SCHEMA_MANAGER;
             }
             token = jsonParser.nextToken();
           }
@@ -507,8 +518,8 @@ public class JSONSerializerJackson {
     return new RecordMetadata(
         recordType,
         recordId,
-        internalRecordType == null ? className : null,
-        fieldTypes, embeddedValue, recordVersion, internalRecordType
+        entityType.isInternal() ? null : className,
+        fieldTypes, embeddedValue, recordVersion, entityType
     );
   }
 
@@ -681,13 +692,16 @@ public class JSONSerializerJackson {
         if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
           var metadata = session.getMetadata();
           var schema = metadata.getSchemaInternal();
-          var indexManager = metadata.getIndexManagerInternal();
+          var indexManager = session.getSharedContext().getIndexManager();
 
           if (schema.getIdentity().equals(record.getIdentity())) {
-            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_SCHEMA);
+            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_SCHEMA_MANAGER_ENTITY);
             jsonGenerator.writeBoolean(true);
           } else if (indexManager.getIdentity().equals(record.getIdentity())) {
-            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_INDEX_MANAGER);
+            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INDEX_MANAGER_ENTITY);
+            jsonGenerator.writeBoolean(true);
+          } else {
+            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_ENTITY);
             jsonGenerator.writeBoolean(true);
           }
         }
@@ -1233,13 +1247,17 @@ public class JSONSerializerJackson {
       Map<String, String> fieldTypes,
       boolean isEmbedded,
       @Nullable Integer recordVersion,
-      @Nullable InternalRecordType internalRecordType
+      @Nullable EntityType entityType
   ) {
 
   }
 
-  public enum InternalRecordType {
-    SCHEMA, INDEX_MANAGER
+  public enum EntityType {
+    INTERNAL, PUBLIC, INDEX_MANAGER, SCHEMA_MANAGER;
+
+    boolean isInternal() {
+      return this == INTERNAL || this == INDEX_MANAGER || this == SCHEMA_MANAGER;
+    }
   }
 
   public static class FormatSettings {

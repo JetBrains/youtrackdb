@@ -46,7 +46,7 @@ import com.jetbrains.youtrack.db.internal.core.db.tool.importer.LinksRewriter;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -205,10 +205,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       session.setUser(null);
 
       removeDefaultNonSecurityClasses();
-      session.getMetadata().getIndexManagerInternal().reload(session);
+      session.getSharedContext().getIndexManager().reload(session);
 
       for (final var index :
-          session.getMetadata().getIndexManagerInternal().getIndexes(session)) {
+          session.getSharedContext().getIndexManager().getIndexes(session)) {
         if (index.isAutomatic()) {
           indexesToRebuild.add(index.getName());
         }
@@ -329,9 +329,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   public void rebuildIndexes() {
-    session.getMetadata().getIndexManagerInternal().reload(session);
+    session.getSharedContext().getIndexManager().reload(session);
 
-    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var indexManager = session.getSharedContext().getIndexManager();
 
     listener.onMessage("\nRebuild of stale indexes...");
     for (var indexName : indexesToRebuild) {
@@ -470,7 +470,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
     }
 
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+        .getIndexManager();
     for (final var indexName : indexNames) {
       indexManager.dropIndex(session, indexName);
     }
@@ -990,8 +991,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
     for (final var indexName : indexesToRebuild) {
       session
-          .getMetadata()
-          .getIndexManagerInternal()
+          .getSharedContext()
+          .getIndexManager()
           .getIndex(session, indexName)
           .rebuild(session,
               new ProgressListener() {
@@ -1060,8 +1061,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       rid = record.getIdentity();
       originalRid = metadata.recordId();
 
-      switch (metadata.internalRecordType()) {
-        case SCHEMA -> {
+      switch (metadata.entityType()) {
+        case SCHEMA_MANAGER -> {
           recordsBeforeImport.remove(schemaRecordId);
           record.delete();
           rid = null;
@@ -1071,7 +1072,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           record.delete();
           rid = null;
         }
-        case null -> {
+        default -> {
           final var collectionId = rid.getCollectionId();
 
           if (isSystemRecord(beforeImportSchemaSnapshot, collectionId)) {
@@ -1321,7 +1322,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private void importIndexes() throws IOException, ParseException {
     listener.onMessage("\n\nImporting indexes ...");
 
-    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext().getIndexManager();
     indexManager.reload(session);
 
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
@@ -1399,7 +1400,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   private int dropAutoCreatedIndexesAndCountCreatedIndexes(
-      final IndexManagerAbstract indexManager,
+      final IndexManagerEmbedded indexManager,
       int numberOfCreatedIndexes,
       final String indexName,
       final String indexType,

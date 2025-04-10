@@ -45,41 +45,41 @@ public class SQLAlterSecurityPolicyStatement extends SQLSimpleExecStatement {
     }
 
     if (create != null) {
-      policy.setCreateRule(session, create.toString());
+      policy.setCreateRule(create.toString());
     }
     if (read != null) {
-      policy.setReadRule(session, read.toString());
+      policy.setReadRule(read.toString());
     }
     if (beforeUpdate != null) {
-      policy.setBeforeUpdateRule(session, beforeUpdate.toString());
+      policy.setBeforeUpdateRule(beforeUpdate.toString());
     }
     if (afterUpdate != null) {
-      policy.setAfterUpdateRule(session, afterUpdate.toString());
+      policy.setAfterUpdateRule(afterUpdate.toString());
     }
     if (delete != null) {
-      policy.setDeleteRule(session, delete.toString());
+      policy.setDeleteRule(delete.toString());
     }
     if (execute != null) {
-      policy.setExecuteRule(session, execute.toString());
+      policy.setExecuteRule(execute.toString());
     }
 
     if (removeCreate) {
-      policy.setCreateRule(session, null);
+      policy.setCreateRule(null);
     }
     if (removeRead) {
-      policy.setReadRule(session, null);
+      policy.setReadRule(null);
     }
     if (removeBeforeUpdate) {
-      policy.setBeforeUpdateRule(session, null);
+      policy.setBeforeUpdateRule(null);
     }
     if (removeAfterUpdate) {
-      policy.setAfterUpdateRule(session, null);
+      policy.setAfterUpdateRule(null);
     }
     if (removeDelete) {
-      policy.setDeleteRule(session, null);
+      policy.setDeleteRule(null);
     }
     if (removeExecute) {
-      policy.setExecuteRule(session, null);
+      policy.setExecuteRule(null);
     }
     security.saveSecurityPolicy(session, policy);
 

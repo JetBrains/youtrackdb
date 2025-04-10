@@ -1,9 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
 import java.util.AbstractSet;
 import java.util.Collection;
@@ -180,7 +179,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
   }
 
   public Set<T> returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final List<MultiValueChangeEvent<T, T>> multiValueChangeEvents) {
     var reverted = new HashSet<>(this);
 

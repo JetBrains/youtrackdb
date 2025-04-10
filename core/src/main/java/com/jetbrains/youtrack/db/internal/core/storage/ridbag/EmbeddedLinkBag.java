@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
 import java.util.Spliterator;
@@ -48,10 +49,10 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
   @Override
   public Object returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
     assert assertIfNotActive();
-    final var reverted = new EmbeddedLinkBag(session, counterMaxValue);
+    final var reverted = new EmbeddedLinkBag(transaction.getDatabaseSession(), counterMaxValue);
     for (var identifiable : this) {
       reverted.add(identifiable);
     }

@@ -16,19 +16,28 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngine;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.Query;
 
 public class LuceneFullTextIndex extends LuceneIndexNotUnique {
 
-  public LuceneFullTextIndex(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public LuceneFullTextIndex(@Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneFullTextIndex(@Nonnull Storage storage) {
+    super(storage);
   }
 
   public Document buildDocument(DatabaseSessionInternal db, final Object key) {

@@ -187,13 +187,13 @@ public class TruncateClassTest extends BaseDBTest {
 
   private Index getOrCreateIndex(SchemaClass testClass) {
     var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "test_class_by_data");
+        session.getSharedContext().getIndexManager().getIndex(session, "test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
       testClass.createIndex("test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
           "data");
     }
-    return session.getMetadata().getIndexManagerInternal()
+    return session.getSharedContext().getIndexManager()
         .getIndex(session, "test_class_by_data");
   }
 

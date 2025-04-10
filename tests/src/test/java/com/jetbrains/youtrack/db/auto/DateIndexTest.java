@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import org.testng.Assert;
@@ -119,8 +118,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestDateIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestDateIndex");
     try (var stream = dateIndexTestDateIndex.getRids(session, dateOne)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
@@ -131,8 +130,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestDateTimeIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestDateTimeIndex");
     try (var stream = dateIndexTestDateTimeIndex
         .getRids(session, dateTwo)) {
@@ -145,8 +144,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateIndex");
     try (var stream =
         dateIndexTestValueDateIndex
@@ -161,8 +160,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateTimeIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateTimeIndex");
     try (var stream =
         dateIndexTestValueDateTimeIndex
@@ -177,8 +176,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateListIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateListIndex");
 
     try (var stream =
@@ -194,8 +193,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateTimeListIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateListIndex");
     try (var stream =
         dateIndexTestValueDateTimeListIndex
@@ -212,8 +211,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestDateHashIndexIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestDateHashIndex");
     try (var stream = dateIndexTestDateHashIndexIndex
         .getRids(session, dateOne)) {
@@ -226,8 +225,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestDateTimeHashIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestDateTimeHashIndex");
     try (var stream = dateIndexTestDateTimeHashIndex
         .getRids(session, dateTwo)) {
@@ -240,8 +239,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateHashIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateHashIndex");
     try (var stream =
         dateIndexTestValueDateHashIndex
@@ -256,8 +255,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateTimeHashIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateTimeHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeHashIndex
@@ -274,8 +273,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateListHashIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateListHashIndex");
 
     try (var stream =
@@ -293,8 +292,8 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestValueDateTimeListHashIndex =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "DateIndexTestValueDateListHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeListHashIndex

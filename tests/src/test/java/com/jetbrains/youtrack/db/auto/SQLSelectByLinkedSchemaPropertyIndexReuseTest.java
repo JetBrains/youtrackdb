@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.sql.ChainedIndexProxy;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -20,8 +19,6 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
- * Testing functionality of {@link ChainedIndexProxy}.
- *
  * <p>Each test method tests different traverse index combination with different operations.
  *
  * <p>Method name are used to describe test case, first part is chain of types of indexes that are

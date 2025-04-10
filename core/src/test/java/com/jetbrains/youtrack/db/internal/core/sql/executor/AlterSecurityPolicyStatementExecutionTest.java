@@ -21,13 +21,13 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     var security = session.getSharedContext().getSecurity();
     SecurityPolicy policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
-    Assert.assertNotNull("foo", policy.getName(session));
-    Assert.assertEquals("name = \"foo\"", policy.getReadRule(session));
-    Assert.assertNull(policy.getCreateRule(session));
-    Assert.assertNull(policy.getBeforeUpdateRule(session));
-    Assert.assertNull(policy.getAfterUpdateRule(session));
-    Assert.assertNull(policy.getDeleteRule(session));
-    Assert.assertNull(policy.getExecuteRule(session));
+    Assert.assertNotNull("foo", policy.getName());
+    Assert.assertEquals("name = \"foo\"", policy.getReadRule());
+    Assert.assertNull(policy.getCreateRule());
+    Assert.assertNull(policy.getBeforeUpdateRule());
+    Assert.assertNull(policy.getAfterUpdateRule());
+    Assert.assertNull(policy.getDeleteRule());
+    Assert.assertNull(policy.getExecuteRule());
 
     session.execute("ALTER SECURITY POLICY foo REMOVE READ").close();
     session.commit();
@@ -35,7 +35,7 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     session.begin();
     policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
-    Assert.assertNull(policy.getReadRule(session));
+    Assert.assertNull(policy.getReadRule());
     session.commit();
   }
 }

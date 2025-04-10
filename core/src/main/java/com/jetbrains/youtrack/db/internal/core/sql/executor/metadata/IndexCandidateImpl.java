@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Collections;
 import java.util.List;
@@ -43,9 +44,9 @@ public class IndexCandidateImpl implements IndexCandidate {
 
   @Override
   public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    var index = session.getMetadata().getIndexManager().getIndex(name);
-    if (property.getName().equals(index.getDefinition().getFields().get(0))) {
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var index = session.getSharedContext().getIndexManager().getIndex(session, name);
+    if (property.getName().equals(index.getDefinition().getFields().getFirst())) {
       return Optional.of(this);
     } else {
       return Optional.empty();

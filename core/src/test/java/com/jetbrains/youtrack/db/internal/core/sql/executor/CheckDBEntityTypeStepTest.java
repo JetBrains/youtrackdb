@@ -14,7 +14,7 @@ import org.junit.Test;
 /**
  *
  */
-public class CheckDBRecordTypeStepTest extends TestUtilsFixture {
+public class CheckDBEntityTypeStepTest extends TestUtilsFixture {
 
   @Test
   public void shouldCheckRecordsOfOneType() {

@@ -139,21 +139,22 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     final var indexDefinition = index.getDefinition();
 
-    var database = iContext.getDatabaseSession();
+    var session = iContext.getDatabaseSession();
     Stream<RawPair<Object, RID>> stream;
     if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
+    var transaction = session.getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final var betweenKeys = (Object[]) keyParams.get(0);
 
       final var keyOne =
           indexDefinition.createValue(
-              database, Collections.singletonList(SQLHelper.getValue(betweenKeys[0])));
+              transaction, Collections.singletonList(SQLHelper.getValue(betweenKeys[0])));
       final var keyTwo =
           indexDefinition.createValue(
-              database, Collections.singletonList(SQLHelper.getValue(betweenKeys[2])));
+              transaction, Collections.singletonList(SQLHelper.getValue(betweenKeys[2])));
 
       if (keyOne == null || keyTwo == null) {
         return null;
@@ -161,7 +162,7 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
 
       stream =
           index
-              .streamEntriesBetween(database, keyOne, leftInclusive, keyTwo, rightInclusive,
+              .streamEntriesBetween(session, keyOne, leftInclusive, keyTwo, rightInclusive,
                   ascSortOrder);
     } else {
       final var compositeIndexDefinition =
@@ -190,20 +191,20 @@ public class QueryOperatorBetween extends QueryOperatorEqualityNotNulls {
       betweenKeyTwoParams.add(betweenKeyTwo);
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(database, betweenKeyOneParams);
+          compositeIndexDefinition.createSingleValue(transaction, betweenKeyOneParams);
 
       if (keyOne == null) {
         return null;
       }
 
       final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(database, betweenKeyTwoParams);
+          compositeIndexDefinition.createSingleValue(transaction, betweenKeyTwoParams);
 
       if (keyTwo == null) {
         return null;
       }
 
-      stream = index.streamEntriesBetween(database, keyOne, leftInclusive, keyTwo, rightInclusive,
+      stream = index.streamEntriesBetween(session, keyOne, leftInclusive, keyTwo, rightInclusive,
           ascSortOrder);
     }
 

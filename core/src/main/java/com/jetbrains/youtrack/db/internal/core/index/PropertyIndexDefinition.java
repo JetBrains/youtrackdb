@@ -21,10 +21,12 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.Collections;
 import java.util.List;
@@ -73,16 +75,16 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Nullable
   public Object getDocumentValueToIndex(
-      DatabaseSessionInternal session, final EntityImpl entity) {
+      FrontendTransaction transaction, final EntityImpl entity) {
     if (PropertyTypeInternal.LINK.equals(keyType)) {
       final Identifiable identifiable = entity.getPropertyInternal(field);
       if (identifiable != null) {
-        return createValue(session, identifiable.getIdentity());
+        return createValue(transaction, identifiable.getIdentity());
       } else {
         return null;
       }
     }
-    return createValue(session, entity.<Object>getPropertyInternal(field));
+    return createValue(transaction, entity.<Object>getPropertyInternal(field));
   }
 
   @Override
@@ -136,15 +138,16 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
         + '}';
   }
 
-  public Object createValue(DatabaseSessionInternal session, final List<?> params) {
-    return keyType.convert(params.getFirst(), null, null, session);
+  public Object createValue(FrontendTransaction transaction, final List<?> params) {
+    return keyType.convert(params.getFirst(), null, null, transaction.getDatabaseSession());
   }
 
   /**
    * {@inheritDoc}
    */
-  public Object createValue(DatabaseSessionInternal session, final Object... params) {
-    return keyType.convert(refreshRid(session, params[0]), null, null, session);
+  public Object createValue(FrontendTransaction transaction, final Object... params) {
+    return keyType.convert(refreshRid(transaction.getDatabaseSession(), params[0]), null, null,
+        transaction.getDatabaseSession());
   }
 
   public int getParamCount() {
@@ -161,7 +164,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Nonnull
   @Override
-  public Map<String, Object> toMap(DatabaseSessionInternal session) {
+  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
     var result = session.newEmbeddedMap();
     serializeToMap(result, session);
     return result;

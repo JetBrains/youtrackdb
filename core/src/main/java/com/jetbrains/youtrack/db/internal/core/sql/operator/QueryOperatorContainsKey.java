@@ -80,6 +80,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       if (!((indexDefinition instanceof PropertyMapIndexDefinition)
           && ((PropertyMapIndexDefinition) indexDefinition).getIndexBy()
@@ -89,7 +90,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
 
       final var key =
           ((IndexDefinitionMultiValue) indexDefinition)
-              .createSingleValue(iContext.getDatabaseSession(), keyParams.get(0));
+              .createSingleValue(transaction, keyParams.get(0));
 
       if (key == null) {
         return null;
@@ -113,7 +114,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
       }
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
@@ -121,7 +122,7 @@ public class QueryOperatorContainsKey extends QueryOperatorEqualityNotNulls {
 
       if (index.hasRangeQuerySupport()) {
         final Object keyTwo =
-            compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+            compositeIndexDefinition.createSingleValue(transaction, keyParams);
         stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
             true,
             ascSortOrder);

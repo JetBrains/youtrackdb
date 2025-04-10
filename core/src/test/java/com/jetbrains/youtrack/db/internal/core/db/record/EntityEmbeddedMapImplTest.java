@@ -265,7 +265,7 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
 
     //noinspection unchecked,rawtypes
     Assert.assertEquals(
-        trackedMap.returnOriginalState(session,
+        trackedMap.returnOriginalState(session.getActiveTransaction(),
             (List) trackedMap.getTimeLine().getMultiValueChangeEvents()),
         original);
     session.rollback();
@@ -300,7 +300,7 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
 
     //noinspection unchecked,rawtypes
     Assert.assertEquals(
-        trackedMap.returnOriginalState(session,
+        trackedMap.returnOriginalState(session.getActiveTransaction(),
             (List) trackedMap.getTimeLine().getMultiValueChangeEvents()),
         original);
     session.rollback();

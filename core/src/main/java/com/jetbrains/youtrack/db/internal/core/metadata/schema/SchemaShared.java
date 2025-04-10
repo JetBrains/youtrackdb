@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -78,6 +79,8 @@ public abstract class SchemaShared implements CloseableInStorage {
   private volatile int version = 0;
   private volatile RecordId identity;
   protected volatile ImmutableSchema snapshot;
+
+  private final ReentrantLock snapshotLock = new ReentrantLock();
 
   protected static Set<String> internalClasses = new HashSet<>();
 
@@ -155,7 +158,6 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   @Nullable
-  @SuppressWarnings("JavaExistingMethodCanBeUsed")
   public static Character checkIndexNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
@@ -183,12 +185,15 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public ImmutableSchema makeSnapshot(DatabaseSessionInternal session) {
     if (snapshot == null) {
-      // Is null only in the case that is asked while the schema is created
-      // all the other cases are already protected by a write lock
       acquireSchemaReadLock(session);
       try {
-        if (snapshot == null) {
-          snapshot = new ImmutableSchema(this, session);
+        snapshotLock.lock();
+        try {
+          if (snapshot == null) {
+            snapshot = new ImmutableSchema(this, session);
+          }
+        } finally {
+          snapshotLock.unlock();
         }
       } finally {
         releaseSchemaReadLock(session);
@@ -197,13 +202,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     return snapshot;
   }
 
-  public void forceSnapshot(DatabaseSessionInternal session) {
-    acquireSchemaReadLock(session);
-    try {
-      snapshot = new ImmutableSchema(this, session);
-    } finally {
-      releaseSchemaReadLock(session);
-    }
+  public void forceSnapshot() {
+    snapshot = null;
   }
 
   public CollectionSelectionFactory getCollectionSelectionFactory() {
@@ -290,7 +290,8 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public abstract void checkEmbedded(DatabaseSessionInternal session);
 
-  void checkCollectionCanBeAdded(DatabaseSessionInternal session, int collectionId, SchemaClassImpl cls) {
+  void checkCollectionCanBeAdded(DatabaseSessionInternal session, int collectionId,
+      SchemaClassImpl cls) {
     acquireSchemaReadLock(session);
     try {
       if (collectionId < 0) {
@@ -341,7 +342,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
             EntityImpl entity = session.load(identity);
             fromStream(session, entity);
-            forceSnapshot(session);
+            forceSnapshot();
           });
     } finally {
       lock.writeLock().unlock();
@@ -417,7 +418,7 @@ public abstract class SchemaShared implements CloseableInStorage {
             reload(session);
           }
         } else {
-          snapshot = new ImmutableSchema(this, session);
+          snapshot = null;
         }
         //noinspection NonAtomicOperationOnVolatileField
         version++;
@@ -685,7 +686,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       this.identity = entity.getIdentity();
       session.getStorage().setSchemaRecordId(entity.getIdentity().toString());
-      snapshot = new ImmutableSchema(this, session);
+      snapshot = null;
     } finally {
       lock.writeLock().unlock();
     }
@@ -780,7 +781,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     session.executeInTx(transaction -> toStream(session));
 
-    forceSnapshot(session);
+    forceSnapshot();
   }
 
   protected void addCollectionClassMap(DatabaseSessionInternal session, final SchemaClassImpl cls) {

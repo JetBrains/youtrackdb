@@ -64,7 +64,7 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata im) {
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
     if (delegate == null) {
       if (SchemaClass.INDEX_TYPE.SPATIAL.name().equalsIgnoreCase(im.getType())) {
         if (im.getIndexDefinition().getFields().size() > 1) {
@@ -76,7 +76,7 @@ public class LuceneSpatialIndexEngineDelegator
               new LuceneGeoSpatialIndexEngine(this.storage, indexName, id, ShapeFactory.INSTANCE);
         }
 
-        delegate.init(db, im);
+        delegate.init(session, im);
       } else {
         throw new IllegalStateException("Invalid index type " + im.getType());
       }

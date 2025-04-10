@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -651,7 +652,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     final var indexManager =
-        session.getMetadata().getIndexManagerInternal();
+        ((DatabaseSessionEmbedded) session).getSharedContext().getIndexManager();
     for (var indexName : indexesToAdd) {
       indexManager.addCollectionToIndex(session, collectionName, indexName);
     }

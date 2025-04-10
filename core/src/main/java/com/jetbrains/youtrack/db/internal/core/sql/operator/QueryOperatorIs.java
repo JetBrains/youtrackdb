@@ -99,14 +99,15 @@ public class QueryOperatorIs extends QueryOperatorEquality {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabaseSession(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabaseSession(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       stream = index.getRids(iContext.getDatabaseSession(), key)
@@ -119,14 +120,14 @@ public class QueryOperatorIs extends QueryOperatorEquality {
           (CompositeIndexDefinition) indexDefinition;
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
       final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (index.hasRangeQuerySupport()) {
         stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
             true,
-                ascSortOrder);
+            ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
           stream = index.getRids(iContext.getDatabaseSession(), keyOne)

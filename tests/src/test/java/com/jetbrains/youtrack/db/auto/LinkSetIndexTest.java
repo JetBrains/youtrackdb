@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -59,7 +58,7 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     if (session.getStorage().isRemote()) {
       var index =
-          session.getMetadata().getIndexManagerInternal().getIndex(session, "linkSetIndex");
+          session.getSharedContext().getIndexManager().getIndex(session, "linkSetIndex");
       Assert.assertEquals(index.size(session), 0);
     }
     session.commit();

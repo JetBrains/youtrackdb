@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,8 +33,8 @@ import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property that presents
- * {@link PropertyTypeInternal#EMBEDDEDLIST}, {@link PropertyTypeInternal#LINKLIST}, {@link PropertyTypeInternal#LINKSET} or
- * {@link PropertyTypeInternal#EMBEDDEDSET} properties.
+ * {@link PropertyTypeInternal#EMBEDDEDLIST}, {@link PropertyTypeInternal#LINKLIST},
+ * {@link PropertyTypeInternal#LINKSET} or {@link PropertyTypeInternal#EMBEDDEDSET} properties.
  */
 public class PropertyListIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
@@ -49,12 +49,12 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object getDocumentValueToIndex(DatabaseSessionInternal session, EntityImpl entity) {
-    return createValue(session, entity.<Object>getProperty(field));
+  public Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity) {
+    return createValue(transaction, entity.<Object>getProperty(field));
   }
 
   @Override
-  public Object createValue(DatabaseSessionInternal session, List<?> params) {
+  public Object createValue(FrontendTransaction transaction, List<?> params) {
     if (!(params.get(0) instanceof Collection)) {
       params = Collections.singletonList(params);
     }
@@ -62,17 +62,18 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     final var multiValueCollection = (Collection<?>) params.get(0);
     final List<Object> values = new ArrayList<>(multiValueCollection.size());
     for (final var item : multiValueCollection) {
-      values.add(createSingleValue(session, item));
+      values.add(createSingleValue(transaction, item));
     }
     return values;
   }
 
   @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, final Object... params) {
+  public Object createValue(FrontendTransaction transaction, final Object... params) {
     var param = params[0];
     if (!(param instanceof Collection<?>)) {
       try {
+        var session = transaction.getDatabaseSession();
         return keyType.convert(refreshRid(session, param), null, null, session);
       } catch (Exception e) {
         return null;
@@ -83,42 +84,42 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     var multiValueCollection = (Collection<?>) param;
     final List<Object> values = new ArrayList<>(multiValueCollection.size());
     for (final var item : multiValueCollection) {
-      values.add(createSingleValue(session, item));
+      values.add(createSingleValue(transaction, item));
     }
     return values;
   }
 
-  public Object createSingleValue(DatabaseSessionInternal session, final Object... param) {
+  public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
     try {
-      var value = refreshRid(session, param[0]);
-      return keyType.convert(value, null, null, session);
+      var value = refreshRid(transaction.getDatabaseSession(), param[0]);
+      return keyType.convert(value, null, null, transaction.getDatabaseSession());
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new IndexException(session.getDatabaseName(),
+          new IndexException(transaction.getDatabaseSession(),
               "Invalid key for index: " + param[0] + " cannot be converted to " + keyType),
-          e, session.getDatabaseName());
+          e, transaction.getDatabaseSession());
     }
   }
 
   public void processChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD: {
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         break;
       }
       case REMOVE: {
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
         break;
       }
       case UPDATE: {
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         break;
       }
       default:

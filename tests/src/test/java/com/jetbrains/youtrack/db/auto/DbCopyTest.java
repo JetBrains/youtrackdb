@@ -36,36 +36,24 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
     final var className = "DbCopyTest";
     session.getMetadata().getSchema().createClass(className);
 
-    final var otherDB = session.copy();
-    session.activateOnCurrentThread();
-    var thread =
-        new Thread(() -> {
-          try {
-            otherDB.activateOnCurrentThread();
-            for (var i = 0; i < 5; i++) {
-              otherDB.begin();
-              EntityImpl doc = otherDB.newInstance(className);
-              doc.setProperty("num", 20 + i);
+    try (final var otherDB = session.copy()) {
+      for (var i = 0; i < 5; i++) {
+        otherDB.begin();
+        var doc = otherDB.newInstance(className);
+        doc.setProperty("num", 20 + i);
 
-              otherDB.commit();
-              try {
-                Thread.sleep(10);
-              } catch (Exception e) {
-                e.printStackTrace();
-                throw new RuntimeException(e);
-              }
-            }
-            otherDB.close();
-          } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException(e);
-          }
-        });
-    thread.start();
+        otherDB.commit();
+        try {
+          Thread.sleep(10);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
 
     for (var i = 0; i < 20; i++) {
       session.begin();
-      EntityImpl doc = session.newInstance(className);
+      var doc = session.newInstance(className);
       doc.setProperty("num", i);
 
       session.commit();
@@ -74,12 +62,6 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
       } catch (InterruptedException e) {
         e.printStackTrace();
       }
-    }
-
-    try {
-      thread.join();
-    } catch (InterruptedException e) {
-      Assert.fail();
     }
 
     session.begin();

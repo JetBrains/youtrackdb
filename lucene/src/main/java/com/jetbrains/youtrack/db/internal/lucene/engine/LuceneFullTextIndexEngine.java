@@ -70,8 +70,8 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata im) {
-    super.init(db, im);
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+    super.init(session, im);
     queryBuilder = new LuceneQueryBuilder(im.getMetadata());
   }
 

@@ -25,8 +25,8 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.lang.ref.WeakReference;
 import java.util.AbstractList;
 import java.util.ArrayList;
@@ -277,7 +277,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
   }
 
   public List<Identifiable> returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Integer, Identifiable>> multiValueChangeEvents) {
     var reverted = new ArrayList<>(this);
     final var listIterator =

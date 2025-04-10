@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Case insensitive collate.
@@ -39,7 +40,7 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
     return NAME;
   }
 
-  public @Nonnull Object transform(final @Nonnull Object obj) {
+  public @Nullable Object transform(final @Nullable Object obj) {
     if (obj instanceof String) {
       return ((String) obj).toLowerCase(Locale.ENGLISH);
     }

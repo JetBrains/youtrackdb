@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
@@ -40,65 +41,78 @@ import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.IndexSearcher;
 
 public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex {
 
-  public LuceneIndexNotUnique(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+
+  public LuceneIndexNotUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneIndexNotUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
-  public long rebuild(DatabaseSessionInternal session, ProgressListener iProgressListener) {
-    return super.rebuild(session, iProgressListener);
+  public Index create(FrontendTransaction transaction, IndexMetadata indexMetadata) {
+    var metadata = indexMetadata.getMetadata();
+
+    if (metadata == null || !metadata.containsKey("analyzer")) {
+      HashMap<String, Object> met;
+      if (metadata != null) {
+        met = new HashMap<>(metadata);
+      } else {
+        met = new HashMap<>();
+      }
+
+      met.put("analyzer", StandardAnalyzer.class.getName());
+      indexMetadata.setMetadata(met);
+    }
+
+    return super.create(transaction, indexMetadata);
   }
 
   @Override
-  public boolean remove(DatabaseSessionInternal session, final Object key,
+  public long rebuild(DatabaseSessionInternal session, ProgressListener progressListener) {
+    return super.rebuild(session, progressListener);
+  }
+
+  @Override
+  public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
 
     if (key != null) {
-      var transaction = session.getTransactionInternal();
-
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           rid);
       var transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(session, key, rid);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, rid);
       return true;
     }
     return true;
   }
 
   @Override
-  public boolean remove(DatabaseSessionInternal session, final Object key) {
+  public boolean remove(FrontendTransaction transaction, final Object key) {
     if (key != null) {
-      var transaction = session.getTransactionInternal();
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           null);
       var transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(session, key, null);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, null);
       return true;
     }
     return true;
-  }
-
-  @Override
-  public void removeCollection(DatabaseSessionInternal session, String collectionName) {
-    acquireExclusiveLock();
-    try {
-      if (collectionsToIndex.remove(collectionName)) {
-        session.executeInTx(
-            transaction -> remove(session, "_COLLECTION:" + storage.getCollectionIdByName(collectionName)));
-      }
-    } finally {
-      releaseExclusiveLock();
-    }
   }
 
   @Override
@@ -185,7 +199,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     return key;
   }
 
-  public void doDelete(DatabaseSessionInternal session) {
+  public void doDelete(FrontendTransaction transaction) {
     while (true) {
       try {
         storage.deleteIndexEngine(indexId);
@@ -196,12 +210,17 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     }
   }
 
+  @Override
+  protected void clearAllEntries(DatabaseSessionInternal session) {
+    session.executeInTxInternal(this::doDelete);
+  }
+
   protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     return key;
   }
 
   @Override
-  protected void onIndexEngineChange(DatabaseSessionInternal db, int indexId) {
+  protected void onIndexEngineChange(DatabaseSessionInternal session, int indexId) {
     while (true) {
       try {
         storage.callIndexEngine(
@@ -209,7 +228,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             indexId,
             engine -> {
               var oIndexEngine = (LuceneIndexEngine) engine;
-              oIndexEngine.init(db, im);
+              oIndexEngine.init(session, im);
               return null;
             });
         break;
@@ -302,12 +321,11 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public LuceneIndexNotUnique put(DatabaseSessionInternal db, final Object key,
+  public LuceneIndexNotUnique put(FrontendTransaction transaction, final Object key,
       final Identifiable value) {
     final var rid = value.getIdentity();
 
     if (key != null) {
-      var transaction = db.getTransactionInternal();
       var transactionChanges = getTransactionChanges(transaction);
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, encodeKey(key),
@@ -322,7 +340,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   indexId,
                   engine -> {
                     var oIndexEngine = (LuceneIndexEngine) engine;
-                    return oIndexEngine.buildDocument(db, key, value);
+                    return oIndexEngine.buildDocument(transaction.getDatabaseSession(), key, value);
                   });
           break;
         } catch (InvalidIndexEngineIdException e) {
@@ -415,11 +433,6 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         doReloadIndexEngine();
       }
     }
-  }
-
-  @Override
-  public boolean isNativeTxSupported() {
-    return false;
   }
 
   @Override

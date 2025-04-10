@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -106,7 +107,8 @@ public class SchemaEmbedded extends SchemaShared {
         collectionIds = new int[]{-1};
       }
 
-      doRealCreateClass(session, className, superClassesList, collectionIds);
+      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+          collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
       // WAKE UP DB LIFECYCLE LISTENER
@@ -134,7 +136,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected void doRealCreateClass(
-      DatabaseSessionInternal database,
+      DatabaseSessionEmbedded database,
       String className,
       List<SchemaClassImpl> superClassesList,
       int[] collectionIds)
@@ -143,7 +145,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected void createClassInternal(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       final int[] collectionIdsToAdd,
       final List<SchemaClassImpl> superClasses)
@@ -193,8 +195,8 @@ public class SchemaEmbedded extends SchemaShared {
             for (var collectionName : collectionNames) {
               if (collectionName != null) {
                 session
-                    .getMetadata()
-                    .getIndexManagerInternal()
+                    .getSharedContext()
+                    .getIndexManager()
                     .addCollectionToIndex(session, collectionName, index.getName());
               }
             }
@@ -300,7 +302,8 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      doRealCreateClass(session, className, superClassesList, collectionIds);
+      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+          collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
       for (var oSessionListener : session.getListeners()) {
@@ -336,7 +339,8 @@ public class SchemaEmbedded extends SchemaShared {
       // CHECK THE COLLECTION HAS NOT BEEN ALREADY ASSIGNED
       final var cls = collectionsToClasses.get(collectionIds[0]);
       if (cls != null) {
-        collectionIds[0] = session.addCollection(getNextAvailableCollectionName(session, className));
+        collectionIds[0] = session.addCollection(
+            getNextAvailableCollectionName(session, className));
       }
     } else
     // JUST KEEP THE CLASS NAME. THIS IS FOR LEGACY REASONS
@@ -471,7 +475,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      dropClassIndexes(session, cls);
+      dropClassIndexes((DatabaseSessionEmbedded) session, cls);
 
       classes.remove(key);
 
@@ -498,15 +502,16 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
 
-  private static void dropClassIndexes(DatabaseSessionInternal session, final SchemaClassImpl cls) {
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+  private static void dropClassIndexes(DatabaseSessionEmbedded session, final SchemaClassImpl cls) {
+    final var indexManager = session.getSharedContext().getIndexManager();
 
     for (final var index : indexManager.getClassIndexes(session, cls.getName(session))) {
       indexManager.dropIndex(session, index.getName());
     }
   }
 
-  private static void deleteCollection(final DatabaseSessionInternal session, final int collectionId) {
+  private static void deleteCollection(final DatabaseSessionInternal session,
+      final int collectionId) {
     final var collectionName = session.getCollectionNameById(collectionId);
     if (collectionName != null) {
       final var iteratorCollection = session.browseCollection(collectionName);
@@ -520,7 +525,8 @@ public class SchemaEmbedded extends SchemaShared {
     session.getLocalCache().freeCollection(collectionId);
   }
 
-  private void removeCollectionClassMap(DatabaseSessionInternal session, final SchemaClassImpl cls) {
+  private void removeCollectionClassMap(DatabaseSessionInternal session,
+      final SchemaClassImpl cls) {
     for (var collectionId : cls.getCollectionIds(session)) {
       if (collectionId < 0) {
         continue;

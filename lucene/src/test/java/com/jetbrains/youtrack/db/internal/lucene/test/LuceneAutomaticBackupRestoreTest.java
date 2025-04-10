@@ -39,7 +39,6 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.zip.GZIPInputStream;
@@ -56,7 +55,7 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class LuceneAutomaticBackupRestoreTest {
 
-  private static final String DBNAME = "OLuceneAutomaticBackupRestoreTest";
+  private static final String DBNAME = "LuceneAutomaticBackupRestoreTest";
   private File tempFolder;
 
   @Rule
@@ -162,7 +161,7 @@ public class LuceneAutomaticBackupRestoreTest {
     map.put("targetDirectory", BACKUPDIR);
     map.put("mode", "EXPORT");
 
-    map.put("dbInclude", new String[]{"OLuceneAutomaticBackupRestoreTest"});
+    map.put("dbInclude", new String[]{"LuceneAutomaticBackupRestoreTest"});
     map.put(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
@@ -171,10 +170,6 @@ public class LuceneAutomaticBackupRestoreTest {
         JSONSerializerJackson.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();
-
-    final var config = new ServerParameterConfiguration[]{};
-
-    aBackup.config(server, config);
     final var latch = new CountDownLatch(1);
 
     aBackup.registerListener(
@@ -189,10 +184,13 @@ public class LuceneAutomaticBackupRestoreTest {
             latch.countDown();
           }
         });
-    latch.await();
-    aBackup.sendShutdown();
+    final var config = new ServerParameterConfiguration[]{};
 
+    aBackup.config(server, config);
+    aBackup.sendShutdown();
     db.close();
+    latch.await();
+
 
     dropIfExists();
     // RESTORE
@@ -212,7 +210,7 @@ public class LuceneAutomaticBackupRestoreTest {
 
     assertThat(db.countClass("City")).isEqualTo(1);
 
-    var index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.name");
+    var index = db.getSharedContext().getIndexManager().getIndex(db, "City.name");
 
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.FULLTEXT.name());

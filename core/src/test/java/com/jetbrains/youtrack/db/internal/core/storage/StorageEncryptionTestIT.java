@@ -121,7 +121,7 @@ public class StorageEncryptionTestIT {
         new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), youTrackDBConfig)) {
       try (final var session =
           (DatabaseSessionInternal) youTrackDB.open("encryption", "admin", "admin")) {
-        final var indexManager = session.getMetadata().getIndexManagerInternal();
+        final var indexManager = session.getSharedContext().getIndexManager();
         final var treeIndex = indexManager.getIndex(session, "EncryptedTree");
         final var hashIndex = indexManager.getIndex(session, "EncryptedHash");
 

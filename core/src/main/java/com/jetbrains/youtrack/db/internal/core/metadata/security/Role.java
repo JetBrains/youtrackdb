@@ -147,7 +147,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
             try {
               var transaction = session.getActiveTransaction();
               Entity rec = transaction.load(value);
-              this.policies.put(key, new SecurityPolicyImpl(rec));
+              this.policies.put(key, new SecurityPolicyImpl((EntityImpl) rec));
             } catch (RecordNotFoundException rnf) {
               // ignore
             }

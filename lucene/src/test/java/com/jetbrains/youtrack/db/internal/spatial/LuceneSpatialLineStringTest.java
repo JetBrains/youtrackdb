@@ -120,7 +120,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
   @Ignore
   public void testIndexingLineString() throws IOException {
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Place.location");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Place.location");
 
     session.begin();
     Assert.assertEquals(3, index.size(session));

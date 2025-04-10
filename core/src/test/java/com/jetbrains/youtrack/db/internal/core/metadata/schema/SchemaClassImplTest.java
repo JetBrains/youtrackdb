@@ -22,8 +22,6 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   /**
    * If class was not abstract and we call {@code setAbstract(false)} collections should not be
    * changed.
-   *
-   * @throws Exception
    */
   @Test
   public void testSetAbstractCollectionNotChanged() throws Exception {
@@ -38,8 +36,8 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * If class was abstract and we call {@code setAbstract(false)} a new non default collection should
-   * be created.
+   * If class was abstract and we call {@code setAbstract(false)} a new non default collection
+   * should be created.
    */
   @Test
   public void testSetAbstractShouldCreateNewCollections() {
@@ -460,32 +458,17 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.createProperty("test5", PropertyType.LINKMAP);
     oClass.createProperty("test6", PropertyType.EMBEDDEDMAP);
 
-    var executor = Executors.newSingleThreadExecutor();
-
-    var future =
-        executor.submit(
-            () -> {
-              EntityImpl doc1 = session.copy().load(rid);
-              assertEquals(PropertyType.LINKLIST, doc1.getPropertyType("test1"));
-              assertEquals(PropertyType.EMBEDDEDLIST, doc1.getPropertyType("test2"));
-              assertEquals(PropertyType.LINKSET, doc1.getPropertyType("test3"));
-              assertEquals(PropertyType.EMBEDDEDSET, doc1.getPropertyType("test4"));
-              assertEquals(PropertyType.LINKMAP, doc1.getPropertyType("test5"));
-              assertEquals(PropertyType.EMBEDDEDMAP, doc1.getPropertyType("test6"));
-              return doc1;
-            });
-
-    try {
-      future.get();
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    } catch (ExecutionException e) {
-      if (e.getCause() instanceof AssertionError) {
-        throw (AssertionError) e.getCause();
-      }
+    try (var sessionCopy = session.copy()) {
+      sessionCopy.executeInTx(transaction -> {
+        EntityImpl entity1 = sessionCopy.load(rid);
+        assertEquals(PropertyType.LINKLIST, entity1.getPropertyType("test1"));
+        assertEquals(PropertyType.EMBEDDEDLIST, entity1.getPropertyType("test2"));
+        assertEquals(PropertyType.LINKSET, entity1.getPropertyType("test3"));
+        assertEquals(PropertyType.EMBEDDEDSET, entity1.getPropertyType("test4"));
+        assertEquals(PropertyType.LINKMAP, entity1.getPropertyType("test5"));
+        assertEquals(PropertyType.EMBEDDEDMAP, entity1.getPropertyType("test6"));
+      });
     }
-
-    executor.shutdown();
   }
 
   @Test

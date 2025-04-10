@@ -15,14 +15,12 @@
 package com.jetbrains.youtrack.db.internal.spatial.index;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
@@ -31,23 +29,30 @@ import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexConta
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.locationtech.jts.geom.Geometry;
 
 public class LuceneSpatialIndex extends LuceneIndexNotUnique {
 
   private final ShapeFactory shapeFactory = ShapeFactory.INSTANCE;
 
-  public LuceneSpatialIndex(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public LuceneSpatialIndex(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneSpatialIndex(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
-  public LuceneIndexNotUnique put(DatabaseSessionInternal db, Object key,
+  public LuceneIndexNotUnique put(FrontendTransaction transaction, Object key,
       Identifiable value) {
     if (key == null) {
       return this;
     }
-    return super.put(db, key, value);
+    return super.put(transaction, key, value);
   }
 
   @Override

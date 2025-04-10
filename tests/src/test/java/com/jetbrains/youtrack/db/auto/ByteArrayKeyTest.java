@@ -68,7 +68,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
+        session.getSharedContext().getIndexManager().getIndex(session, "byteArrayKeyIndex");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, key1)) {
       Assert.assertEquals(
@@ -111,8 +111,8 @@ public class ByteArrayKeyTest extends BaseDBTest {
     session.begin();
     var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
@@ -156,8 +156,8 @@ public class ByteArrayKeyTest extends BaseDBTest {
     session.begin();
     var index =
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
@@ -197,7 +197,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
         };
 
     var autoIndex =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "byteArrayKeyIndex");
+        session.getSharedContext().getIndexManager().getIndex(session, "byteArrayKeyIndex");
     try (var stream = autoIndex.getRids(session, key1)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }

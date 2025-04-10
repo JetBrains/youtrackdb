@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,7 +36,7 @@ public class QueryStats {
       return val;
     }
     if (database != null && database instanceof DatabaseSessionInternal db) {
-      var idx = db.getMetadata().getIndexManagerInternal().getIndex(db, indexName);
+      var idx = db.getSharedContext().getIndexManager().getIndex(db, indexName);
       if (idx != null
           && idx.isUnique()
           && (idx.getDefinition().getFields().size() == params)

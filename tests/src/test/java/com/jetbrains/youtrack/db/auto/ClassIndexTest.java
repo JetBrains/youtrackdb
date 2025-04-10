@@ -109,8 +109,8 @@ public class ClassIndexTest extends BaseDBTest {
         Map.of("ignoreNullValues", true), new String[]{"fOne"});
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestPropertyOne")
             .getName(),
         "ClassIndexTestPropertyOne");
@@ -148,8 +148,8 @@ public class ClassIndexTest extends BaseDBTest {
 
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeOne")
             .getName(),
         "ClassIndexTestCompositeOne");
@@ -185,8 +185,8 @@ public class ClassIndexTest extends BaseDBTest {
         new String[]{"fOne", "fTwo", "fThree"});
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeTwo")
             .getName(),
         "ClassIndexTestCompositeTwo");
@@ -206,8 +206,8 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestPropertyEmbeddedMap");
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestPropertyEmbeddedMap")
             .getName(),
         "ClassIndexTestPropertyEmbeddedMap");
@@ -234,8 +234,8 @@ public class ClassIndexTest extends BaseDBTest {
 
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeEmbeddedMap")
             .getName(),
         "ClassIndexTestCompositeEmbeddedMap");
@@ -265,8 +265,8 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeEmbeddedMapByKey");
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(
                 session, "ClassIndexTestClass", "ClassIndexTestCompositeEmbeddedMapByKey")
             .getName(),
@@ -297,8 +297,8 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeEmbeddedMapByValue");
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(
                 session, "ClassIndexTestClass", "ClassIndexTestCompositeEmbeddedMapByValue")
             .getName(),
@@ -329,8 +329,8 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeLinkMapByValue");
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeLinkMapByValue")
             .getName(),
         "ClassIndexTestCompositeLinkMapByValue");
@@ -360,8 +360,8 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeEmbeddedSet");
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeEmbeddedSet")
             .getName(),
         "ClassIndexTestCompositeEmbeddedSet");
@@ -392,8 +392,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", "ClassIndexTestCompositeLinkSet")
             .getName(),
         indexName);
@@ -424,8 +424,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", indexName)
             .getName(),
         indexName);
@@ -456,8 +456,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", indexName)
             .getName(),
         indexName);
@@ -485,8 +485,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", indexName)
             .getName(),
         indexName);
@@ -515,8 +515,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", indexName)
             .getName(),
         indexName);
@@ -545,8 +545,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(session, "ClassIndexTestClass", indexName)
             .getName(),
         indexName);
@@ -575,8 +575,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(
                 session, "ClassIndexTestClass", indexName)
             .getName(),
@@ -607,8 +607,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(
                 session, "ClassIndexTestClass", indexName)
             .getName(),
@@ -639,8 +639,8 @@ public class ClassIndexTest extends BaseDBTest {
         indexName);
     assertEquals(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(
                 session, "ClassIndexTestClass", indexName)
             .getName(),

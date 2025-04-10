@@ -51,7 +51,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata metadata) {
+  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
   }
 
   @Override

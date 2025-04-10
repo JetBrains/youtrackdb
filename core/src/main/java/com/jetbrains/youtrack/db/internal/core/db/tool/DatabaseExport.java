@@ -401,7 +401,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
     jsonGenerator.writeArrayFieldStart("indexes");
 
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
     indexManager.reload(session);
 
     final var indexes = indexManager.getIndexes(session);

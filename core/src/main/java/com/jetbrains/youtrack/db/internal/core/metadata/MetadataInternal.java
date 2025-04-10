@@ -16,14 +16,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata;
 
-import com.jetbrains.youtrack.db.internal.core.index.IndexManager;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import java.io.IOException;
 import java.util.Arrays;
@@ -51,22 +48,17 @@ public interface MetadataInternal extends Metadata {
 
   void clearThreadLocalSchemaSnapshot();
 
+  void forceClearThreadLocalSchemaSnapshot();
+
   ImmutableSchema getImmutableSchemaSnapshot();
 
   SchemaInternal getSchemaInternal();
-
-  IndexManagerAbstract getIndexManagerInternal();
 
   @Deprecated
   void load();
 
   @Deprecated
   void create() throws IOException;
-
-  /**
-   * @deprecated Manual indexes are deprecated and will be removed
-   */
-  IndexManager getIndexManager();
 
   /**
    * Reloads the internal objects.
