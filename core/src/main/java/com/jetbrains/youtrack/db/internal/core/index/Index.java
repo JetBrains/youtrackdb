@@ -557,8 +557,7 @@ public interface Index extends Comparable<Index> {
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key);
 
-  Index create(FrontendTransaction transaction, IndexMetadata metadata,
-      ProgressListener progressListener);
+  Index create(FrontendTransaction transaction, IndexMetadata metadata);
 
   int getIndexId();
 

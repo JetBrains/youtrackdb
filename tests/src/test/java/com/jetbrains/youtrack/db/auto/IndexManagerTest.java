@@ -133,6 +133,10 @@ public class IndexManagerTest extends BaseDBTest {
 
     final var indexManager = session.getSharedContext().getIndexManager();
 
+    session.executeInTx(transaction -> {
+      transaction.newEntity(CLASS_NAME);
+    });
+
     final var result =
         indexManager.createIndex(
             session,
@@ -145,7 +149,7 @@ public class IndexManagerTest extends BaseDBTest {
                     new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
                     new PropertyIndexDefinition(CLASS_NAME, "fThree",
                         PropertyTypeInternal.BOOLEAN))),
-            new int[]{session.getCollectionIdByName(CLASS_NAME)},
+            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
             progressListener,
             null);
 

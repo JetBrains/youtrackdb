@@ -186,12 +186,12 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+
   /**
    * Creates the index.
    */
   public Index create(
-      FrontendTransaction transaction, final IndexMetadata indexMetadata,
-      final ProgressListener progressListener) {
+      FrontendTransaction transaction, final IndexMetadata indexMetadata) {
     acquireExclusiveLock();
     try {
       this.im = indexMetadata;

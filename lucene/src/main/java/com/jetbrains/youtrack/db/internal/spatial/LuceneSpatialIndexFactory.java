@@ -58,6 +58,10 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
 
   private final LuceneSpatialManager spatialManager;
 
+  public LuceneSpatialIndexFactory() {
+    this(false);
+  }
+
   public LuceneSpatialIndexFactory(boolean manual) {
     if (!manual) {
       YouTrackDBEnginesManager.instance().addDbLifecycleListener(this);

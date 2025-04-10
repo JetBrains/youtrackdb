@@ -137,7 +137,7 @@ public class RecreateIndexesTask implements Runnable {
 
       if (collections != null && !collections.isEmpty() && type != null) {
         LogManager.instance().info(this, "Start creation of index '%s'", indexName);
-        index.create(transaction, indexMetadata, new IndexRebuildOutputListener(index));
+        index.create(transaction, indexMetadata);
 
         indexManager.addIndexInternal(session, transaction, index, true);
 

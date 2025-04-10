@@ -421,6 +421,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     final Schema schema = session.getMetadata().getSchema();
     final var oClass = schema.getClass("classIndexManagerTestClass");
     final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
@@ -451,6 +452,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
     Assert.assertEquals(propZeroIndex.size(session), 1);
+    session.rollback();
   }
 
   public void testUpdateDocumentIndexRecordRemoved() {
@@ -567,6 +569,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
     Assert.assertEquals(propZeroIndex.size(session), 1);
@@ -584,6 +587,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
                 "a", 2))) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
+    session.rollback();
   }
 
   public void testUpdateDocumentIndexRecordUpdatedFromNullField() {
@@ -615,6 +619,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
 
@@ -627,6 +632,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
                 "a", 2))) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }
+    session.rollback();
   }
 
   public void testListUpdate() {

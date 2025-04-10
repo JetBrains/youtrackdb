@@ -24,8 +24,10 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
+import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.IndexStreamSecurityDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
@@ -39,11 +41,13 @@ import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.IndexSearcher;
 
@@ -57,6 +61,25 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   public LuceneIndexNotUnique(@Nonnull Storage storage) {
     super(storage);
+  }
+
+  @Override
+  public Index create(FrontendTransaction transaction, IndexMetadata indexMetadata) {
+    var metadata = indexMetadata.getMetadata();
+
+    if (metadata == null || !metadata.containsKey("analyzer")) {
+      HashMap<String, Object> met;
+      if (metadata != null) {
+        met = new HashMap<>(metadata);
+      } else {
+        met = new HashMap<>();
+      }
+
+      met.put("analyzer", StandardAnalyzer.class.getName());
+      indexMetadata.setMetadata(met);
+    }
+
+    return super.create(transaction, indexMetadata);
   }
 
   @Override

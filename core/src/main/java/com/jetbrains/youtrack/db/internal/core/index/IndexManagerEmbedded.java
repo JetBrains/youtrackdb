@@ -354,7 +354,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                 -1,
                 metadata);
 
-        index = createIndexFromMetadata(transaction, storage, im, progressListener);
+        index = createIndexFromMetadata(transaction, storage, im);
         addIndexInternalNoLock(index, transaction, true);
       } finally {
         releaseExclusiveLock(session, true);
@@ -362,24 +362,23 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return index;
     });
 
-    idx.rebuild(session);
+    if (progressListener == null)
+    // ASSIGN DEFAULT PROGRESS LISTENER
+    {
+      progressListener = new IndexRebuildOutputListener(idx);
+    }
+    idx.rebuild(session, progressListener);
 
     return idx;
   }
 
   private Index createIndexFromMetadata(
-      FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata,
-      ProgressListener progressListener) {
+      FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata) {
 
     var index = Indexes.createIndexInstance(indexMetadata.getType(), indexMetadata.getAlgorithm(),
         storage);
-    if (progressListener == null)
-    // ASSIGN DEFAULT PROGRESS LISTENER
-    {
-      progressListener = new IndexRebuildOutputListener(index);
-    }
 
-    index.create(transaction, indexMetadata, progressListener);
+    index.create(transaction, indexMetadata);
     indexes.put(indexMetadata.getName(), index);
 
     return index;

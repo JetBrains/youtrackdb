@@ -265,8 +265,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Index create(FrontendTransaction transaction, IndexMetadata metadata,
-      ProgressListener progressListener) {
+  public Index create(FrontendTransaction transaction, IndexMetadata metadata) {
     throw new UnsupportedOperationException();
   }
 
