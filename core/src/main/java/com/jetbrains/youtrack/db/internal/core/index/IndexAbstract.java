@@ -453,9 +453,17 @@ public abstract class IndexAbstract implements Index {
       releaseExclusiveLock();
     }
 
+    entitiesIndexed = fillIndex(session, progressListener);
+
+    return entitiesIndexed;
+  }
+
+  public long fillIndex(DatabaseSessionInternal session,
+      ProgressListener progressListener) {
+    long entitiesIndexed;
     acquireSharedLock();
     try {
-      entitiesIndexed = fillIndex(session, progressListener);
+      entitiesIndexed = doFillIndex(session, progressListener);
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during index rebuild", e);
       try {
@@ -475,11 +483,10 @@ public abstract class IndexAbstract implements Index {
     } finally {
       releaseSharedLock();
     }
-
     return entitiesIndexed;
   }
 
-  private long fillIndex(DatabaseSessionInternal session,
+  private long doFillIndex(DatabaseSessionInternal session,
       final ProgressListener iProgressListener) {
     long entitiesIndexed = 0;
     try {
@@ -494,13 +501,15 @@ public abstract class IndexAbstract implements Index {
         iProgressListener.onBegin(this, entitiesTotal, true);
       }
 
-      // INDEX ALL COLLECTIONS
-      for (final var collectionName : collectionsToIndex) {
-        final var metrics =
-            indexCollection(session, collectionName, iProgressListener, entityNum,
-                entitiesIndexed, entitiesTotal);
-        entityNum = metrics[0];
-        entitiesIndexed = metrics[1];
+      if (entitiesTotal > 0) {
+        // INDEX ALL COLLECTIONS
+        for (final var collectionName : collectionsToIndex) {
+          final var metrics =
+              indexCollection(session, collectionName, iProgressListener, entityNum,
+                  entitiesIndexed, entitiesTotal);
+          entityNum = metrics[0];
+          entitiesIndexed = metrics[1];
+        }
       }
 
       if (iProgressListener != null) {

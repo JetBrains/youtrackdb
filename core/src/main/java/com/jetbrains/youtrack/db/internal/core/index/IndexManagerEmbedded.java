@@ -359,7 +359,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       } finally {
         releaseExclusiveLock(session, true);
       }
-      return index;
+      return (IndexAbstract) index;
     });
 
     if (progressListener == null)
@@ -367,7 +367,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     {
       progressListener = new IndexRebuildOutputListener(idx);
     }
-    idx.rebuild(session, progressListener);
+
+    idx.fillIndex(session, progressListener);
 
     return idx;
   }
