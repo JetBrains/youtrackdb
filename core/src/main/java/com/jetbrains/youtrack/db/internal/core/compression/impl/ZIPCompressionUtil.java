@@ -110,7 +110,7 @@ public class ZIPCompressionUtil {
 
   private static void extractFile(
       final ZipInputStream in,
-      final File outdir,
+      final Path outdir,
       final String name,
       final CommandOutputListener iListener)
       throws IOException {
@@ -127,7 +127,8 @@ public class ZIPCompressionUtil {
     }
     final var file = outdir.resolve(name).normalize();
     if (!file.startsWith(outdir)) {
-      throw new IOException("Expanding '" + name + "' would create file outside of directory '" + outdir + "'");
+      throw new IOException(
+          "Expanding '" + name + "' would create file outside of directory '" + outdir + "'");
     }
 
     try (var out =
@@ -136,10 +137,11 @@ public class ZIPCompressionUtil {
     }
   }
 
-  private static void mkdirs(final File outdir, final String path) {
+  private static void mkdirs(final Path outdir, final String path) throws IOException {
     final var dir = outdir.resolve(path).normalize();
     if (!dir.startsWith(outdir)) {
-      throw new IOException("Creating directory '" + path + "' would create directory outside of '" + outdir + "'");
+      throw new IOException(
+          "Creating directory '" + path + "' would create directory outside of '" + outdir + "'");
     }
     final var d = dir.toFile();
     if (!d.exists()) {
