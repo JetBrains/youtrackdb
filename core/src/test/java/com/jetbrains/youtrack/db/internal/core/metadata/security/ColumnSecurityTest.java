@@ -67,8 +67,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -87,8 +87,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -112,11 +112,11 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setCreateRule(session, "name = 'foo'");
-    policy.setBeforeUpdateRule(session, "name = 'foo'");
-    policy.setAfterUpdateRule(session, "name = 'foo'");
-    policy.setDeleteRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setCreateRule("name = 'foo'");
+    policy.setBeforeUpdateRule("name = 'foo'");
+    policy.setAfterUpdateRule("name = 'foo'");
+    policy.setDeleteRule("name = 'foo'");
 
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
@@ -135,8 +135,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.surname", policy);
@@ -157,8 +157,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.surname", policy);
@@ -177,8 +177,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
 
     try {
@@ -201,8 +201,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -217,8 +217,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -266,8 +266,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -307,8 +307,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name IN (select 'foo' as foo)");
+    policy.setActive(true);
+    policy.setReadRule("name IN (select 'foo' as foo)");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -377,8 +377,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "reader"), "database.class.Person.name", policy);
@@ -414,8 +414,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setCreateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setCreateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "writer"), "database.class.Person.name", policy);
@@ -447,8 +447,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setBeforeUpdateRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setBeforeUpdateRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "writer"), "database.class.Person.name", policy);
@@ -495,8 +495,8 @@ public class ColumnSecurityTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setAfterUpdateRule(session, "name <> 'invalid'");
+    policy.setActive(true);
+    policy.setAfterUpdateRule("name <> 'invalid'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
         session, security.getRole(session, "writer"), "database.class.Person.name", policy);

@@ -231,6 +231,6 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
   protected Index getIndex(final String indexName) {
     final DatabaseSessionInternal db = this.session;
 
-    return (db.getMetadata()).getIndexManagerInternal().getIndex(db, indexName);
+    return db.getSharedContext().getIndexManager().getIndex(db, indexName);
   }
 }

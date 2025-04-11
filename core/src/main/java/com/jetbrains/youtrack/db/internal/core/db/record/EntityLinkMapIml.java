@@ -24,9 +24,9 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
@@ -369,7 +369,7 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
   }
 
   public Map<String, Identifiable> returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final List<MultiValueChangeEvent<String, Identifiable>> multiValueChangeEvents) {
     var reverted = new HashMap<>(this);
 

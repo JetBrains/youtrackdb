@@ -43,6 +43,7 @@ import javax.annotation.Nullable;
  * MAJOR operator.
  */
 public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
+
   public QueryOperatorMajor() {
     super(">", 5, false);
   }
@@ -82,14 +83,15 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabaseSession(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabaseSession(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
@@ -110,7 +112,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
           (CompositeIndexDefinition) indexDefinition;
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
@@ -118,7 +120,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
 
       final Object keyTwo =
           compositeIndexDefinition.createSingleValue(
-              iContext.getDatabaseSession(), keyParams.subList(0, keyParams.size() - 1));
+              transaction, keyParams.subList(0, keyParams.size() - 1));
 
       if (keyTwo == null) {
         return null;
@@ -126,7 +128,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
 
       stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, false, keyTwo,
           true,
-              ascSortOrder);
+          ascSortOrder);
     }
 
     updateProfiler(iContext, index, keyParams);

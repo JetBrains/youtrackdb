@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -29,12 +30,18 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
   @Before
   public void beforeMethod() {
+    session.begin();
     compositeIndex = new CompositeIndexDefinition("testClass");
 
     compositeIndex.addIndex(
         new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndex.addIndex(
         new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
+  }
+
+  @After
+  public void afterMethod() {
+    session.rollback();
   }
 
   @Test
@@ -48,7 +55,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueSuccessful() {
-    final var result = compositeIndex.createValue(session, Arrays.asList("12", "test"));
+    final var result = compositeIndex.createValue(session.getActiveTransaction(),
+        Arrays.asList("12", "test"));
 
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
   }
@@ -69,14 +77,18 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     stringMap.put("key1", "val1");
     stringMap.put("key2", "val2");
 
-    final var result = compositeIndexDefinition.createValue(session, 12, stringMap);
+    session.begin();
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        stringMap);
 
     final var collectionResult = (Collection<CompositeKey>) result;
 
     Assert.assertEquals(2, collectionResult.size());
     Assert.assertTrue(collectionResult.contains(new CompositeKey(12, "key1")));
     Assert.assertTrue(collectionResult.contains(new CompositeKey(12, "key2")));
+    session.commit();
   }
+
 
   @Test
   public void testCreateCollectionValueSuccessfulOne() {
@@ -89,7 +101,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, Arrays.asList(1, 2));
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        Arrays.asList(1, 2));
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -114,7 +127,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, ridBag);
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        ridBag);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -137,7 +151,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     final var result =
-        compositeIndexDefinition.createValue(session, Arrays.asList(Arrays.asList(1, 2), 12));
+        compositeIndexDefinition.createValue(session.getActiveTransaction(),
+            Arrays.asList(Arrays.asList(1, 2), 12));
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -158,7 +173,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.createValue(session, Collections.emptyList(), 12);
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Collections.emptyList(), 12);
     Assert.assertNull(result);
   }
 
@@ -173,7 +189,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, Collections.emptyList());
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        Collections.emptyList());
     Assert.assertNull(result);
   }
 
@@ -189,7 +206,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.createValue(session, Collections.emptyList(), 12);
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Collections.emptyList(), 12);
     Assert.assertEquals(result, List.of(new CompositeKey(null, 12)));
   }
 
@@ -205,7 +223,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, Collections.emptyList());
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        Collections.emptyList());
     Assert.assertEquals(result, List.of(new CompositeKey(12, null)));
   }
 
@@ -224,7 +243,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
 
-    final var result = compositeIndexDefinition.createValue(session, Arrays.asList(ridBag, 12));
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList(ridBag, 12));
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -248,7 +268,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, Arrays.asList(1, 2),
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        Arrays.asList(1, 2),
         "test");
 
     final var expectedResult = new ArrayList<CompositeKey>();
@@ -276,7 +297,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
 
-    final var result = compositeIndexDefinition.createValue(session, 12, ridBag, "test");
+    final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
+        ridBag, "test");
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -299,24 +321,25 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fOne",
             PropertyTypeInternal.INTEGER));
 
-    compositeIndexDefinition.createValue(session, Arrays.asList(1, 2), List.of(12));
+    compositeIndexDefinition.createValue(session.getActiveTransaction(), Arrays.asList(1, 2),
+        List.of(12));
   }
 
   @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParam() {
-    compositeIndex.createValue(session, Arrays.asList("1t2", "test"));
+    compositeIndex.createValue(session.getActiveTransaction(), Arrays.asList("1t2", "test"));
   }
 
   @Test
   public void testCreateValueSuccessfulArrayParams() {
-    final var result = compositeIndex.createValue(session, "12", "test");
+    final var result = compositeIndex.createValue(session.getActiveTransaction(), "12", "test");
 
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
   }
 
   @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParamArrayParams() {
-    compositeIndex.createValue(session, "1t2", "test");
+    compositeIndex.createValue(session.getActiveTransaction(), "1t2", "test");
   }
 
   @Test
@@ -324,7 +347,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndex.addIndex(
         new PropertyIndexDefinition("testClass", "fThree", PropertyTypeInternal.STRING));
 
-    final var result = compositeIndex.createValue(session, "12", "test");
+    final var result = compositeIndex.createValue(session.getActiveTransaction(), "12", "test");
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
   }
 
@@ -340,7 +363,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     compositeIndex.addIndex(anotherCompositeIndex);
 
-    final var result = compositeIndex.createValue(session, "12", "test", "tset");
+    final var result = compositeIndex.createValue(session.getActiveTransaction(), "12", "test",
+        "tset");
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test", "tset")));
   }
 
@@ -352,7 +376,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     document.setProperty("fOne", 12);
     document.setProperty("fTwo", "test");
 
-    final var result = compositeIndex.getDocumentValueToIndex(session, document);
+    final var result = compositeIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
     Assert.assertEquals(result, new CompositeKey(Arrays.asList(12, "test")));
     session.rollback();
   }
@@ -379,7 +404,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
     final var collectionResult = (Collection<CompositeKey>) result;
 
     Assert.assertEquals(2, collectionResult.size());
@@ -405,7 +431,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -433,7 +460,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
     Assert.assertNull(result);
     session.rollback();
   }
@@ -455,7 +483,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
     Assert.assertNull(result);
     session.rollback();
   }
@@ -478,7 +507,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
             PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.setNullValuesIgnored(false);
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
     Assert.assertEquals(result, List.of(new CompositeKey(12, null)));
     session.rollback();
   }
@@ -501,7 +531,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fTwo", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.setNullValuesIgnored(false);
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
     Assert.assertEquals(result, List.of(new CompositeKey(null, 12)));
     session.rollback();
   }
@@ -527,7 +558,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -556,7 +588,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -588,7 +621,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -620,7 +654,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -655,7 +690,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
-    final var result = compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    final var result = compositeIndexDefinition.getDocumentValueToIndex(
+        session.getActiveTransaction(), document);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
@@ -684,7 +720,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
-    compositeIndexDefinition.getDocumentValueToIndex(session, document);
+    compositeIndexDefinition.getDocumentValueToIndex(session.getActiveTransaction(), document);
     session.rollback();
   }
 
@@ -696,7 +732,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     document.setString("fOne", "1t2");
     document.setString("fTwo", "test");
 
-    compositeIndex.getDocumentValueToIndex(session, document);
+    compositeIndex.getDocumentValueToIndex(session.getActiveTransaction(), document);
     session.rollback();
   }
 
@@ -805,7 +841,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedList.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -845,7 +881,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         ridBag.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -893,7 +929,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedList.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -936,7 +972,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         ridBag.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -981,7 +1017,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -1030,7 +1066,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(),
+          multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -1076,7 +1113,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedMap.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -1126,7 +1163,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedMap.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session, multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());

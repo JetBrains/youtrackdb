@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import javax.annotation.Nullable;
@@ -47,14 +48,14 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
 
     var indexName = String.valueOf(value);
     final var database = context.getDatabaseSession();
-    var index = database.getMetadata().getIndexManagerInternal().getIndex(database, indexName);
+    var index = database.getSharedContext().getIndexManager().getIndex(database, indexName);
     if (index == null) {
       return null;
     }
     try (var stream = index
         .stream(context.getDatabaseSession())) {
       try (var rids = index.getRids(context.getDatabaseSession(), null)) {
-        return stream.map((pair) -> pair.first()).distinct().count() + rids.count();
+        return stream.map(RawPair::first).distinct().count() + rids.count();
       }
     }
   }

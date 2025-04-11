@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -210,7 +211,8 @@ public abstract class SchemaClassImpl {
 
   }
 
-  public boolean hasPolymorphicCollectionId(DatabaseSessionInternal session, final int collectionId) {
+  public boolean hasPolymorphicCollectionId(DatabaseSessionInternal session,
+      final int collectionId) {
     acquireSchemaReadLock(session);
     try {
       return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
@@ -1029,8 +1031,8 @@ public abstract class SchemaClassImpl {
 
     final var localPolymorphicCollectionIds = polymorphicCollectionIds;
     session
-        .getMetadata()
-        .getIndexManagerInternal()
+        .getSharedContext()
+        .getIndexManager()
         .createIndex(
             session,
             name,
@@ -1048,7 +1050,7 @@ public abstract class SchemaClassImpl {
 
   public boolean areIndexed(DatabaseSessionInternal session, final Collection<String> fields) {
     final var indexManager =
-        session.getMetadata().getIndexManagerInternal();
+        session.getSharedContext().getIndexManager();
 
     acquireSchemaReadLock(session);
     try {
@@ -1106,7 +1108,7 @@ public abstract class SchemaClassImpl {
 
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
       Collection<String> fields) {
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
     acquireSchemaReadLock(session);
     try {
@@ -1130,8 +1132,8 @@ public abstract class SchemaClassImpl {
     acquireSchemaReadLock(session);
     try {
       return session
-          .getMetadata()
-          .getIndexManagerInternal()
+          .getSharedContext()
+          .getIndexManager()
           .getClassIndex(session, this.name, name);
     } finally {
       releaseSchemaReadLock(session);
@@ -1146,11 +1148,7 @@ public abstract class SchemaClassImpl {
   public Set<Index> getClassIndexesInternal(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
     try {
-      final var idxManager = session.getMetadata().getIndexManagerInternal();
-      if (idxManager == null) {
-        return new HashSet<>();
-      }
-
+      final var idxManager = session.getSharedContext().getIndexManager();
       return idxManager.getClassIndexes(session, name);
     } finally {
       releaseSchemaReadLock(session);
@@ -1160,10 +1158,7 @@ public abstract class SchemaClassImpl {
   public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
     acquireSchemaReadLock(session);
     try {
-      final var idxManager = session.getMetadata().getIndexManagerInternal();
-      if (idxManager == null) {
-        return;
-      }
+      final var idxManager = session.getSharedContext().getIndexManager();
       idxManager.getClassIndexes(session, name, indexes);
     } finally {
       releaseSchemaReadLock(session);
@@ -1460,7 +1455,8 @@ public abstract class SchemaClassImpl {
     }
 
     if (!session.isRemote()) {
-      session.getStorage().setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
+      session.getStorage()
+          .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
     }
   }
 
@@ -1592,7 +1588,8 @@ public abstract class SchemaClassImpl {
           polymorphicCollectionIds.length - (index + 1));
     }
 
-    polymorphicCollectionIds = Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length - 1);
+    polymorphicCollectionIds = Arrays.copyOf(polymorphicCollectionIds,
+        polymorphicCollectionIds.length - 1);
 
     removeCollectionFromIndexes(session, collectionId);
     for (var superClass : superClasses) {
@@ -1613,7 +1610,7 @@ public abstract class SchemaClassImpl {
       }
 
       final var indexManager =
-          session.getMetadata().getIndexManagerInternal();
+          (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
       for (final var indexName : indexesToRemove) {
         indexManager.removeCollectionFromIndex(session, collectionName, indexName);
       }

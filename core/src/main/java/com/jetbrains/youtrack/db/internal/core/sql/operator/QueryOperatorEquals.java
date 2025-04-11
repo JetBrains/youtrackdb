@@ -170,14 +170,15 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabaseSession(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabaseSession(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
@@ -194,14 +195,14 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
           (CompositeIndexDefinition) indexDefinition;
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
       }
 
       final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (index.hasRangeQuerySupport()) {
         stream = index

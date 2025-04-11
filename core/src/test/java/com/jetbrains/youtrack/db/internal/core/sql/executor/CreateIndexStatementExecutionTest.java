@@ -17,7 +17,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     clazz.createProperty("name", PropertyType.STRING);
 
     Assert.assertNull(
-        session.getMetadata().getIndexManagerInternal().getIndex(session, className + ".name"));
+        session.getSharedContext().getIndexManager().getIndex(session, className + ".name"));
     var result =
         session.execute(
             "create index " + className + ".name on " + className + " (name) notunique");
@@ -26,7 +26,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     Assert.assertFalse(result.hasNext());
     Assert.assertNotNull(next);
     result.close();
-    var idx = session.getMetadata().getIndexManagerInternal()
+    var idx = session.getSharedContext().getIndexManager()
         .getIndex(session, className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());
@@ -39,7 +39,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     clazz.createProperty("name", PropertyType.STRING);
 
     Assert.assertNull(
-        session.getMetadata().getIndexManagerInternal().getIndex(session, className + ".name"));
+        session.getSharedContext().getIndexManager().getIndex(session, className + ".name"));
     var result =
         session.execute(
             "create index "
@@ -52,7 +52,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     Assert.assertFalse(result.hasNext());
     Assert.assertNotNull(next);
     result.close();
-    var idx = session.getMetadata().getIndexManagerInternal()
+    var idx = session.getSharedContext().getIndexManager()
         .getIndex(session, className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());

@@ -598,7 +598,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public Map<String, Identifiable> getLinkMap(@Nonnull String name) {
+  public LinkMap getLinkMap(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {

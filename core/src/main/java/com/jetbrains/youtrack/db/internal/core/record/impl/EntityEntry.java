@@ -208,7 +208,7 @@ public class EntityEntry {
         var transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
         //noinspection unchecked
         return transactionTimeLine != null
-            ? trackedOnLoadValue.returnOriginalState(session,
+            ? trackedOnLoadValue.returnOriginalState(session.getActiveTransaction(),
             transactionTimeLine.getMultiValueChangeEvents())
             : onLoadValue;
       } else {
@@ -221,7 +221,7 @@ public class EntityEntry {
       var transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
       //noinspection unchecked
       return transactionTimeLine != null
-          ? trackedOnLoadValue.returnOriginalState(session,
+          ? trackedOnLoadValue.returnOriginalState(session.getActiveTransaction(),
           transactionTimeLine.getMultiValueChangeEvents())
           : trackedOnLoadValue;
     }

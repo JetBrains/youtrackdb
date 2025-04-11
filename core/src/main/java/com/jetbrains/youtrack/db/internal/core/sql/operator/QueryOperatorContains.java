@@ -174,7 +174,7 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    var database = iContext.getDatabaseSession();
+    var session = iContext.getDatabaseSession();
     final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
@@ -182,21 +182,22 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = session.getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(database, keyParams.get(0));
+                .createSingleValue(transaction, keyParams.getFirst());
       } else {
-        key = indexDefinition.createValue(database, keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
         return null;
       }
 
-      stream = index.getRids(database, key).map((rid) -> new RawPair<>(key, rid));
+      stream = index.getRids(session, key).map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
       // using part of composite key stored in index.
@@ -204,20 +205,20 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
       final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
-      final Object keyOne = compositeIndexDefinition.createSingleValue(database, keyParams);
+      final Object keyOne = compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
       }
 
-      final Object keyTwo = compositeIndexDefinition.createSingleValue(database, keyParams);
+      final Object keyTwo = compositeIndexDefinition.createSingleValue(transaction, keyParams);
       if (index.hasRangeQuerySupport()) {
-        stream = index.streamEntriesBetween(database, keyOne, true, keyTwo, true,
+        stream = index.streamEntriesBetween(session, keyOne, true, keyTwo, true,
             ascSortOrder);
       } else {
         var indexParamCount = indexDefinition.getParamCount();
         if (indexParamCount == keyParams.size()) {
-          stream = index.getRids(database, keyOne)
+          stream = index.getRids(session, keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;

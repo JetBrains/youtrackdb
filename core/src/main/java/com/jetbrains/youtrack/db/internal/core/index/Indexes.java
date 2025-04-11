@@ -18,15 +18,18 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import static com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Utility class to create indexes. New IndexFactory can be registered
@@ -102,20 +105,6 @@ public final class Indexes {
     return types;
   }
 
-  /**
-   * Iterates on all factories and append all index engines.
-   *
-   * @return Set of all index engines.
-   */
-  public static Set<String> getIndexEngines() {
-    final Set<String> engines = new HashSet<>();
-    final var ite = getAllFactories();
-    while (ite.hasNext()) {
-      engines.addAll(ite.next().getAlgorithms());
-    }
-    return engines;
-  }
-
   public static IndexFactory getFactory(String indexType, String algorithm) {
     if (algorithm == null) {
       algorithm = chooseDefaultIndexAlgorithm(indexType);
@@ -137,18 +126,19 @@ public final class Indexes {
         "Index with type " + indexType + " and algorithm " + algorithm + " does not exist.");
   }
 
-  /**
-   * @param storage   TODO
-   * @return IndexInternal
-   * @throws ConfigurationException if index creation failed
-   * @throws IndexException         if index type does not exist
-   */
-  public static Index createIndex(Storage storage, IndexMetadata metadata)
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage)
       throws ConfigurationException, IndexException {
-    var indexType = metadata.getType();
-    var algorithm = metadata.getAlgorithm();
 
-    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(storage, metadata);
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
+  }
+
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage, @Nonnull FrontendTransaction transaction, @Nonnull RID identity)
+      throws ConfigurationException, IndexException {
+
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,
+        transaction, storage);
   }
 
   private static IndexFactory findFactoryByAlgorithmAndType(String algorithm, String indexType) {
@@ -176,7 +166,6 @@ public final class Indexes {
 
     final var factory =
         findFactoryByAlgorithmAndType(metadata.getAlgorithm(), metadata.getIndexType());
-
     return factory.createIndexEngine(storage, metadata);
   }
 
@@ -190,32 +179,4 @@ public final class Indexes {
     return algorithm;
   }
 
-  /**
-   * Scans for factory plug-ins on the application class path. This method is needed because the
-   * application class path can theoretically change, or additional plug-ins may become available.
-   * Rather than re-scanning the classpath on every invocation of the API, the class path is scanned
-   * automatically only on the first invocation. Clients can call this method to prompt a re-scan.
-   * Thus this method need only be invoked by sophisticated applications which dynamically make new
-   * plug-ins available at runtime.
-   */
-  private static synchronized void scanForPlugins() {
-    // clear cache, will cause a rescan on next getFactories call
-    FACTORIES = null;
-  }
-
-  /**
-   * Register at runtime custom factories
-   */
-  public static void registerFactory(IndexFactory factory) {
-    DYNAMIC_FACTORIES.add(factory);
-    scanForPlugins();
-  }
-
-  /**
-   * Unregister custom factories
-   */
-  public static void unregisterFactory(IndexFactory factory) {
-    DYNAMIC_FACTORIES.remove(factory);
-    scanForPlugins();
-  }
 }

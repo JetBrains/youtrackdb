@@ -6,16 +6,16 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.index.SimpleKeyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -71,9 +71,9 @@ public class SQLCreateIndexStatement extends DDLStatement {
 
   @Nullable
   Object execute(CommandContext ctx) {
-    final var session = ctx.getDatabaseSession();
+    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
 
-    if (session.getMetadata().getIndexManagerInternal().existsIndex(session, name.getValue())) {
+    if (session.getSharedContext().getIndexManager().existsIndex(session, name.getValue())) {
       if (ifNotExists) {
         return null;
       } else {
@@ -88,15 +88,13 @@ public class SQLCreateIndexStatement extends DDLStatement {
     var metadata = calculateMetadata(ctx);
 
     if (propertyList == null || propertyList.isEmpty()) {
-      var factory = Indexes.getFactory(type.getStringValue(), engine);
-
       var keyTypes = calculateKeyTypes(ctx);
 
-      if (keyTypes != null && keyTypes.length > 0) {
+      if (keyTypes.length > 0) {
         idx =
             session
-                .getMetadata()
-                .getIndexManagerInternal()
+                .getSharedContext()
+                .getIndexManager()
                 .createIndex(
                     session,
                     name.getValue(),
@@ -106,17 +104,15 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     null,
                     metadata,
                     engine);
-      } else if (keyTypes != null
-          && keyTypes.length == 0
-          && "LUCENE_CROSS_CLASS".equalsIgnoreCase(engine)) {
+      } else if ("LUCENE_CROSS_CLASS".equalsIgnoreCase(engine)) {
         // handle special case of cross class  Lucene index: awful but works
         IndexDefinition keyDef =
             new SimpleKeyIndexDefinition(new PropertyTypeInternal[]{PropertyTypeInternal.STRING},
                 collatesList);
         idx =
             session
-                .getMetadata()
-                .getIndexManagerInternal()
+                .getSharedContext()
+                .getIndexManager()
                 .createIndex(
                     session,
                     name.getValue(),
@@ -127,7 +123,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
                     metadata,
                     engine);
 
-      } else if (className == null && keyTypes == null || keyTypes.length == 0) {
+      } else {
         // legacy: create index without specifying property names
         var split = name.getValue().split("\\.");
         if (split.length != 2) {
@@ -148,11 +144,6 @@ public class SQLCreateIndexStatement extends DDLStatement {
         var fields = new String[]{split[1]};
         idx = getoIndex(oClass, fields, engine, session, collatesList, metadata);
 
-      } else {
-        throw new DatabaseException(session,
-            "Impossible to create an index without specify the key type or the associated property:"
-                + " "
-                + this);
       }
     } else {
       var fields = calculateProperties(ctx);
@@ -214,8 +205,8 @@ public class SQLCreateIndexStatement extends DDLStatement {
 
       idx =
           session
-              .getMetadata()
-              .getIndexManagerInternal()
+              .getSharedContext()
+              .getIndexManager()
               .createIndex(
                   session,
                   name.getValue(),

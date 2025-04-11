@@ -51,7 +51,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
             + "\"}");
 
     var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "Song.title_author")
+        session.getSharedContext().getIndexManager().getIndex(session, "Song.title_author")
             .getMetadata();
 
     assertThat(index.get("author_index")).isEqualTo(StandardAnalyzer.class.getName());
@@ -132,7 +132,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
     }
 
     // index
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Item.fulltext");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Item.fulltext");
     try (var stream = index.getRids(session, "title:test")) {
       assertThat(stream.count()).isEqualTo(1);
     }

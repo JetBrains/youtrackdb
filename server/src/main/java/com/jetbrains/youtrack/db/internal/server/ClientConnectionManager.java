@@ -49,7 +49,7 @@ public class ClientConnectionManager {
 
   protected final ConcurrentMap<Integer, ClientConnection> connections =
       new ConcurrentHashMap<Integer, ClientConnection>();
-  protected AtomicInteger connectionSerial = new AtomicInteger(0);
+  protected final static AtomicInteger connectionSerial = new AtomicInteger(0);
   protected final ConcurrentMap<HashToken, ClientSessions> sessions =
       new ConcurrentHashMap<HashToken, ClientSessions>();
   protected final TimerTask timerTask;
@@ -467,39 +467,6 @@ public class ClientConnectionManager {
         }
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-      }
-    }
-  }
-
-  public void killAllChannels() {
-    for (var entry : connections.entrySet()) {
-      try {
-        var protocol = entry.getValue().getProtocol();
-
-        protocol.getChannel().close();
-
-        final Socket socket;
-        if (protocol == null || protocol.getChannel() == null) {
-          socket = null;
-        } else {
-          socket = protocol.getChannel().socket;
-        }
-
-        if (socket != null && !socket.isClosed() && !socket.isInputShutdown()) {
-          if (!(socket
-              instanceof SSLSocket)) // An SSLSocket will throw an UnsupportedOperationException.
-          {
-            socket.shutdownInput();
-          }
-        }
-
-      } catch (Exception e) {
-        LogManager.instance()
-            .debug(
-                this,
-                "Error on killing connection to %s client",
-                e,
-                entry.getValue().getRemoteAddress());
       }
     }
   }

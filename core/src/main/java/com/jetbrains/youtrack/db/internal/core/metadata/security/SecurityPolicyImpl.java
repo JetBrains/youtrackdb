@@ -1,120 +1,117 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrack.db.internal.core.type.IdentityWrapper;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SecurityPolicyImpl implements SecurityPolicy {
+public class SecurityPolicyImpl extends IdentityWrapper implements SecurityPolicy {
 
-  private Entity entity;
+  private String name;
+  private boolean active;
+  private String createRule;
+  private String readRule;
+  private String beforeUpdateRule;
+  private String afterUpdateRule;
+  private String deleteRule;
+  private String executeRule;
 
-  public SecurityPolicyImpl(Entity entity) {
-    this.entity = entity;
+  public SecurityPolicyImpl(EntityImpl entity) {
+    super(entity);
+
+    this.name = entity.getString("name");
+    this.active = entity.getBoolean("active") != null && entity.getBoolean("active");
+    this.createRule = entity.getString("create");
+    this.readRule = entity.getString("read");
+    this.beforeUpdateRule = entity.getString("beforeUpdate");
+    this.afterUpdateRule = entity.getString("afterUpdate");
+    this.deleteRule = entity.getString("delete");
+    this.executeRule = entity.getString("execute");
   }
 
-  @Override
-  public RID getIdentity() {
-    return entity.getIdentity();
+  public String getName() {
+    return name;
   }
 
-  public Entity getEntity(@Nonnull DatabaseSessionInternal session) {
-    return entity;
+  public void setName(String name) {
+    this.name = name;
   }
 
-  public void setEntity(Entity entity) {
-    this.entity = entity;
+  public boolean isActive() {
+    return active;
   }
 
-  public String getName(@Nonnull DatabaseSessionInternal session) {
-    return getEntity(session).getProperty("name");
-  }
-
-  public void setName(@Nonnull DatabaseSessionInternal session, String name) {
-    getEntity(session).setProperty("name", name);
-  }
-
-  public boolean isActive(@Nonnull DatabaseSessionInternal session) {
-    return Boolean.TRUE.equals(this.getEntity(session).getProperty("active"));
-  }
-
-  public void setActive(@Nonnull DatabaseSessionInternal session, Boolean active) {
-    this.getEntity(session).setProperty("active", active);
-  }
-
-  @Nullable
-  public String getCreateRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("create");
-  }
-
-  public void setCreateRule(@Nonnull DatabaseSessionInternal session, String rule)
-      throws IllegalArgumentException {
-    validatePredicate(rule);
-    getEntity(session).setProperty("create", rule);
+  public void setActive(Boolean active) {
+    this.active = active;
   }
 
   @Nullable
-  public String getReadRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("read");
+  public String getCreateRule() {
+    return createRule;
   }
 
-  public void setReadRule(@Nonnull DatabaseSessionInternal session, String rule)
+  public void setCreateRule(String rule)
       throws IllegalArgumentException {
     validatePredicate(rule);
-    getEntity(session).setProperty("read", rule);
+    this.createRule = rule;
   }
 
   @Nullable
-  public String getBeforeUpdateRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("beforeUpdate");
+  public String getReadRule() {
+    return readRule;
   }
 
-  public void setBeforeUpdateRule(@Nonnull DatabaseSessionInternal session, String rule)
+  public void setReadRule(String rule)
       throws IllegalArgumentException {
     validatePredicate(rule);
-    getEntity(session).setProperty("beforeUpdate", rule);
+    this.readRule = rule;
   }
 
   @Nullable
-  public String getAfterUpdateRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("afterUpdate");
+  public String getBeforeUpdateRule() {
+    return beforeUpdateRule;
   }
 
-  public void setAfterUpdateRule(@Nonnull DatabaseSessionInternal session, String rule)
+  public void setBeforeUpdateRule(String rule)
       throws IllegalArgumentException {
     validatePredicate(rule);
-    getEntity(session).setProperty("afterUpdate", rule);
+    this.beforeUpdateRule = rule;
   }
 
   @Nullable
-  public String getDeleteRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("delete");
+  public String getAfterUpdateRule() {
+    return afterUpdateRule;
   }
 
-  public void setDeleteRule(@Nonnull DatabaseSessionInternal session, String rule)
+  public void setAfterUpdateRule(String rule)
       throws IllegalArgumentException {
     validatePredicate(rule);
-    getEntity(session).setProperty("delete", rule);
+    this.afterUpdateRule = rule;
   }
 
   @Nullable
-  public String getExecuteRule(@Nonnull DatabaseSessionInternal session) {
-    var element = getEntity(session);
-    return element == null ? null : element.getProperty("execute");
+  public String getDeleteRule() {
+    return deleteRule;
   }
 
-  public void setExecuteRule(@Nonnull DatabaseSessionInternal session, String rule)
+  public void setDeleteRule(String rule)
       throws IllegalArgumentException {
     validatePredicate(rule);
-    getEntity(session).setProperty("execute", rule);
+    this.deleteRule = rule;
+  }
+
+  @Nullable
+  public String getExecuteRule() {
+    return executeRule;
+  }
+
+  public void setExecuteRule(String rule)
+      throws IllegalArgumentException {
+    validatePredicate(rule);
+    this.executeRule = rule;
   }
 
   protected static void validatePredicate(String predicate) throws IllegalArgumentException {
@@ -126,5 +123,17 @@ public class SecurityPolicyImpl implements SecurityPolicy {
     } catch (CommandSQLParsingException ex) {
       throw new IllegalArgumentException("Invalid predicate: " + predicate);
     }
+  }
+
+  @Override
+  protected void toEntity(@Nonnull DatabaseSessionInternal db, @Nonnull EntityImpl entity) {
+    entity.setString("name", name);
+    entity.setBoolean("active", active);
+    entity.setString("create", createRule);
+    entity.setString("read", readRule);
+    entity.setString("beforeUpdate", beforeUpdateRule);
+    entity.setString("afterUpdate", afterUpdateRule);
+    entity.setString("delete", deleteRule);
+    entity.setString("execute", executeRule);
   }
 }

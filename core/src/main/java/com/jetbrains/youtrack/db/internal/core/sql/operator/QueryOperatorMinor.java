@@ -42,6 +42,7 @@ import javax.annotation.Nullable;
  * MINOR operator.
  */
 public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
+
   public QueryOperatorMinor() {
     super("<", 5, false);
   }
@@ -80,15 +81,16 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     final Stream<RawPair<Object, RID>> stream;
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabaseSession(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabaseSession(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
@@ -108,14 +110,14 @@ public class QueryOperatorMinor extends QueryOperatorEqualityNotNulls {
 
       final Object keyOne =
           compositeIndexDefinition.createSingleValue(
-              iContext.getDatabaseSession(), keyParams.subList(0, keyParams.size() - 1));
+              transaction, keyParams.subList(0, keyParams.size() - 1));
 
       if (keyOne == null) {
         return null;
       }
 
       final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabaseSession(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyTwo == null) {
         return null;

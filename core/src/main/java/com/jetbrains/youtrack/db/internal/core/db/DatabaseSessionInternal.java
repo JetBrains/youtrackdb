@@ -46,6 +46,7 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
@@ -69,11 +70,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -81,7 +80,10 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimerTask;
-import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -155,7 +157,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Adds a new collection for store blobs.
    *
    * @param iCollectionName Collection name
-   * @param iParameters  Additional parameters to pass to the factories
+   * @param iParameters     Additional parameters to pass to the factories
    * @return Collection id
    */
   int addBlobCollection(String iCollectionName, Object... iParameters);
@@ -301,7 +303,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param iCollectionName Collection name to iterate
    * @return Iterator of EntityImpl instances
    */
-  <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(String iCollectionName);
+  <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
+      String iCollectionName);
 
   /**
    * Browses all the records of the specified class and also all the subclasses. If you've a class
@@ -501,14 +504,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   DatabaseSessionInternal setDatabaseOwner(DatabaseSessionInternal iOwner);
 
   /**
-   * Return the underlying database. Used in wrapper instances to know the down level ODatabase
-   * instance.
-   *
-   * @return The underlying ODatabase implementation.
-   */
-  DatabaseSession getUnderlying();
-
-  /**
    * Internal method. Don't call it directly unless you're building an internal component.
    */
   void setInternal(ATTRIBUTES attribute, Object iValue);
@@ -523,7 +518,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   DatabaseSession open(final Token iToken);
 
-  SharedContext getSharedContext();
+  SharedContext<?> getSharedContext();
 
   /**
    * @return an endpoint for Enterprise features. Null in Community Edition
@@ -814,7 +809,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Adds a new collection.
    *
    * @param iCollectionName Collection name
-   * @param iParameters  Additional parameters to pass to the factories
+   * @param iParameters     Additional parameters to pass to the factories
    * @return Collection id
    */
   int addCollection(String iCollectionName, Object... iParameters);
@@ -827,7 +822,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Adds a new collection.
    *
    * @param iCollectionName Collection name
-   * @param iRequestedId requested id of the collection
+   * @param iRequestedId    requested id of the collection
    * @return Collection id
    */
   int addCollection(String iCollectionName, int iRequestedId);
@@ -1157,6 +1152,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   ResultSet query(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException;
+
   /**
    * Executes an SQL query (idempotent). The result set has to be closed after usage <br>
    * <br>
@@ -1172,10 +1168,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param args  query parameters (named)
    * @return the query result set
    */
-  ResultSet query(String query, Map args)
+  ResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException;
 
-  ResultSet query(String query, boolean syncTx, Map args)
+  ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException;
 
   /**
@@ -1207,7 +1203,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * rs.close();
    * </code>
    */
-  default ResultSet execute(String query, Map args)
+  default ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     throw new UnsupportedOperationException();
   }
@@ -1243,7 +1239,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param args query arguments
    */
-  default void command(String query, Map args)
+  default void command(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     execute(query, args).close();
   }
@@ -1402,10 +1398,54 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     return result;
   }
 
+  void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code);
+
+  @Override
+  default void executeInTx(@Nonnull Consumer<Transaction> code) {
+    executeInTxInternal(code::accept);
+  }
+
+  @Nullable
+  <R> R computeInTxInternal(Function<FrontendTransaction, R> supplier);
+
+  @Nullable
+  @Override
+  default <R> R computeInTx(Function<Transaction, R> supplier) {
+    return computeInTxInternal(supplier::apply);
+  }
+
+  <T> void executeInTxBatchesInternal(Stream<T> stream,
+      BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(stream, consumer::accept);
+  }
+
+  <T> void executeInTxBatchesInternal(
+      Iterator<T> iterator, BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(iterator, consumer::accept);
+  }
+
+  <T> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(@Nonnull Iterator<T> iterator, int batchSize,
+      BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(iterator, batchSize, consumer::accept);
+  }
+
+  @Nonnull
+  FrontendTransaction getActiveTransaction();
+
+  FrontendTransaction begin();
 
   default Index getIndex(String indexName) {
-    var metadata = getMetadata();
-    var indexManager = metadata.getIndexManagerInternal();
+    var indexManager = getSharedContext().getIndexManager();
     return indexManager.getIndex(this, indexName);
   }
 

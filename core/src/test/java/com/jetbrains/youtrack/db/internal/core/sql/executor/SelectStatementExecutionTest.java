@@ -1134,7 +1134,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
 
     session.begin();
-    var result = session.query("select from [#0:1, #0:2]");
+    var result = session.query("select from [#0:1, #0:2000]");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     Assert.assertNotNull(result.next());
@@ -1154,12 +1154,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromSingleRid4() {
     session.begin();
-    var document = (EntityImpl) session.newEntity();
-
+    session.newEntity();
     session.commit();
 
     session.begin();
-    var result = session.query("select from [#0:1, #0:2, #0:100000]");
+    var result = session.query("select from [#0:1, #0:20000, #0:100000]");
     printExecutionPlan(result);
 
     Assert.assertTrue(result.hasNext());

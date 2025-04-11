@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntImmutablePair;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.List;
@@ -37,7 +38,7 @@ import javax.annotation.Nullable;
 public class RemoteTreeLinkBag extends AbstractLinkBag {
 
   private String fieldName;
-  private LinkBagPointer pointer;
+  private final LinkBagPointer pointer;
 
   public RemoteTreeLinkBag(@Nonnull DatabaseSessionInternal session,
       int counterMaxValue, int size) {
@@ -94,9 +95,9 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
 
   @Override
   public Object returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    final var reverted = new RemoteTreeLinkBag(session,
+    final var reverted = new RemoteTreeLinkBag(transaction.getDatabaseSession(),
         counterMaxValue, 0);
 
     for (var identifiable : this) {

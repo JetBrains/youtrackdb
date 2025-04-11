@@ -35,7 +35,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import javax.annotation.Nullable;
@@ -51,7 +50,6 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
 
   private final Map<DatabaseSession, List<Map<String, ?>>> operations = new ConcurrentHashMap<>();
   private volatile LinkedBlockingQueue<Map<String, ?>> auditingQueue;
-  private final Set<AuditingCommandConfig> commands = new HashSet<AuditingCommandConfig>();
   private boolean onGlobalCreate;
   private boolean onGlobalRead;
   private boolean onGlobalUpdate;
@@ -207,15 +205,6 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
       }
     }
 
-    @SuppressWarnings("unchecked") final var commandCfg = (Iterable<Map<String, String>>) iConfiguration.get(
-        "commands");
-
-    if (commandCfg != null) {
-      for (var cfg : commandCfg) {
-        commands.add(new AuditingCommandConfig(cfg));
-      }
-    }
-
     @SuppressWarnings("unchecked")
     var schemaCfgDoc = (Map<String, Object>) iConfiguration.get("schema");
     if (schemaCfgDoc != null) {
@@ -244,7 +233,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   @Override
   public void onAfterTxRollback(Transaction transaction) {
     synchronized (operations) {
-      operations.remove(transaction.getSession());
+      operations.remove(transaction.getDatabaseSession());
     }
   }
 
@@ -253,7 +242,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     List<Map<String, ?>> entries;
 
     synchronized (operations) {
-      entries = operations.remove(transaction.getSession());
+      entries = operations.remove(transaction.getDatabaseSession());
     }
     if (entries != null) {
       for (var oDocument : entries) {

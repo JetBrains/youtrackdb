@@ -1847,7 +1847,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
       final List<Index> indexes =
           new ArrayList<Index>(
-              currentDatabaseSession.getMetadata().getIndexManagerInternal().getIndexes(
+              currentDatabaseSession.getSharedContext().getIndexManager().getIndexes(
                   currentDatabaseSession));
       indexes.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
 

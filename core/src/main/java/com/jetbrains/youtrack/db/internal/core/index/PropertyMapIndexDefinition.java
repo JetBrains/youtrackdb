@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,13 +73,13 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object getDocumentValueToIndex(DatabaseSessionInternal session, EntityImpl entity) {
-    return createValue(session, entity.<Object>getProperty(field));
+  public Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity) {
+    return createValue(transaction, entity.<Object>getProperty(field));
   }
 
   @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, List<?> params) {
+  public Object createValue(FrontendTransaction transaction, List<?> params) {
     if (!(params.get(0) instanceof Map)) {
       return null;
     }
@@ -86,7 +87,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     final var mapParams = extractMapParams((Map<?, ?>) params.get(0));
     final List<Object> result = new ArrayList<>(mapParams.size());
     for (final var mapParam : mapParams) {
-      result.add(createSingleValue(session, mapParam));
+      result.add(createSingleValue(transaction, mapParam));
     }
 
     return result;
@@ -94,7 +95,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
 
   @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, Object... params) {
+  public Object createValue(FrontendTransaction transaction, Object... params) {
     if (!(params[0] instanceof Map)) {
       return null;
     }
@@ -103,7 +104,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
 
     final List<Object> result = new ArrayList<>(mapParams.size());
     for (final var mapParam : mapParams) {
-      var val = createSingleValue(session, mapParam);
+      var val = createSingleValue(transaction, mapParam);
       result.add(val);
     }
     if (getFieldsToIndex().size() == 1 && result.size() == 1) {
@@ -164,20 +165,21 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     return indexBy == that.indexBy;
   }
 
-  public Object createSingleValue(DatabaseSessionInternal session, final Object... param) {
+  public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
+    var session = transaction.getDatabaseSession();
     return keyType.convert(refreshRid(session, param[0]), null, null, session);
   }
 
   public void processChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     final boolean result;
     if (indexBy.equals(INDEX_BY.KEY)) {
-      result = processKeyChangeEvent(session, changeEvent, keysToAdd, keysToRemove);
+      result = processKeyChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
     } else {
-      result = processValueChangeEvent(session, changeEvent, keysToAdd, keysToRemove);
+      result = processValueChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
     }
 
     if (!result) {
@@ -186,17 +188,17 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   private boolean processKeyChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     return switch (changeEvent.getChangeType()) {
       case ADD -> {
-        processAdd(createSingleValue(session, changeEvent.getKey()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getKey()), keysToAdd, keysToRemove);
         yield true;
       }
       case REMOVE -> {
-        processRemoval(createSingleValue(session, changeEvent.getKey()), keysToAdd, keysToRemove);
+        processRemoval(createSingleValue(transaction, changeEvent.getKey()), keysToAdd, keysToRemove);
         yield true;
       }
       case UPDATE -> true;
@@ -205,22 +207,22 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   private boolean processValueChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD:
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         return true;
       case REMOVE:
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
         return true;
       case UPDATE:
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         return true;
     }
     return false;

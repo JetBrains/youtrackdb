@@ -455,7 +455,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       if (handshakeInfo != null) {
         if (connection == null) {
-          throw new TokenSecurityException("missing session and token");
+          throw new TokenSecurityException("Missing session and token. Client id : "
+              + clientTxId + ", request type :" + requestType);
         }
         connection.acquire();
         connection.validateSession(tokenBytes, server.getTokenHandler(), this);

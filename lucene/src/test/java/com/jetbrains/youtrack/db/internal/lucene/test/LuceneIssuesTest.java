@@ -18,7 +18,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
     }
 
     final var index =
-        session.getMetadata().getIndexManagerInternal().getIndex(session, "class_7382_multi");
+        session.getSharedContext().getIndexManager().getIndex(session, "class_7382_multi");
     try (var rids =
         index
 
@@ -53,7 +53,7 @@ public class LuceneIssuesTest extends BaseLuceneTest {
       session.runScript("sql", getScriptFromStream(stream)).close();
     }
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Item.content");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Item.content");
     try (var rids = index.getRids(session, "'Харько~0.2")) {
       Assertions.assertThat(rids.count() >= 3).isTrue();
     }

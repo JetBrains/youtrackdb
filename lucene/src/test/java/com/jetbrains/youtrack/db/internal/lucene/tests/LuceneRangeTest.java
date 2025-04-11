@@ -63,8 +63,8 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.weight")
 
             .size(session))
@@ -96,8 +96,8 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.age")
 
             .size(session))
@@ -129,8 +129,8 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.date")
 
             .size(session))
@@ -168,8 +168,8 @@ public class LuceneRangeTest extends LuceneBaseTest {
     }
 
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.composite")
 
             .size(session))
@@ -223,8 +223,8 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
     session.begin();
     assertThat(
-        session.getMetadata()
-            .getIndexManagerInternal()
+        session.getSharedContext()
+            .getIndexManager()
             .getIndex(session, "Person.composite")
 
             .size(session))
@@ -236,7 +236,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
-    var index = session.getMetadata().getIndexManagerInternal()
+    var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.composite");
 
     // name and age range

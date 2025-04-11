@@ -482,7 +482,6 @@ public abstract class AbstractStorage
   }
 
   public final void open(final ContextConfiguration contextConfiguration) {
-    checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
     try {
       stateLock.readLock().lock();
       try {
@@ -498,6 +497,7 @@ public abstract class AbstractStorage
         stateLock.readLock().unlock();
       }
 
+      checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
       try {
         stateLock.writeLock().lock();
         try {

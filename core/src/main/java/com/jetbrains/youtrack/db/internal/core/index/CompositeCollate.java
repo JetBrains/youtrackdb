@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.schema.Collate;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Collate implementation used on composite indexes.
@@ -52,7 +53,7 @@ public class CompositeCollate implements Collate {
 
   @SuppressWarnings("unchecked")
   @Override
-  public @Nonnull Object transform(final @Nonnull Object obj) {
+  public @Nullable Object transform(final @Nullable Object obj) {
     final List<Object> keys;
     if (obj instanceof CompositeKey compositeKey) {
       keys = compositeKey.getKeys();

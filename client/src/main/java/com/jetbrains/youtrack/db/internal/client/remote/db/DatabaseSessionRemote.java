@@ -66,13 +66,14 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 
 
-public class DatabaseSessionRemote extends DatabaseSessionAbstract {
+public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerRemote> {
 
   protected StorageRemoteSession sessionMetadata;
   private YouTrackDBConfigImpl config;
   private StorageRemote storage;
 
-  public DatabaseSessionRemote(final StorageRemote storage, SharedContext sharedContext) {
+  public DatabaseSessionRemote(final StorageRemote storage,
+      SharedContext<IndexManagerRemote> sharedContext) {
     activateOnCurrentThread();
 
     try {
@@ -311,12 +312,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet query(String query, Map args) {
+  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
     return query(query, true, args);
   }
 
   @Override
-  public ResultSet query(String query, boolean syncTx, Map args)
+  public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     assert assertIfNotActive();
@@ -360,7 +361,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   @Override
-  public ResultSet execute(String query, Map args) {
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -622,14 +623,14 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     return getStorageInfo().getRecordConflictStrategy();
   }
 
-  public DatabaseSessionAbstract setConflictStrategy(final String iStrategyName) {
+  public DatabaseSessionRemote setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
     storage.setConflictStrategy(
         YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
     return this;
   }
 
-  public DatabaseSessionAbstract setConflictStrategy(final RecordConflictStrategy iResolver) {
+  public DatabaseSessionRemote setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
     storage.setConflictStrategy(iResolver);
     return this;

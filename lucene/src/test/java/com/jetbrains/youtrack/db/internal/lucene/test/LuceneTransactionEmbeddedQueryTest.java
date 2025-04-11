@@ -66,7 +66,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
     var doc = ((EntityImpl) session.newVertex("c1"));
     doc.newEmbeddedList("p1", new String[]{"abc"});
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
 
     var query = "select from C1 where p1 lucene \"abc\" ";
     var vertices = session.query(query);
@@ -119,7 +119,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
   @Test
   public void txUpdateTest() {
     createSchema(session);
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
 
     session.begin();
     Assert.assertEquals(0, index.size(session));
@@ -199,7 +199,7 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
   @Test
   public void txUpdateTestComplex() {
     createSchema(session);
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
 
     Assert.assertEquals(0, index.size(session));
 

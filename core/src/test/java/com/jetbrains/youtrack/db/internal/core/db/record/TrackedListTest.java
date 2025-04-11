@@ -468,7 +468,7 @@ public class TrackedListTest extends DbTestBase {
 
     Assert.assertEquals(
         original,
-        trackedList.returnOriginalState(session,
+        trackedList.returnOriginalState(session.getActiveTransaction(),
             (List) trackedList.getTimeLine().getMultiValueChangeEvents()));
     session.rollback();
   }
@@ -501,7 +501,7 @@ public class TrackedListTest extends DbTestBase {
 
     Assert.assertEquals(
         original,
-        trackedList.returnOriginalState(session,
+        trackedList.returnOriginalState(session.getActiveTransaction(),
             (List) trackedList.getTimeLine().getMultiValueChangeEvents()));
     session.rollback();
   }

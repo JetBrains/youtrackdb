@@ -55,7 +55,7 @@ public class CheckIndexTool extends DatabaseTool {
 
   @Override
   public void run() {
-    for (var index : session.getMetadata().getIndexManagerInternal().getIndexes(session)) {
+    for (var index : session.getSharedContext().getIndexManager().getIndexes(session)) {
       if (!canCheck(index)) {
         continue;
       }
@@ -64,7 +64,7 @@ public class CheckIndexTool extends DatabaseTool {
     message("Total errors found on indexes: " + totalErrors);
   }
 
-  private boolean canCheck(Index index) {
+  private static boolean canCheck(Index index) {
     var indexDef = index.getDefinition();
     var className = indexDef.getClassName();
     if (className == null) {
@@ -142,7 +142,7 @@ public class CheckIndexTool extends DatabaseTool {
       vals[i] = entity.getProperty(fields.get(i));
     }
 
-    var indexKey = index.getDefinition().createValue(session, vals);
+    var indexKey = index.getDefinition().createValue(session.getActiveTransaction(), vals);
     if (indexKey == null) {
       return;
     }

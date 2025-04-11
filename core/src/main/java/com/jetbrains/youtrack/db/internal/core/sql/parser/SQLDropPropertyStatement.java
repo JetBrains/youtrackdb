@@ -7,9 +7,9 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -36,9 +36,10 @@ public class SQLDropPropertyStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
 
-    final var session = ctx.getDatabaseSession();
+    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
     final var sourceClass =
-        (SchemaClassInternal) session.getMetadata().getSchema().getClass(className.getStringValue());
+        (SchemaClassInternal) session.getMetadata().getSchema()
+            .getClass(className.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(session, "Source class '" + className + "' not found");
     }
@@ -55,7 +56,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
     if (!indexes.isEmpty()) {
       if (force) {
         for (final var index : indexes) {
-          session.getMetadata().getIndexManager().dropIndex(index.getName());
+          session.getSharedContext().getIndexManager().dropIndex(session, index.getName());
           var result = new ResultInternal(session);
           result.setProperty("operation", "cascade drop index");
           result.setProperty("indexName", index.getName());
@@ -97,8 +98,8 @@ public class SQLDropPropertyStatement extends DDLStatement {
     final List<Index> result = new ArrayList<Index>();
     for (final var index :
         database
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndexes(database, className.getStringValue())) {
       if (Collections.indexOf(
           index.getDefinition().getFields(), fieldName, new CaseInsentiveComparator())

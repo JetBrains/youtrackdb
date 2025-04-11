@@ -537,7 +537,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
       Collection<String> fields) {
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
     return indexManager.getClassInvolvedIndexes(session, name, fields);
   }
 
@@ -557,7 +557,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   @Override
   public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
     assert session.assertIfNotActive();
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
     final var currentClassResult = indexManager.areIndexed(session, name, fields);
 
     initSuperClasses(session);
@@ -619,20 +619,20 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public Index getClassIndex(DatabaseSessionInternal session, String name) {
     assert session.assertIfNotActive();
     return session
-        .getMetadata()
-        .getIndexManagerInternal()
+        .getSharedContext()
+        .getIndexManager()
         .getClassIndex(session, this.name, name);
   }
 
   public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
     assert session.assertIfNotActive();
-    session.getMetadata().getIndexManagerInternal()
+    session.getSharedContext().getIndexManager()
         .getClassIndexes(session, name, indexes);
   }
 
   public void getRawClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
     assert session.assertIfNotActive();
-    session.getMetadata().getIndexManagerInternal()
+    session.getSharedContext().getIndexManager()
         .getClassRawIndexes(session, name, indexes);
   }
 

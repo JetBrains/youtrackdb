@@ -914,28 +914,21 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
   }
 
-  private void generateCME(RID rid) throws InterruptedException {
+  private void generateCME(RID rid) {
     var session = this.session.copy();
-    var th =
-        new Thread(
-            () -> {
-              try (session) {
-                session.activateOnCurrentThread();
-                session.begin();
-                EntityImpl cmeDocument = session.load(rid);
+    try (session) {
+      session.begin();
+      EntityImpl cmeDocument = session.load(rid);
 
-                var v = cmeDocument.getInt("v");
-                if (v != null) {
-                  cmeDocument.setProperty("v", v + 1);
-                } else {
-                  cmeDocument.setProperty("v", 1);
-                }
+      var v = cmeDocument.getInt("v");
+      if (v != null) {
+        cmeDocument.setProperty("v", v + 1);
+      } else {
+        cmeDocument.setProperty("v", 1);
+      }
 
-                session.commit();
-              }
-            });
-    th.start();
-    th.join();
+      session.commit();
+    }
   }
 
   @Test

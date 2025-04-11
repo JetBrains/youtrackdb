@@ -17,7 +17,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.util.ArrayList;
 import org.junit.Assert;
@@ -41,7 +40,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    var idx = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
+    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
     var london = newCity(session, "London", -0.1275, 51.507222);
 
@@ -85,7 +84,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    var idx = session.getMetadata().getIndexManagerInternal().getIndex(session, "City.location");
+    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
 
     session.begin();

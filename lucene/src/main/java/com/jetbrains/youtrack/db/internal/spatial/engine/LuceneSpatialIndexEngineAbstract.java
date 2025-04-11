@@ -70,9 +70,9 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata im) {
-    super.init(db, im);
-    strategy = createSpatialStrategy(db, im.getIndexDefinition(), im.getMetadata());
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+    super.init(session, im);
+    strategy = createSpatialStrategy(session, im.getIndexDefinition(), im.getMetadata());
   }
 
   protected abstract SpatialStrategy createSpatialStrategy(

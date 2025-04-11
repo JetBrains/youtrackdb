@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -67,9 +66,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     final var index =
         session
-            .getMetadata()
+            .getSharedContext()
             .getIndexManager()
-            .getIndex("sqlCreateIndexTestClass.prop1");
+            .getIndex(session, "sqlCreateIndexTestClass.prop1");
 
     Assert.assertNotNull(index);
 
