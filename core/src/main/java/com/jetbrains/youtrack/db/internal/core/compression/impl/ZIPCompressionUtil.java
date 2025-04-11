@@ -75,6 +75,14 @@ public class ZIPCompressionUtil {
       while ((entry = zin.getNextEntry()) != null) {
         name = entry.getName();
 
+
+        // Validate the name to prevent path traversal
+        if (name.contains("..") ||
+            !name.isEmpty() && name.charAt(0) == '/' ||
+            !name.isEmpty() && name.charAt(0) == '\\'
+        ) {
+          throw new IOException("Invalid entry name: " + name);
+        }
         final var file = new File(outdir, name);
         if (!file.getCanonicalPath().startsWith(targetDirPath)) {
           throw new IOException(
