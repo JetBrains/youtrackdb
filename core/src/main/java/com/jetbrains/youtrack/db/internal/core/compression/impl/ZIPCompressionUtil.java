@@ -65,8 +65,8 @@ public class ZIPCompressionUtil {
   public static void uncompressDirectory(
       final InputStream in, final String out, final CommandOutputListener iListener)
       throws IOException {
-    final var outdir = new File(out);
-    final var targetDirPath = outdir.getCanonicalPath() + File.separator;
+    final var outdir = Paths.get(out).toAbsolutePath().normalize();
+    final var targetDirPath = outdir.toString() + File.separator;
 
     try (var zin = new ZipInputStream(in)) {
       ZipEntry entry;
@@ -80,8 +80,8 @@ public class ZIPCompressionUtil {
         ) {
           throw new IOException("Invalid entry name: " + name);
         }
-        final var file = new File(outdir, name);
-        if (!file.getCanonicalPath().startsWith(targetDirPath)) {
+        final var file = outdir.resolve(name).normalize();
+        if (!file.startsWith(outdir)) {
           throw new IOException(
               "Expanding '"
                   + entry.getName()
@@ -125,15 +125,23 @@ public class ZIPCompressionUtil {
     ) {
       throw new IOException("Invalid entry name: " + name);
     }
+    final var file = outdir.resolve(name).normalize();
+    if (!file.startsWith(outdir)) {
+      throw new IOException("Expanding '" + name + "' would create file outside of directory '" + outdir + "'");
+    }
 
     try (var out =
-        new BufferedOutputStream(new FileOutputStream(new File(outdir, name)))) {
+        new BufferedOutputStream(new FileOutputStream(file.toFile()))) {
       IOUtils.copyStream(in, out);
     }
   }
 
   private static void mkdirs(final File outdir, final String path) {
-    final var d = new File(outdir, path);
+    final var dir = outdir.resolve(path).normalize();
+    if (!dir.startsWith(outdir)) {
+      throw new IOException("Creating directory '" + path + "' would create directory outside of '" + outdir + "'");
+    }
+    final var d = dir.toFile();
     if (!d.exists()) {
       d.mkdirs();
     }
