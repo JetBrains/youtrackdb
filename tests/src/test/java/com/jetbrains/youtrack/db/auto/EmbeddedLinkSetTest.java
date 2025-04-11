@@ -665,6 +665,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testAddAllAndIterator() {
     session.begin();
     final Set<RID> expected = new HashSet<>(8);
@@ -689,6 +690,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testAddAndIterate() {
     session.begin();
 
@@ -791,6 +793,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testCycle() {
     session.begin();
     var entityOne = session.newEntity();
@@ -829,6 +832,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     activeTx.commit();
   }
 
+  @Test
   public void testAddIterateAndRemove() {
     session.begin();
 
@@ -976,6 +980,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testRemove() {
     final var expected = new HashSet<RID>(8);
 
@@ -1014,6 +1019,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     }
   }
 
+  @Test
   public void testSaveLoad() {
     session.begin();
 
@@ -1076,6 +1082,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testSaveInBackOrder() {
     session.begin();
     var entityA = session.newEntity();
@@ -1107,6 +1114,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testMassiveChanges() {
     session.begin();
     var entity = session.newEntity();
@@ -1144,6 +1152,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testSimultaneousIterationAndRemove() {
     session.begin();
     var linkSet = (EntityLinkSetImpl) session.newLinkSet();
@@ -1222,6 +1231,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testAddMixedValues() {
     session.begin();
     var linkSet = (EntityLinkSetImpl) session.newLinkSet();
@@ -1320,6 +1330,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testFromEmbeddedToBTreeAndBack() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
@@ -1455,6 +1466,7 @@ public class EmbeddedLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
   public void testRemoveSavedInCommit() {
     session.begin();
     var entitiesToAdd = new HashSet<Identifiable>();
