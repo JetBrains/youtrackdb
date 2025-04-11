@@ -171,7 +171,7 @@ public class ServerCommandPostUploadSingleFile extends
           fileDocument = fileDocument.replace("$file", fileRID.toString());
         }
 
-        db.callInTx(transaction -> {
+        db.executeInTx(transaction -> {
           var entity = transaction.createOrLoadRecordFromJson(fileDocument);
           writer.beginObject("updatedDocument");
           writer.writeAttribute(db, 1, true, "rid", entity.getIdentity().toString());

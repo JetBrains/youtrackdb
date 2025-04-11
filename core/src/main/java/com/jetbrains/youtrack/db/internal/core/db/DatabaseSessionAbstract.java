@@ -129,10 +129,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -2186,12 +2182,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code) {
-    callInTxInternal(code::accept);
-  }
-
-  @Override
-  public <X extends Exception> void callInTxInternal(
+  public <X extends Exception> void executeInTxInternal(
       @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
     var ok = false;
     assert assertIfNotActive();
@@ -2205,14 +2196,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
-    callInTxBatches(iterable, batchSize, consumer::accept);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Iterable<T> iterable, int batchSize,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
@@ -2236,57 +2221,38 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
-    callForEachInTx(iterator, consumer::accept);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
-    callForEachInTx(iterator, (db, t) -> {
+    forEachInTx(iterator, (db, t) -> {
       consumer.accept(db, t);
       return true;
     });
   }
 
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    callForEachInTx(iterable, consumer::accept);
-  }
 
   @Override
-  public <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
-    callForEachInTx(iterable.iterator(), consumer);
+    forEachInTx(iterable.iterator(), consumer);
   }
 
-  @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
-    callForEachInTx(stream, consumer::accept);
-  }
 
   @Override
-  public <T, X extends Exception> void callForEachInTx(Stream<T> stream,
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (var s = stream) {
-      callForEachInTx(s.iterator(), consumer);
+      forEachInTx(s.iterator(), consumer);
     }
   }
 
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    callForEachInTx(iterator, consumer::apply);
-  }
 
   @Override
-  public <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
@@ -2310,32 +2276,20 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    callForEachInTx(iterable, consumer::apply);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
-    callForEachInTx(iterable.iterator(), consumer);
+    forEachInTx(iterable.iterator(), consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    callForEachInTx(stream, consumer::apply);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Stream<T> stream,
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
-      callForEachInTx(stream.iterator(), consumer);
+      forEachInTx(stream.iterator(), consumer);
     }
   }
 
@@ -2354,17 +2308,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(
-      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<FrontendTransaction, T> consumer) {
-    callInTxBatchesInternal(
-        iterator,
-        batchSize,
-        consumer::accept);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(@Nonnull Iterator<T> iterator,
-      int batchSize, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
@@ -2388,8 +2334,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(
-      Iterator<T> iterator, BiConsumer<FrontendTransaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     executeInTxBatchesInternal(
@@ -2399,73 +2345,40 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(Iterator<T> iterator,
-      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
-    callInTxBatchesInternal(iterator,
-        getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE), consumer);
-  }
-
-  @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    callInTxBatches(
-        iterable,
-        getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
-        consumer::accept);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Iterable<T> iterable,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
-    callInTxBatches(
+    executeInTxBatches(
         iterable,
         getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
         consumer);
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
-    callInTxBatches(stream, batchSize, consumer::accept);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Stream<T> stream, int batchSize,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
+  public <T, X extends Exception> void executeInTxBatches(
+      Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
-      callInTxBatches(stream.iterator(), batchSize, consumer);
+      executeInTxBatches(stream.iterator(), batchSize, consumer);
     }
   }
 
-  @Override
-  public <T> void executeInTxBatchesInternal(Stream<T> stream,
-      BiConsumer<FrontendTransaction, T> consumer) {
-    callInTxBatchesInternal(stream, consumer::accept);
-  }
 
   @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(Stream<T> stream,
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
       TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
-      callInTxBatchesInternal(stream.iterator(), consumer);
+      executeInTxBatchesInternal(stream.iterator(), consumer);
     }
   }
 
-  @Override
-  public <R> R computeInTxInternal(Function<FrontendTransaction, R> code) {
-    return calculateInTxInternal(code::apply);
-  }
 
-  @Nullable
   @Override
-  public <R, X extends Exception> R calculateInTxInternal(
-      TxFunction<FrontendTransaction, R, X> code) throws X {
+  public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
+      throws X {
     assert assertIfNotActive();
     var ok = false;
     begin();

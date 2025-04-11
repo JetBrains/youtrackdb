@@ -81,10 +81,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -1369,27 +1365,34 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code) {
-    internal.executeInTxInternal(code);
-  }
-
-  @Override
-  public <X extends Exception> void callInTxInternal(
+  public <X extends Exception> void executeInTxInternal(
       @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
     throw new UnsupportedOperationException();
   }
 
   @Nullable
   @Override
-  public <R, X extends Exception> R calculateInTxInternal(
+  public <R, X extends Exception> R computeInTxInternal(
       TxFunction<FrontendTransaction, R, X> supplier) throws X {
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
   @Override
-  public <R> R computeInTxInternal(Function<FrontendTransaction, R> supplier) {
-    return internal.computeInTxInternal(supplier);
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Iterator<T> iterator,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(@Nonnull Iterator<T> iterator,
+      int batchSize, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1546,75 +1549,57 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(@Nonnull Iterator<T> iterator,
-      int batchSize, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(Iterator<T> iterator,
-      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void executeInTxBatchesInternal(@Nonnull Iterator<T> iterator, int batchSize,
-      BiConsumer<FrontendTransaction, T> consumer) {
-    internal.executeInTxBatchesInternal(iterator, batchSize, consumer);
-  }
-
-  @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterable, batchSize, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Iterable<T> iterable, int batchSize,
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable, int batchSize,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterable, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Iterable<T> iterable,
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(stream, batchSize, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callInTxBatches(Stream<T> stream, int batchSize,
+  public <T, X extends Exception> void executeInTxBatches(Stream<T> stream, int batchSize,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T, X extends Exception> void callInTxBatchesInternal(Stream<T> stream,
-      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(Iterator<T> iterator,
-      BiConsumer<FrontendTransaction, T> consumer) {
-    internal.executeInTxBatchesInternal(iterator, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(Stream<T> stream,
-      BiConsumer<FrontendTransaction, T> consumer) {
-    internal.executeInTxBatchesInternal(stream, consumer);
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1625,75 +1610,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public int activeTxCount() {
     return internal.activeTxCount();
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
-      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
-      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(stream, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Stream<T> stream,
-      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(stream, consumer);
-  }
-
-  @Override
-  public <T, X extends Exception> void callForEachInTx(Stream<T> stream,
-      TxBiConsumer<Transaction, T, X> consumer) throws X {
-    throw new UnsupportedOperationException();
   }
 
   @Override

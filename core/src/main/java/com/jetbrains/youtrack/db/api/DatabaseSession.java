@@ -44,10 +44,6 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -70,14 +66,8 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @param code Code to execute in transaction
    */
-  void executeInTx(@Nonnull Consumer<Transaction> code);
+  <X extends Exception> void executeInTx(@Nonnull TxConsumer<Transaction, X> code) throws X;
 
-  /**
-   * The same as {@link #executeInTx(Consumer)} but allows to throw an exception.
-   *
-   * @see #executeInTx(Consumer)
-   */
-  <X extends Exception> void callInTx(@Nonnull TxConsumer<Transaction, X> code) throws X;
 
   /**
    * Splits data provided by iterator in batches and execute every batch in separate transaction.
@@ -90,16 +80,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param batchSize Size of batch
    * @param consumer  Consumer to process data
    */
-  <T> void executeInTxBatches(
-      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #executeInTxBatches(Iterator, int, BiConsumer)} but allows to throw an
-   * exception.
-   *
-   * @see #executeInTxBatches(Iterator, int, BiConsumer)
-   */
-  <T, X extends Exception> void callInTxBatches(
+  <T, X extends Exception> void executeInTxBatches(
       @Nonnull Iterator<T> iterator, int batchSize, TxBiConsumer<Transaction, T, X> consumer)
       throws X;
 
@@ -110,18 +91,9 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterator Data to process
    * @param consumer Consumer to process data
    * @param <T>      Type of data
-   * @see #executeInTxBatches(Iterator, int, BiConsumer)
+   * @see #executeInTxBatches(Iterator, int, TxBiConsumer)
    */
-  <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<Transaction, T> consumer);
-
-
-  /**
-   * The same as {@link #executeInTxBatches(Iterator, BiConsumer)} but allows to throw an
-   * exception.
-   *
-   * @see #executeInTxBatches(Iterator, BiConsumer)
-   */
-  <T, X extends Exception> void callInTxBatches(Iterator<T> iterator,
+  <T, X extends Exception> void executeInTxBatches(Iterator<T> iterator,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -135,16 +107,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param batchSize Size of batch
    * @param consumer  Consumer to process data
    */
-  <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #executeInTxBatches(Iterable, int, BiConsumer)} but allows to throw an
-   * exception.
-   *
-   * @see #executeInTxBatches(Iterable, int, BiConsumer)
-   */
-  <T, X extends Exception> void callInTxBatches(
+  <T, X extends Exception> void executeInTxBatches(
       Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -154,18 +117,11 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterable Data to process
    * @param consumer Consumer to process data
    * @param <T>      Type of data
-   * @see #executeInTxBatches(Iterable, BiConsumer)
+   * @see #executeInTxBatches(Iterable, TxBiConsumer)
    */
-  <T> void executeInTxBatches(Iterable<T> iterable, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #executeInTxBatches(Iterable, BiConsumer)} but allows to throw an
-   * exception.
-   *
-   * @see #executeInTxBatches(Iterable, BiConsumer)
-   */
-  <T, X extends Exception> void callInTxBatches(Iterable<T> iterable,
+  <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
+
 
   /**
    * Splits data provided by stream in batches and execute every batch in separate transaction.
@@ -180,10 +136,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param batchSize Size of batch
    * @param consumer  Consumer to process data
    */
-  <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer);
-
-  <T, X extends Exception> void callInTxBatches(
+  <T, X extends Exception> void executeInTxBatches(
       Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -195,18 +148,10 @@ public interface DatabaseSession extends AutoCloseable {
    * @param stream   Data to process
    * @param consumer Consumer to process data
    * @param <T>      Type of data
-   * @see #executeInTxBatches(Stream, int, BiConsumer)
+   * @see #executeInTxBatches(Stream, int, TxBiConsumer)
    */
-  <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #executeInTxBatches(Stream, BiConsumer)} but allows to throw an exception.
-   *
-   * @see #executeInTxBatches(Stream, BiConsumer)
-   */
-  <T, X extends Exception> void callInTxBatches(Stream<T> stream,
+  <T, X extends Exception> void executeInTxBatches(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
-
   /**
    * Executes the given code in a transaction. Starts a transaction if not already started, in this
    * case the transaction is committed after the code is executed or rolled back if an exception is
@@ -217,15 +162,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @return the result of the code execution
    */
   @Nullable
-  <R> R computeInTx(Function<Transaction, R> supplier);
-
-  /**
-   * The same as {@link #computeInTx(Function)} but allows to throw an exception.
-   *
-   * @see #computeInTx(Function)
-   */
-  @Nullable
-  <R, X extends Exception> R calculateInTx(TxFunction<Transaction, R, X> supplier) throws X;
+  <R, X extends Exception> R computeInTx(TxFunction<Transaction, R, X> supplier) throws X;
 
   /**
    * Executes the given code for each element in the iterator in a transaction. Starts a transaction
@@ -235,14 +172,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterator the iterator to iterate over
    * @param <T>      the type of the elements in the iterator
    */
-  <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Iterator, BiConsumer)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Iterator, BiConsumer)
-   */
-  <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
+  <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -257,14 +187,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the iterable
    */
-  <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Iterable, BiConsumer)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Iterable, BiConsumer)
-   */
-  <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
+  <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -281,14 +204,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the stream
    */
-  <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Stream, BiConsumer)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Stream, BiConsumer)
-   */
-  <T, X extends Exception> void callForEachInTx(Stream<T> stream,
+  <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
 
   /**
@@ -302,16 +218,8 @@ public interface DatabaseSession extends AutoCloseable {
    * @param iterator the iterator to iterate over
    * @param <T>      the type of the elements in the iterator
    */
-  <T> void forEachInTx(Iterator<T> iterator, BiFunction<Transaction, T, Boolean> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Iterator, BiFunction)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Iterator, BiFunction)
-   */
-  <T, X extends Exception> void callForEachInTx(Iterator<T> iterator,
+  <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X;
-
 
   /**
    * Executes the given code for each element in the iterable in a transaction. Starts a transaction
@@ -325,14 +233,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the iterable
    */
-  <T> void forEachInTx(Iterable<T> iterable, BiFunction<Transaction, T, Boolean> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Iterable, BiFunction)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Iterable, BiFunction)
-   */
-  <T, X extends Exception> void callForEachInTx(Iterable<T> iterable,
+  <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X;
 
   /**
@@ -349,14 +250,7 @@ public interface DatabaseSession extends AutoCloseable {
    * @param consumer the code to execute for each element
    * @param <T>      the type of the elements in the stream
    */
-  <T> void forEachInTx(Stream<T> stream, BiFunction<Transaction, T, Boolean> consumer);
-
-  /**
-   * The same as {@link #forEachInTx(Stream, BiFunction)} but allows to throw an exception.
-   *
-   * @see #forEachInTx(Stream, BiFunction)
-   */
-  <T, X extends Exception> void callForEachInTx(Stream<T> stream,
+  <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X;
 
 
