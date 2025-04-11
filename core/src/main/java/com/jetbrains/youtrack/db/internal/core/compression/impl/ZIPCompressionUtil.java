@@ -113,6 +113,14 @@ public class ZIPCompressionUtil {
       iListener.onMessage("\n- Uncompressing file " + name + "...");
     }
 
+    // Validate the name to prevent path traversal
+    if (name.contains("..") ||
+        !name.isEmpty() && name.charAt(0) == '/' ||
+        !name.isEmpty() && name.charAt(0) == '\\'
+    ) {
+      throw new IOException("Invalid entry name: " + name);
+    }
+
     try (var out =
         new BufferedOutputStream(new FileOutputStream(new File(outdir, name)))) {
       IOUtils.copyStream(in, out);
