@@ -47,6 +47,9 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
@@ -1405,6 +1408,25 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     executeInTxInternal(code::accept);
   }
 
+  <X extends Exception> void callInTxInternal(@Nonnull TxConsumer<FrontendTransaction, X> code)
+      throws X;
+
+  @Override
+  default <X extends Exception> void callInTx(@Nonnull TxConsumer<Transaction, X> code) throws X {
+    callInTxInternal(code::accept);
+  }
+
+  @Nullable
+  <R, X extends Exception> R calculateInTxInternal(TxFunction<FrontendTransaction, R, X> supplier)
+      throws X;
+
+  @Nullable
+  @Override
+  default <R, X extends Exception> R calculateInTx(TxFunction<Transaction, R, X> supplier)
+      throws X {
+    return calculateInTxInternal(supplier::apply);
+  }
+
   @Nullable
   <R> R computeInTxInternal(Function<FrontendTransaction, R> supplier);
 
@@ -1422,12 +1444,31 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     executeInTxBatchesInternal(stream, consumer::accept);
   }
 
+  <T, X extends Exception> void callInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X;
+
+  @Override
+  default <T, X extends Exception> void callInTxBatches(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    callInTxBatchesInternal(stream, consumer::accept);
+  }
+
   <T> void executeInTxBatchesInternal(
       Iterator<T> iterator, BiConsumer<FrontendTransaction, T> consumer);
+
 
   @Override
   default <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
     executeInTxBatchesInternal(iterator, consumer::accept);
+  }
+
+  <T, X extends Exception> void callInTxBatchesInternal(
+      Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X;
+
+  @Override
+  default <T, X extends Exception> void callInTxBatches(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    callInTxBatchesInternal(iterator, consumer::accept);
   }
 
   <T> void executeInTxBatchesInternal(
@@ -1437,6 +1478,16 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   default <T> void executeInTxBatches(@Nonnull Iterator<T> iterator, int batchSize,
       BiConsumer<Transaction, T> consumer) {
     executeInTxBatchesInternal(iterator, batchSize, consumer::accept);
+  }
+
+  <T, X extends Exception> void callInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X;
+
+  @Override
+  default <T, X extends Exception> void callInTxBatches(@Nonnull Iterator<T> iterator,
+      int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
+    callInTxBatchesInternal(iterator, batchSize, consumer::accept);
   }
 
   @Nonnull

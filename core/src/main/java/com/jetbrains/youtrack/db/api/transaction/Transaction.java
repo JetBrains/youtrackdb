@@ -241,8 +241,6 @@ public interface Transaction {
    */
   @Nonnull
   <RET extends DBRecord> RET load(RID recordId);
-
-
   /**
    * Loads the record by the Record ID, unlike {@link  #load(RID)} method does not throw exception
    * if record not found but returns <code>null</code> instead.

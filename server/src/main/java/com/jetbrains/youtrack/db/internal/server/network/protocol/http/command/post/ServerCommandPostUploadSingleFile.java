@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
@@ -171,12 +170,13 @@ public class ServerCommandPostUploadSingleFile extends
         if (fileDocument.contains("$file")) {
           fileDocument = fileDocument.replace("$file", fileRID.toString());
         }
-        var entity = new EntityImpl(db);
-        entity.updateFromJSON(fileDocument);
 
-        writer.beginObject("updatedDocument");
-        writer.writeAttribute(db, 1, true, "rid", entity.getIdentity().toString());
-        writer.endObject();
+        db.callInTx(transaction -> {
+          var entity = transaction.createOrLoadRecordFromJson(fileDocument);
+          writer.beginObject("updatedDocument");
+          writer.writeAttribute(db, 1, true, "rid", entity.getIdentity().toString());
+          writer.endObject();
+        });
       } else {
         iResponse.send(
             HttpUtils.STATUS_INVALIDMETHOD_CODE,

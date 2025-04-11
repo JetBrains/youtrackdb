@@ -41,6 +41,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.DefaultSecuritySystem;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -94,7 +95,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
       Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   protected final Map<String, AbstractStorage> storages = new ConcurrentHashMap<>();
-  protected final Map<String, SharedContext> sharedContexts = new ConcurrentHashMap<>();
+  protected final Map<String, SharedContext<IndexManagerEmbedded>> sharedContexts = new ConcurrentHashMap<>();
   protected final Set<DatabasePoolInternal> pools =
       Collections.newSetFromMap(new ConcurrentHashMap<>());
   protected final YouTrackDBConfigImpl configuration;
@@ -452,14 +453,16 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
   }
 
   protected DatabaseSessionEmbedded newSessionInstance(
-      AbstractStorage storage, YouTrackDBConfigImpl config, SharedContext sharedContext) {
+      AbstractStorage storage, YouTrackDBConfigImpl config,
+      SharedContext<IndexManagerEmbedded> sharedContext) {
     var embedded = new DatabaseSessionEmbedded(storage);
     embedded.init(config, getOrCreateSharedContext(storage));
     return embedded;
   }
 
-  protected DatabaseSessionEmbedded newCreateSessionInstance(
-      AbstractStorage storage, YouTrackDBConfigImpl config, SharedContext sharedContext) {
+  protected static DatabaseSessionEmbedded newCreateSessionInstance(
+      AbstractStorage storage, YouTrackDBConfigImpl config,
+      SharedContext<IndexManagerEmbedded> sharedContext) {
     var embedded = new DatabaseSessionEmbedded(storage);
     embedded.internalCreate(config, sharedContext);
     return embedded;
@@ -613,8 +616,9 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return embedded;
   }
 
-  protected DatabaseSessionEmbedded newPooledSessionInstance(
-      DatabasePoolInternal pool, AbstractStorage storage, SharedContext sharedContext) {
+  protected static DatabaseSessionEmbedded newPooledSessionInstance(
+      DatabasePoolInternal pool, AbstractStorage storage,
+      SharedContext<IndexManagerEmbedded> sharedContext) {
     var embedded = new DatabaseSessionEmbeddedPooled(pool, storage);
     embedded.init(pool.getConfig(), sharedContext);
     return embedded;
@@ -650,7 +654,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return storage;
   }
 
-  protected final int generateStorageId() {
+  protected static int generateStorageId() {
     var storageId = Math.abs(nextStorageId.getAndIncrement());
     while (!currentStorageIds.add(storageId)) {
       storageId = Math.abs(nextStorageId.getAndIncrement());
@@ -738,7 +742,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     checkDatabaseName(name);
     AbstractStorage storage = null;
     try {
-      SharedContext context;
+      SharedContext<IndexManagerEmbedded> context;
       synchronized (this) {
         context = sharedContexts.get(name);
         if (context != null) {
@@ -854,7 +858,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return newCreateSessionInstance(storage, config, getOrCreateSharedContext(storage));
   }
 
-  protected synchronized SharedContext getOrCreateSharedContext(
+  protected synchronized SharedContext<IndexManagerEmbedded> getOrCreateSharedContext(
       AbstractStorage storage) {
     var result = sharedContexts.get(storage.getName());
     if (result == null) {
@@ -864,7 +868,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return result;
   }
 
-  protected SharedContext createSharedContext(AbstractStorage storage) {
+  protected SharedContext<IndexManagerEmbedded> createSharedContext(AbstractStorage storage) {
     return new SharedContextEmbedded(storage, this);
   }
 
