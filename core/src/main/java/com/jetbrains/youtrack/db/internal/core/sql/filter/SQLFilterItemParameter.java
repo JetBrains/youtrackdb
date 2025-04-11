@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 
 /**
  * Represents a constant value, used to bind parameters.
@@ -37,7 +37,7 @@ public class SQLFilterItemParameter implements SQLFilterItem {
   }
 
   public Object getValue(
-      final Identifiable iRecord, Object iCurrentResult, CommandContext iContetx) {
+      final Result iRecord, Object iCurrentResult, CommandContext iContetx) {
     return value;
   }
 

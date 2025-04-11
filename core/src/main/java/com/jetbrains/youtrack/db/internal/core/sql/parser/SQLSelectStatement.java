@@ -6,15 +6,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlanner;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlanner;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -284,16 +284,16 @@ public class SQLSelectStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -305,18 +305,18 @@ public class SQLSelectStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
 
-    LocalResultSet result = new LocalResultSet(executionPlan);
-    return result;
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     InternalExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -325,13 +325,13 @@ public class SQLSelectStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
 
-    LocalResultSet result = new LocalResultSet(executionPlan);
+    var result = new LocalResultSet(session, executionPlan);
     return result;
   }
 
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, true);
+    var planner = new SelectExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, true);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -339,8 +339,8 @@ public class SQLSelectStatement extends SQLStatement {
 
   public InternalExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, false);
+    var planner = new SelectExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, false);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -381,7 +381,7 @@ public class SQLSelectStatement extends SQLStatement {
       return false;
     }
 
-    SQLSelectStatement that = (SQLSelectStatement) o;
+    var that = (SQLSelectStatement) o;
 
     if (!Objects.equals(target, that.target)) {
       return false;
@@ -424,7 +424,7 @@ public class SQLSelectStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = target != null ? target.hashCode() : 0;
+    var result = target != null ? target.hashCode() : 0;
     result = 31 * result + (projection != null ? projection.hashCode() : 0);
     result = 31 * result + (whereClause != null ? whereClause.hashCode() : 0);
     result = 31 * result + (groupBy != null ? groupBy.hashCode() : 0);
@@ -493,7 +493,7 @@ public class SQLSelectStatement extends SQLStatement {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = (ResultInternal) super.serialize(db);
+    var result = (ResultInternal) super.serialize(db);
     if (target != null) {
       result.setProperty("target", target.serialize(db));
     }

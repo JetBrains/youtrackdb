@@ -94,11 +94,11 @@ class PermissionService {
     }
     if (this.isAllow("server.metrics") && this.isAllow("server.distributed")) {
       menus.push({
-        name: "cluster",
-        title: "Cluster Management",
+        name: "collection",
+        title: "Collection Management",
         template: "distributed",
         icon: "fa-sitemap",
-        wiki: "Studio-Cluster-Management.html"
+        wiki: "Studio-Collection-Management.html"
       });
     }
     if (this.isAllow("server.backup")) {

@@ -94,9 +94,9 @@ public class JavaCharStream implements CharStream {
   }
 
   protected void ExpandBuff(boolean wrapAround) {
-    char[] newbuffer = new char[bufsize + 2048];
-    int[] newbufline = new int[bufsize + 2048];
-    int[] newbufcolumn = new int[bufsize + 2048];
+    var newbuffer = new char[bufsize + 2048];
+    var newbufline = new int[bufsize + 2048];
+    var newbufcolumn = new int[bufsize + 2048];
 
     try {
       if (wrapAround) {
@@ -261,7 +261,7 @@ public class JavaCharStream implements CharStream {
     if ((buffer[bufpos] = c = ReadByte()) == '\\') {
       UpdateLineColumn(c);
 
-      int backSlashCnt = 1;
+      var backSlashCnt = 1;
 
       for (; ; ) // Read all the backslashes
       {
@@ -570,7 +570,7 @@ public class JavaCharStream implements CharStream {
    * @return suffix
    */
   public char[] GetSuffix(int len) {
-    char[] ret = new char[len];
+    var ret = new char[len];
 
     if ((bufpos + 1) >= len) {
       System.arraycopy(buffer, bufpos - len + 1, ret, 0, len);
@@ -596,7 +596,7 @@ public class JavaCharStream implements CharStream {
    * Method to adjust line and column numbers for the start of a token.
    */
   public void adjustBeginLineColumn(int newLine, int newCol) {
-    int start = tokenBegin;
+    var start = tokenBegin;
     int len;
 
     if (bufpos >= tokenBegin) {

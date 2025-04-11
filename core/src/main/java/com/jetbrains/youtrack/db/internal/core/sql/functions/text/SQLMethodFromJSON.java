@@ -16,12 +16,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Converts a document in JSON string.
@@ -39,20 +39,22 @@ public class SQLMethodFromJSON extends AbstractSQLMethod {
     return "fromJSON([<options>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
     if (iThis instanceof String) {
+      var db = iContext.getDatabaseSession();
       if (iParams.length > 0) {
         try {
-          final EntityImpl entity = new EntityImpl().fromJSON(iThis.toString(),
+          final var entity = new EntityImpl(db).updateFromJSON(iThis.toString(),
               iParams[0].toString());
           if (iParams[0].toString().contains("embedded")) {
-            EntityInternalUtils.addOwner(entity, iCurrentRecord.getRecord());
+            entity.setOwner((EntityImpl) iCurrentRecord.asEntity());
           }
 
           return entity;
@@ -61,8 +63,8 @@ public class SQLMethodFromJSON extends AbstractSQLMethod {
         }
       }
 
-      var entity = new EntityImpl();
-      entity.fromJSON(iThis.toString());
+      var entity = new EntityImpl(db);
+      entity.updateFromJSON(iThis.toString());
       return entity;
     }
 

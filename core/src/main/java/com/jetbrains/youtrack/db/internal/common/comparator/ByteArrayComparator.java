@@ -31,17 +31,17 @@ public class ByteArrayComparator implements Comparator<byte[]> {
   public static final ByteArrayComparator INSTANCE = new ByteArrayComparator();
 
   public int compare(final byte[] arrayOne, final byte[] arrayTwo) {
-    final int lenDiff = arrayOne.length - arrayTwo.length;
+    final var lenDiff = arrayOne.length - arrayTwo.length;
 
     if (lenDiff != 0) {
       return lenDiff;
     }
 
-    for (int i = 0; i < arrayOne.length; i++) {
-      final int valOne = arrayOne[i] & 0xFF;
-      final int valTwo = arrayTwo[i] & 0xFF;
+    for (var i = 0; i < arrayOne.length; i++) {
+      final var valOne = arrayOne[i] & 0xFF;
+      final var valTwo = arrayTwo[i] & 0xFF;
 
-      final int diff = valOne - valTwo;
+      final var diff = valOne - valTwo;
       if (diff != 0) {
         return diff;
       }

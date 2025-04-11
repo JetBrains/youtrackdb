@@ -33,9 +33,9 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     db.commit(); // no RETRY and ELSE here, that case is allowed only for batch scripts;
-    ResultInternal item = new ResultInternal(db);
+    var item = new ResultInternal(db);
     item.setProperty("operation", "commit");
     return ExecutionStream.singleton(item);
   }
@@ -51,7 +51,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       }
       if (elseStatements != null) {
         builder.append("{\n");
-        for (SQLStatement stm : elseStatements) {
+        for (var stm : elseStatements) {
           stm.toString(params, builder);
           builder.append(";\n");
         }
@@ -81,7 +81,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       }
       if (elseStatements != null) {
         builder.append("{\n");
-        for (SQLStatement stm : elseStatements) {
+        for (var stm : elseStatements) {
           stm.toGenericStatement(builder);
           builder.append(";\n");
         }
@@ -102,11 +102,11 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLCommitStatement copy() {
-    SQLCommitStatement result = new SQLCommitStatement(-1);
+    var result = new SQLCommitStatement(-1);
     result.retry = retry == null ? null : retry.copy();
     if (this.elseStatements != null) {
       result.elseStatements = new ArrayList<>();
-      for (SQLStatement stm : elseStatements) {
+      for (var stm : elseStatements) {
         result.elseStatements.add(stm.copy());
       }
     }
@@ -137,7 +137,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLCommitStatement that = (SQLCommitStatement) o;
+    var that = (SQLCommitStatement) o;
 
     if (!Objects.equals(retry, that.retry)) {
       return false;
@@ -150,7 +150,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = retry != null ? retry.hashCode() : 0;
+    var result = retry != null ? retry.hashCode() : 0;
     result = 31 * result + (elseStatements != null ? elseStatements.hashCode() : 0);
     result = 31 * result + (elseFail != null ? elseFail.hashCode() : 0);
     return result;

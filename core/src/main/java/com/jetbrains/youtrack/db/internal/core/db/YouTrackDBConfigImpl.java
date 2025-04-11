@@ -19,20 +19,22 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.security.DefaultSecurityConfig;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -48,7 +50,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
 
   public YouTrackDBConfigImpl() {
     configuration = new ContextConfiguration();
-    attributes = new HashMap<>();
+    attributes = new EnumMap<>(ATTRIBUTES.class);
     listeners = new HashSet<>();
     classLoader = this.getClass().getClassLoader();
     this.securityConfig = new DefaultSecurityConfig();
@@ -59,7 +61,6 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
       ContextConfiguration configuration,
       Map<ATTRIBUTES, Object> attributes,
       Set<SessionListener> listeners,
-      ClassLoader classLoader,
       SecurityConfig securityConfig,
       List<GlobalUser> users) {
     this.configuration = configuration;
@@ -69,27 +70,24 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
     } else {
       this.listeners = Collections.emptySet();
     }
-    if (classLoader != null) {
-      this.classLoader = classLoader;
-    } else {
-      this.classLoader = this.getClass().getClassLoader();
-    }
+
+    this.classLoader = this.getClass().getClassLoader();
+
     this.securityConfig = securityConfig;
     this.users = users;
   }
 
   @Override
-  public Set<SessionListener> getListeners() {
+  public @Nonnull Set<SessionListener> getListeners() {
     return listeners;
   }
 
-  @Override
   public ContextConfiguration getConfiguration() {
     return configuration;
   }
 
   @Override
-  public Map<ATTRIBUTES, Object> getAttributes() {
+  public @Nonnull Map<ATTRIBUTES, Object> getAttributes() {
     return attributes;
   }
 
@@ -117,7 +115,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
       }
 
       if (parent.configuration != null) {
-        ContextConfiguration confis = new ContextConfiguration();
+        var confis = new ContextConfiguration();
         confis.merge(parent.configuration);
         if (this.configuration != null) {
           confis.merge(this.configuration);

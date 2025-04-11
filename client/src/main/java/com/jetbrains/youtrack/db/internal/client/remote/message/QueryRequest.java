@@ -25,13 +25,16 @@ import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
@@ -40,12 +43,11 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   public static byte EXECUTE = 2;
 
   private int recordsPerPage = 100;
-  private RecordSerializer serializer;
+  private RecordSerializerNetwork serializer;
   private String language;
   private String statement;
   private byte operationType;
   private Map<String, Object> params;
-  private byte[] paramsBytes;
   private boolean namedParams;
 
   public QueryRequest(
@@ -53,11 +55,12 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
       String iCommand,
       Object[] positionalParams,
       byte operationType,
-      RecordSerializer serializer,
+      RecordSerializerNetwork serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
     params = StorageRemote.paramsArrayToParamsMap(positionalParams);
+
     namedParams = false;
     this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
@@ -65,10 +68,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
       this.recordsPerPage = 100;
     }
     this.operationType = operationType;
-    EntityImpl parms = new EntityImpl();
-    parms.field("params", this.params);
-
-    paramsBytes = MessageHelper.getRecordBytes(session, parms, serializer);
   }
 
   public QueryRequest(
@@ -76,15 +75,12 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
       String iCommand,
       Map<String, Object> namedParams,
       byte operationType,
-      RecordSerializer serializer,
+      RecordSerializerNetwork serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
     this.params = namedParams;
-    EntityImpl parms = new EntityImpl(session);
-    parms.field("params", this.params);
 
-    paramsBytes = MessageHelper.getRecordBytes(session, parms, serializer);
     this.namedParams = true;
     this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
@@ -98,7 +94,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
+  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
@@ -107,13 +103,28 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     network.writeString(null);
 
-    // params
-    network.writeBytes(paramsBytes);
+    if (params != null) {
+      network.writeByte((byte) 1);
+
+      var result = new ResultInternal(databaseSession);
+      for (var entry : params.entrySet()) {
+        var key = entry.getKey();
+        var value = entry.getValue();
+
+        result.setProperty(key, value);
+      }
+
+      MessageHelper.writeResult(databaseSession, result, network);
+    } else {
+      network.writeByte((byte) 0);
+    }
+
     network.writeBoolean(namedParams);
   }
 
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
+      int protocolVersion,
+      RecordSerializerNetwork serializer)
       throws IOException {
     this.language = channel.readString();
     this.statement = channel.readString();
@@ -122,7 +133,11 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     channel.readString();
 
-    this.paramsBytes = channel.readBytes();
+    if (channel.readByte() == 1) {
+      this.params = MessageHelper.readResult(databaseSession, channel).toMap();
+    } else {
+      this.params = Collections.emptyMap();
+    }
     this.namedParams = channel.readBoolean();
     this.serializer = serializer;
   }
@@ -151,14 +166,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     return statement;
   }
 
-  public Map<String, Object> getParams(DatabaseSessionInternal db) {
-    if (params == null && this.paramsBytes != null) {
-      // params
-      EntityImpl paramsEntity = new EntityImpl();
-      paramsEntity.setTrackingChanges(false);
-      serializer.fromStream(db, this.paramsBytes, paramsEntity, null);
-      this.params = paramsEntity.field("params");
-    }
+  public Map<String, Object> getParams() {
     return params;
   }
 
@@ -170,16 +178,17 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     return namedParams;
   }
 
-  public Map getNamedParameters(DatabaseSessionInternal db) {
-    return getParams(db);
+  public Map getNamedParameters() {
+    return params;
   }
 
-  public Object[] getPositionalParameters(DatabaseSessionInternal db) {
-    Map<String, Object> params = getParams(db);
+  @Nullable
+  public Object[] getPositionalParameters() {
+    var params = this.params;
     if (params == null) {
       return null;
     }
-    Object[] result = new Object[params.size()];
+    var result = new Object[params.size()];
     params
         .entrySet()
         .forEach(

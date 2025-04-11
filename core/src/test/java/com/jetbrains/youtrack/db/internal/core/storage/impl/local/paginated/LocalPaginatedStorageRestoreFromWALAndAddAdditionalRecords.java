@@ -1,18 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -52,10 +48,9 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   @BeforeClass
   public static void beforeClass() {
-    GlobalConfiguration.STORAGE_COMPRESSION_METHOD.setValue("nothing");
     GlobalConfiguration.FILE_LOCK.setValue(false);
 
-    String buildDirectory = System.getProperty("buildDirectory", ".");
+    var buildDirectory = System.getProperty("buildDirectory", ".");
     buildDirectory += "/localPaginatedStorageRestoreFromWALAndAddAdditionalRecords";
 
     buildDir = new File(buildDirectory);
@@ -78,7 +73,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     baseDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:"
+            "disk:"
                 + buildDir.getAbsolutePath()
                 + "/baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
     if (baseDocumentTx.exists()) {
@@ -105,19 +100,19 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
   public void testRestoreAndAddNewItems() throws Exception {
     List<Future<Void>> futures = new ArrayList<Future<Void>>();
 
-    Random random = new Random();
+    var random = new Random();
 
-    long[] seeds = new long[5];
-    for (int i = 0; i < 5; i++) {
+    var seeds = new long[5];
+    for (var i = 0; i < 5; i++) {
       seeds[i] = random.nextLong();
       System.out.println("Seed [" + i + "] = " + seeds[i]);
     }
 
-    for (long seed : seeds) {
+    for (var seed : seeds) {
       futures.add(executorService.submit(new DataPropagationTask(seed)));
     }
 
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -125,48 +120,40 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     Thread.sleep(1500);
     copyDataFromTestWithoutClose();
-    Storage storage = baseDocumentTx.getStorage();
+    var storage = baseDocumentTx.getStorage();
     baseDocumentTx.close();
     storage.close(baseDocumentTx);
 
     testDocumentTx =
         new DatabaseDocumentTx(
-            "plocal:"
+            "disk:"
                 + buildDir.getAbsolutePath()
                 + "/testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
     testDocumentTx.open("admin", "admin");
     testDocumentTx.close();
 
-    long dataAddSeed = random.nextLong();
+    var dataAddSeed = random.nextLong();
     System.out.println("Data add seed = " + dataAddSeed);
-    for (int i = 0; i < 1; i++) {
+    for (var i = 0; i < 1; i++) {
       futures.add(executorService.submit(new DataPropagationTask(dataAddSeed)));
     }
 
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
-    DatabaseCompare databaseCompare =
-        new DatabaseCompare(
-            testDocumentTx,
-            baseDocumentTx,
-            new CommandOutputListener() {
-              @Override
-              public void onMessage(String text) {
-                System.out.println(text);
-              }
-            });
+    var databaseCompare =
+        new DatabaseCompare(testDocumentTx, baseDocumentTx, System.out::println);
     databaseCompare.setCompareIndexMetadata(true);
 
     Assert.assertTrue(databaseCompare.compare());
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {
-    final Path testStoragePath = Paths.get(baseDocumentTx.getURL().substring("plocal:".length()));
-    Path buildPath = Paths.get(buildDir.toURI());
+    final var testStoragePath = Paths.get(baseDocumentTx.getURL().substring("disk:".length()));
+    var buildPath = Paths.get(buildDir.toURI());
 
-    final Path copyTo =
+    final var copyTo =
         buildPath.resolve("testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
 
     Files.copy(testStoragePath, copyTo);
@@ -177,7 +164,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
               throws IOException {
-            Path fileToCopy = copyTo.resolve(testStoragePath.relativize(file));
+            var fileToCopy = copyTo.resolve(testStoragePath.relativize(file));
             if (fileToCopy.endsWith(
                 "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords.wmr")) {
               fileToCopy =
@@ -261,21 +248,19 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
         });
   }
 
-  private void createSchema(DatabaseSessionInternal databaseDocumentTx) {
-    DatabaseRecordThreadLocal.instance().set(databaseDocumentTx);
+  private void createSchema(DatabaseSessionInternal session) {
+    Schema schema = session.getMetadata().getSchema();
+    var testOneClass = schema.createClass("TestOne");
 
-    Schema schema = databaseDocumentTx.getMetadata().getSchema();
-    SchemaClass testOneClass = schema.createClass("TestOne");
-
-    testOneClass.createProperty(databaseDocumentTx, "intProp", PropertyType.INTEGER);
-    testOneClass.createProperty(databaseDocumentTx, "stringProp", PropertyType.STRING);
-    testOneClass.createProperty(databaseDocumentTx, "stringSet", PropertyType.EMBEDDEDSET,
+    testOneClass.createProperty("intProp", PropertyType.INTEGER);
+    testOneClass.createProperty("stringProp", PropertyType.STRING);
+    testOneClass.createProperty("stringSet", PropertyType.EMBEDDEDSET,
         PropertyType.STRING);
-    testOneClass.createProperty(databaseDocumentTx, "linkMap", PropertyType.LINKMAP);
+    testOneClass.createProperty("linkMap", PropertyType.LINKMAP);
 
-    SchemaClass testTwoClass = schema.createClass("TestTwo");
+    var testTwoClass = schema.createClass("TestTwo");
 
-    testTwoClass.createProperty(databaseDocumentTx, "stringList", PropertyType.EMBEDDEDLIST,
+    testTwoClass.createProperty("stringList", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
   }
 
@@ -300,70 +285,67 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     @Override
     public Void call() throws Exception {
 
-      Random random = new Random(seed);
-
-      DatabaseRecordThreadLocal.instance().set(baseDB);
-
+      var random = new Random(seed);
       try {
         List<RID> testTwoList = new ArrayList<RID>();
         List<RID> firstDocs = new ArrayList<RID>();
 
-        SchemaClass classOne = baseDB.getMetadata().getSchema().getClass("TestOne");
-        SchemaClass classTwo = baseDB.getMetadata().getSchema().getClass("TestTwo");
+        var classOne = baseDB.getMetadata().getSchema().getClass("TestOne");
+        var classTwo = baseDB.getMetadata().getSchema().getClass("TestTwo");
 
-        for (int i = 0; i < 10000; i++) {
-          EntityImpl docOne = new EntityImpl(classOne);
-          docOne.field("intProp", random.nextInt());
+        for (var i = 0; i < 10000; i++) {
+          var docOne = ((EntityImpl) baseDB.newEntity(classOne));
+          docOne.setProperty("intProp", random.nextInt());
 
-          byte[] stringData = new byte[256];
+          var stringData = new byte[256];
           random.nextBytes(stringData);
-          String stringProp = new String(stringData);
+          var stringProp = new String(stringData);
 
-          docOne.field("stringProp", stringProp);
+          docOne.setProperty("stringProp", stringProp);
 
           Set<String> stringSet = new HashSet<String>();
-          for (int n = 0; n < 5; n++) {
+          for (var n = 0; n < 5; n++) {
             stringSet.add("str" + random.nextInt());
           }
-          docOne.field("stringSet", stringSet);
+          docOne.setProperty("stringSet", stringSet);
 
           saveDoc(docOne);
 
           firstDocs.add(docOne.getIdentity());
 
           if (random.nextBoolean()) {
-            EntityImpl docTwo = new EntityImpl(classTwo);
+            var docTwo = ((EntityImpl) baseDB.newEntity(classTwo));
 
             List<String> stringList = new ArrayList<String>();
 
-            for (int n = 0; n < 5; n++) {
+            for (var n = 0; n < 5; n++) {
               stringList.add("strnd" + random.nextInt());
             }
 
-            docTwo.field("stringList", stringList);
+            docTwo.setProperty("stringList", stringList);
             saveDoc(docTwo);
             testTwoList.add(docTwo.getIdentity());
           }
 
           if (!testTwoList.isEmpty()) {
-            int startIndex = random.nextInt(testTwoList.size());
-            int endIndex = random.nextInt(testTwoList.size() - startIndex) + startIndex;
+            var startIndex = random.nextInt(testTwoList.size());
+            var endIndex = random.nextInt(testTwoList.size() - startIndex) + startIndex;
 
             Map<String, RID> linkMap = new HashMap<String, RID>();
 
-            for (int n = startIndex; n < endIndex; n++) {
-              RID docTwoRid = testTwoList.get(n);
+            for (var n = startIndex; n < endIndex; n++) {
+              var docTwoRid = testTwoList.get(n);
               linkMap.put(docTwoRid.toString(), docTwoRid);
             }
 
-            docOne.field("linkMap", linkMap);
+            docOne.setProperty("linkMap", linkMap);
 
             saveDoc(docOne);
           }
 
-          boolean deleteDoc = random.nextDouble() <= 0.2;
+          var deleteDoc = random.nextDouble() <= 0.2;
           if (deleteDoc) {
-            RID rid = firstDocs.remove(random.nextInt(firstDocs.size()));
+            var rid = firstDocs.remove(random.nextInt(firstDocs.size()));
 
             deleteDoc(rid);
           }
@@ -379,31 +361,26 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     }
 
     private void saveDoc(EntityImpl document) {
-      DatabaseRecordThreadLocal.instance().set(baseDB);
+      var testDoc = ((EntityImpl) baseDB.newEntity());
+      var propertyNames = document.getPropertyNames();
 
-      EntityImpl testDoc = new EntityImpl();
-      document.copyTo(testDoc);
-      document.save();
+      for (var propertyName : propertyNames) {
+        testDoc.setProperty(propertyName, document.getProperty(propertyName));
+      }
 
       if (testDB != null) {
-        DatabaseRecordThreadLocal.instance().set(testDB);
-        testDoc.save();
-
         Assert.assertEquals(testDoc.getIdentity(), document.getIdentity());
-
-        DatabaseRecordThreadLocal.instance().set(baseDB);
       }
     }
 
     private void deleteDoc(RID rid) {
-      baseDB.delete(rid);
-
+      var record = baseDB.load(rid);
+      baseDB.delete(record);
       if (testDB != null) {
-        DatabaseRecordThreadLocal.instance().set(testDB);
         Assert.assertNotNull(testDB.load(rid));
-        testDB.delete(rid);
+        record = testDB.load(rid);
+        testDB.delete(record);
         Assert.assertNull(testDB.load(rid));
-        DatabaseRecordThreadLocal.instance().set(baseDB);
       }
     }
   }

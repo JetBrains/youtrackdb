@@ -28,7 +28,7 @@ public class QueryParsingException extends CommandSQLParsingException {
   private static final long serialVersionUID = -7430575036316163711L;
 
   private static String makeMessage(int position, String text, String message) {
-    StringBuilder buffer = new StringBuilder();
+    var buffer = new StringBuilder();
     if (position > -1) {
       buffer.append("Error on parsing query at position #");
       buffer.append(position);
@@ -41,7 +41,7 @@ public class QueryParsingException extends CommandSQLParsingException {
       buffer.append("\nQuery: ");
       buffer.append(text);
       buffer.append("\n------");
-      for (int i = 0; i < position - 1; ++i) {
+      for (var i = 0; i < position - 1; ++i) {
         buffer.append("-");
       }
 
@@ -61,8 +61,13 @@ public class QueryParsingException extends CommandSQLParsingException {
     super(iMessage);
   }
 
-  public QueryParsingException(final String iMessage, final String iText, final int iPosition) {
-    super(makeMessage(iPosition, iText, iMessage));
+  public QueryParsingException(String dbName, final String iMessage) {
+    super(dbName, iMessage);
+  }
+
+  public QueryParsingException(String dbName, final String iMessage, final String iText,
+      final int iPosition) {
+    super(dbName, makeMessage(iPosition, iText, iMessage));
 
     text = iText;
     position = iPosition;

@@ -1,17 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -28,611 +28,576 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
   @Before
   public void beforeMethod() {
     topThreshold =
-        GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.getValueAsInteger();
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
     bottomThreshold =
-        GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
 
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(-1);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
   }
 
   @After
   public void afterMethod() {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(topThreshold);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
   }
 
   @Test
   public void testAddTwoNewDocuments() {
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
+    session.begin();
 
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.rollback();
 
-    db.rollback();
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
-
-    Assert.assertEquals(ridBag.size(), 0);
+    Assert.assertEquals(0, ridBag.size());
+    session.commit();
   }
 
   @Test
   public void testAddTwoNewDocumentsWithCME() throws Exception {
-    db.begin();
+    session.begin();
 
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.commit();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    db.begin();
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "v");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    cmeDoc = activeTx2.load(cmeDoc);
+    cmeDoc.setProperty("v", 1);
 
-    cmeDoc = db.bindToSession(cmeDoc);
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    session.commit();
 
-    cmeDoc.field("v", "v234");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.begin();
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    cmeDoc.setProperty("v", 2);
+
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
+
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
     generateCME(cmeDoc.getIdentity());
 
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    Assert.assertEquals(ridBag.size(), 0);
+    Assert.assertEquals(0, ridBag.size());
+    session.commit();
   }
 
   @Test
   public void testAddTwoAdditionalNewDocuments() {
-    db.begin();
+    session.begin();
 
-    EntityImpl rootDoc = new EntityImpl();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    db.begin();
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var docThree = (EntityImpl) session.newEntity();
+    var docFour = (EntityImpl) session.newEntity();
 
-    EntityImpl docThree = new EntityImpl();
-    EntityImpl docFour = new EntityImpl();
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
+    session.rollback();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.begin();
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    db.rollback();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
+    Assert.assertEquals(2, ridBag.size());
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
-
-    Assert.assertEquals(ridBag.size(), 2);
-
-    Iterator<Identifiable> iterator = ridBag.iterator();
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
+    var iterator = ridBag.iterator();
+    List<RID> addedDocs = new ArrayList<>(
+        Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
   public void testAddingDocsDontUpdateVersion() {
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
+    var docOne = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
+    ridBag.add(docOne.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    final int version = rootDoc.getVersion();
+    final var version = rootDoc.getVersion();
 
-    db.begin();
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    EntityImpl docTwo = new EntityImpl();
-    ridBag.add(docTwo);
+    var docTwo = (EntityImpl) session.newEntity();
+    ridBag.add(docTwo.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
-
-    Assert.assertEquals(ridBag.size(), 2);
-    Assert.assertEquals(rootDoc.getVersion(), version);
-
-    db.begin();
-
-    Assert.assertEquals(ridBag.size(), 2);
-    Assert.assertEquals(rootDoc.getVersion(), version);
-    db.rollback();
+    session.commit();
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
+    Assert.assertEquals(2, ridBag.size());
+    Assert.assertEquals(rootDoc.getVersion(), version + 1);
+    session.rollback();
   }
 
   @Test
   public void testAddingDocsDontUpdateVersionInTx() {
-    db.begin();
+    session.begin();
 
-    EntityImpl rootDoc = new EntityImpl();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
+    var docOne = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
+    ridBag.add(docOne.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
+    final var version = rootDoc.getVersion();
 
-    final int version = rootDoc.getVersion();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    db.begin();
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var docTwo = (EntityImpl) session.newEntity();
+    ridBag.add(docTwo.getIdentity());
 
-    EntityImpl docTwo = new EntityImpl();
-    ridBag.add(docTwo);
+    session.commit();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
 
-    Assert.assertEquals(ridBag.size(), 2);
-    Assert.assertEquals(rootDoc.getVersion(), version);
-
-    db.begin();
-
-    Assert.assertEquals(ridBag.size(), 2);
-    Assert.assertEquals(rootDoc.getVersion(), version);
-    db.rollback();
+    ridBag = rootDoc.getProperty("ridBag");
+    Assert.assertEquals(2, ridBag.size());
+    Assert.assertEquals(rootDoc.getVersion(), version + 1);
+    session.rollback();
   }
 
   @Test
   public void testAddTwoAdditionalNewDocumentsWithCME() throws Exception {
-    db.begin();
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    db.begin();
+    session.commit();
 
-    EntityImpl rootDoc = new EntityImpl();
+    session.begin();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    db.commit();
+    session.commit();
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    db.begin();
+    session.begin();
 
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "v");
+    var activeTx = session.getActiveTransaction();
+    cmeDoc = activeTx.load(cmeDoc);
+    cmeDoc.setProperty("v", "v");
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    EntityImpl docThree = new EntityImpl();
-    EntityImpl docFour = new EntityImpl();
+    var docThree = (EntityImpl) session.newEntity();
+    var docFour = (EntityImpl) session.newEntity();
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
-
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
     generateCME(cmeDoc.getIdentity());
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    Assert.assertEquals(ridBag.size(), 2);
+    Assert.assertEquals(2, ridBag.size());
 
-    Iterator<Identifiable> iterator = ridBag.iterator();
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
+    var iterator = ridBag.iterator();
+    List<RID> addedDocs = new ArrayList<>(
+        Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
   public void testAddTwoSavedDocuments() {
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    db.begin();
+    session.begin();
 
-    EntityImpl rootDoc = new EntityImpl();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
-    docOne.save(db.getClusterNameById(db.getDefaultClusterId()));
-    EntityImpl docTwo = new EntityImpl();
-    docTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docOne = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    var docTwo = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    db.rollback();
+    session.rollback();
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
   }
 
   @Test
   public void testAddTwoAdditionalSavedDocuments() {
-    db.begin();
+    session.begin();
 
-    EntityImpl rootDoc = new EntityImpl();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    db.begin();
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var docThree = (EntityImpl) session.newEntity();
 
-    EntityImpl docThree = new EntityImpl();
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
-    EntityImpl docFour = new EntityImpl();
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFour = (EntityImpl) session.newEntity();
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.rollback();
 
-    db.rollback();
+    session.begin();
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    Assert.assertEquals(2, ridBag.size());
 
-    Assert.assertEquals(ridBag.size(), 2);
+    List<Identifiable> addedDocs = new ArrayList<>(Arrays.asList(docOne, docTwo));
 
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
-
-    Iterator<Identifiable> iterator = ridBag.iterator();
+    var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
   public void testAddTwoAdditionalSavedDocumentsWithCME() throws Exception {
-    db.begin();
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    db.begin();
+    session.commit();
 
-    EntityImpl rootDoc = new EntityImpl();
+    session.begin();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    EntityImpl docOne = new EntityImpl();
-    EntityImpl docTwo = new EntityImpl();
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    var docOne = (EntityImpl) session.newEntity();
+    var docTwo = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    db.commit();
+    session.commit();
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
 
-    db.begin();
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    cmeDoc.setProperty("v", "v");
 
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "v");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docThree = (EntityImpl) session.newEntity();
 
-    EntityImpl docThree = new EntityImpl();
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
-    EntityImpl docFour = new EntityImpl();
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFour = (EntityImpl) session.newEntity();
 
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
     generateCME(cmeDoc.getIdentity());
 
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    Assert.assertEquals(ridBag.size(), 2);
+    Assert.assertEquals(2, ridBag.size());
 
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
+    List<RID> addedDocs = new ArrayList<>(
+        Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    Iterator<Identifiable> iterator = ridBag.iterator();
+    var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
   public void testAddInternalDocumentsAndSubDocuments() {
-    db.begin();
+    session.begin();
 
-    EntityImpl rootDoc = new EntityImpl();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docOne = new EntityImpl();
-    docOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docOne = (EntityImpl) session.newEntity();
 
-    EntityImpl docTwo = new EntityImpl();
-    docTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docTwo = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    session.begin();
+    var docThree = (EntityImpl) session.newEntity();
 
-    db.begin();
-    EntityImpl docThree = new EntityImpl();
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFour = (EntityImpl) session.newEntity();
 
-    EntityImpl docFour = new EntityImpl();
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
+    var docThreeOne = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docThreeTwo = (EntityImpl) session.newEntity();
 
-    EntityImpl docThreeOne = new EntityImpl();
-    docThreeOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var ridBagThree = new RidBag(session);
+    ridBagThree.add(docThreeOne.getIdentity());
+    ridBagThree.add(docThreeTwo.getIdentity());
+    docThree.setProperty("ridBag", ridBagThree);
 
-    EntityImpl docThreeTwo = new EntityImpl();
-    docThreeTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFourOne = (EntityImpl) session.newEntity();
 
-    RidBag ridBagThree = new RidBag(db);
-    ridBagThree.add(docThreeOne);
-    ridBagThree.add(docThreeTwo);
-    docThree.field("ridBag", ridBagThree);
+    var docFourTwo = (EntityImpl) session.newEntity();
 
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var ridBagFour = new RidBag(session);
+    ridBagFour.add(docFourOne.getIdentity());
+    ridBagFour.add(docFourTwo.getIdentity());
 
-    EntityImpl docFourOne = new EntityImpl();
-    docFourOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    docFour.setProperty("ridBag", ridBagFour);
 
-    EntityImpl docFourTwo = new EntityImpl();
-    docFourTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.rollback();
 
-    RidBag ridBagFour = new RidBag(db);
-    ridBagFour.add(docFourOne);
-    ridBagFour.add(docFourTwo);
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
+    List<RID> addedDocs = new ArrayList<>(
+        Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    docFour.field("ridBag", ridBagFour);
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
-
-    db.rollback();
-
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
-
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
-
-    Iterator<Identifiable> iterator = ridBag.iterator();
+    var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
   public void testAddInternalDocumentsAndSubDocumentsWithCME() throws Exception {
-    db.begin();
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.commit();
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
 
-    EntityImpl docOne = new EntityImpl();
-    docOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    EntityImpl docTwo = new EntityImpl();
-    docTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docOne = (EntityImpl) session.newEntity();
 
-    ridBag.add(docOne);
-    ridBag.add(docTwo);
+    var docTwo = (EntityImpl) session.newEntity();
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    ridBag.add(docOne.getIdentity());
+    ridBag.add(docTwo.getIdentity());
 
-    db.commit();
+    session.commit();
 
-    long recordsCount = db.countClusterElements(db.getDefaultClusterId());
+    var recordsCount = session.countClass(Entity.DEFAULT_CLASS_NAME);
 
-    db.begin();
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "v2");
-    cmeDoc.save();
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    cmeDoc.setProperty("v", "v2");
 
-    EntityImpl docThree = new EntityImpl();
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docThree = (EntityImpl) session.newEntity();
 
-    EntityImpl docFour = new EntityImpl();
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFour = (EntityImpl) session.newEntity();
 
-    rootDoc = db.bindToSession(rootDoc);
-    ridBag = rootDoc.field("ridBag");
+    var activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
 
-    ridBag.add(docThree);
-    ridBag.add(docFour);
+    ridBag.add(docThree.getIdentity());
+    ridBag.add(docFour.getIdentity());
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docThreeOne = (EntityImpl) session.newEntity();
 
-    EntityImpl docThreeOne = new EntityImpl();
-    docThreeOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docThreeTwo = (EntityImpl) session.newEntity();
 
-    EntityImpl docThreeTwo = new EntityImpl();
-    docThreeTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var ridBagThree = new RidBag(session);
+    ridBagThree.add(docThreeOne.getIdentity());
+    ridBagThree.add(docThreeTwo.getIdentity());
+    docThree.setProperty("ridBag", ridBagThree);
 
-    RidBag ridBagThree = new RidBag(db);
-    ridBagThree.add(docThreeOne);
-    ridBagThree.add(docThreeTwo);
-    docThree.field("ridBag", ridBagThree);
+    var docFourOne = (EntityImpl) session.newEntity();
 
-    docThree.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var docFourTwo = (EntityImpl) session.newEntity();
 
-    EntityImpl docFourOne = new EntityImpl();
-    docFourOne.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var ridBagFour = new RidBag(session);
+    ridBagFour.add(docFourOne.getIdentity());
+    ridBagFour.add(docFourTwo.getIdentity());
 
-    EntityImpl docFourTwo = new EntityImpl();
-    docFourTwo.save(db.getClusterNameById(db.getDefaultClusterId()));
-
-    RidBag ridBagFour = new RidBag(db);
-    ridBagFour.add(docFourOne);
-    ridBagFour.add(docFourTwo);
-
-    docFour.field("ridBag", ridBagFour);
-
-    docFour.save(db.getClusterNameById(db.getDefaultClusterId()));
+    docFour.setProperty("ridBag", ridBagFour);
 
     generateCME(cmeDoc.getIdentity());
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    Assert.assertEquals(db.countClusterElements(db.getDefaultClusterId()), recordsCount);
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>(Arrays.asList(docOne, docTwo));
+    Assert.assertEquals(session.countClass(Entity.DEFAULT_CLASS_NAME), recordsCount);
+    List<RID> addedDocs = new ArrayList<>(
+        Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    ridBag = rootDoc.field("ridBag");
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
+    ridBag = rootDoc.getProperty("ridBag");
 
-    Iterator<Identifiable> iterator = ridBag.iterator();
+    var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next()));
     Assert.assertTrue(addedDocs.remove(iterator.next()));
+    session.commit();
   }
 
   @Test
@@ -646,145 +611,153 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
   }
 
   private void testRandomChangedInTx(final int levels) {
-    Random rnd = new Random();
+    var rnd = new Random();
 
-    final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<Integer>();
-    final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<Integer>();
-    final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<Integer>();
+    final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<>();
+    final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<>();
+    final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<>();
     Map<LevelKey, List<Identifiable>> addedDocPerLevel =
-        new HashMap<LevelKey, List<Identifiable>>();
+        new HashMap<>();
 
-    for (int i = 0; i < levels; i++) {
+    for (var i = 0; i < levels; i++) {
       amountOfAddedDocsPerLevel.add(rnd.nextInt(5) + 10);
       amountOfAddedDocsAfterSavePerLevel.add(rnd.nextInt(5) + 5);
       amountOfDeletedDocsPerLevel.add(rnd.nextInt(5) + 5);
     }
 
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
     createDocsForLevel(amountOfAddedDocsPerLevel, 0, levels, addedDocPerLevel, rootDoc);
-    db.commit();
+    session.commit();
 
-    addedDocPerLevel = new HashMap<LevelKey, List<Identifiable>>(addedDocPerLevel);
+    addedDocPerLevel = new HashMap<>(addedDocPerLevel);
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    db.begin();
-    deleteDocsForLevel(db, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
-    addDocsForLevel(db, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
-    db.rollback();
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
 
-    rootDoc = db.load(rootDoc.getIdentity());
+    deleteDocsForLevel(session, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
+    addDocsForLevel(session, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
+    session.rollback();
+
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
     assertDocsAfterRollback(0, levels, addedDocPerLevel, rootDoc);
+    session.commit();
   }
 
   @Test
   public void testRandomChangedInTxWithCME() throws Exception {
-    db.begin();
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    Random rnd = new Random();
+    session.commit();
 
-    final int levels = rnd.nextInt(2) + 1;
-    final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<Integer>();
-    final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<Integer>();
-    final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<Integer>();
+    var rnd = new Random();
+
+    final var levels = rnd.nextInt(2) + 1;
+    final List<Integer> amountOfAddedDocsPerLevel = new ArrayList<>();
+    final List<Integer> amountOfAddedDocsAfterSavePerLevel = new ArrayList<>();
+    final List<Integer> amountOfDeletedDocsPerLevel = new ArrayList<>();
     Map<LevelKey, List<Identifiable>> addedDocPerLevel =
-        new HashMap<LevelKey, List<Identifiable>>();
+        new HashMap<>();
 
-    for (int i = 0; i < levels; i++) {
+    for (var i = 0; i < levels; i++) {
       amountOfAddedDocsPerLevel.add(rnd.nextInt(5) + 10);
       amountOfAddedDocsAfterSavePerLevel.add(rnd.nextInt(5) + 5);
       amountOfDeletedDocsPerLevel.add(rnd.nextInt(5) + 5);
     }
 
-    db.begin();
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "v");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    cmeDoc.setProperty("v", 1);
 
-    db.begin();
-    EntityImpl rootDoc = new EntityImpl();
+    session.commit();
+
+    session.begin();
+    var rootDoc = (EntityImpl) session.newEntity();
     createDocsForLevel(amountOfAddedDocsPerLevel, 0, levels, addedDocPerLevel, rootDoc);
-    db.commit();
+    session.commit();
 
     addedDocPerLevel = new HashMap<>(addedDocPerLevel);
 
-    rootDoc = db.load(rootDoc.getIdentity());
-    db.begin();
-    deleteDocsForLevel(db, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
-    addDocsForLevel(db, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
 
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "vn");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    deleteDocsForLevel(session, amountOfDeletedDocsPerLevel, 0, levels, rootDoc, rnd);
+    addDocsForLevel(session, amountOfAddedDocsAfterSavePerLevel, 0, levels, rootDoc);
+
+    var activeTx = session.getActiveTransaction();
+    cmeDoc = activeTx.load(cmeDoc);
+    cmeDoc.setProperty("v", 2);
 
     generateCME(cmeDoc.getIdentity());
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    rootDoc = db.load(rootDoc.getIdentity());
+    session.begin();
+    rootDoc = session.load(rootDoc.getIdentity());
     assertDocsAfterRollback(0, levels, addedDocPerLevel, rootDoc);
+    session.commit();
   }
 
   @Test
   public void testFromEmbeddedToSBTreeRollback() {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(5);
 
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    List<Identifiable> docsToAdd = new ArrayList<>();
 
-    db.begin();
-    EntityImpl document = new EntityImpl();
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    document.field("ridBag", ridBag);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var ridBag = new RidBag(session);
+    document.setProperty("ridBag", ridBag);
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    session.commit();
+
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
       docsToAdd.add(docToAdd);
     }
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertEquals(docsToAdd.size(), 3);
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    document = session.load(document.getIdentity());
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
 
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
     }
 
     Assert.assertTrue(document.isDirty());
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.rollback();
+    session.rollback();
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
     for (Identifiable identifiable : ridBag) {
@@ -792,142 +765,145 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
   public void testFromEmbeddedToSBTreeTXWithCME() throws Exception {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(5);
 
-    db.begin();
-    EntityImpl cmeDocument = new EntityImpl();
-    cmeDocument.field("v", "v1");
-    cmeDocument.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDocument = (EntityImpl) session.newEntity();
+    cmeDocument.setProperty("v", 1);
 
-    db.begin();
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    session.commit();
 
-    EntityImpl document = new EntityImpl();
+    session.begin();
+    List<RID> docsToAdd = new ArrayList<>();
 
-    RidBag ridBag = new RidBag(db);
-    document.field("ridBag", ridBag);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var document = (EntityImpl) session.newEntity();
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
+    var ridBag = new RidBag(session);
+    document.setProperty("ridBag", ridBag);
 
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
-      docsToAdd.add(docToAdd);
+    session.commit();
+
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    ridBag = document.getProperty("ridBag");
+
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
+      docsToAdd.add(docToAdd.getIdentity());
     }
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
-
-    Assert.assertEquals(docsToAdd.size(), 3);
+    Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
-    document = db.load(document.getIdentity());
+    session.begin();
+    document = session.load(document.getIdentity());
 
-    EntityImpl staleDocument = db.load(cmeDocument.getIdentity());
+    EntityImpl staleDocument = session.load(cmeDocument.getIdentity());
     Assert.assertNotSame(staleDocument, cmeDocument);
 
-    db.begin();
+    var activeTx1 = session.getActiveTransaction();
+    cmeDocument = activeTx1.load(cmeDocument);
+    cmeDocument.setProperty("v", 234);
 
-    cmeDocument = db.bindToSession(cmeDocument);
-    cmeDocument.field("v", "v234");
-    cmeDocument.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
 
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+      ridBag.add(docToAdd.getIdentity());
     }
 
     Assert.assertTrue(document.isDirty());
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
     generateCME(cmeDocument.getIdentity());
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
-    for (Identifiable identifiable : ridBag) {
+    for (var identifiable : ridBag) {
       Assert.assertTrue(docsToAdd.remove(identifiable));
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
   public void testFromEmbeddedToSBTreeWithCME() throws Exception {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(5);
 
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    List<Identifiable> docsToAdd = new ArrayList<>();
 
-    db.begin();
-    EntityImpl document = new EntityImpl();
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    document.field("ridBag", ridBag);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var ridBag = new RidBag(session);
+    document.setProperty("ridBag", ridBag);
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    session.commit();
+
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
       docsToAdd.add(docToAdd);
     }
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    Assert.assertEquals(docsToAdd.size(), 3);
+    Assert.assertEquals(3, docsToAdd.size());
     Assert.assertTrue(ridBag.isEmbedded());
 
-    document = db.load(document.getIdentity());
+    session.begin();
+    document = session.load(document.getIdentity());
 
     var rid = document.getIdentity();
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 3; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 3; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
     }
 
     Assert.assertTrue(document.isDirty());
     try {
       generateCME(rid);
-      document.save(db.getClusterNameById(db.getDefaultClusterId()));
-      db.commit();
+
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     Assert.assertTrue(ridBag.isEmbedded());
     for (Identifiable identifiable : ridBag) {
@@ -935,78 +911,79 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
-  private void generateCME(RID rid) throws InterruptedException {
-    var th =
-        new Thread(
-            () -> {
-              try (var session = db.copy()) {
-                session.activateOnCurrentThread();
-                session.begin();
-                EntityImpl cmeDocument = session.load(rid);
+  private void generateCME(RID rid) {
+    var session = this.session.copy();
+    try (session) {
+      session.begin();
+      EntityImpl cmeDocument = session.load(rid);
 
-                cmeDocument.field("v", "v1");
-                cmeDocument.save(session.getClusterNameById(session.getDefaultClusterId()));
-                session.commit();
-              }
-            });
-    th.start();
-    th.join();
+      var v = cmeDocument.getInt("v");
+      if (v != null) {
+        cmeDocument.setProperty("v", v + 1);
+      } else {
+        cmeDocument.setProperty("v", 1);
+      }
+
+      session.commit();
+    }
   }
 
   @Test
   public void testFromSBTreeToEmbeddedRollback() {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(7);
 
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    List<Identifiable> docsToAdd = new ArrayList<>();
 
-    db.begin();
-    EntityImpl document = new EntityImpl();
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
 
-    RidBag ridBag = new RidBag(db);
-    document.field("ridBag", ridBag);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var ridBag = new RidBag(session);
+    document.setProperty("ridBag", ridBag);
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.commit();
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    ridBag = document.getProperty("ridBag");
+
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
       docsToAdd.add(docToAdd);
     }
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
-
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertEquals(docsToAdd.size(), 10);
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    Assert.assertEquals(10, docsToAdd.size());
     Assert.assertFalse(ridBag.isEmbedded());
 
-    document = db.load(document.getIdentity());
+    document = session.load(document.getIdentity());
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 4; i++) {
-      Identifiable docToRemove = docsToAdd.get(i);
-      ridBag.remove(docToRemove);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 4; i++) {
+      var docToRemove = docsToAdd.get(i);
+      ridBag.remove(docToRemove.getIdentity());
     }
 
     Assert.assertTrue(document.isDirty());
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.rollback();
+    session.rollback();
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1015,74 +992,74 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
   public void testFromSBTreeToEmbeddedTxWithCME() throws Exception {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(5);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(5);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(7);
 
-    db.begin();
-    EntityImpl cmeDoc = new EntityImpl();
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.begin();
+    var cmeDoc = (EntityImpl) session.newEntity();
 
-    db.begin();
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    session.commit();
 
-    EntityImpl document = new EntityImpl();
+    session.begin();
+    List<Identifiable> docsToAdd = new ArrayList<>();
 
-    RidBag ridBag = new RidBag(db);
-    document.field("ridBag", ridBag);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    var document = (EntityImpl) session.newEntity();
 
-    db.begin();
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
+    var ridBag = new RidBag(session);
+    document.setProperty("ridBag", ridBag);
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    session.commit();
+
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    ridBag = document.getProperty("ridBag");
+
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
+
+      ridBag.add(docToAdd.getIdentity());
       docsToAdd.add(docToAdd);
     }
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
+    session.commit();
 
-    db.commit();
-
-    Assert.assertEquals(docsToAdd.size(), 10);
+    Assert.assertEquals(10, docsToAdd.size());
     Assert.assertFalse(ridBag.isEmbedded());
 
-    document = db.load(document.getIdentity());
-    document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    document.getProperty("ridBag");
 
-    db.begin();
-    cmeDoc = db.bindToSession(cmeDoc);
-    cmeDoc.field("v", "sd");
-    cmeDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+    var activeTx1 = session.getActiveTransaction();
+    cmeDoc = activeTx1.load(cmeDoc);
+    cmeDoc.setProperty("v", "sd");
 
-    document = db.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 4; i++) {
-      Identifiable docToRemove = docsToAdd.get(i);
-      ridBag.remove(docToRemove);
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 4; i++) {
+      var docToRemove = docsToAdd.get(i);
+      ridBag.remove(docToRemove.getIdentity());
     }
 
     Assert.assertTrue(document.isDirty());
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-
     generateCME(cmeDoc.getIdentity());
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
-    } catch (ConcurrentModificationException e) {
+    } catch (ConcurrentModificationException ignored) {
     }
 
-    document = db.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     Assert.assertFalse(ridBag.isEmbedded());
 
@@ -1091,6 +1068,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     }
 
     Assert.assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   private void createDocsForLevel(
@@ -1102,18 +1080,17 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     int docs = amountOfAddedDocsPerLevel.get(level);
 
-    List<Identifiable> addedDocs = new ArrayList<Identifiable>();
+    List<Identifiable> addedDocs = new ArrayList<>();
     addedDocPerLevel.put(new LevelKey(rootDoc.getIdentity(), level), addedDocs);
 
-    RidBag ridBag = new RidBag(db);
-    rootDoc.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    rootDoc.setProperty("ridBag", ridBag);
 
-    for (int i = 0; i < docs; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
+    for (var i = 0; i < docs; i++) {
+      var docToAdd = (EntityImpl) session.newEntity();
 
       addedDocs.add(docToAdd.getIdentity());
-      ridBag.add(docToAdd);
+      ridBag.add(docToAdd.getIdentity());
 
       if (level + 1 < levels) {
         createDocsForLevel(
@@ -1121,22 +1098,21 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       }
     }
 
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
   }
 
-  private void deleteDocsForLevel(
+  private static void deleteDocsForLevel(
       DatabaseSessionInternal db,
       List<Integer> amountOfDeletedDocsPerLevel,
       int level,
       int levels,
       EntityImpl rootDoc,
       Random rnd) {
-    rootDoc = db.bindToSession(rootDoc);
-    RidBag ridBag = rootDoc.field("ridBag");
-    Iterator<Identifiable> iter = ridBag.iterator();
-    while (iter.hasNext()) {
-      Identifiable identifiable = iter.next();
-      EntityImpl doc = identifiable.getRecord();
+    var activeTx = db.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    RidBag ridBag = rootDoc.getProperty("ridBag");
+    for (Identifiable identifiable : ridBag) {
+      var transaction = db.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         deleteDocsForLevel(db, amountOfDeletedDocsPerLevel, level + 1, levels, doc, rnd);
       }
@@ -1144,8 +1120,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     int docs = amountOfDeletedDocsPerLevel.get(level);
 
-    int k = 0;
-    Iterator<Identifiable> iterator = ridBag.iterator();
+    var k = 0;
+    var iterator = ridBag.iterator();
     while (k < docs && iterator.hasNext()) {
       iterator.next();
 
@@ -1158,33 +1134,34 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
         iterator = ridBag.iterator();
       }
     }
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+
   }
 
-  private void addDocsForLevel(
+  private static void addDocsForLevel(
       DatabaseSessionInternal db,
       List<Integer> amountOfAddedDocsAfterSavePerLevel,
       int level,
       int levels,
       EntityImpl rootDoc) {
-    rootDoc = db.bindToSession(rootDoc);
-    RidBag ridBag = rootDoc.field("ridBag");
+    var activeTx = db.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    RidBag ridBag = rootDoc.getProperty("ridBag");
 
     for (Identifiable identifiable : ridBag) {
-      EntityImpl doc = identifiable.getRecord();
+      var transaction = db.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         addDocsForLevel(db, amountOfAddedDocsAfterSavePerLevel, level + 1, levels, doc);
       }
     }
 
     int docs = amountOfAddedDocsAfterSavePerLevel.get(level);
-    for (int i = 0; i < docs; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(db.getClusterNameById(db.getDefaultClusterId()));
+    for (var i = 0; i < docs; i++) {
+      var docToAdd = (EntityImpl) db.newEntity();
 
-      ridBag.add(docToAdd);
+      ridBag.add(docToAdd.getIdentity());
     }
-    rootDoc.save(db.getClusterNameById(db.getDefaultClusterId()));
+
   }
 
   private void assertDocsAfterRollback(
@@ -1192,18 +1169,18 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       int levels,
       Map<LevelKey, List<Identifiable>> addedDocPerLevel,
       EntityImpl rootDoc) {
-    RidBag ridBag = rootDoc.field("ridBag");
+    RidBag ridBag = rootDoc.getProperty("ridBag");
     List<Identifiable> addedDocs =
-        new ArrayList<Identifiable>(
+        new ArrayList<>(
             addedDocPerLevel.get(new LevelKey(rootDoc.getIdentity(), level)));
 
-    Iterator<Identifiable> iterator = ridBag.iterator();
-    while (iterator.hasNext()) {
-      EntityImpl doc = iterator.next().getRecord();
+    for (Identifiable identifiable : ridBag) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
         assertDocsAfterRollback(level + 1, levels, addedDocPerLevel, doc);
       } else {
-        Assert.assertNull(doc.field("ridBag"));
+        Assert.assertNull(doc.getProperty("ridBag"));
       }
 
       Assert.assertTrue(addedDocs.remove(doc));
@@ -1212,15 +1189,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     Assert.assertTrue(addedDocs.isEmpty());
   }
 
-  private final class LevelKey {
-
-    private final RID rid;
-    private final int level;
-
-    private LevelKey(RID rid, int level) {
-      this.rid = rid;
-      this.level = level;
-    }
+  private record LevelKey(RID rid, int level) {
 
     @Override
     public boolean equals(Object o) {
@@ -1231,7 +1200,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
         return false;
       }
 
-      LevelKey levelKey = (LevelKey) o;
+      var levelKey = (LevelKey) o;
 
       if (level != levelKey.level) {
         return false;
@@ -1239,11 +1208,5 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       return rid.equals(levelKey.rid);
     }
 
-    @Override
-    public int hashCode() {
-      int result = rid.hashCode();
-      result = 31 * result + level;
-      return result;
-    }
   }
 }

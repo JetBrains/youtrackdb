@@ -13,13 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.operator;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKey;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderAbstract;
@@ -30,7 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.lucene.spatial.query.SpatialOperation;
-import org.locationtech.spatial4j.shape.Shape;
 
 public class LuceneOverlapOperator extends LuceneSpatialOperator {
 
@@ -48,23 +48,21 @@ public class LuceneOverlapOperator extends LuceneSpatialOperator {
     queryParams.put(SpatialQueryBuilderAbstract.GEO_FILTER, SpatialQueryBuilderOverlap.NAME);
     queryParams.put(SpatialQueryBuilderAbstract.SHAPE, key);
 
-    //noinspection resource
     return index
-        .getInternal()
-        .getRids(iContext.getDatabase(), queryParams)
+        .getRids(iContext.getDatabaseSession(), queryParams)
         .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));
   }
 
   @Override
   public Object evaluateRecord(
-      Identifiable iRecord,
+      Result iRecord,
       EntityImpl iCurrentResult,
       SQLFilterCondition iCondition,
       Object iLeft,
       Object iRight,
       CommandContext iContext,
       final EntitySerializer serializer) {
-    Shape shape = factory.fromDoc((EntityImpl) iLeft);
+    var shape = factory.fromResult((Result) iLeft);
 
     // TODO { 'shape' : { 'type' : 'LineString' , 'coordinates' : [[1,2],[4,6]]} }
     // TODO is not translated in map but in array[ { 'type' : 'LineString' , 'coordinates' :
@@ -75,7 +73,7 @@ public class LuceneOverlapOperator extends LuceneSpatialOperator {
     } else {
       filter = iRight;
     }
-    Shape shape1 = factory.fromObject(filter);
+    var shape1 = factory.fromObject(filter);
 
     return SpatialOperation.BBoxIntersects.evaluate(shape, shape1.getBoundingBox());
   }

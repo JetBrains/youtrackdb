@@ -38,15 +38,15 @@ public class TraversePath {
 
   @Override
   public String toString() {
-    final ArrayDeque<PathItem> stack = new ArrayDeque<PathItem>();
-    PathItem currentItem = lastPathItem;
+    final var stack = new ArrayDeque<PathItem>();
+    var currentItem = lastPathItem;
     while (currentItem != null) {
       stack.push(currentItem);
       currentItem = currentItem.parentItem;
     }
 
-    final StringBuilder buf = new StringBuilder(1024);
-    for (PathItem pathItem : stack) {
+    final var buf = new StringBuilder(1024);
+    for (var pathItem : stack) {
       buf.append(pathItem.toString());
     }
 

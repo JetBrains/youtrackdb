@@ -24,17 +24,18 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  *
  */
 public abstract class AbstractMapCache<T extends Map<RID, ?>> implements RecordCache {
-
+  @Nonnull
   protected T cache;
 
   private boolean enabled = true;
 
-  public AbstractMapCache(T cache) {
+  public AbstractMapCache(@Nonnull T cache) {
     this.cache = cache;
   }
 

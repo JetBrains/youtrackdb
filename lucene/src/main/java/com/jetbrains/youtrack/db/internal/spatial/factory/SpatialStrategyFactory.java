@@ -13,8 +13,6 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.factory;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
@@ -37,18 +35,18 @@ public class SpatialStrategyFactory {
 
   public static SpatialStrategy createStrategy(
       SpatialContext ctx,
-      DatabaseSessionInternal db,
+      DatabaseSessionInternal session,
       IndexDefinition indexDefinition) {
 
-    SchemaClass aClass =
-        db.getMetadata().getImmutableSchemaSnapshot().getClass(indexDefinition.getClassName());
+    var aClass =
+        session.getMetadata().getImmutableSchemaSnapshot().getClass(indexDefinition.getClassName());
 
-    SchemaProperty property = aClass.getProperty(indexDefinition.getFields().get(0));
+    var property = aClass.getProperty(indexDefinition.getFields().get(0));
 
-    SchemaClass linkedClass = property.getLinkedClass();
+    var linkedClass = property.getLinkedClass();
 
     if ("OPoint".equalsIgnoreCase(linkedClass.getName())) {
-      RecursivePrefixTreeStrategy strategy =
+      var strategy =
           new RecursivePrefixTreeStrategy(new GeohashPrefixTree(ctx, 11), "location");
       strategy.setDistErrPct(0);
       return strategy;

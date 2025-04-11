@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
@@ -30,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.p
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post.ServerCommandPostUploadSingleFile;
 import java.io.IOException;
 import java.net.Socket;
+import javax.annotation.Nullable;
 
 public class NetworkProtocolHttpDb extends NetworkProtocolHttpAbstract {
 
@@ -72,11 +72,7 @@ public class NetworkProtocolHttpDb extends NetworkProtocolHttpAbstract {
     return "http";
   }
 
-  @Override
-  protected void afterExecution() throws InterruptedException {
-    DatabaseRecordThreadLocal.instance().remove();
-  }
-
+  @Nullable
   @Override
   public BinaryRequestExecutor executor(ClientConnection connection) {
     return null;

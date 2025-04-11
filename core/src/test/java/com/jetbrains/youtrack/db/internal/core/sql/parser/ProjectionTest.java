@@ -32,23 +32,23 @@ public class ProjectionTest {
 
   @Test
   public void testIsExpand() throws ParseException {
-    YouTrackDBSql parser = getParserFor("select expand(foo)  from V");
-    SQLSelectStatement stm = (SQLSelectStatement) parser.parse();
+    var parser = getParserFor("select expand(foo)  from V");
+    var stm = (SQLSelectStatement) parser.parse();
     Assert.assertTrue(stm.getProjection().isExpand());
 
-    YouTrackDBSql parser2 = getParserFor("select foo  from V");
-    SQLSelectStatement stm2 = (SQLSelectStatement) parser2.parse();
+    var parser2 = getParserFor("select foo  from V");
+    var stm2 = (SQLSelectStatement) parser2.parse();
     Assert.assertFalse(stm2.getProjection().isExpand());
 
-    YouTrackDBSql parser3 = getParserFor("select expand  from V");
-    SQLSelectStatement stm3 = (SQLSelectStatement) parser3.parse();
+    var parser3 = getParserFor("select expand  from V");
+    var stm3 = (SQLSelectStatement) parser3.parse();
     Assert.assertFalse(stm3.getProjection().isExpand());
   }
 
   @Test
   public void testValidate() throws ParseException {
-    YouTrackDBSql parser = getParserFor("select expand(foo)  from V");
-    SQLSelectStatement stm = (SQLSelectStatement) parser.parse();
+    var parser = getParserFor("select expand(foo)  from V");
+    var stm = (SQLSelectStatement) parser.parse();
     stm.getProjection().validate();
 
     try {
@@ -63,7 +63,7 @@ public class ProjectionTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

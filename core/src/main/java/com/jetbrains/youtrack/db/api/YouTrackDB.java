@@ -1,11 +1,13 @@
 package com.jetbrains.youtrack.db.api;
 
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  * YouTrackDB management environment, it allows to connect to an environment and manipulate
@@ -16,12 +18,12 @@ import java.util.Map;
  * <pre>
  * <code>
  * try(var youTrackDB = YourTracks.remote("localhost","root","root") {
- *  youTrackDB.createIfNotExists("test",DatabaseType.PLOCAL, "superuser", "password", "admin",
+ *  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
  *  "writer" , "password2", "writer");
- *  try(ODatabaseDocument session = youTrackDB.open("test","superuser","password")) {
+ *  try(var session = youTrackDB.open("test","superuser","password")) {
  *     session.createClass("MyClass");
  *   }
- *  try(ODatabaseDocument session = youTrackDB.open("test","writer","password2")) {
+ *  try(var session = youTrackDB.open("test","writer","password2")) {
  *     //...
  *  }
  * }
@@ -33,13 +35,13 @@ import java.util.Map;
  * <pre>
  * <code>
  * try(YouTrackDB youTrackDB = YourTracks.embedded("./databases/")) {
- *  youTrackDB.createIfNotExists("test",DatabaseType.PLOCAL, "superuser", "password", "admin",
+ *  youTrackDB.createIfNotExists("test",DatabaseType.DISK, "superuser", "password", "admin",
  *  "writer" , "password2", "writer");
- *   try(ODatabaseDocument session = youTrackDB.open("test","superuser","password")) {
+ *   try(var session = youTrackDB.open("test","superuser","password")) {
  *     session.createClass("MyClass");
  *   }
  *
- *   try(ODatabaseDocument session = youTrackDB.open("test","writer","password2")) {
+ *   try(var session = youTrackDB.open("test","writer","password2")) {
  *     //...
  *   }
  * }
@@ -52,7 +54,7 @@ import java.util.Map;
  * <code>
  * tru(YouTrackDB youTrackDB = ...) {
  *  if(!youTrackDB.exists("one")) {
- *     youTrackDB.create("one",DatabaseType.PLOCAL, "superuser", "password", "admin", "writer,
+ *     youTrackDB.create("one",DatabaseType.DISK, "superuser", "password", "admin", "writer,
  *     "password2", "writer");
  *  }
  *  if(youTrackDB.exists("two")) {
@@ -64,10 +66,6 @@ import java.util.Map;
  * }
  * </code>
  * </pre>
- *
- * <p>
- *
- * <p>
  */
 public interface YouTrackDB extends AutoCloseable {
 
@@ -98,7 +96,7 @@ public interface YouTrackDB extends AutoCloseable {
    * use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @see #create(String, DatabaseType, String...)
    */
   void create(String database, DatabaseType type);
@@ -111,7 +109,7 @@ public interface YouTrackDB extends AutoCloseable {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.create("test", DatabaseType.PLOCAL, "user1", "password1", "admin",
+   * <p>{@code youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin",
    * "user2", "password2", "reader"); }
    *
    * <p>The predefined roles are:
@@ -123,18 +121,21 @@ public interface YouTrackDB extends AutoCloseable {
    * </ul>
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
-  void create(String database, DatabaseType type, String... userCredentials);
+  void create(@Nonnull String database, @Nonnull DatabaseType type, String... userCredentials);
+
+  void create(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig youTrackDBConfig, String... userCredentials);
 
   /**
    * Creates a new database without users. In case if you want to create users during creation
    * please use {@link #create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    */
   void create(String database, DatabaseType type, YouTrackDBConfig config);
@@ -144,7 +145,7 @@ public interface YouTrackDB extends AutoCloseable {
    * during creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @return true if the database has been created, false if already exists
    */
   boolean createIfNotExists(String database, DatabaseType type);
@@ -167,22 +168,26 @@ public interface YouTrackDB extends AutoCloseable {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.PLOCAL, "user1", "password1",
+   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1",
    * "admin", "user2", "password2", "reader"); }
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
-  void createIfNotExists(String database, DatabaseType type, String... userCredentials);
+  void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials);
+
+  void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig config, String... userCredentials);
 
   /**
    * Create a new database without users if not exists. In case if you want to create users during
    * creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    * @return true if the database has been created, false if already exists
    */
@@ -254,6 +259,46 @@ public interface YouTrackDB extends AutoCloseable {
    */
   void restore(String name, String user, String password, String path,
       YouTrackDBConfig config);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password, YouTrackDBConfig config,
+      String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password,
+      String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password, YouTrackDBConfig config,
+      String query, LiveQueryResultListener listener, Object... args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String databaseName, String user, String password,
+      String query, LiveQueryResultListener listener, Object... args);
 
 
   ResultSet execute(String script, Map<String, Object> params);

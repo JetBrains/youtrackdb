@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -26,21 +27,28 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Before
   public void beforeMethod() {
+    session.begin();
     propertyIndex = new PropertyRidBagIndexDefinition("testClass", "fOne");
+  }
+
+  @After
+  public void afterMethod() {
+    session.rollback();
   }
 
   @Test
   public void testCreateValueSingleParameter() {
-    RidBag ridBag = new RidBag(db);
+    var ridBag = new RidBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
 
-    final Object result = propertyIndex.createValue(db, Collections.singletonList(ridBag));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Collections.singletonList(ridBag));
 
     Assert.assertTrue(result instanceof Collection);
 
-    final Collection<?> collectionResult = (Collection<?>) result;
+    final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
@@ -51,16 +59,17 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueTwoParameters() {
-    RidBag ridBag = new RidBag(db);
+    var ridBag = new RidBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
 
-    final Object result = propertyIndex.createValue(db, Arrays.asList(ridBag, "25"));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Arrays.asList(ridBag, "25"));
 
     Assert.assertTrue(result instanceof Collection);
 
-    final Collection<?> collectionResult = (Collection<?>) result;
+    final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
@@ -71,21 +80,22 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueWrongParameter() {
-    Assert.assertNull(propertyIndex.createValue(db, Collections.singletonList("tt")));
+    Assert.assertNull(
+        propertyIndex.createValue(session.getActiveTransaction(), Collections.singletonList("tt")));
   }
 
   @Test
   public void testCreateValueSingleParameterArrayParams() {
-    RidBag ridBag = new RidBag(db);
+    var ridBag = new RidBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
 
-    final Object result = propertyIndex.createValue(db, ridBag);
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), ridBag);
 
     Assert.assertTrue(result instanceof Collection);
 
-    final Collection<?> collectionResult = (Collection<?>) result;
+    final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
@@ -97,16 +107,16 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueTwoParametersArrayParams() {
-    RidBag ridBag = new RidBag(db);
+    var ridBag = new RidBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
 
-    final Object result = propertyIndex.createValue(db, ridBag, "25");
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), ridBag, "25");
 
     Assert.assertTrue(result instanceof Collection);
 
-    final Collection<?> collectionResult = (Collection<?>) result;
+    final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
@@ -117,46 +127,50 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueWrongParameterArrayParams() {
-    Assert.assertNull(propertyIndex.createValue(db, "tt"));
+    Assert.assertNull(propertyIndex.createValue(session.getActiveTransaction(), "tt"));
   }
 
   @Test
   public void testGetDocumentValueToIndex() {
-    RidBag ridBag = new RidBag(db);
+    var ridBag = new RidBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
 
-    final EntityImpl document = new EntityImpl();
+    session.begin();
+    final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", ridBag);
-    document.field("fTwo", 10);
+    document.setProperty("fOne", ridBag);
+    document.setProperty("fTwo", 10);
 
-    final Object result = propertyIndex.getDocumentValueToIndex(db, document);
+    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
     Assert.assertTrue(result instanceof Collection);
 
-    final Collection<?> collectionResult = (Collection<?>) result;
+    final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
     Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
 
     assertEmbedded(ridBag);
+    session.rollback();
   }
 
   @Test
   public void testProcessChangeEventAddOnce() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEvent =
+    final var multiValueChangeEvent =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    propertyIndex.processChangeEvent(db, multiValueChangeEvent, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEvent,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(new RecordId("#1:12"), 1);
@@ -169,23 +183,25 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddTwoTimes() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(new RecordId("#1:12"), 2);
@@ -198,23 +214,25 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddTwoValues() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:13"),
             new RecordId("#1:13"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(new RecordId("#1:12"), 1);
@@ -228,20 +246,21 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventRemoveOnce() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEvent =
+    final var multiValueChangeEvent =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEvent, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEvent,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
@@ -254,27 +273,29 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventRemoveTwoTimes() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
@@ -287,25 +308,27 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddRemove() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
@@ -316,25 +339,27 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddRemoveInvValue() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:13"),
             null,
             new RecordId("#1:13"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(new RecordId("#1:12"), 1);
@@ -347,30 +372,33 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddTwiceRemoveOnce() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventThree =
+    final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventThree, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventThree,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(new RecordId("#1:12"), 1);
@@ -383,32 +411,35 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventAddOnceRemoveTwice() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventThree =
+    final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventThree, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventThree,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
@@ -421,32 +452,35 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testProcessChangeEventRemoveTwoTimesAddOnce() {
-    final Object2IntOpenHashMap<Object> keysToAdd = new Object2IntOpenHashMap<>();
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
     keysToAdd.defaultReturnValue(-1);
 
-    final Object2IntOpenHashMap<Object> keysToRemove = new Object2IntOpenHashMap<>();
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
     keysToRemove.defaultReturnValue(-1);
 
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventOne =
+    final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventTwo =
+    final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
             new RecordId("#1:12"),
             null,
             new RecordId("#1:12"));
-    final MultiValueChangeEvent<Identifiable, Identifiable> multiValueChangeEventThree =
+    final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.ADD, new RecordId("#1:12"),
             new RecordId("#1:12"));
 
-    propertyIndex.processChangeEvent(db, multiValueChangeEventOne, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventTwo, keysToAdd, keysToRemove);
-    propertyIndex.processChangeEvent(db, multiValueChangeEventThree, keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventTwo,
+        keysToAdd, keysToRemove);
+    propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventThree,
+        keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 

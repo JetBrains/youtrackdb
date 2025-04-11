@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 
 /**
@@ -14,12 +14,12 @@ public class CreateDatabaseUtil {
 
   public static final String NEW_ADMIN_PASSWORD = "adminpwd";
 
-  public static final String TYPE_PLOCAL = DatabaseType.PLOCAL.name().toLowerCase(); // "plocal";
+  public static final String TYPE_DISK = DatabaseType.DISK.name().toLowerCase(); // "disk";
   public static final String TYPE_MEMORY = DatabaseType.MEMORY.name().toLowerCase(); // "memory";
 
   public static YouTrackDBImpl createDatabase(
       final String database, final String url, final String type) {
-    final YouTrackDBImpl youTrackDB =
+    final var youTrackDB =
         new YouTrackDBImpl(
             url,
             YouTrackDBConfig.builder()

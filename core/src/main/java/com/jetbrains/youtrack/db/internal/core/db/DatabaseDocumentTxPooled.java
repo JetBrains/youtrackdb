@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 
 /**
@@ -53,12 +53,11 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
     ownerPool = (DatabaseDocumentPool) iOwner;
     getLocalCache().invalidate();
     // getMetadata().reload();
-    DatabaseRecordThreadLocal.instance().set(this);
-
     try {
       callOnOpenListeners();
     } catch (Exception e) {
-      LogManager.instance().error(this, "Error on reusing database '%s' in pool", e, getName());
+      LogManager.instance()
+          .error(this, "Error on reusing database '%s' in pool", e, getDatabaseName());
     }
   }
 
@@ -129,28 +128,28 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
     }
 
     try {
-      if (getTransaction().isActive()) {
+      if (getTransactionInternal().isActive()) {
         commit();
       }
     } catch (Exception e) {
-      LogManager.instance().error(this, "Error on releasing database '%s' in pool", e, getName());
+      LogManager.instance()
+          .error(this, "Error on releasing database '%s' in pool", e, getDatabaseName());
     }
 
     try {
       callOnCloseListeners();
     } catch (Exception e) {
-      LogManager.instance().error(this, "Error on releasing database '%s' in pool", e, getName());
+      LogManager.instance()
+          .error(this, "Error on releasing database '%s' in pool", e, getDatabaseName());
     }
 
     getLocalCache().clear();
 
     if (ownerPool != null) {
-      final DatabaseDocumentPool localCopy = ownerPool;
+      final var localCopy = ownerPool;
       ownerPool = null;
       localCopy.release(this);
     }
-
-    DatabaseRecordThreadLocal.instance().remove();
   }
 
   public void forceClose() {

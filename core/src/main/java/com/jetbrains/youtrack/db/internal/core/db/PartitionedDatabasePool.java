@@ -20,15 +20,14 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
+import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBListenerAbstract;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -106,10 +105,10 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
       connectionsCounter = null;
     }
 
-    final PoolPartition[] pts = new PoolPartition[maxPartitions];
+    final var pts = new PoolPartition[maxPartitions];
 
-    for (int i = 0; i < pts.length; i++) {
-      final PoolPartition partition = new PoolPartition();
+    for (var i = 0; i < pts.length; i++) {
+      final var partition = new PoolPartition();
       pts[i] = partition;
 
       initQueue(url, partition);
@@ -140,9 +139,9 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
   public int getAvailableConnections() {
     checkForClose();
 
-    int result = 0;
+    var result = 0;
 
-    for (PoolPartition partition : partitions) {
+    for (var partition : partitions) {
       if (partition != null) {
         result += partition.currentSize.get() - partition.acquiredConnections.get();
       }
@@ -158,9 +157,9 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
   public int getCreatedInstances() {
     checkForClose();
 
-    int result = 0;
+    var result = 0;
 
-    for (PoolPartition partition : partitions) {
+    for (var partition : partitions) {
       if (partition != null) {
         result += partition.currentSize.get();
       }
@@ -176,7 +175,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
   public DatabaseDocumentTx acquire() {
     checkForClose();
 
-    final PoolData data = poolData.get();
+    final var data = poolData.get();
     if (data.acquireCount > 0) {
       data.acquireCount++;
 
@@ -196,17 +195,17 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
       }
     } catch (java.lang.InterruptedException ie) {
       throw BaseException.wrapException(
-          new ThreadInterruptedException("Acquiring of new connection was interrupted"), ie);
+          new ThreadInterruptedException("Acquiring of new connection was interrupted"), ie, url);
     }
 
-    boolean acquired = false;
+    var acquired = false;
     try {
       while (true) {
-        final PoolPartition[] pts = partitions;
+        final var pts = partitions;
 
-        final int index = (pts.length - 1) & data.hashCode;
+        final var index = (pts.length - 1) & data.hashCode;
 
-        PoolPartition partition = pts[index];
+        var partition = pts[index];
         if (partition == null) {
           if (!poolBusy.get() && poolBusy.compareAndSet(false, true)) {
             if (pts == partitions) {
@@ -224,12 +223,12 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
 
           continue;
         } else {
-          final DatabaseDocumentTxPooled db = partition.queue.poll();
+          final var db = partition.queue.poll();
           if (db == null) {
             if (pts.length < maxPartitions) {
               if (!poolBusy.get() && poolBusy.compareAndSet(false, true)) {
                 if (pts == partitions) {
-                  final PoolPartition[] newPartitions = new PoolPartition[partitions.length << 1];
+                  final var newPartitions = new PoolPartition[partitions.length << 1];
                   System.arraycopy(partitions, 0, newPartitions, 0, partitions.length);
 
                   partitions = newPartitions;
@@ -245,7 +244,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
                     "You have reached maximum pool size for given partition");
               }
 
-              final DatabaseDocumentTxPooled newDb = new DatabaseDocumentTxPooled(url);
+              final var newDb = new DatabaseDocumentTxPooled(url);
               properties.entrySet().forEach(p -> newDb.setProperty(p.getKey(), p.getValue()));
               openDatabase(newDb);
               newDb.partition = partition;
@@ -335,7 +334,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
 
     closed = true;
 
-    for (PoolPartition partition : partitions) {
+    for (var partition : partitions) {
       if (partition == null) {
         continue;
       }
@@ -343,7 +342,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
       final Queue<DatabaseDocumentTxPooled> queue = partition.queue;
 
       while (!queue.isEmpty()) {
-        DatabaseDocumentTxPooled db = queue.poll();
+        var db = queue.poll();
         if (!db.isClosed()) {
           db.activateOnCurrentThread();
           db.close();
@@ -356,10 +355,10 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
   }
 
   private void initQueue(String url, PoolPartition partition) {
-    ConcurrentLinkedQueue<DatabaseDocumentTxPooled> queue = partition.queue;
+    var queue = partition.queue;
 
-    for (int n = 0; n < MIN_POOL_SIZE; n++) {
-      final DatabaseDocumentTxPooled db = new DatabaseDocumentTxPooled(url);
+    for (var n = 0; n < MIN_POOL_SIZE; n++) {
+      final var db = new DatabaseDocumentTxPooled(url);
       properties.entrySet().forEach(p -> db.setProperty(p.getKey(), p.getValue()));
       queue.add(db);
     }
@@ -435,12 +434,14 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
 
     @Override
     public DatabaseSession open(Token iToken) {
-      throw new DatabaseException("Impossible to open a database managed by a pool ");
+      throw new DatabaseException((String) null,
+          "Impossible to open a database managed by a pool ");
     }
 
     @Override
     public DatabaseSession open(String iUserName, String iUserPassword) {
-      throw new DatabaseException("Impossible to open a database managed by a pool ");
+      throw new DatabaseException((String) null,
+          "Impossible to open a database managed by a pool ");
     }
 
     /**
@@ -467,7 +468,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
     @Override
     public void close() {
       if (poolData != null) {
-        final PoolData data = poolData.get();
+        final var data = poolData.get();
         if (data.acquireCount == 0) {
           return;
         }
@@ -478,10 +479,10 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
           return;
         }
 
-        PoolPartition p = partition;
+        var p = partition;
         partition = null;
 
-        final Storage storage = getStorage();
+        final var storage = getStorage();
         if (storage == null) {
           return;
         }
@@ -513,7 +514,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
           data.acquiredDatabase = null;
 
           // we create new connection instead of old one
-          final DatabaseDocumentTxPooled db = new DatabaseDocumentTxPooled(url);
+          final var db = new DatabaseDocumentTxPooled(url);
           p.queue.offer(db);
         }
 

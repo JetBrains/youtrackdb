@@ -16,16 +16,12 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,36 +42,26 @@ public class DbListenerTest extends BaseDBTest {
   protected int onBeforeTxCommit = 0;
   protected int onBeforeTxRollback = 0;
   protected int onClose = 0;
-  protected int onCreate = 0;
-  protected int onDelete = 0;
-  protected int onOpen = 0;
-  protected int onCorruption = 0;
   protected String command;
-  protected Object commandResult;
 
   public static class DocumentChangeListener {
 
-    final Map<EntityImpl, List<String>> changes = new HashMap<EntityImpl, List<String>>();
+    final Map<Entity, List<String>> changes = new HashMap<>();
 
     public DocumentChangeListener(final DatabaseSession db) {
       db.registerHook(
-          new DocumentHookAbstract(db) {
+          new EntityHookAbstract() {
 
             @Override
-            public RecordHook.DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-              return RecordHook.DISTRIBUTED_EXECUTION_MODE.SOURCE_NODE;
-            }
-
-            @Override
-            public void onRecordAfterUpdate(EntityImpl entity) {
-              List<String> changedFields = new ArrayList<>();
-              Collections.addAll(changedFields, entity.getDirtyFields());
+            public void onBeforeEntityUpdate(Entity entity) {
+              List<String> changedFields = new ArrayList<>(
+                  entity.getDirtyPropertiesBetweenCallbacks());
               changes.put(entity, changedFields);
             }
           });
     }
 
-    public Map<EntityImpl, List<String>> getChanges() {
+    public Map<Entity, List<String>> getChanges() {
       return changes;
     }
   }
@@ -83,27 +69,27 @@ public class DbListenerTest extends BaseDBTest {
   public class DbListener implements SessionListener {
 
     @Override
-    public void onAfterTxCommit(DatabaseSession iDatabase) {
+    public void onAfterTxCommit(Transaction transaction) {
       onAfterTxCommit++;
     }
 
     @Override
-    public void onAfterTxRollback(DatabaseSession iDatabase) {
+    public void onAfterTxRollback(Transaction transaction) {
       onAfterTxRollback++;
     }
 
     @Override
-    public void onBeforeTxBegin(DatabaseSession iDatabase) {
+    public void onBeforeTxBegin(Transaction transaction) {
       onBeforeTxBegin++;
     }
 
     @Override
-    public void onBeforeTxCommit(DatabaseSession iDatabase) {
+    public void onBeforeTxCommit(Transaction transaction) {
       onBeforeTxCommit++;
     }
 
     @Override
-    public void onBeforeTxRollback(DatabaseSession iDatabase) {
+    public void onBeforeTxRollback(Transaction transaction) {
       onBeforeTxRollback++;
     }
 
@@ -120,27 +106,29 @@ public class DbListenerTest extends BaseDBTest {
 
   @Test
   public void testEmbeddedDbListeners() throws IOException {
-    database = createSessionInstance();
-    database.registerListener(new DbListener());
+    session = createSessionInstance();
+    session.registerListener(new DbListener());
 
-    final int baseOnBeforeTxBegin = onBeforeTxBegin;
-    final int baseOnBeforeTxCommit = onBeforeTxCommit;
-    final int baseOnAfterTxCommit = onAfterTxCommit;
+    final var baseOnBeforeTxBegin = onBeforeTxBegin;
+    final var baseOnBeforeTxCommit = onBeforeTxCommit;
+    final var baseOnAfterTxCommit = onAfterTxCommit;
 
-    database.begin();
+    session.begin();
     Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 1);
 
-    database
-        .<EntityImpl>newInstance().save();
-    database.commit();
+    session
+        .newInstance();
+
+    session.commit();
     Assert.assertEquals(onBeforeTxCommit, baseOnBeforeTxCommit + 1);
     Assert.assertEquals(onAfterTxCommit, baseOnAfterTxCommit + 1);
 
-    database.begin();
+    session.begin();
     Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 2);
 
-    database.<EntityImpl>newInstance().save();
-    database.rollback();
+    session.newInstance();
+
+    session.rollback();
     Assert.assertEquals(onBeforeTxRollback, 1);
     Assert.assertEquals(onAfterTxRollback, 1);
   }
@@ -151,38 +139,38 @@ public class DbListenerTest extends BaseDBTest {
       return;
     }
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
     var listener = new DbListener();
-    database.registerListener(listener);
+    session.registerListener(listener);
 
     var baseOnBeforeTxBegin = onBeforeTxBegin;
-    database.begin();
+    session.begin();
     Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 1);
 
-    database
-        .<EntityImpl>newInstance()
-        .save();
+    session
+        .newInstance();
+
     var baseOnBeforeTxCommit = onBeforeTxCommit;
     var baseOnAfterTxCommit = onAfterTxCommit;
-    database.commit();
+    session.commit();
     Assert.assertEquals(onBeforeTxCommit, baseOnBeforeTxCommit + 1);
     Assert.assertEquals(onAfterTxCommit, baseOnAfterTxCommit + 1);
 
-    database.begin();
+    session.begin();
     Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 2);
 
-    database
-        .<EntityImpl>newInstance()
-        .save();
+    session
+        .newInstance();
+
     var baseOnBeforeTxRollback = onBeforeTxRollback;
     var baseOnAfterTxRollback = onAfterTxRollback;
-    database.rollback();
+    session.rollback();
     Assert.assertEquals(onBeforeTxRollback, baseOnBeforeTxRollback + 1);
     Assert.assertEquals(onAfterTxRollback, baseOnAfterTxRollback + 1);
 
     var baseOnClose = onClose;
-    database.close();
+    session.close();
     Assert.assertEquals(onClose, baseOnClose + 1);
   }
 
@@ -191,51 +179,45 @@ public class DbListenerTest extends BaseDBTest {
     if (remoteDB) {
       return;
     }
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    database.begin();
-    EntityImpl rec =
-        database
-            .<EntityImpl>newInstance()
-            .field("name", "Jay");
-    rec.save();
-    database.commit();
+    session.begin();
+    var rec =
+        session
+            .newInstance()
+            .setPropertyInChain("name", "Jay");
 
-    final DocumentChangeListener cl = new DocumentChangeListener(database);
+    session.commit();
 
-    database.begin();
-    rec = database.bindToSession(rec);
-    rec.field("surname", "Miner").save();
-    database.commit();
+    final var cl = new DocumentChangeListener(session);
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    rec = activeTx.load(rec);
+    rec.setProperty("surname", "Miner");
+
+    session.commit();
 
     Assert.assertEquals(cl.getChanges().size(), 1);
   }
 
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
   @Test
   public void testEmbeddedDbListenersGraph() throws IOException {
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    database.begin();
-    var v = database.newVertex();
+    session.begin();
+    var v = session.newVertex();
     v.setProperty("name", "Jay");
-    v.save();
 
-    database.commit();
-    database.begin();
-    final DocumentChangeListener cl = new DocumentChangeListener(database);
+    session.commit();
+    session.begin();
+    final var cl = new DocumentChangeListener(session);
 
-    v = database.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     v.setProperty("surname", "Miner");
-    v.save();
-    database.commit();
-    database.close();
+    session.commit();
+    session.close();
 
     Assert.assertEquals(cl.getChanges().size(), 1);
   }

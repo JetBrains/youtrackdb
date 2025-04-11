@@ -42,10 +42,10 @@ public class MatchFirstStep extends AbstractExecutionStep {
     }
 
     ExecutionStream data;
-    String alias = getAlias();
+    var alias = getAlias();
 
     @SuppressWarnings("unchecked")
-    List<Result> matchedNodes =
+    var matchedNodes =
         (List<Result>) ctx.getVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + alias);
     if (matchedNodes != null) {
       data = ExecutionStream.resultIterator(matchedNodes.iterator());
@@ -55,7 +55,7 @@ public class MatchFirstStep extends AbstractExecutionStep {
 
     return data.map(
         (result, context) -> {
-          ResultInternal newResult = new ResultInternal(context.getDatabase());
+          var newResult = new ResultInternal(context.getDatabaseSession());
           newResult.setProperty(getAlias(), result);
           context.setVariable("$matched", newResult);
           return newResult;
@@ -64,8 +64,8 @@ public class MatchFirstStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ SET \n");
     result.append(spaces);

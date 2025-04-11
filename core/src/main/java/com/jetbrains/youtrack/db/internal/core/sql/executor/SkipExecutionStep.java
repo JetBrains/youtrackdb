@@ -19,10 +19,10 @@ public class SkipExecutionStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    int skipValue = skip.getValue(ctx);
+    var skipValue = skip.getValue(ctx);
     assert prev != null;
-    ExecutionStream rs = prev.start(ctx);
-    int skipped = 0;
+    var rs = prev.start(ctx);
+    var skipped = 0;
     while (rs.hasNext(ctx) && skipped < skipValue) {
       rs.next(ctx);
       skipped++;

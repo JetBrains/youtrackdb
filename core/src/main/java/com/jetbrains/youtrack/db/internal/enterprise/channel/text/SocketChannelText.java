@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel.text;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import java.io.IOException;
 import java.net.Socket;
@@ -41,10 +41,10 @@ public class SocketChannelText extends SocketChannel {
   public int read(final byte[] iBuffer, final int iStartingPosition, final int iContentLength)
       throws IOException {
     int pos;
-    int read = 0;
+    var read = 0;
     pos = iStartingPosition;
 
-    for (int required = iContentLength; required > 0; required -= read) {
+    for (var required = iContentLength; required > 0; required -= read) {
       read = inStream.read(iBuffer, pos, required);
       pos += read;
     }

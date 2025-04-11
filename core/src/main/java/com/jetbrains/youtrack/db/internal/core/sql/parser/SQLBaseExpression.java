@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -21,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBaseExpression extends SQLMathExpression {
 
@@ -78,7 +78,13 @@ public class SQLBaseExpression extends SQLMathExpression {
     } else if (identifier != null) {
       identifier.toString(params, builder);
     } else if (string != null) {
-      builder.append(string);
+      if (string.length() > 1 && string.charAt(0) == '\''
+          && string.charAt(string.length() - 1) == '\'') {
+        // replace quotes
+        builder.append("\"").append(string, 1, string.length() - 1).append("\"");
+      } else {
+        builder.append(string);
+      }
     } else if (inputParam != null) {
       inputParam.toString(params, builder);
     }
@@ -177,6 +183,7 @@ public class SQLBaseExpression extends SQLMathExpression {
     return identifier.estimateIndexedFunction(target, context, operator, right);
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -254,7 +261,7 @@ public class SQLBaseExpression extends SQLMathExpression {
   public Optional<MetadataPath> getPath() {
     if (identifier != null && identifier.isBaseIdentifier()) {
       if (modifier != null) {
-        Optional<MetadataPath> path = modifier.getPath();
+        var path = modifier.getPath();
         if (path.isPresent()) {
           path.get().addPre(this.identifier.getSuffix().identifier.getStringValue());
           return path;
@@ -269,11 +276,36 @@ public class SQLBaseExpression extends SQLMathExpression {
     return Optional.empty();
   }
 
+  @Nullable
   @Override
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
-    return identifier != null && modifier == null
-        ? identifier.getCollate(currentRecord, ctx)
-        : null;
+    if (identifier == null) {
+      return null;
+    }
+
+    if (modifier == null) {
+      return identifier.getCollate(currentRecord, ctx);
+    }
+
+    // at the moment we support collate only for chains of nested links: link1.link2.link3
+    // it won't work for more complex expressions, as, for instance, coalesce(link1, link2).link3
+    var record = identifier.execute(currentRecord, ctx);
+    var lastModifier = modifier;
+    var iterate = true;
+
+    while (iterate) {
+      if (lastModifier.suffix == null) {
+        return null;
+      }
+
+      if (lastModifier.next == null) {
+        iterate = false;
+      } else {
+        record = lastModifier.executeOneLevel(currentRecord, record, ctx);
+        lastModifier = lastModifier.next;
+      }
+    }
+    return (record instanceof Result result) ? lastModifier.suffix.getCollate(result, ctx) : null;
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {
@@ -315,10 +347,10 @@ public class SQLBaseExpression extends SQLMathExpression {
 
   public SimpleNode splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SimpleNode splitResult = identifier.splitForAggregation(aggregateProj, ctx);
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var splitResult = identifier.splitForAggregation(aggregateProj, ctx);
       if (splitResult instanceof SQLBaseIdentifier) {
-        SQLBaseExpression result = new SQLBaseExpression(-1);
+        var result = new SQLBaseExpression(-1);
         result.identifier = (SQLBaseIdentifier) splitResult;
         return result;
       }
@@ -332,13 +364,13 @@ public class SQLBaseExpression extends SQLMathExpression {
     if (identifier != null) {
       return identifier.getAggregationContext(ctx);
     } else {
-      throw new CommandExecutionException("cannot aggregate on " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot aggregate on " + this);
     }
   }
 
   @Override
   public SQLBaseExpression copy() {
-    SQLBaseExpression result = new SQLBaseExpression(-1);
+    var result = new SQLBaseExpression(-1);
     result.number = number == null ? null : number.copy();
     result.identifier = identifier == null ? null : identifier.copy();
     result.inputParam = inputParam == null ? null : inputParam.copy();
@@ -363,7 +395,7 @@ public class SQLBaseExpression extends SQLMathExpression {
       return false;
     }
 
-    SQLBaseExpression that = (SQLBaseExpression) o;
+    var that = (SQLBaseExpression) o;
 
     if (!Objects.equals(number, that.number)) {
       return false;
@@ -382,7 +414,7 @@ public class SQLBaseExpression extends SQLMathExpression {
 
   @Override
   public int hashCode() {
-    int result = number != null ? number.hashCode() : 0;
+    var result = number != null ? number.hashCode() : 0;
     result = 31 * result + (identifier != null ? identifier.hashCode() : 0);
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
     result = 31 * result + (string != null ? string.hashCode() : 0);
@@ -417,14 +449,14 @@ public class SQLBaseExpression extends SQLMathExpression {
       if (modifier == null) {
         identifier.applyRemove(result, ctx);
       } else {
-        Object val = identifier.execute(result, ctx);
+        var val = identifier.execute(result, ctx);
         modifier.applyRemove(val, result, ctx);
       }
     }
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = (ResultInternal) super.serialize(db);
+    var result = (ResultInternal) super.serialize(db);
 
     if (number != null) {
       result.setProperty("number", number.serialize(db));
@@ -479,10 +511,10 @@ public class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (this.identifier != null) {
       if (modifier == null) {
-        return identifier.isDefinedFor(currentRecord);
+        return identifier.isDefinedFor(db, currentRecord);
       }
     }
     return true;
@@ -519,8 +551,9 @@ public class SQLBaseExpression extends SQLMathExpression {
     if (modifier == null) {
       return false;
     }
+    var db = ctx.getDatabaseSession();
     if (identifier.isIndexChain(ctx, clazz)) {
-      SchemaProperty prop = clazz.getProperty(
+      var prop = clazz.getProperty(
           identifier.getSuffix().getIdentifier().getStringValue());
       var linkedClass = (SchemaClassInternal) prop.getLinkedClass();
       if (linkedClass != null) {

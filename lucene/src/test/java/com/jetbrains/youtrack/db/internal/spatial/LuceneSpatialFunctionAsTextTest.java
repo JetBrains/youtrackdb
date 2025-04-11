@@ -16,19 +16,16 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import java.io.IOException;
 import java.text.ParseException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -36,19 +33,18 @@ import org.locationtech.spatial4j.shape.Shape;
 public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
 
   @Before
-  public void init() {
+  public void init() throws IOException {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("Location");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var oClass = schema.createVertexClass("Location");
+    oClass.createProperty("geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));
+    oClass.createProperty("name", PropertyType.STRING);
 
     initData();
   }
 
-  private void initData() {
+  private void initData() throws IOException {
 
     createLocation("OPoint", point());
     createLocation("OMultiPoint", multiPoint());
@@ -60,14 +56,12 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
     createLocation("OGeometryCollection", geometryCollection());
   }
 
-  protected void createLocation(String name, EntityImpl geometry) {
-    EntityImpl doc = new EntityImpl("Location");
-    doc.field("name", name);
-    doc.field("geometry", geometry);
-
-    db.begin();
-    db.save(doc);
-    db.commit();
+  protected void createLocation(String name, EmbeddedEntity geometry) {
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Location"));
+    doc.setProperty("name", name);
+    doc.setProperty("geometry", geometry);
+    session.commit();
   }
 
   @Test
@@ -77,17 +71,20 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
   }
 
   protected void queryAndAssertGeom(String name, String wkt) {
-    ResultSet results =
-        db.command("select *, ST_AsText(geometry) as text from Location where name = ? ", name);
+    session.begin();
+    var results =
+        session.execute("select *, ST_AsText(geometry) as text from Location where name = ? ",
+            name);
 
     assertTrue(results.hasNext());
-    Result doc = results.next();
+    var doc = results.next();
 
     String asText = doc.getProperty("text");
 
     Assert.assertNotNull(asText);
     Assert.assertEquals(asText, wkt);
     assertFalse(results.hasNext());
+    session.commit();
   }
 
   @Test
@@ -115,9 +112,9 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
   @Test
   public void testBugEnvelope() {
     try {
-      Shape shape = context.readShapeFromWkt(RECTANGLEWKT);
+      var shape = context.readShapeFromWkt(RECTANGLEWKT);
 
-      Geometry geometryFrom = context.getGeometryFrom(shape);
+      var geometryFrom = context.getGeometryFrom(shape);
       Assert.assertEquals(geometryFrom.toText(), RECTANGLEWKT);
     } catch (ParseException e) {
       e.printStackTrace();

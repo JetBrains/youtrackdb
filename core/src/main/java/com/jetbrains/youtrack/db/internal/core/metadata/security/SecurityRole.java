@@ -12,15 +12,7 @@ import java.util.Set;
  */
 public interface SecurityRole extends Serializable {
 
-  @Deprecated
-  enum ALLOW_MODES {
-    @Deprecated
-    DENY_ALL_BUT,
-    @Deprecated
-    ALLOW_ALL_BUT
-  }
-
-  boolean allow(
+ boolean allow(
       final Rule.ResourceGeneric resourceGeneric,
       String resourceSpecific,
       final int iCRUDOperation);
@@ -56,19 +48,15 @@ public interface SecurityRole extends Serializable {
 
   String getName(DatabaseSession session);
 
-  SecurityRole.ALLOW_MODES getMode();
-
-  SecurityRole setMode(final SecurityRole.ALLOW_MODES iMode);
-
   SecurityRole getParentRole();
 
-  SecurityRole setParentRole(DatabaseSession session, final SecurityRole iParent);
+ void setParentRole(DatabaseSession session, final SecurityRole iParent);
 
   Set<Rule> getRuleSet();
 
-  Identifiable getIdentity(DatabaseSession session);
+ Identifiable getIdentity();
 
-  Map<String, SecurityPolicy> getPolicies(DatabaseSession session);
+ Map<String, SecurityPolicy> getPolicies(DatabaseSession session);
 
   SecurityPolicy getPolicy(DatabaseSession session, String resource);
 }

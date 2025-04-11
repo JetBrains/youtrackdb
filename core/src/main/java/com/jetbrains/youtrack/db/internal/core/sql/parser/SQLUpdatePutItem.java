@@ -36,7 +36,7 @@ public class SQLUpdatePutItem extends SimpleNode {
   }
 
   public SQLUpdatePutItem copy() {
-    SQLUpdatePutItem result = new SQLUpdatePutItem(-1);
+    var result = new SQLUpdatePutItem(-1);
     result.left = left == null ? null : left.copy();
     result.key = key == null ? null : key.copy();
     result.value = value == null ? null : value.copy();
@@ -52,7 +52,7 @@ public class SQLUpdatePutItem extends SimpleNode {
       return false;
     }
 
-    SQLUpdatePutItem that = (SQLUpdatePutItem) o;
+    var that = (SQLUpdatePutItem) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -65,7 +65,7 @@ public class SQLUpdatePutItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (key != null ? key.hashCode() : 0);
     result = 31 * result + (value != null ? value.hashCode() : 0);
     return result;

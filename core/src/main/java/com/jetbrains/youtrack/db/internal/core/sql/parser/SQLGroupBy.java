@@ -25,7 +25,7 @@ public class SQLGroupBy extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("GROUP BY ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -35,7 +35,7 @@ public class SQLGroupBy extends SimpleNode {
 
   public void toGenericStatement(StringBuilder builder) {
     builder.append("GROUP BY ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -52,7 +52,7 @@ public class SQLGroupBy extends SimpleNode {
   }
 
   public SQLGroupBy copy() {
-    SQLGroupBy result = new SQLGroupBy(-1);
+    var result = new SQLGroupBy(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
     return result;
   }
@@ -66,7 +66,7 @@ public class SQLGroupBy extends SimpleNode {
       return false;
     }
 
-    SQLGroupBy oGroupBy = (SQLGroupBy) o;
+    var oGroupBy = (SQLGroupBy) o;
 
     return Objects.equals(items, oGroupBy.items);
   }
@@ -77,13 +77,13 @@ public class SQLGroupBy extends SimpleNode {
   }
 
   public void extractSubQueries(SubQueryCollector collector) {
-    for (SQLExpression item : items) {
+    for (var item : items) {
       item.extractSubQueries(collector);
     }
   }
 
   public boolean refersToParent() {
-    for (SQLExpression item : items) {
+    for (var item : items) {
       if (item.refersToParent()) {
         return true;
       }
@@ -92,7 +92,7 @@ public class SQLGroupBy extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (items != null) {
       result.setProperty(
           "items", items.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
@@ -105,8 +105,8 @@ public class SQLGroupBy extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLExpression exp = new SQLExpression(-1);
+      for (var r : ser) {
+        var exp = new SQLExpression(-1);
         exp.deserialize(r);
         items.add(exp);
       }

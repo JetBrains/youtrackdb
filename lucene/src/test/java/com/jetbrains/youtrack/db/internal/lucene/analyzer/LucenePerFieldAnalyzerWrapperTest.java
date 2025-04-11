@@ -17,7 +17,7 @@ public class LucenePerFieldAnalyzerWrapperTest {
 
   @Test
   public void shouldReturnDefaultAnalyzerForEachField() {
-    final LucenePerFieldAnalyzerWrapper analyzer =
+    final var analyzer =
         new LucenePerFieldAnalyzerWrapper(new StandardAnalyzer());
 
     assertThat(analyzer.getWrappedAnalyzer("a_field")).isNotNull();
@@ -26,7 +26,7 @@ public class LucenePerFieldAnalyzerWrapperTest {
 
   @Test
   public void shouldReturnCustomAnalyzerForEachField() {
-    final LucenePerFieldAnalyzerWrapper analyzer =
+    final var analyzer =
         new LucenePerFieldAnalyzerWrapper(new StandardAnalyzer());
 
     analyzer.add("text_en", new EnglishAnalyzer());
@@ -41,7 +41,7 @@ public class LucenePerFieldAnalyzerWrapperTest {
 
   @Test
   public void shouldReturnCustomAnalyzerForEachFieldInitializedByConstructor() {
-    final LucenePerFieldAnalyzerWrapper analyzer =
+    final var analyzer =
         new LucenePerFieldAnalyzerWrapper(
             new StandardAnalyzer(),
             new HashMap<String, Analyzer>() {

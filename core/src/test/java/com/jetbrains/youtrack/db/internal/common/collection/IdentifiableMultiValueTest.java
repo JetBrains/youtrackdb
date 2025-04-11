@@ -22,7 +22,7 @@ public class IdentifiableMultiValueTest {
 
   @Test
   public void testArraySize() {
-    String[] collection = new String[]{"foo", "bar", "baz"};
+    var collection = new String[]{"foo", "bar", "baz"};
     Assert.assertEquals(MultiValue.getSize(collection), 3);
   }
 
@@ -39,7 +39,7 @@ public class IdentifiableMultiValueTest {
 
   @Test
   public void testArrayFirstLast() {
-    String[] collection = new String[]{"foo", "bar", "baz"};
+    var collection = new String[]{"foo", "bar", "baz"};
     Assert.assertEquals(MultiValue.getFirstValue(collection), "foo");
     Assert.assertEquals(MultiValue.getLastValue(collection), "baz");
   }

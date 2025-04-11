@@ -14,14 +14,15 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.spatial4j.shape.Point;
 
@@ -43,26 +44,25 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   public void initClazz(DatabaseSessionInternal db) {
 
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass point = schema.createAbstractClass(NAME, superClass(db));
-    SchemaProperty coordinates = point.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+    var point = schema.createAbstractClass(NAME, superClass(db));
+    var coordinates = point.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.DOUBLE);
-    coordinates.setMin(db, "2");
-    coordinates.setMax(db, "2");
+    coordinates.setMin("2");
+    coordinates.setMax("2");
 
     if (GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()) {
-      SchemaClass pointz = schema.createAbstractClass(NAME + "Z", superClass(db));
-      SchemaProperty coordinatesz = pointz.createProperty(db, COORDINATES,
+      var pointz = schema.createAbstractClass(NAME + "Z", superClass(db));
+      var coordinatesz = pointz.createProperty(COORDINATES,
           PropertyType.EMBEDDEDLIST,
           PropertyType.DOUBLE);
-      coordinatesz.setMin(db, "3");
-      coordinatesz.setMax(db, "3");
+      coordinatesz.setMin("3");
+      coordinatesz.setMax("3");
     }
   }
 
   @Override
-  public Point fromDoc(EntityImpl document) {
-    validate(document);
-    List<Number> coordinates = document.field(COORDINATES);
+  public Point fromResult(Result document) {
+    List<Number> coordinates = document.getProperty(COORDINATES);
     if (coordinates.size() == 2) {
       return SHAPE_FACTORY.pointXY(
           coordinates.get(0).doubleValue(), coordinates.get(1).doubleValue());
@@ -75,43 +75,39 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   }
 
   @Override
-  public EntityImpl toDoc(final Point shape) {
-
-    EntityImpl doc = new EntityImpl(NAME);
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
+  public EmbeddedEntity toEmbeddedEntity(final Point shape, DatabaseSessionInternal session) {
+    var entity = session.newEmbeddedEntity(NAME);
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
             add(shape.getX());
             add(shape.getY());
           }
         });
-    return doc;
+    return entity;
   }
 
   @Override
-  protected EntityImpl toDoc(Point parsed, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(Point parsed, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinate().getZ())) {
-      return toDoc(parsed);
+      return toEmbeddedEntity(parsed, session);
     }
 
-    EntityImpl doc = new EntityImpl(NAME + "Z");
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
+    var entity =  session.newEmbeddedEntity(NAME + "Z");
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
           {
             add(geometry.getCoordinate().getX());
             add(geometry.getCoordinate().getY());
             add(geometry.getCoordinate().getZ());
           }
         });
-    return doc;
+    return entity;
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    if (document.getClassName().equals("OPointZ")) {
-      List<Double> coordinates = document.getProperty("coordinates");
+  public String asText(EmbeddedEntity entity) {
+    if (Objects.equals(entity.getSchemaClassName(), "OPointZ")) {
+      List<Double> coordinates = entity.getProperty("coordinates");
       return "POINT Z ("
           + format(coordinates.get(0))
           + " "
@@ -120,7 +116,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
           + format(coordinates.get(2))
           + ")";
     } else {
-      return super.asText(document);
+      return super.asText(entity);
     }
   }
 }

@@ -4,13 +4,12 @@ import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -23,77 +22,71 @@ import java.util.Set;
  */
 public class BonsaiTreeRepair {
 
-  public void repairDatabaseRidbags(DatabaseSessionInternal db,
+  public static void repairDatabaseRidbags(DatabaseSessionInternal db,
       CommandOutputListener outputListener) {
     message(outputListener, "Repair of ridbags is started ...\n");
 
     final Metadata metadata = db.getMetadata();
     final Schema schema = metadata.getSchema();
-    final SchemaClass edgeClass = schema.getClass("E");
+    final var edgeClass = schema.getClass("E");
     if (edgeClass != null) {
-      final HashMap<String, Set<RID>> processedVertexes = new HashMap<String, Set<RID>>();
-      final long countEdges = db.countClass(edgeClass.getName());
+      final var processedVertexes = new HashMap<String, Set<RID>>();
+      final var countEdges = db.countClass(edgeClass.getName());
 
       message(outputListener, countEdges + " will be processed.");
       long counter = 0;
 
-      for (EntityImpl edge : db.browseClass(edgeClass.getName())) {
+      var iterator = db.browseClass(edgeClass.getName());
+      while (iterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+        final var edge = iterator.next();
         try {
           final String label;
-          if (edge.field("label") != null) {
-            label = edge.field("label");
-          } else if (!edge.getClassName().equals(edgeClass.getName())) {
-            label = edge.getClassName();
+          if (edge.getProperty("label") != null) {
+            label = edge.getProperty("label");
+          } else if (!edge.getSchemaClassName().equals(edgeClass.getName())) {
+            label = edge.getSchemaClassName();
           } else {
             counter++;
             continue;
           }
 
-          Identifiable inId = edge.field("in");
-          Identifiable outId = edge.field("out");
+          Identifiable inId = edge.getProperty("in");
+          Identifiable outId = edge.getProperty("out");
           if (inId == null || outId == null) {
             db.delete(edge);
             continue;
           }
-          final String inVertexName =
-              VertexInternal.getEdgeLinkFieldName(Direction.IN, label, true);
-          final String outVertexName =
-              VertexInternal.getEdgeLinkFieldName(Direction.OUT, label, true);
+          final var inVertexName =
+              VertexEntityImpl.getEdgeLinkFieldName(Direction.IN, label, true);
+          final var outVertexName =
+              VertexEntityImpl.getEdgeLinkFieldName(Direction.OUT, label, true);
 
-          final EntityImpl inVertex = inId.getRecord();
-          final EntityImpl outVertex = outId.getRecord();
+          var transaction1 = db.getActiveTransaction();
+          final EntityImpl inVertex = transaction1.load(inId);
+          var transaction = db.getActiveTransaction();
+          final EntityImpl outVertex = transaction.load(outId);
 
-          Set<RID> inVertexes = processedVertexes.get(inVertexName);
-          if (inVertexes == null) {
-            inVertexes = new HashSet<>();
-            processedVertexes.put(inVertexName, inVertexes);
-          }
-          Set<RID> outVertexes = processedVertexes.get(outVertexName);
-          if (outVertexes == null) {
-            outVertexes = new HashSet<>();
-            processedVertexes.put(outVertexName, outVertexes);
-          }
+          var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
+          var outVertexes = processedVertexes.computeIfAbsent(outVertexName, k -> new HashSet<>());
 
-          if (inVertex.field(inVertexName) instanceof RidBag) {
+          if (inVertex.getProperty(inVertexName) instanceof RidBag) {
             if (inVertexes.add(inVertex.getIdentity())) {
-              inVertex.field(inVertexName, new RidBag(db));
+              inVertex.setProperty(inVertexName, new RidBag(db));
             }
 
-            final RidBag inRidBag = inVertex.field(inVertexName);
+            final RidBag inRidBag = inVertex.getProperty(inVertexName);
             inRidBag.add(edge.getIdentity());
 
-            inVertex.save();
           }
 
-          if (outVertex.field(outVertexName) instanceof RidBag) {
+          if (outVertex.getProperty(outVertexName) instanceof RidBag) {
             if (outVertexes.add(outVertex.getIdentity())) {
-              outVertex.field(outVertexName, new RidBag(db));
+              outVertex.setProperty(outVertexName, new RidBag(db));
             }
 
-            final RidBag outRidBag = outVertex.field(outVertexName);
+            final RidBag outRidBag = outVertex.getProperty(outVertexName);
             outRidBag.add(edge.getIdentity());
 
-            outVertex.save();
           }
 
           counter++;
@@ -104,7 +97,7 @@ public class BonsaiTreeRepair {
           }
 
         } catch (Exception e) {
-          final StringWriter sw = new StringWriter();
+          final var sw = new StringWriter();
 
           sw.append("Error during processing of edge with id ")
               .append(edge.getIdentity().toString())
@@ -121,7 +114,7 @@ public class BonsaiTreeRepair {
     message(outputListener, "repair of ridbags is completed\n");
   }
 
-  private void message(CommandOutputListener outputListener, String message) {
+  private static void message(CommandOutputListener outputListener, String message) {
     if (outputListener != null) {
       outputListener.onMessage(message);
     }

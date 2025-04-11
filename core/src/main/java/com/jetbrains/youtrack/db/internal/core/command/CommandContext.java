@@ -19,10 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Basic interface for commands. Manages the context variables during execution.
@@ -39,6 +40,13 @@ public interface CommandContext {
   Object getVariable(String iName, Object iDefaultValue);
 
   CommandContext setVariable(String iName, Object iValue);
+
+  <T> void setSystemVariable(int id, T value);
+
+  boolean hasSystemVariable(int id);
+
+  <T> T getSystemVariable(int id);
+
 
   CommandContext incrementVariable(String getNeighbors);
 
@@ -89,9 +97,10 @@ public interface CommandContext {
    */
   void merge(CommandContext iContext);
 
-  DatabaseSessionInternal getDatabase();
+  @Nullable
+  DatabaseSessionInternal getDatabaseSession();
 
-  void setDatabase(DatabaseSessionInternal database);
+  void setDatabaseSession(DatabaseSessionInternal session);
 
   void declareScriptVariable(String varName);
 

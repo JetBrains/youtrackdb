@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
-import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
-import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolFactory;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolFactory;
+import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.script.ScriptEngine;
 import javax.script.ScriptException;
 
@@ -41,47 +41,41 @@ public class DatabaseScriptManager {
     scriptManager = iScriptManager;
 
     pooledEngines =
-        new ResourcePoolFactory<String, ScriptEngine>(
-            new ResourcePoolFactory.ObjectFactoryFactory<String, ScriptEngine>() {
+        new ResourcePoolFactory<>(
+            language -> new ResourcePoolListener<>() {
               @Override
-              public ResourcePoolListener<String, ScriptEngine> create(final String language) {
-                return new ResourcePoolListener<String, ScriptEngine>() {
-                  @Override
-                  public ScriptEngine createNewResource(String key, Object... args) {
-                    final ScriptEngine scriptEngine = scriptManager.getEngine(language);
-                    final String library =
-                        scriptManager.getLibrary(
-                            DatabaseRecordThreadLocal.instance().get(), language);
+              public ScriptEngine createNewResource(String key, Object... args) {
+                final var scriptEngine = scriptManager.getEngine(iDatabaseName, language);
+                final var library =
+                    scriptManager.getLibrary((DatabaseSessionInternal) args[0], language);
 
-                    if (library != null) {
-                      try {
-                        scriptEngine.eval(library);
-                      } catch (ScriptException e) {
-                        scriptManager.throwErrorMessage(e, library);
-                      }
-                    }
-
-                    return scriptEngine;
+                if (library != null) {
+                  try {
+                    scriptEngine.eval(library);
+                  } catch (ScriptException e) {
+                    scriptManager.throwErrorMessage(iDatabaseName, e, library);
                   }
+                }
 
-                  @Override
-                  public boolean reuseResource(
-                      String iKey, Object[] iAdditionalArgs, ScriptEngine iValue) {
-                    if (language.equals("sql")) {
-                      return language.equals(iValue.getFactory().getLanguageName());
-                    } else {
-                      return !(iValue.getFactory().getLanguageName()).equals("sql");
-                    }
-                  }
-                };
+                return scriptEngine;
+              }
+
+              @Override
+              public boolean reuseResource(
+                  String iKey, Object[] iAdditionalArgs, ScriptEngine iValue) {
+                if (language.equals("sql")) {
+                  return language.equals(iValue.getFactory().getLanguageName());
+                } else {
+                  return !(iValue.getFactory().getLanguageName()).equals("sql");
+                }
               }
             });
     pooledEngines.setMaxPoolSize(GlobalConfiguration.SCRIPT_POOL.getValueAsInteger());
     pooledEngines.setMaxPartitions(1);
   }
 
-  public ScriptEngine acquireEngine(final String language) {
-    return pooledEngines.get(language).getResource(language, 0);
+  public ScriptEngine acquireEngine(DatabaseSessionInternal db, final String language) {
+    return pooledEngines.get(language).getResource(language, 0, db);
   }
 
   public void releaseEngine(final String language, ScriptEngine entry) {

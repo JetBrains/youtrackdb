@@ -91,9 +91,9 @@ public class SpeedTestData {
     } catch (InterruptedException e) {
     }
 
-    final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
-    final MemoryUsage heapMemoryUsage = memoryMXBean.getHeapMemoryUsage();
-    final MemoryUsage nonHeapMemoryUsage = memoryMXBean.getNonHeapMemoryUsage();
+    final var memoryMXBean = ManagementFactory.getMemoryMXBean();
+    final var heapMemoryUsage = memoryMXBean.getHeapMemoryUsage();
+    final var nonHeapMemoryUsage = memoryMXBean.getNonHeapMemoryUsage();
 
     currentTestName = iName;
 
@@ -118,27 +118,27 @@ public class SpeedTestData {
     Runtime.getRuntime().runFinalization();
     Runtime.getRuntime().gc();
 
-    final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
-    final MemoryUsage heapMemoryUsage = memoryMXBean.getHeapMemoryUsage();
-    final MemoryUsage nonHeapMemoryUsage = memoryMXBean.getNonHeapMemoryUsage();
-    final int objectsPendingFinalizationCount = memoryMXBean.getObjectPendingFinalizationCount();
+    final var memoryMXBean = ManagementFactory.getMemoryMXBean();
+    final var heapMemoryUsage = memoryMXBean.getHeapMemoryUsage();
+    final var nonHeapMemoryUsage = memoryMXBean.getNonHeapMemoryUsage();
+    final var objectsPendingFinalizationCount = memoryMXBean.getObjectPendingFinalizationCount();
 
-    final long nowHeapCommittedMemory = heapMemoryUsage.getCommitted();
-    final long nowHeapUsedMemory = heapMemoryUsage.getUsed();
-    final long nowHeapMaxMemory = heapMemoryUsage.getMax();
+    final var nowHeapCommittedMemory = heapMemoryUsage.getCommitted();
+    final var nowHeapUsedMemory = heapMemoryUsage.getUsed();
+    final var nowHeapMaxMemory = heapMemoryUsage.getMax();
 
-    final long heapCommittedMemory = nowHeapCommittedMemory - currentTestHeapCommittedMemory;
-    final long heapUsedMemory = nowHeapUsedMemory - currentTestHeapUsedMemory;
-    final long heapMaxMemory = nowHeapMaxMemory - currentTestHeapMaxMemory;
+    final var heapCommittedMemory = nowHeapCommittedMemory - currentTestHeapCommittedMemory;
+    final var heapUsedMemory = nowHeapUsedMemory - currentTestHeapUsedMemory;
+    final var heapMaxMemory = nowHeapMaxMemory - currentTestHeapMaxMemory;
 
-    final long nowNonHeapCommittedMemory = nonHeapMemoryUsage.getCommitted();
-    final long nowNonHeapUsedMemory = nonHeapMemoryUsage.getUsed();
-    final long nowNonHeapMaxMemory = nonHeapMemoryUsage.getMax();
+    final var nowNonHeapCommittedMemory = nonHeapMemoryUsage.getCommitted();
+    final var nowNonHeapUsedMemory = nonHeapMemoryUsage.getUsed();
+    final var nowNonHeapMaxMemory = nonHeapMemoryUsage.getMax();
 
-    final long nonHeapCommittedMemory =
+    final var nonHeapCommittedMemory =
         nowNonHeapCommittedMemory - currentTestNonHeapCommittedMemory;
-    final long nonHeapUsedMemory = nowNonHeapUsedMemory - currentTestNonHeapUsedMemory;
-    final long nonHeapMaxMemory = nowNonHeapMaxMemory - currentTestNonHeapMaxMemory;
+    final var nonHeapUsedMemory = nowNonHeapUsedMemory - currentTestNonHeapUsedMemory;
+    final var nonHeapMaxMemory = nowNonHeapMaxMemory - currentTestNonHeapMaxMemory;
 
     if (printResults) {
       System.out.println();
@@ -232,9 +232,9 @@ public class SpeedTestData {
   }
 
   public long printSnapshot() {
-    final long e = takeTimer();
+    final var e = takeTimer();
 
-    StringBuilder buffer = new StringBuilder();
+    var buffer = new StringBuilder();
     buffer.append("Partial timer #");
     buffer.append(++partialTimerCounter);
     buffer.append(" elapsed: ");

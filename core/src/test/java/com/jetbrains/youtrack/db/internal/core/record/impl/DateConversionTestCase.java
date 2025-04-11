@@ -49,29 +49,31 @@ public class DateConversionTestCase extends DbTestBase {
 
     // write on the db a vertex with a date:
     // 1975-05-31 23:00:00 GMT OR 1975-06-01 01:00:00 (GMT+1) +DST (+2 total)
-    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-    Date dateToInsert = format.parse("1975-06-01 01:00:00");
+    var format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    var dateToInsert = format.parse("1975-06-01 01:00:00");
 
-    EntityImpl document = new EntityImpl();
-    document.field("date", dateToInsert, PropertyType.DATE);
-    byte[] res = serializer.toStream(db, document);
-    EntityImpl extr = (EntityImpl) serializer.fromStream(db, res, new EntityImpl(),
-        new String[]{});
-    final String[] fields = extr.fieldNames();
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("date", dateToInsert, PropertyType.DATE);
+    var res = serializer.toStream(session, document);
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[]{});
+    final var fields = extr.propertyNames();
 
     assertNotNull(fields);
     assertEquals(1, fields.length);
     assertEquals("date", fields[0]);
 
-    Date old = document.field("date");
-    Date newDate = extr.field("date");
-    Calendar cal = Calendar.getInstance();
+    Date old = document.getProperty("date");
+    Date newDate = extr.getProperty("date");
+    var cal = Calendar.getInstance();
     cal.setTime(old);
-    Calendar cal1 = Calendar.getInstance();
+    var cal1 = Calendar.getInstance();
     cal1.setTime(old);
     assertEquals(cal.get(Calendar.YEAR), cal1.get(Calendar.YEAR));
     assertEquals(cal.get(Calendar.MONTH), cal1.get(Calendar.MONTH));
     assertEquals(cal.get(Calendar.DAY_OF_MONTH), cal1.get(Calendar.DAY_OF_MONTH));
+    session.rollback();
   }
 
   @Test
@@ -79,20 +81,24 @@ public class DateConversionTestCase extends DbTestBase {
     try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var db = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
 
-        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        var format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
-        Date date = format.parse("2016-08-31 23:30:00");
+        var date = format.parse("2016-08-31 23:30:00");
 
-        db.set(DatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
+        session.set(DatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
 
-        EntityImpl doc = new EntityImpl();
+        var tx = session.begin();
+        var doc = (EntityImpl) session.newEntity();
 
         doc.setProperty("dateTime", date);
-        String formatted = doc.eval("dateTime.format('yyyy-MM-dd')").toString();
+        var formatted = tx.query(
+            "select dateTime.format('yyyy-MM-dd') as value from " + doc.getIdentity()
+        ).findFirst(result -> result.getString("value"));
 
         Assert.assertEquals("2016-08-31", formatted);
+        session.rollback();
       }
       ctx.drop("test");
     }

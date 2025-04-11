@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -30,17 +29,18 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * A*'s algorithm describes how to find the cheapest path from one node to another node in a
@@ -79,53 +79,57 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
   public LinkedList<Vertex> execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
     context = iContext;
-    final SQLFunctionAstar context = this;
+    final var context = this;
 
-    final DBRecord record = iCurrentRecord != null ? iCurrentRecord.getRecord() : null;
+    var db = iContext.getDatabaseSession();
+    var record =
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.asEntity() : null;
 
-    Object source = iParams[0];
+    var source = iParams[0];
     if (MultiValue.isMultiValue(source)) {
       if (MultiValue.getSize(source) > 1) {
         throw new IllegalArgumentException("Only one sourceVertex is allowed");
       }
       source = MultiValue.getFirstValue(source);
       if (source instanceof Result && ((Result) source).isEntity()) {
-        source = ((Result) source).getEntity().get();
+        source = ((Result) source).asEntity();
       }
     }
     source = SQLHelper.getValue(source, record, iContext);
     if (source instanceof Identifiable) {
-      Entity elem = ((Identifiable) source).getRecord();
+      var transaction = db.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) source));
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
-      paramSourceVertex = elem.asVertex().get();
+      paramSourceVertex = elem.asVertexOrNull();
     } else {
       throw new IllegalArgumentException("The sourceVertex must be a vertex record");
     }
 
-    Object dest = iParams[1];
+    var dest = iParams[1];
     if (MultiValue.isMultiValue(dest)) {
       if (MultiValue.getSize(dest) > 1) {
         throw new IllegalArgumentException("Only one destinationVertex is allowed");
       }
       dest = MultiValue.getFirstValue(dest);
       if (dest instanceof Result && ((Result) dest).isEntity()) {
-        dest = ((Result) dest).getEntity().get();
+        dest = ((Result) dest).asEntity();
       }
     }
     dest = SQLHelper.getValue(dest, record, iContext);
     if (dest instanceof Identifiable) {
-      Entity elem = ((Identifiable) dest).getRecord();
+      var transaction = db.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) dest));
       if (!elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
-      paramDestinationVertex = elem.asVertex().get();
+      paramDestinationVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The destinationVertex must be a vertex record");
     }
@@ -139,14 +143,14 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (paramSourceVertex == null || paramDestinationVertex == null) {
       return new LinkedList<>();
     }
-    return internalExecute(iContext, iContext.getDatabase());
+    return internalExecute(iContext, iContext.getDatabaseSession());
   }
 
   private LinkedList<Vertex> internalExecute(
-      final CommandContext iContext, DatabaseSession graph) {
+      final CommandContext iContext, DatabaseSessionInternal graph) {
 
-    Vertex start = paramSourceVertex;
-    Vertex goal = paramDestinationVertex;
+    var start = paramSourceVertex;
+    var goal = paramDestinationVertex;
 
     open.add(start);
 
@@ -156,7 +160,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     fScore.put(start, getHeuristicCost(start, null, goal, iContext));
 
     while (!open.isEmpty()) {
-      Vertex current = open.poll();
+      var current = open.poll();
 
       if (paramEmptyIfMaxDepth && currentDepth >= paramMaxDepth) {
         route.clear(); // to ensure our result is empty
@@ -173,16 +177,16 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       }
 
       closedSet.add(current);
-      for (Edge neighborEdge : getNeighborEdges(current)) {
+      for (var neighborEdge : getNeighborEdges(current)) {
 
-        Vertex neighbor = getNeighbor(current, neighborEdge, graph);
+        var neighbor = getNeighbor(graph, current, neighborEdge, graph);
         // Ignore the neighbor which is already evaluated.
         if (closedSet.contains(neighbor)) {
           continue;
         }
         // The distance from start to a neighbor
-        double tentativeGScore = gScore.get(current) + getDistance(neighborEdge);
-        boolean contains = open.contains(neighbor);
+        var tentativeGScore = gScore.get(current) + getDistance(neighborEdge);
+        var contains = open.contains(neighbor);
 
         if (!contains || tentativeGScore < gScore.get(neighbor)) {
           gScore.put(neighbor, tentativeGScore);
@@ -204,22 +208,24 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     return getPath();
   }
 
-  private static Vertex getNeighbor(Vertex current, Edge neighborEdge,
+  private static Vertex getNeighbor(DatabaseSessionInternal db, Vertex current, Edge neighborEdge,
       DatabaseSession graph) {
     if (neighborEdge.getFrom().equals(current)) {
-      return toVertex(neighborEdge.getTo());
+      return toVertex(neighborEdge.getTo(), db);
     }
-    return toVertex(neighborEdge.getFrom());
+    return toVertex(neighborEdge.getFrom(), db);
   }
 
-  private static Vertex toVertex(Identifiable outVertex) {
+  @Nullable
+  private static Vertex toVertex(Identifiable outVertex, DatabaseSessionInternal db) {
     if (outVertex == null) {
       return null;
     }
     if (!(outVertex instanceof Entity)) {
-      outVertex = outVertex.getRecord();
+      var transaction = db.getActiveTransaction();
+      outVertex = transaction.load(outVertex);
     }
-    return ((Entity) outVertex).asVertex().orElse(null);
+    return ((Entity) outVertex).asVertexOrNull();
   }
 
   protected Set<Edge> getNeighborEdges(final Vertex node) {
@@ -227,8 +233,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
     final Set<Edge> neighbors = new HashSet<Edge>();
     if (node != null) {
-      for (Edge v : node.getEdges(paramDirection, paramEdgeTypeNames)) {
-        final Edge ov = v;
+      for (var v : node.getEdges(paramDirection, paramEdgeTypeNames)) {
+        final var ov = v;
         if (ov != null) {
           neighbors.add(ov);
         }
@@ -241,11 +247,13 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     if (additionalParams == null) {
       return;
     }
+    var db = context.getDatabaseSession();
     Map<String, ?> mapParams = null;
     if (additionalParams instanceof Map) {
       mapParams = (Map) additionalParams;
     } else if (additionalParams instanceof Identifiable) {
-      mapParams = ((EntityImpl) ((Identifiable) additionalParams).getRecord()).toMap();
+      var transaction = db.getActiveTransaction();
+      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
     }
     if (mapParams != null) {
       ctx.paramEdgeTypeNames = stringArray(mapParams.get(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES));
@@ -305,17 +313,17 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
   @Override
   protected double getDistance(final Vertex node, final Vertex parent, final Vertex target) {
-    final Iterator<Edge> edges = node.getEdges(paramDirection).iterator();
+    final var edges = node.getEdges(paramDirection).iterator();
     Edge e = null;
     while (edges.hasNext()) {
-      Edge next = edges.next();
+      var next = edges.next();
       if (next.getFrom().equals(target) || next.getTo().equals(target)) {
         e = next;
         break;
       }
     }
-    if (e != null) {
-      final Object fieldValue = e.getProperty(paramWeightFieldName);
+    if (e != null && e.isStateful()) {
+      final var fieldValue = e.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float) {
           return (Float) fieldValue;
@@ -329,8 +337,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   }
 
   protected double getDistance(final Edge edge) {
-    if (edge != null) {
-      final Object fieldValue = edge.getProperty(paramWeightFieldName);
+    if (edge != null && edge.isStateful()) {
+      final var fieldValue = edge.asStatefulEdge().getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float) {
           return (Float) fieldValue;
@@ -351,7 +359,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   @Override
   protected double getHeuristicCost(
       final Vertex node, Vertex parent, final Vertex target, CommandContext iContext) {
-    double hresult = 0.0;
+    var hresult = 0.0;
 
     if (paramVertexAxisNames.length == 0) {
       return hresult;
@@ -412,11 +420,11 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       Map<String, Double> pList = new HashMap<String, Double>();
       Map<String, Double> gList = new HashMap<String, Double>();
       parent = parent == null ? node : parent;
-      for (int i = 0; i < paramVertexAxisNames.length; i++) {
-        Double s = doubleOrDefault(paramSourceVertex.getProperty(paramVertexAxisNames[i]), 0);
-        Double c = doubleOrDefault(node.getProperty(paramVertexAxisNames[i]), 0);
-        Double g = doubleOrDefault(target.getProperty(paramVertexAxisNames[i]), 0);
-        Double p = doubleOrDefault(parent.getProperty(paramVertexAxisNames[i]), 0);
+      for (var i = 0; i < paramVertexAxisNames.length; i++) {
+        var s = doubleOrDefault(paramSourceVertex.getProperty(paramVertexAxisNames[i]), 0);
+        var c = doubleOrDefault(node.getProperty(paramVertexAxisNames[i]), 0);
+        var g = doubleOrDefault(target.getProperty(paramVertexAxisNames[i]), 0);
+        var p = doubleOrDefault(parent.getProperty(paramVertexAxisNames[i]), 0);
         if (s != null) {
           sList.put(paramVertexAxisNames[i], s);
         }

@@ -31,6 +31,7 @@ import java.security.cert.X509Certificate;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
@@ -80,11 +81,11 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
   @Override
   public synchronized void sendMessage(SyslogMessage message) throws IOException {
     sendCounter.incrementAndGet();
-    long nanosBefore = System.nanoTime();
+    var nanosBefore = System.nanoTime();
 
     try {
       Exception lastException = null;
-      for (int i = 0; i <= maxRetryCount; i++) {
+      for (var i = 0; i <= maxRetryCount; i++) {
         try {
           if (logger.isLoggable(Level.FINEST)) {
             logger.finest("Send syslog message " + message.toSyslogMessage(messageFormat));
@@ -119,7 +120,7 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
   }
 
   private synchronized void ensureSyslogServerConnection() throws IOException {
-    InetAddress inetAddress = syslogServerHostnameReference.get();
+    var inetAddress = syslogServerHostnameReference.get();
     if (socket != null && !Objects.equals(socket.getInetAddress(), inetAddress)) {
       logger.info(
           "InetAddress of the Syslog Server have changed, create a new connection. "
@@ -157,10 +158,10 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
 
         if (socket instanceof SSLSocket && logger.isLoggable(Level.FINER)) {
           try {
-            SSLSocket sslSocket = (SSLSocket) socket;
-            SSLSession session = sslSocket.getSession();
+            var sslSocket = (SSLSocket) socket;
+            var session = sslSocket.getSession();
             logger.finer("The Certificates used by peer");
-            for (Certificate certificate : session.getPeerCertificates()) {
+            for (var certificate : session.getPeerCertificates()) {
               if (certificate instanceof X509Certificate x509Certificate) {
                 logger.finer("" + x509Certificate.getSubjectDN());
               } else {
@@ -178,7 +179,7 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
           }
         }
       } catch (IOException e) {
-        ConnectException ce =
+        var ce =
             new ConnectException("Exception connecting to " + inetAddress + ":" + syslogServerPort);
         ce.initCause(e);
         throw ce;
@@ -207,8 +208,9 @@ public class TcpSyslogMessageSender extends AbstractSyslogMessageSender {
     this.syslogServerPort = syslogServerPort;
   }
 
+  @Nullable
   public String getSyslogServerHostname() {
-    InetAddress inetAddress = syslogServerHostnameReference.get();
+    var inetAddress = syslogServerHostnameReference.get();
     return inetAddress == null ? null : inetAddress.getHostName();
   }
 

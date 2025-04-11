@@ -10,7 +10,7 @@ public class JSScriptEngineFactory {
   private static final List<String> WRAPPED_LANGUAGES = Arrays.asList("javascript", "ecmascript");
 
   public static ScriptEngineFactory maybeWrap(ScriptEngineFactory engineFactory) {
-    final String factoryClassName = engineFactory.getClass().getName();
+    final var factoryClassName = engineFactory.getClass().getName();
 
     if (WRAPPED_LANGUAGES.contains(engineFactory.getLanguageName().toLowerCase(Locale.ENGLISH))
         && (factoryClassName.equalsIgnoreCase(

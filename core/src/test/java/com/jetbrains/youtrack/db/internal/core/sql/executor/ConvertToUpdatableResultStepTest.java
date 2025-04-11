@@ -25,9 +25,9 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
   @Test
   public void shouldConvertUpdatableResult() {
     CommandContext context = new BasicCommandContext();
-    context.setDatabase(db);
-    ConvertToUpdatableResultStep step = new ConvertToUpdatableResultStep(context, false);
-    AbstractExecutionStep previous =
+    context.setDatabaseSession(session);
+    var step = new ConvertToUpdatableResultStep(context, false);
+    var previous =
         new AbstractExecutionStep(context, false) {
           boolean done = false;
 
@@ -35,12 +35,12 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
           public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
             List<Result> result = new ArrayList<>();
             if (!done) {
-              for (int i = 0; i < 10; i++) {
-                EntityImpl document = new EntityImpl();
+              for (var i = 0; i < 10; i++) {
+                var document = (EntityImpl) session.newEntity();
                 document.setProperty(STRING_PROPERTY, RandomStringUtils.randomAlphanumeric(10));
                 document.setProperty(INTEGER_PROPERTY, new Random().nextInt());
                 documents.add(document);
-                result.add(new ResultInternal(ctx.getDatabase(), document));
+                result.add(new ResultInternal(ctx.getDatabaseSession(), document));
               }
               done = true;
             }
@@ -49,29 +49,29 @@ public class ConvertToUpdatableResultStepTest extends TestUtilsFixture {
         };
 
     step.setPrevious(previous);
-    ExecutionStream result = step.start(context);
+    session.begin();
+    var result = step.start(context);
 
-    int counter = 0;
+    var counter = 0;
     while (result.hasNext(context)) {
-      Result currentItem = result.next(context);
+      var currentItem = result.next(context);
       if (!(currentItem.getClass().equals(UpdatableResult.class))) {
         Assert.fail("There is an item in result set that is not an instance of UpdatableResult");
       }
       if (!currentItem
-          .getEntity()
-          .get()
+          .asEntity()
           .getProperty(STRING_PROPERTY)
           .equals(documents.get(counter).getProperty(STRING_PROPERTY))) {
         Assert.fail("String EntityImpl property inside Result instance is not preserved");
       }
       if (!currentItem
-          .getEntity()
-          .get()
+          .asEntity()
           .getProperty(INTEGER_PROPERTY)
           .equals(documents.get(counter).getProperty(INTEGER_PROPERTY))) {
         Assert.fail("Integer EntityImpl property inside Result instance is not preserved");
       }
       counter++;
     }
+    session.commit();
   }
 }

@@ -38,7 +38,7 @@ public class SubQueryStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    ExecutionStream parentRs = subExecuitonPlan.start();
+    var parentRs = subExecuitonPlan.start();
     return parentRs.map(this::mapResult);
   }
 
@@ -49,8 +49,8 @@ public class SubQueryStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    StringBuilder builder = new StringBuilder();
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
+    var builder = new StringBuilder();
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
     builder.append(ind);
     builder.append("+ FETCH FROM SUBQUERY \n");
     builder.append(subExecuitonPlan.prettyPrint(depth + 1, indent));

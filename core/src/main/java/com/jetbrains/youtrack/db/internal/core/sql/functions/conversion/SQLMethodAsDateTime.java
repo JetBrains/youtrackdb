@@ -16,14 +16,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.conversion;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * Transforms a value to datetime. If the conversion is not possible, null is returned.
@@ -41,10 +41,11 @@ public class SQLMethodAsDateTime extends AbstractSQLMethod {
     return "asDatetime()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -55,7 +56,7 @@ public class SQLMethodAsDateTime extends AbstractSQLMethod {
         return new Date(((Number) iThis).longValue());
       } else {
         try {
-          return DateHelper.getDateTimeFormatInstance(DatabaseRecordThreadLocal.instance().get())
+          return DateHelper.getDateTimeFormatInstance(iContext.getDatabaseSession())
               .parse(iThis.toString());
         } catch (ParseException e) {
           LogManager.instance().error(this, "Error during %s execution", e, NAME);

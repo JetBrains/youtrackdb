@@ -1,18 +1,16 @@
 package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import java.io.IOException;
@@ -37,86 +35,102 @@ public abstract class RidBagTest extends BaseDBTest {
     super(remote != null && remote);
   }
 
-  public void testAdd() throws Exception {
-    RidBag bag = new RidBag(database);
+  public void testAdd() {
+    session.begin();
+    var bag = new RidBag(session);
 
     bag.add(new RecordId("#77:1"));
-    Assert.assertTrue(bag.contains(new RecordId("#77:1")));
+    assertTrue(bag.contains(new RecordId("#77:1")));
     Assert.assertFalse(bag.contains(new RecordId("#78:2")));
 
-    Iterator<Identifiable> iterator = bag.iterator();
-    Assert.assertTrue(iterator.hasNext());
+    var iterator = bag.iterator();
+    assertTrue(iterator.hasNext());
 
     Identifiable identifiable = iterator.next();
-    Assert.assertEquals(identifiable, new RecordId("#77:1"));
-
+    assertEquals(identifiable, new RecordId("#77:1"));
     Assert.assertFalse(iterator.hasNext());
     assertEmbedded(bag.isEmbedded());
+    session.commit();
   }
 
-  public void testAdd2() throws Exception {
-    RidBag bag = new RidBag(database);
+  public void testAdd2() {
+    session.begin();
+    var bag = new RidBag(session);
 
     bag.add(new RecordId("#77:2"));
     bag.add(new RecordId("#77:2"));
 
-    Assert.assertTrue(bag.contains(new RecordId("#77:2")));
+    assertTrue(bag.contains(new RecordId("#77:2")));
     Assert.assertFalse(bag.contains(new RecordId("#77:3")));
 
     assertEquals(bag.size(), 2);
     assertEmbedded(bag.isEmbedded());
+    session.commit();
   }
 
   public void testAddRemoveInTheMiddleOfIteration() {
-    RidBag bag = new RidBag(database);
 
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:3"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:5"));
-    bag.add(new RecordId("#77:6"));
+    session.begin();
+    var id0 = session.newEntity().getIdentity();
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    session.commit();
 
-    int counter = 0;
-    Iterator<Identifiable> iterator = bag.iterator();
+    session.begin();
 
-    bag.remove(new RecordId("#77:2"));
+    var bag = new RidBag(session);
+
+    bag.add(id2);
+    bag.add(id2);
+    bag.add(id3);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id5);
+    bag.add(id6);
+
+    var counter = 0;
+    var iterator = bag.iterator();
+
+    bag.remove(id2);
     while (iterator.hasNext()) {
       counter++;
       if (counter == 1) {
-        bag.remove(new RecordId("#77:1"));
-        bag.remove(new RecordId("#77:2"));
+        bag.remove(id1);
+        bag.remove(id2);
       }
 
       if (counter == 3) {
-        bag.remove(new RecordId("#77:4"));
+        bag.remove(id4);
       }
 
       if (counter == 5) {
-        bag.remove(new RecordId("#77:6"));
+        bag.remove(id6);
       }
 
       iterator.next();
     }
 
-    Assert.assertTrue(bag.contains(new RecordId("#77:3")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:4")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:5")));
+    assertTrue(bag.contains(id3));
+    assertTrue(bag.contains(id4));
+    assertTrue(bag.contains(id5));
 
-    Assert.assertFalse(bag.contains(new RecordId("#77:2")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:6")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:1")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:0")));
+    Assert.assertFalse(bag.contains(id2));
+    Assert.assertFalse(bag.contains(id6));
+    Assert.assertFalse(bag.contains(id1));
+    Assert.assertFalse(bag.contains(id0));
 
     assertEmbedded(bag.isEmbedded());
 
     final List<Identifiable> rids = new ArrayList<>();
-    rids.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:5"));
+    rids.add(id3);
+    rids.add(id4);
+    rids.add(id4);
+    rids.add(id5);
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
@@ -128,70 +142,83 @@ public abstract class RidBagTest extends BaseDBTest {
       rids.add(identifiable);
     }
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
+
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    Assert.assertTrue(bag.contains(new RecordId("#77:3")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:4")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:5")));
+    assertTrue(bag.contains(id3));
+    assertTrue(bag.contains(id4));
+    assertTrue(bag.contains(id5));
 
-    Assert.assertFalse(bag.contains(new RecordId("#77:2")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:6")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:1")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:0")));
+    Assert.assertFalse(bag.contains(id2));
+    Assert.assertFalse(bag.contains(id6));
+    Assert.assertFalse(bag.contains(id1));
+    Assert.assertFalse(bag.contains(id0));
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testAddRemove() {
-    RidBag bag = new RidBag(database);
+    session.begin();
 
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:3"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:5"));
-    bag.add(new RecordId("#77:6"));
+    var id0 = session.newEntity().getIdentity();
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    session.commit();
 
-    bag.remove(new RecordId("#77:1"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:4"));
-    bag.remove(new RecordId("#77:6"));
+    session.begin();
+    var bag = new RidBag(session);
 
-    Assert.assertTrue(bag.contains(new RecordId("#77:3")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:4")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:5")));
+    bag.add(id2);
+    bag.add(id2);
+    bag.add(id3);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id5);
+    bag.add(id6);
 
-    Assert.assertFalse(bag.contains(new RecordId("#77:2")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:6")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:1")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:0")));
+    bag.remove(id1);
+    bag.remove(id2);
+    bag.remove(id2);
+    bag.remove(id4);
+    bag.remove(id6);
+
+    assertTrue(bag.contains(id3));
+    assertTrue(bag.contains(id4));
+    assertTrue(bag.contains(id5));
+
+    Assert.assertFalse(bag.contains(id2));
+    Assert.assertFalse(bag.contains(id6));
+    Assert.assertFalse(bag.contains(id1));
+    Assert.assertFalse(bag.contains(id0));
 
     assertEmbedded(bag.isEmbedded());
 
-    final List<Identifiable> rids = new ArrayList<Identifiable>();
-    rids.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:5"));
+    final List<Identifiable> rids = new ArrayList<>();
+    rids.add(id3);
+    rids.add(id4);
+    rids.add(id4);
+    rids.add(id5);
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
@@ -203,79 +230,91 @@ public abstract class RidBagTest extends BaseDBTest {
       rids.add(identifiable);
     }
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
+
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    Assert.assertTrue(bag.contains(new RecordId("#77:3")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:4")));
-    Assert.assertTrue(bag.contains(new RecordId("#77:5")));
+    assertTrue(bag.contains(id3));
+    assertTrue(bag.contains(id4));
+    assertTrue(bag.contains(id5));
 
-    Assert.assertFalse(bag.contains(new RecordId("#77:2")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:6")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:1")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:0")));
+    Assert.assertFalse(bag.contains(id2));
+    Assert.assertFalse(bag.contains(id6));
+    Assert.assertFalse(bag.contains(id1));
+    Assert.assertFalse(bag.contains(id0));
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testAddRemoveSBTreeContainsValues() {
-    RidBag bag = new RidBag(database);
 
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:3"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:5"));
-    bag.add(new RecordId("#77:6"));
+    session.begin();
+
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    session.commit();
+
+    session.begin();
+    var bag = new RidBag(session);
+
+    bag.add(id2);
+    bag.add(id2);
+    bag.add(id3);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id5);
+    bag.add(id6);
 
     assertEmbedded(bag.isEmbedded());
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
+
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
-    database.begin();
-    doc = database.load(rid);
+    session = createSessionInstance();
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    bag.remove(new RecordId("#77:1"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:4"));
-    bag.remove(new RecordId("#77:6"));
+    bag.remove(id1);
+    bag.remove(id2);
+    bag.remove(id2);
+    bag.remove(id4);
+    bag.remove(id6);
 
     final List<Identifiable> rids = new ArrayList<>();
-    rids.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:5"));
+    rids.add(id3);
+    rids.add(id4);
+    rids.add(id4);
+    rids.add(id5);
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
@@ -287,24 +326,24 @@ public abstract class RidBagTest extends BaseDBTest {
       rids.add(identifiable);
     }
 
-    doc = new EntityImpl();
-    RidBag otherBag = new RidBag(database);
-    for (Identifiable id : bag) {
+    doc = ((EntityImpl) session.newEntity());
+    var otherBag = new RidBag(session);
+    for (var id : bag) {
       otherBag.add(id);
     }
 
     assertEmbedded(otherBag.isEmbedded());
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -312,52 +351,62 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testAddRemoveDuringIterationSBTreeContainsValues() {
-    database.begin();
-    RidBag bag = new RidBag(database);
+    session.begin();
+
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+
+    session.commit();
+    session.begin();
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:3"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:4"));
-    bag.add(new RecordId("#77:5"));
-    bag.add(new RecordId("#77:6"));
+    bag.add(id2);
+    bag.add(id2);
+    bag.add(id3);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id4);
+    bag.add(id5);
+    bag.add(id6);
     assertEmbedded(bag.isEmbedded());
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     RID rid = doc.getIdentity();
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
-    database.begin();
-    doc = database.load(rid);
+    session = createSessionInstance();
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    bag.remove(new RecordId("#77:1"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:2"));
-    bag.remove(new RecordId("#77:4"));
-    bag.remove(new RecordId("#77:6"));
+    bag.remove(id1);
+    bag.remove(id2);
+    bag.remove(id2);
+    bag.remove(id4);
+    bag.remove(id6);
     assertEmbedded(bag.isEmbedded());
 
-    final List<Identifiable> rids = new ArrayList<Identifiable>();
-    rids.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:5"));
+    final List<Identifiable> rids = new ArrayList<>();
+    rids.add(id3);
+    rids.add(id4);
+    rids.add(id4);
+    rids.add(id5);
 
     for (Identifiable identifiable : bag) {
       assertTrue(rids.remove(identifiable));
@@ -369,10 +418,10 @@ public abstract class RidBagTest extends BaseDBTest {
       rids.add(identifiable);
     }
 
-    Iterator<Identifiable> iterator = bag.iterator();
+    var iterator = bag.iterator();
     while (iterator.hasNext()) {
-      final Identifiable identifiable = iterator.next();
-      if (identifiable.equals(new RecordId("#77:4"))) {
+      final var identifiable = iterator.next();
+      if (identifiable.equals(id4)) {
         iterator.remove();
         assertTrue(rids.remove(identifiable));
       }
@@ -387,26 +436,25 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertEmbedded(bag.isEmbedded());
-    doc = new EntityImpl();
+    doc = ((EntityImpl) session.newEntity());
 
-    final RidBag otherBag = new RidBag(database);
-    for (Identifiable id : bag) {
+    final var otherBag = new RidBag(session);
+    for (var id : bag) {
       otherBag.add(id);
     }
 
     assertEmbedded(otherBag.isEmbedded());
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
-
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -414,185 +462,176 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
-  public void testEmptyIterator() throws Exception {
-    RidBag bag = new RidBag(database);
+  public void testEmptyIterator() {
+    session.begin();
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
     assertEquals(bag.size(), 0);
 
-    for (Identifiable id : bag) {
+    for (@SuppressWarnings("unused") Identifiable id : bag) {
       Assert.fail();
     }
+    session.commit();
   }
 
   public void testAddRemoveNotExisting() {
-    List<Identifiable> rids = new ArrayList<Identifiable>();
 
-    RidBag bag = new RidBag(database);
+    session.begin();
+
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    var id7 = session.newEntity().getIdentity();
+    var id8 = session.newEntity().getIdentity();
+    session.commit();
+
+    session.begin();
+    List<RID> rids = new ArrayList<>();
+
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:5"));
-    rids.add(new RecordId("#77:5"));
+    bag.add(id5);
+    rids.add(id5);
 
-    bag.add(new RecordId("#77:6"));
-    rids.add(new RecordId("#77:6"));
+    bag.add(id6);
+    rids.add(id6);
     assertEmbedded(bag.isEmbedded());
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
 
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    database.begin();
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.remove(new RecordId("#77:4"));
-    rids.remove(new RecordId("#77:4"));
+    bag.remove(id4);
+    rids.remove(id4);
 
-    bag.remove(new RecordId("#77:4"));
-    rids.remove(new RecordId("#77:4"));
+    bag.remove(id4);
+    rids.remove(id4);
 
-    bag.remove(new RecordId("#77:2"));
-    rids.remove(new RecordId("#77:2"));
+    bag.remove(id2);
+    rids.remove(id2);
 
-    bag.remove(new RecordId("#77:2"));
-    rids.remove(new RecordId("#77:2"));
+    bag.remove(id2);
+    rids.remove(id2);
 
-    bag.remove(new RecordId("#77:7"));
-    rids.remove(new RecordId("#77:7"));
+    bag.remove(id7);
+    rids.remove(id7);
 
-    bag.remove(new RecordId("#77:8"));
-    rids.remove(new RecordId("#77:8"));
+    bag.remove(id8);
+    rids.remove(id8);
 
-    bag.remove(new RecordId("#77:8"));
-    rids.remove(new RecordId("#77:8"));
+    bag.remove(id8);
+    rids.remove(id8);
 
-    bag.remove(new RecordId("#77:8"));
-    rids.remove(new RecordId("#77:8"));
+    bag.remove(id8);
+    rids.remove(id8);
 
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
+    for (var identifiable : bag) {
       assertTrue(rids.remove(identifiable));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
+    for (var identifiable : bag) {
       rids.add(identifiable);
     }
 
+    session.commit();
 
-    doc.save();
-    database.commit();
-
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
+    for (var identifiable : bag) {
       assertTrue(rids.remove(identifiable));
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testContentChange() {
-    EntityImpl document = new EntityImpl();
-    RidBag ridBag = new RidBag(database);
-    document.field("ridBag", ridBag);
+    session.begin();
+    var entity = ((EntityImpl) session.newEntity());
+    var ridBag = new RidBag(session);
+    entity.setProperty("ridBag", ridBag);
 
-    database.begin();
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    ridBag.add(new RecordId("#77:10"));
-    Assert.assertTrue(document.isDirty());
+    session.begin();
+    var id10 = session.newEntity().getIdentity();
+    var activeTx2 = session.getActiveTransaction();
+    entity = activeTx2.load(entity);
+    ridBag = entity.getProperty("ridBag");
+    ridBag.add(id10);
+    assertTrue(entity.isDirty());
+    session.commit();
 
-    boolean expectCME = false;
-    if (RecordInternal.isContentChanged(document)) {
-      assertEmbedded(true);
-      expectCME = true;
-    } else {
-      assertEmbedded(false);
-    }
+    session.begin();
+    var id12 = session.newEntity().getIdentity();
+    var version = entity.getVersion();
+    var activeTx1 = session.getActiveTransaction();
+    entity = activeTx1.load(entity);
+    ridBag = entity.getProperty("ridBag");
+    ridBag.add(id12);
 
+    session.commit();
 
-    document.save();
-    database.commit();
-
-    database.begin();
-    EntityImpl copy = new EntityImpl();
-    RecordInternal.unsetDirty(copy);
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    copy.fromStream(document.toStream());
-    RecordInternal.setIdentity(copy, new RecordId(document.getIdentity()));
-    RecordInternal.setVersion(copy, document.getVersion());
-
-    RidBag copyRidBag = copy.field("ridBag");
-    Assert.assertNotSame(copyRidBag, ridBag);
-
-    copyRidBag.add(new RecordId("#77:11"));
-    Assert.assertTrue(copy.isDirty());
-    Assert.assertFalse(document.isDirty());
-
-    ridBag.add(new RecordId("#77:12"));
-    Assert.assertTrue(document.isDirty());
-
-    document.save();
-    database.commit();
-    try {
-      database.begin();
-      copy.save();
-      database.commit();
-      Assert.assertFalse(expectCME);
-    } catch (ConcurrentModificationException cme) {
-      Assert.assertTrue(expectCME);
-    }
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    assertNotEquals(entity.getVersion(), version);
+    session.commit();
   }
 
-  public void testAddAllAndIterator() throws Exception {
-    final Set<Identifiable> expected = new HashSet<Identifiable>(8);
+  public void testAddAllAndIterator() {
+    session.begin();
+    final Set<RID> expected = new HashSet<>(8);
 
     expected.add(new RecordId("#77:12"));
     expected.add(new RecordId("#77:13"));
@@ -600,238 +639,264 @@ public abstract class RidBagTest extends BaseDBTest {
     expected.add(new RecordId("#77:15"));
     expected.add(new RecordId("#77:16"));
 
-    RidBag bag = new RidBag(database);
+    var bag = new RidBag(session);
 
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
 
     assertEquals(bag.size(), 5);
 
-    Set<Identifiable> actual = new HashSet<Identifiable>(8);
+    Set<Identifiable> actual = new HashSet<>(8);
     for (Identifiable id : bag) {
       actual.add(id);
     }
 
     assertEquals(actual, expected);
+    session.commit();
   }
 
   public void testAddSBTreeAddInMemoryIterate() {
-    List<Identifiable> rids = new ArrayList<Identifiable>();
 
-    RidBag bag = new RidBag(database);
+    session.begin();
+
+    var id0 = session.newEntity().getIdentity();
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    session.commit();
+
+    session.begin();
+    List<RID> rids = new ArrayList<>();
+
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
     assertEmbedded(bag.isEmbedded());
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
 
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    database.begin();
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:0"));
-    rids.add(new RecordId("#77:0"));
+    bag.add(id0);
+    rids.add(id0);
 
-    bag.add(new RecordId("#77:1"));
-    rids.add(new RecordId("#77:1"));
+    bag.add(id1);
+    rids.add(id1);
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:5"));
-    rids.add(new RecordId("#77:5"));
+    bag.add(id5);
+    rids.add(id5);
 
-    bag.add(new RecordId("#77:6"));
-    rids.add(new RecordId("#77:6"));
+    bag.add(id6);
+    rids.add(id6);
 
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
+    for (var identifiable : bag) {
       assertTrue(rids.remove(identifiable));
     }
 
     assertTrue(rids.isEmpty());
 
-    for (Identifiable identifiable : bag) {
+    for (var identifiable : bag) {
       rids.add(identifiable);
     }
 
-    doc = new EntityImpl();
-    final RidBag otherBag = new RidBag(database);
-    for (Identifiable id : bag) {
+    doc = ((EntityImpl) session.newEntity());
+    final var otherBag = new RidBag(session);
+    for (var id : bag) {
       otherBag.add(id);
     }
 
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    for (Identifiable identifiable : bag) {
-      assertTrue(rids.remove(identifiable));
+    for (var entry : bag) {
+      assertTrue(rids.remove(entry));
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testCycle() {
-    EntityImpl docOne = new EntityImpl();
-    RidBag ridBagOne = new RidBag(database);
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity());
+    var ridBagOne = new RidBag(session);
 
-    EntityImpl docTwo = new EntityImpl();
-    RidBag ridBagTwo = new RidBag(database);
+    var docTwo = ((EntityImpl) session.newEntity());
+    var ridBagTwo = new RidBag(session);
 
-    docOne.field("ridBag", ridBagOne);
-    docTwo.field("ridBag", ridBagTwo);
+    docOne.setProperty("ridBag", ridBagOne);
+    docTwo.setProperty("ridBag", ridBagTwo);
 
-    database.begin();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
-    database.begin();
-    docOne = database.bindToSession(docOne);
-    docTwo = database.bindToSession(docTwo);
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    docOne = activeTx1.load(docOne);
+    var activeTx = session.getActiveTransaction();
+    docTwo = activeTx.load(docTwo);
 
-    ridBagOne = docOne.field("ridBag");
-    ridBagOne.add(docTwo);
+    ridBagOne = docOne.getProperty("ridBag");
+    ridBagOne.add(docTwo.getIdentity());
 
-    ridBagTwo = docTwo.field("ridBag");
-    ridBagTwo.add(docOne);
+    ridBagTwo = docTwo.getProperty("ridBag");
+    ridBagTwo.add(docOne.getIdentity());
 
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
-    docOne = database.load(docOne.getIdentity());
-    ridBagOne = docOne.field("ridBag");
+    session.begin();
+    docOne = session.load(docOne.getIdentity());
+    ridBagOne = docOne.getProperty("ridBag");
 
-    docTwo = database.load(docTwo.getIdentity());
-    ridBagTwo = docTwo.field("ridBag");
+    docTwo = session.load(docTwo.getIdentity());
+    ridBagTwo = docTwo.getProperty("ridBag");
 
-    Assert.assertEquals(ridBagOne.iterator().next(), docTwo);
-    Assert.assertEquals(ridBagTwo.iterator().next(), docOne);
+    assertEquals(ridBagOne.iterator().next(), docTwo);
+    assertEquals(ridBagTwo.iterator().next(), docOne);
+    session.commit();
   }
 
   public void testAddSBTreeAddInMemoryIterateAndRemove() {
-    List<Identifiable> rids = new ArrayList<Identifiable>();
 
-    RidBag bag = new RidBag(database);
+    session.begin();
+
+    var id0 = session.newEntity().getIdentity();
+    var id1 = session.newEntity().getIdentity();
+    var id2 = session.newEntity().getIdentity();
+    var id3 = session.newEntity().getIdentity();
+    var id4 = session.newEntity().getIdentity();
+    var id5 = session.newEntity().getIdentity();
+    var id6 = session.newEntity().getIdentity();
+    var id7 = session.newEntity().getIdentity();
+    var id8 = session.newEntity().getIdentity();
+    session.commit();
+    session.begin();
+    List<Identifiable> rids = new ArrayList<>();
+
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:4"));
-    rids.add(new RecordId("#77:4"));
+    bag.add(id4);
+    rids.add(id4);
 
-    bag.add(new RecordId("#77:7"));
-    rids.add(new RecordId("#77:7"));
+    bag.add(id7);
+    rids.add(id7);
 
-    bag.add(new RecordId("#77:8"));
-    rids.add(new RecordId("#77:8"));
+    bag.add(id8);
+    rids.add(id8);
 
     assertEmbedded(bag.isEmbedded());
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("ridbag", bag);
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("ridbag", bag);
 
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     RID rid = doc.getIdentity();
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    database.begin();
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
-    bag.add(new RecordId("#77:0"));
-    rids.add(new RecordId("#77:0"));
+    bag.add(id0);
+    rids.add(id0);
 
-    bag.add(new RecordId("#77:1"));
-    rids.add(new RecordId("#77:1"));
+    bag.add(id1);
+    rids.add(id1);
 
-    bag.add(new RecordId("#77:2"));
-    rids.add(new RecordId("#77:2"));
+    bag.add(id2);
+    rids.add(id2);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:3"));
-    rids.add(new RecordId("#77:3"));
+    bag.add(id3);
+    rids.add(id3);
 
-    bag.add(new RecordId("#77:5"));
-    rids.add(new RecordId("#77:5"));
+    bag.add(id5);
+    rids.add(id5);
 
-    bag.add(new RecordId("#77:6"));
-    rids.add(new RecordId("#77:6"));
+    bag.add(id6);
+    rids.add(id6);
 
     assertEmbedded(bag.isEmbedded());
 
-    Iterator<Identifiable> iterator = bag.iterator();
-    int r2c = 0;
-    int r3c = 0;
-    int r6c = 0;
-    int r4c = 0;
-    int r7c = 0;
+    var iterator = bag.iterator();
+    var r2c = 0;
+    var r3c = 0;
+    var r6c = 0;
+    var r4c = 0;
+    var r7c = 0;
 
     while (iterator.hasNext()) {
       Identifiable identifiable = iterator.next();
-      if (identifiable.equals(new RecordId("#77:2"))) {
+      if (identifiable.equals(id2)) {
         if (r2c < 2) {
           r2c++;
           iterator.remove();
@@ -839,7 +904,7 @@ public abstract class RidBagTest extends BaseDBTest {
         }
       }
 
-      if (identifiable.equals(new RecordId("#77:3"))) {
+      if (identifiable.equals(id3)) {
         if (r3c < 1) {
           r3c++;
           iterator.remove();
@@ -847,7 +912,7 @@ public abstract class RidBagTest extends BaseDBTest {
         }
       }
 
-      if (identifiable.equals(new RecordId("#77:6"))) {
+      if (identifiable.equals(id6)) {
         if (r6c < 1) {
           r6c++;
           iterator.remove();
@@ -855,7 +920,7 @@ public abstract class RidBagTest extends BaseDBTest {
         }
       }
 
-      if (identifiable.equals(new RecordId("#77:4"))) {
+      if (identifiable.equals(id4)) {
         if (r4c < 1) {
           r4c++;
           iterator.remove();
@@ -863,7 +928,7 @@ public abstract class RidBagTest extends BaseDBTest {
         }
       }
 
-      if (identifiable.equals(new RecordId("#77:7"))) {
+      if (identifiable.equals(id7)) {
         if (r7c < 1) {
           r7c++;
           iterator.remove();
@@ -888,26 +953,26 @@ public abstract class RidBagTest extends BaseDBTest {
       rids.add(identifiable);
     }
 
-    doc = new EntityImpl();
+    doc = ((EntityImpl) session.newEntity());
 
-    final RidBag otherBag = new RidBag(database);
-    for (Identifiable id : bag) {
+    final var otherBag = new RidBag(session);
+    for (var id : bag) {
       otherBag.add(id);
     }
 
     assertEmbedded(otherBag.isEmbedded());
 
-    doc.field("ridbag", otherBag);
+    doc.setProperty("ridbag", otherBag);
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     rid = doc.getIdentity();
 
-    doc = database.load(rid);
+    session.begin();
+    doc = session.load(rid);
     doc.setLazyLoad(false);
 
-    bag = doc.field("ridbag");
+    bag = doc.getProperty("ridbag");
     assertEmbedded(bag.isEmbedded());
 
     for (Identifiable identifiable : bag) {
@@ -915,10 +980,11 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     assertTrue(rids.isEmpty());
+    session.commit();
   }
 
   public void testRemove() {
-    final Set<Identifiable> expected = new HashSet<Identifiable>(8);
+    final Set<RID> expected = new HashSet<>(8);
 
     expected.add(new RecordId("#77:12"));
     expected.add(new RecordId("#77:13"));
@@ -926,7 +992,7 @@ public abstract class RidBagTest extends BaseDBTest {
     expected.add(new RecordId("#77:15"));
     expected.add(new RecordId("#77:16"));
 
-    final RidBag bag = new RidBag(database);
+    final var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
@@ -934,14 +1000,14 @@ public abstract class RidBagTest extends BaseDBTest {
     bag.remove(new RecordId("#77:23"));
     assertEmbedded(bag.isEmbedded());
 
-    final Set<Identifiable> expectedTwo = new HashSet<Identifiable>(8);
+    final Set<Identifiable> expectedTwo = new HashSet<>(8);
     expectedTwo.addAll(expected);
 
     for (Identifiable identifiable : bag) {
       assertTrue(expectedTwo.remove(identifiable));
     }
 
-    Assert.assertTrue(expectedTwo.isEmpty());
+    assertTrue(expectedTwo.isEmpty());
 
     expected.remove(new RecordId("#77:14"));
     bag.remove(new RecordId("#77:14"));
@@ -954,821 +1020,842 @@ public abstract class RidBagTest extends BaseDBTest {
     }
   }
 
-  public void testSaveLoad() throws Exception {
-    Set<Identifiable> expected = new HashSet<Identifiable>(8);
+  public void testSaveLoad() {
+    session.begin();
 
-    expected.add(new RecordId("#77:12"));
-    expected.add(new RecordId("#77:13"));
-    expected.add(new RecordId("#77:14"));
-    expected.add(new RecordId("#77:15"));
-    expected.add(new RecordId("#77:16"));
-    expected.add(new RecordId("#77:17"));
-    expected.add(new RecordId("#77:18"));
-    expected.add(new RecordId("#77:19"));
-    expected.add(new RecordId("#77:20"));
-    expected.add(new RecordId("#77:21"));
-    expected.add(new RecordId("#77:22"));
+    final var id12 = session.newEntity().getIdentity();
+    final var id13 = session.newEntity().getIdentity();
+    final var id14 = session.newEntity().getIdentity();
+    final var id15 = session.newEntity().getIdentity();
+    final var id16 = session.newEntity().getIdentity();
+    final var id17 = session.newEntity().getIdentity();
+    final var id18 = session.newEntity().getIdentity();
+    final var id19 = session.newEntity().getIdentity();
+    final var id20 = session.newEntity().getIdentity();
+    final var id21 = session.newEntity().getIdentity();
+    final var id22 = session.newEntity().getIdentity();
 
-    EntityImpl doc = new EntityImpl();
+    session.commit();
+    session.begin();
+    Set<RID> expected = new HashSet<>(8);
 
-    final RidBag bag = new RidBag(database);
+    expected.add(id12);
+    expected.add(id13);
+    expected.add(id14);
+    expected.add(id15);
+    expected.add(id16);
+    expected.add(id17);
+    expected.add(id18);
+    expected.add(id19);
+    expected.add(id20);
+    expected.add(id21);
+    expected.add(id22);
+
+    var doc = ((EntityImpl) session.newEntity());
+
+    final var bag = new RidBag(session);
     bag.addAll(expected);
 
-    doc.field("ridbag", bag);
+    doc.setProperty("ridbag", bag);
     assertEmbedded(bag.isEmbedded());
 
-    database.begin();
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
     final RID id = doc.getIdentity();
 
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    doc = database.load(id);
+    session.begin();
+    doc = session.load(id);
     doc.setLazyLoad(false);
 
-    final RidBag loaded = doc.field("ridbag");
+    final RidBag loaded = doc.getProperty("ridbag");
     assertEmbedded(loaded.isEmbedded());
 
-    Assert.assertEquals(loaded.size(), expected.size());
-    for (Identifiable identifiable : loaded) {
-      Assert.assertTrue(expected.remove(identifiable));
+    assertEquals(loaded.size(), expected.size());
+    for (var identifiable : loaded) {
+      assertTrue(expected.remove(identifiable));
     }
 
-    Assert.assertTrue(expected.isEmpty());
+    assertTrue(expected.isEmpty());
+    session.commit();
   }
 
-  public void testSaveInBackOrder() throws Exception {
-    EntityImpl docA = new EntityImpl().field("name", "A");
+  public void testSaveInBackOrder() {
+    session.begin();
+    var docA = ((EntityImpl) session.newEntity()).setPropertyInChain("name", "A");
 
-    database.begin();
-    EntityImpl docB =
-        new EntityImpl()
-            .field("name", "B");
-    docB.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    var docB =
+        ((EntityImpl) session.newEntity())
+            .setPropertyInChain("name", "B");
 
-    RidBag ridBag = new RidBag(database);
+    session.commit();
 
-    ridBag.add(docA);
-    ridBag.add(docB);
+    session.begin();
+    var ridBag = new RidBag(session);
+    docA = session.load(docA.getIdentity());
+    docB = session.load(docB.getIdentity());
 
-    database.begin();
-    docA.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    ridBag.add(docA.getIdentity());
+    ridBag.add(docB.getIdentity());
 
-    ridBag.remove(docB);
+    ridBag.remove(docB.getIdentity());
 
     assertEmbedded(ridBag.isEmbedded());
 
-    HashSet<Identifiable> result = new HashSet<Identifiable>();
+    var result = new HashSet<Identifiable>();
 
     for (Identifiable oIdentifiable : ridBag) {
       result.add(oIdentifiable);
     }
 
-    Assert.assertTrue(result.contains(docA));
+    assertTrue(result.contains(docA));
     Assert.assertFalse(result.contains(docB));
-    Assert.assertEquals(result.size(), 1);
-    Assert.assertEquals(ridBag.size(), 1);
+    assertEquals(result.size(), 1);
+    assertEquals(ridBag.size(), 1);
+    session.commit();
   }
 
   public void testMassiveChanges() {
-    EntityImpl document = new EntityImpl();
-    RidBag bag = new RidBag(database);
+    session.begin();
+    var document = ((EntityImpl) session.newEntity());
+    var bag = new RidBag(session);
     assertEmbedded(bag.isEmbedded());
 
-    final long seed = System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("testMassiveChanges seed: " + seed);
 
-    Random random = new Random(seed);
-    List<Identifiable> rids = new ArrayList<Identifiable>();
-    document.field("bag", bag);
+    var random = new Random(seed);
+    List<Identifiable> rids = new ArrayList<>();
+    document.setProperty("bag", bag);
 
-    database.begin();
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     RID rid = document.getIdentity();
 
-    for (int i = 0; i < 10; i++) {
-      database.begin();
-      document = database.load(rid);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      document = session.load(rid);
       document.setLazyLoad(false);
 
-      bag = document.field("bag");
+      bag = document.getProperty("bag");
       assertEmbedded(bag.isEmbedded());
 
       massiveInsertionIteration(random, rids, bag);
       assertEmbedded(bag.isEmbedded());
 
-      document.save();
-      database.commit();
+      session.commit();
     }
 
-    database.begin();
-    database.bindToSession(document).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
+    session.commit();
   }
 
   public void testSimultaneousIterationAndRemove() {
-    database.begin();
-    RidBag ridBag = new RidBag(database);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
+    session.begin();
+    var ridBag = new RidBag(session);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save();
-      ridBag.add(docToAdd);
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      ridBag.add(docToAdd.getIdentity());
     }
-    document.save();
-    database.commit();
 
-    database.begin();
+    session.commit();
+
     assertEmbedded(ridBag.isEmbedded());
-    database.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
 
     Set<Identifiable> docs = Collections.newSetFromMap(new IdentityHashMap<>());
     for (Identifiable id : ridBag) {
       // cache record inside session
-      docs.add(id.getRecord());
+      var transaction = session.getActiveTransaction();
+      docs.add(transaction.load(id));
     }
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-
-      database.begin();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      database.commit();
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var docToAdd = ((EntityImpl) session.newEntity());
 
       docs.add(docToAdd);
-      ridBag.add(docToAdd);
+      ridBag.add(docToAdd.getIdentity());
+      session.commit();
     }
 
     assertEmbedded(ridBag.isEmbedded());
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-
-      database.begin();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      database.commit();
-
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var docToAdd = ((EntityImpl) session.newEntity());
       docs.add(docToAdd);
-      ridBag.add(docToAdd);
+      ridBag.add(docToAdd.getIdentity());
+      session.commit();
     }
 
     assertEmbedded(ridBag.isEmbedded());
     for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(docs.remove(identifiable.getRecord()));
-      ridBag.remove(identifiable);
-      Assert.assertEquals(ridBag.size(), docs.size());
+      var transaction1 = session.getActiveTransaction();
+      assertTrue(docs.remove(transaction1.load(identifiable)));
+      ridBag.remove(identifiable.getIdentity());
+      assertEquals(ridBag.size(), docs.size());
 
-      int counter = 0;
+      var counter = 0;
       for (Identifiable id : ridBag) {
-        Assert.assertTrue(docs.contains(id.getRecord()));
+        var transaction = session.getActiveTransaction();
+        assertTrue(docs.contains(transaction.load(id)));
         counter++;
       }
 
-      Assert.assertEquals(counter, docs.size());
+      assertEquals(counter, docs.size());
       assertEmbedded(ridBag.isEmbedded());
     }
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertEquals(ridBag.size(), 0);
-    Assert.assertEquals(docs.size(), 0);
-    database.rollback();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertEquals(ridBag.size(), 0);
+    assertEquals(docs.size(), 0);
+    session.commit();
   }
 
   public void testAddMixedValues() {
-    database.begin();
-    RidBag ridBag = new RidBag(database);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
+    session.begin();
+    var ridBag = new RidBag(session);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
 
     List<Identifiable> itemsToAdd = new ArrayList<>();
 
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      ridBag = document.field("ridBag");
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+      ridBag = document.getProperty("ridBag");
 
-      for (int k = 0; k < 2; k++) {
-        ridBag.add(docToAdd);
+      for (var k = 0; k < 2; k++) {
+        ridBag.add(docToAdd.getIdentity());
         itemsToAdd.add(docToAdd);
       }
-      document.save();
+
     }
-    database.commit();
+    session.commit();
 
     assertEmbedded(ridBag.isEmbedded());
 
-    for (int i = 0; i < 10; i++) {
-      database.begin();
-      EntityImpl docToAdd = new EntityImpl();
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var docToAdd = ((EntityImpl) session.newEntity());
 
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-
-      document = database.bindToSession(document);
-      ridBag = document.field("ridBag");
-      for (int k = 0; k < 2; k++) {
-        ridBag.add(docToAdd);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
+      ridBag = document.getProperty("ridBag");
+      for (var k = 0; k < 2; k++) {
+        ridBag.add(docToAdd.getIdentity());
         itemsToAdd.add(docToAdd);
       }
-      document.save();
 
-      database.commit();
+      session.commit();
     }
 
-    for (int i = 0; i < 10; i++) {
-      database.begin();
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var docToAdd = ((EntityImpl) session.newEntity());
 
-      document = database.bindToSession(document);
-      ridBag = document.field("ridBag");
-      ridBag.add(docToAdd);
+      var activeTx = session.getActiveTransaction();
+      document = activeTx.load(document);
+      ridBag = document.getProperty("ridBag");
+      ridBag.add(docToAdd.getIdentity());
       itemsToAdd.add(docToAdd);
 
-      document.save();
-      database.commit();
+      session.commit();
     }
 
     assertEmbedded(ridBag.isEmbedded());
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
 
-      for (int k = 0; k < 2; k++) {
-        ridBag.add(docToAdd);
+      for (var k = 0; k < 2; k++) {
+        ridBag.add(docToAdd.getIdentity());
         itemsToAdd.add(docToAdd);
       }
     }
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      ridBag.add(docToAdd.getIdentity());
       itemsToAdd.add(docToAdd);
     }
 
     assertEmbedded(ridBag.isEmbedded());
-    document.save();
 
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
-    Assert.assertEquals(ridBag.size(), itemsToAdd.size());
+    assertEquals(ridBag.size(), itemsToAdd.size());
 
-    Assert.assertEquals(ridBag.size(), itemsToAdd.size());
+    assertEquals(ridBag.size(), itemsToAdd.size());
 
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(itemsToAdd.remove(id));
+      assertTrue(itemsToAdd.remove(id));
     }
 
-    Assert.assertTrue(itemsToAdd.isEmpty());
-    database.rollback();
+    assertTrue(itemsToAdd.isEmpty());
+    session.commit();
   }
 
   public void testFromEmbeddedToSBTreeAndBack() throws IOException {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(7);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
-    if (database.getStorage() instanceof StorageProxy) {
-      ServerAdmin server = new ServerAdmin(database.getURL()).connect("root", SERVER_PASSWORD);
+    if (session.getStorage() instanceof StorageProxy) {
+      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, 7);
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
       server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, -1);
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
       server.close();
     }
 
-    database.begin();
-    RidBag ridBag = new RidBag(database);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
+    session.begin();
+    var ridBag = new RidBag(session);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
 
-    Assert.assertTrue(ridBag.isEmbedded());
+    assertTrue(ridBag.isEmbedded());
 
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertTrue(ridBag.isEmbedded());
+    session.begin();
+    var activeTx6 = session.getActiveTransaction();
+    document = activeTx6.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertTrue(ridBag.isEmbedded());
+
+    List<RID> addedItems = new ArrayList<>();
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      ridBag = document.getProperty("ridBag");
+      ridBag.add(docToAdd.getIdentity());
+      addedItems.add(docToAdd.getIdentity());
+      session.commit();
+    }
+
+    session.commit();
+
+    session.begin();
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertTrue(ridBag.isEmbedded());
+    session.rollback();
+
+    session.begin();
+    var docToAdd = ((EntityImpl) session.newEntity());
+
+    session.commit();
+    session.begin();
+
+    var activeTx4 = session.getActiveTransaction();
+    docToAdd = activeTx4.load(docToAdd);
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
+    ridBag = document.getProperty("ridBag");
+    ridBag.add(docToAdd.getIdentity());
+    addedItems.add(docToAdd.getIdentity());
+
+    session.commit();
+
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    ridBag = document.getProperty("ridBag");
+    Assert.assertFalse(ridBag.isEmbedded());
+
+    List<RID> addedItemsCopy = new ArrayList<>(addedItems);
+    for (Identifiable id : ridBag) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+    session.commit();
+
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    Assert.assertFalse(ridBag.isEmbedded());
+
+    addedItems.addAll(addedItemsCopy);
+    for (Identifiable id : ridBag) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+
+    addedItems.addAll(addedItemsCopy);
+
+    for (var i = 0; i < 3; i++) {
+      ridBag.remove(addedItems.remove(i).getIdentity());
+    }
+
+    addedItemsCopy.clear();
+    addedItemsCopy.addAll(addedItems);
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    Assert.assertFalse(ridBag.isEmbedded());
+
+    for (var id : ridBag) {
+      assertTrue(addedItems.remove(id));
+    }
+
+    assertTrue(addedItems.isEmpty());
+
+    ridBag = document.getProperty("ridBag");
+    Assert.assertFalse(ridBag.isEmbedded());
+
+    addedItems.addAll(addedItemsCopy);
+    for (var id : ridBag) {
+      assertTrue(addedItems.remove(id));
+    }
+
+    assertTrue(addedItems.isEmpty());
+    session.commit();
+  }
+
+  public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
+
+    if (session.isRemote()) {
+      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
+      server.close();
+    }
+
+    session.begin();
+    var ridBag = new RidBag(session);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
+
+    assertTrue(ridBag.isEmbedded());
+
+    session.commit();
+
+    session.begin();
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertTrue(ridBag.isEmbedded());
 
     List<Identifiable> addedItems = new ArrayList<>();
-    for (int i = 0; i < 6; i++) {
-      EntityImpl docToAdd = new EntityImpl();
 
-      database.begin();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      database.commit();
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 6; i++) {
 
-      ridBag = document.field("ridBag");
-      ridBag.add(docToAdd);
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      ridBag.add(docToAdd.getIdentity());
       addedItems.add(docToAdd);
     }
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertTrue(ridBag.isEmbedded());
-    database.rollback();
+    session.begin();
+    var activeTx4 = session.getActiveTransaction();
+    document = activeTx4.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertTrue(ridBag.isEmbedded());
 
-    database.begin();
-    EntityImpl docToAdd = new EntityImpl();
-    docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
-    database.begin();
+    var docToAdd = ((EntityImpl) session.newEntity());
 
-    docToAdd = database.bindToSession(docToAdd);
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    ridBag.add(docToAdd);
+    session.commit();
+
+    session.begin();
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
+    var activeTx2 = session.getActiveTransaction();
+    docToAdd = activeTx2.load(docToAdd);
+
+    ridBag = document.getProperty("ridBag");
+    ridBag.add(docToAdd.getIdentity());
     addedItems.add(docToAdd);
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     List<Identifiable> addedItemsCopy = new ArrayList<>(addedItems);
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
+      assertTrue(addedItems.remove(id));
     }
 
-    Assert.assertTrue(addedItems.isEmpty());
+    assertTrue(addedItems.isEmpty());
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
+      assertTrue(addedItems.remove(id));
     }
 
-    Assert.assertTrue(addedItems.isEmpty());
+    assertTrue(addedItems.isEmpty());
 
     addedItems.addAll(addedItemsCopy);
 
-    for (int i = 0; i < 3; i++) {
-      ridBag.remove(addedItems.remove(i));
+    for (var i = 0; i < 3; i++) {
+      ridBag.remove(addedItems.remove(i).getIdentity());
     }
 
     addedItemsCopy.clear();
     addedItemsCopy.addAll(addedItems);
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
+      assertTrue(addedItems.remove(id));
     }
 
-    Assert.assertTrue(addedItems.isEmpty());
+    assertTrue(addedItems.isEmpty());
 
-    ridBag = document.field("ridBag");
-    Assert.assertFalse(ridBag.isEmbedded());
-
-    addedItems.addAll(addedItemsCopy);
-    for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
-    }
-
-    Assert.assertTrue(addedItems.isEmpty());
-    database.rollback();
-  }
-
-  public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
-    GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(7);
-    GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD.setValue(-1);
-
-    if (database.isRemote()) {
-      ServerAdmin server = new ServerAdmin(database.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
-    RidBag ridBag = new RidBag(database);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
-
-    Assert.assertTrue(ridBag.isEmbedded());
-    database.begin();
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertTrue(ridBag.isEmbedded());
-
-    List<Identifiable> addedItems = new ArrayList<Identifiable>();
-
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 6; i++) {
-
-      EntityImpl docToAdd = new EntityImpl();
-
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      ridBag.add(docToAdd);
-      addedItems.add(docToAdd);
-    }
-    document.save();
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertTrue(ridBag.isEmbedded());
-
-    EntityImpl docToAdd = new EntityImpl();
-
-    docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    docToAdd = database.bindToSession(docToAdd);
-
-    ridBag = document.field("ridBag");
-    ridBag.add(docToAdd);
-    addedItems.add(docToAdd);
-
-    document.save();
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertFalse(ridBag.isEmbedded());
-
-    List<Identifiable> addedItemsCopy = new ArrayList<Identifiable>(addedItems);
-    for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
-    }
-
-    Assert.assertTrue(addedItems.isEmpty());
-
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
     Assert.assertFalse(ridBag.isEmbedded());
 
     addedItems.addAll(addedItemsCopy);
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
+      assertTrue(addedItems.remove(id));
     }
 
-    Assert.assertTrue(addedItems.isEmpty());
-
-    addedItems.addAll(addedItemsCopy);
-
-    for (int i = 0; i < 3; i++) {
-      ridBag.remove(addedItems.remove(i));
-    }
-
-    addedItemsCopy.clear();
-    addedItemsCopy.addAll(addedItems);
-
-    document.save();
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertFalse(ridBag.isEmbedded());
-
-    for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
-    }
-
-    Assert.assertTrue(addedItems.isEmpty());
-
-    ridBag = document.field("ridBag");
-    Assert.assertFalse(ridBag.isEmbedded());
-
-    addedItems.addAll(addedItemsCopy);
-    for (Identifiable id : ridBag) {
-      Assert.assertTrue(addedItems.remove(id));
-    }
-
-    Assert.assertTrue(addedItems.isEmpty());
-    database.rollback();
+    assertTrue(addedItems.isEmpty());
+    session.commit();
   }
 
   public void testRemoveSavedInCommit() {
-    database.begin();
-    List<Identifiable> docsToAdd = new ArrayList<Identifiable>();
+    session.begin();
+    List<Identifiable> docsToAdd = new ArrayList<>();
 
-    RidBag ridBag = new RidBag(database);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
+    var ridBag = new RidBag(session);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
 
-    for (int i = 0; i < 5; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      ridBag = document.field("ridBag");
-      ridBag.add(docToAdd);
+    for (var i = 0; i < 5; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
 
-      docsToAdd.add(docToAdd);
-    }
-
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
-
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    assertEmbedded(ridBag.isEmbedded());
-
-    ridBag = document.field("ridBag");
-    assertEmbedded(ridBag.isEmbedded());
-
-    ridBag = document.field("ridBag");
-    for (int i = 0; i < 5; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      ridBag.add(docToAdd);
+      ridBag = document.getProperty("ridBag");
+      ridBag.add(docToAdd.getIdentity());
 
       docsToAdd.add(docToAdd);
     }
 
-    for (int i = 5; i < 10; i++) {
-      EntityImpl docToAdd = docsToAdd.get(i).getRecord();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.commit();
+
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertEmbedded(ridBag.isEmbedded());
+
+    ridBag = document.getProperty("ridBag");
+    assertEmbedded(ridBag.isEmbedded());
+
+    ridBag = document.getProperty("ridBag");
+    for (var i = 0; i < 5; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      ridBag.add(docToAdd.getIdentity());
+
+      docsToAdd.add(docToAdd);
+    }
+
+    for (var i = 5; i < 10; i++) {
+      var transaction = session.getActiveTransaction();
+      EntityImpl docToAdd = transaction.load(docsToAdd.get(i));
+
     }
 
     Iterator<Identifiable> iterator = docsToAdd.listIterator(7);
     while (iterator.hasNext()) {
-      Identifiable docToAdd = iterator.next();
-      ridBag.remove(docToAdd);
+      var docToAdd = iterator.next();
+      ridBag.remove(docToAdd.getIdentity());
       iterator.remove();
     }
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
     assertEmbedded(ridBag.isEmbedded());
 
-    List<Identifiable> docsToAddCopy = new ArrayList<Identifiable>(docsToAdd);
+    List<Identifiable> docsToAddCopy = new ArrayList<>(docsToAdd);
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(id));
+      assertTrue(docsToAdd.remove(id));
     }
 
-    Assert.assertTrue(docsToAdd.isEmpty());
+    assertTrue(docsToAdd.isEmpty());
 
     docsToAdd.addAll(docsToAddCopy);
 
-    ridBag = document.field("ridBag");
+    ridBag = document.getProperty("ridBag");
 
     for (Identifiable id : ridBag) {
-      Assert.assertTrue(docsToAdd.remove(id));
+      assertTrue(docsToAdd.remove(id));
     }
 
-    Assert.assertTrue(docsToAdd.isEmpty());
-    database.rollback();
+    assertTrue(docsToAdd.isEmpty());
+    session.commit();
   }
 
   @Test
   public void testSizeNotChangeAfterRemoveNotExistentElement() {
-    final EntityImpl bob = new EntityImpl();
+    session.begin();
+    final var bob = ((EntityImpl) session.newEntity());
 
-    database.begin();
-    final EntityImpl fred = new EntityImpl();
-    fred.save(database.getClusterNameById(database.getDefaultClusterId()));
-    final EntityImpl jim =
-        new EntityImpl();
-    jim.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    final var fred = ((EntityImpl) session.newEntity());
 
-    RidBag teamMates = new RidBag(database);
+    final var jim =
+        ((EntityImpl) session.newEntity());
 
-    teamMates.add(bob);
-    teamMates.add(fred);
+    session.commit();
 
-    Assert.assertEquals(teamMates.size(), 2);
+    session.begin();
+    var teamMates = new RidBag(session);
 
-    teamMates.remove(jim);
+    teamMates.add(bob.getIdentity());
+    teamMates.add(fred.getIdentity());
 
-    Assert.assertEquals(teamMates.size(), 2);
+    assertEquals(teamMates.size(), 2);
+
+    teamMates.remove(jim.getIdentity());
+
+    assertEquals(teamMates.size(), 2);
+    session.commit();
   }
 
   @Test
-  public void testRemoveNotExistentElementAndAddIt() throws Exception {
-    RidBag teamMates = new RidBag(database);
+  public void testRemoveNotExistentElementAndAddIt() {
+    session.begin();
+    var teamMates = new RidBag(session);
 
-    database.begin();
-    final EntityImpl bob = new EntityImpl();
-    bob.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    final var bob = ((EntityImpl) session.newEntity());
 
-    teamMates.remove(bob);
+    session.commit();
 
-    Assert.assertEquals(teamMates.size(), 0);
+    teamMates.remove(bob.getIdentity());
 
-    teamMates.add(bob);
+    assertEquals(teamMates.size(), 0);
 
-    Assert.assertEquals(teamMates.size(), 1);
-    Assert.assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
+    teamMates.add(bob.getIdentity());
+
+    assertEquals(teamMates.size(), 1);
+    assertEquals(teamMates.iterator().next().getIdentity(), bob.getIdentity());
   }
 
   public void testAddNewItemsAndRemoveThem() {
-    database.begin();
-    final List<Identifiable> rids = new ArrayList<Identifiable>();
-    RidBag ridBag = new RidBag(database);
-    int size = 0;
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final List<RID> rids = new ArrayList<>();
+    var ridBag = new RidBag(session);
+    var size = 0;
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
 
-      for (int k = 0; k < 2; k++) {
-        ridBag.add(docToAdd);
-        rids.add(docToAdd);
+      for (var k = 0; k < 2; k++) {
+        ridBag.add(docToAdd.getIdentity());
+        rids.add(docToAdd.getIdentity());
         size++;
       }
     }
 
-    Assert.assertEquals(ridBag.size(), size);
-    EntityImpl document = new EntityImpl();
-    document.field("ridBag", ridBag);
-    document.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    assertEquals(ridBag.size(), size);
+    var document = ((EntityImpl) session.newEntity());
+    document.setProperty("ridBag", ridBag);
 
-    database.begin();
-    document = database.load(document.getIdentity());
-    ridBag = document.field("ridBag");
-    Assert.assertEquals(ridBag.size(), size);
+    session.commit();
 
-    final List<Identifiable> newDocs = new ArrayList<Identifiable>();
-    for (int i = 0; i < 10; i++) {
-      EntityImpl docToAdd = new EntityImpl();
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
+    assertEquals(ridBag.size(), size);
 
-      docToAdd.save(database.getClusterNameById(database.getDefaultClusterId()));
-      for (int k = 0; k < 2; k++) {
-        ridBag.add(docToAdd);
-        rids.add(docToAdd);
-        newDocs.add(docToAdd);
+    final List<RID> newDocs = new ArrayList<>();
+    for (var i = 0; i < 10; i++) {
+      var docToAdd = ((EntityImpl) session.newEntity());
+
+      for (var k = 0; k < 2; k++) {
+        ridBag.add(docToAdd.getIdentity());
+        rids.add(docToAdd.getIdentity());
+        newDocs.add(docToAdd.getIdentity());
         size++;
       }
     }
-    document.save();
-    database.commit();
 
-    database.begin();
-    document = database.bindToSession(document);
-    ridBag = document.field("ridBag");
-    Assert.assertEquals(ridBag.size(), size);
+    session.commit();
 
-    Random rnd = new Random();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+    assertEquals(ridBag.size(), size);
 
-    for (int i = 0; i < newDocs.size(); i++) {
+    var rnd = new Random();
+
+    for (var i = 0; i < newDocs.size(); i++) {
       if (rnd.nextBoolean()) {
-        Identifiable newDoc = newDocs.get(i);
+        var newDoc = newDocs.get(i);
         rids.remove(newDoc);
-        ridBag.remove(newDoc);
+        ridBag.remove(newDoc.getIdentity());
         newDocs.remove(newDoc);
 
         size--;
       }
     }
 
-    for (Identifiable identifiable : ridBag) {
+    for (var identifiable : ridBag) {
       if (newDocs.contains(identifiable) && rnd.nextBoolean()) {
-        ridBag.remove(identifiable);
-        rids.remove(identifiable);
-
-        size--;
+        ridBag.remove(identifiable.getIdentity());
+        if (rids.remove(identifiable)) {
+          size--;
+        }
       }
     }
 
-    Assert.assertEquals(ridBag.size(), size);
-    List<Identifiable> ridsCopy = new ArrayList<Identifiable>(rids);
+    session.commit();
+    session.begin();
 
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(rids.remove(identifiable));
+    activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    ridBag = document.getProperty("ridBag");
+
+    assertEquals(ridBag.size(), size);
+    List<RID> ridsCopy = new ArrayList<>(rids);
+
+    for (var identifiable : ridBag) {
+      assertTrue(rids.remove(identifiable));
     }
 
-    Assert.assertTrue(rids.isEmpty());
+    assertTrue(rids.isEmpty());
 
-    document.save();
-    database.commit();
-
-    document = database.load(document.getIdentity());
-    ridBag = document.field("ridBag");
+    session.begin();
+    document = session.load(document.getIdentity());
+    ridBag = document.getProperty("ridBag");
 
     rids.addAll(ridsCopy);
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(rids.remove(identifiable));
+    for (var identifiable : ridBag) {
+      assertTrue(rids.remove(identifiable));
     }
 
-    Assert.assertTrue(rids.isEmpty());
-    Assert.assertEquals(ridBag.size(), size);
+    assertTrue(rids.isEmpty());
+    assertEquals(ridBag.size(), size);
+    session.commit();
   }
 
   @Test
   public void testJsonSerialization() {
-    database.begin();
-    final EntityImpl externalDoc = new EntityImpl();
+    session.begin();
+    final var externalDoc = ((EntityImpl) session.newEntity());
 
-    final RidBag highLevelRidBag = new RidBag(database);
+    final var highLevelRidBag = new RidBag(session);
 
-    for (int i = 0; i < 10; i++) {
-      var doc = new EntityImpl();
-      doc.save(database.getClusterNameById(database.getDefaultClusterId()));
+    for (var i = 0; i < 10; i++) {
+      var doc = ((EntityImpl) session.newEntity());
 
-      highLevelRidBag.add(doc);
+      highLevelRidBag.add(doc.getIdentity());
     }
 
-    externalDoc.save(database.getClusterNameById(database.getDefaultClusterId()));
+    var testDocument = ((EntityImpl) session.newEntity());
+    testDocument.setProperty("type", "testDocument");
+    testDocument.setProperty("ridBag", highLevelRidBag);
+    testDocument.setProperty("externalDoc", externalDoc);
 
-    EntityImpl testDocument = new EntityImpl();
-    testDocument.field("type", "testDocument");
-    testDocument.field("ridBag", highLevelRidBag);
-    testDocument.field("externalDoc", externalDoc);
+    final var origContent = testDocument.toMap();
+    session.commit();
 
-    testDocument.save(database.getClusterNameById(database.getDefaultClusterId()));
-    testDocument.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    testDocument = activeTx.load(testDocument);
+    final var json = testDocument.toJSON("keepTypes,rid,class");
 
-    database.begin();
+    final var doc = session.createOrLoadEntityFromJson(json).toMap();
 
-    testDocument = database.bindToSession(testDocument);
-    final String json = testDocument.toJSON(RecordAbstract.OLD_FORMAT_WITH_LATE_TYPES);
+    origContent.remove(EntityHelper.ATTRIBUTE_RID);
+    doc.remove(EntityHelper.ATTRIBUTE_RID);
 
-    final EntityImpl doc = new EntityImpl();
-    doc.fromJSON(json);
-
-    Assert.assertTrue(
-        DocumentHelper.hasSameContentOf(doc, database, testDocument, database, null));
-    database.rollback();
+    assertEquals(doc.get("@class"), origContent.get("@class"));
+    assertEquals(doc.get("externalDoc"), origContent.get("externalDoc"));
+    assertEquals(doc.get("type"), origContent.get("type"));
+    assertEquals(
+        new HashSet<>((List<?>) doc.get("ridBag")),
+        new HashSet<>(((List<?>) origContent.get("ridBag")))
+    );
+    session.commit();
   }
 
   protected abstract void assertEmbedded(boolean isEmbedded);
 
-  private static void massiveInsertionIteration(Random rnd, List<Identifiable> rids,
+  private void massiveInsertionIteration(Random rnd, List<Identifiable> rids,
       RidBag bag) {
-    Iterator<Identifiable> bagIterator = bag.iterator();
+    var bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {
       Identifiable bagValue = bagIterator.next();
-      Assert.assertTrue(rids.contains(bagValue));
+      assertTrue(rids.contains(bagValue));
     }
 
-    Assert.assertEquals(bag.size(), rids.size());
+    assertEquals(bag.size(), rids.size());
 
-    for (int i = 0; i < 100; i++) {
+    for (var i = 0; i < 100; i++) {
       if (rnd.nextDouble() < 0.2 & rids.size() > 5) {
-        final int index = rnd.nextInt(rids.size());
-        final Identifiable rid = rids.remove(index);
-        bag.remove(rid);
+        final var index = rnd.nextInt(rids.size());
+        final var rid = rids.remove(index);
+        Assert.assertTrue(bag.remove(rid.getIdentity()));
       } else {
-        final long position;
-        position = rnd.nextInt(300);
-
-        final RecordId recordId = new RecordId(1, position);
+        final var recordId = session.newEntity().getIdentity();
         rids.add(recordId);
         bag.add(recordId);
       }
@@ -1778,20 +1865,20 @@ public abstract class RidBagTest extends BaseDBTest {
 
     while (bagIterator.hasNext()) {
       final Identifiable bagValue = bagIterator.next();
-      Assert.assertTrue(rids.contains(bagValue));
-
+      assertTrue(rids.contains(bagValue));
       if (rnd.nextDouble() < 0.05) {
         bagIterator.remove();
-        Assert.assertTrue(rids.remove(bagValue));
+        assertTrue(rids.remove(bagValue));
+
       }
     }
 
-    Assert.assertEquals(bag.size(), rids.size());
+    assertEquals(bag.size(), rids.size());
     bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {
       final Identifiable bagValue = bagIterator.next();
-      Assert.assertTrue(rids.contains(bagValue));
+      assertTrue(rids.contains(bagValue));
     }
   }
 }

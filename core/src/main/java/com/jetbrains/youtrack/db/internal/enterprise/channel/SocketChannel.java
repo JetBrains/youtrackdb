@@ -19,19 +19,17 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.AdaptiveLock;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Inet4Address;
-import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.Enumeration;
 import java.util.concurrent.TimeUnit;
 
 public abstract class SocketChannel {
@@ -60,15 +58,15 @@ public abstract class SocketChannel {
 
   public static String getLocalIpAddress(final boolean iFavoriteIp4) throws SocketException {
     String bestAddress = null;
-    final Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+    final var interfaces = NetworkInterface.getNetworkInterfaces();
     while (interfaces.hasMoreElements()) {
-      final NetworkInterface current = interfaces.nextElement();
+      final var current = interfaces.nextElement();
       if (!current.isUp() || current.isLoopback() || current.isVirtual()) {
         continue;
       }
-      Enumeration<InetAddress> addresses = current.getInetAddresses();
+      var addresses = current.getInetAddresses();
       while (addresses.hasMoreElements()) {
-        final InetAddress current_addr = addresses.nextElement();
+        final var current_addr = addresses.nextElement();
         if (current_addr.isLoopbackAddress()) {
           continue;
         }

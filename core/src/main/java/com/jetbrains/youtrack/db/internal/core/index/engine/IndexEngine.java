@@ -20,9 +20,10 @@
 
 package com.jetbrains.youtrack.db.internal.core.index.engine;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 
@@ -33,16 +34,16 @@ public interface IndexEngine extends BaseIndexEngine {
 
   int VERSION = 0;
 
-  Object get(DatabaseSessionInternal session, Object key);
+  Object get(DatabaseSessionInternal db, Object key);
 
-  void put(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) throws IOException;
 
-  void update(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  void update(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater)
       throws IOException;
 
-  boolean remove(AtomicOperation atomicOperation, Object key) throws IOException;
+  boolean remove(Storage storage, AtomicOperation atomicOperation, Object key) throws IOException;
 
   /**
    * Puts the given value under the given key into this index engine. Validates the operation using

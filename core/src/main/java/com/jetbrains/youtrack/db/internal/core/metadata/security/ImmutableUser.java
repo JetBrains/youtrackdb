@@ -1,17 +1,18 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * @since 03/11/14
@@ -34,10 +35,10 @@ public class ImmutableUser implements SecurityUser {
     this.name = user.getName(session);
     this.password = user.getPassword(session);
     this.status = user.getAccountStatus(session);
-    this.rid = user.getIdentity(session).getIdentity();
+    this.rid = user.getIdentity().getIdentity();
     this.userType = user.getUserType();
 
-    for (SecurityRole role : user.getRoles()) {
+    for (var role : user.getRoles()) {
       roles.add(new ImmutableRole(session, role));
     }
   }
@@ -73,7 +74,7 @@ public class ImmutableUser implements SecurityUser {
       throw new SecurityAccessException(name, "User '" + name + "' has no role defined");
     }
 
-    final SecurityRole role = checkIfAllowed(session, resourceGeneric, resourceSpecific,
+    final var role = checkIfAllowed(session, resourceGeneric, resourceSpecific,
         iOperation);
 
     if (role == null) {
@@ -92,11 +93,12 @@ public class ImmutableUser implements SecurityUser {
     return role;
   }
 
+  @Nullable
   public SecurityRole checkIfAllowed(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       final String resourceSpecific,
       final int iOperation) {
-    for (ImmutableRole r : roles) {
+    for (var r : roles) {
       if (r == null) {
         LogManager.instance()
             .warn(
@@ -115,7 +117,7 @@ public class ImmutableUser implements SecurityUser {
   public boolean isRuleDefined(
       DatabaseSessionInternal session, final ResourceGeneric resourceGeneric,
       String resourceSpecific) {
-    for (ImmutableRole r : roles) {
+    for (var r : roles) {
       if (r == null) {
         LogManager.instance()
             .warn(
@@ -134,8 +136,8 @@ public class ImmutableUser implements SecurityUser {
   @Override
   @Deprecated
   public SecurityRole allow(DatabaseSessionInternal session, String iResource, int iOperation) {
-    final String resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
-    final Rule.ResourceGeneric resourceGeneric =
+    final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
+    final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
 
     if (resourceSpecific == null || resourceSpecific.equals("*")) {
@@ -149,8 +151,8 @@ public class ImmutableUser implements SecurityUser {
   @Deprecated
   public SecurityRole checkIfAllowed(DatabaseSessionInternal session, String iResource,
       int iOperation) {
-    final String resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
-    final Rule.ResourceGeneric resourceGeneric =
+    final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
+    final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
 
     if (resourceSpecific == null || resourceSpecific.equals("*")) {
@@ -163,8 +165,8 @@ public class ImmutableUser implements SecurityUser {
   @Override
   @Deprecated
   public boolean isRuleDefined(DatabaseSessionInternal session, String iResource) {
-    final String resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
-    final Rule.ResourceGeneric resourceGeneric =
+    final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
+    final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
 
     if (resourceSpecific == null || resourceSpecific.equals("*")) {
@@ -182,7 +184,7 @@ public class ImmutableUser implements SecurityUser {
     return name;
   }
 
-  public SecurityUserIml setName(DatabaseSessionInternal session, final String iName) {
+  public SecurityUserImpl setName(DatabaseSessionInternal session, final String iName) {
     throw new UnsupportedOperationException();
   }
 
@@ -190,7 +192,7 @@ public class ImmutableUser implements SecurityUser {
     return password;
   }
 
-  public SecurityUserIml setPassword(DatabaseSessionInternal session, final String iPassword) {
+  public SecurityUserImpl setPassword(DatabaseSessionInternal session, final String iPassword) {
     throw new UnsupportedOperationException();
   }
 
@@ -206,11 +208,11 @@ public class ImmutableUser implements SecurityUser {
     return Collections.unmodifiableSet(roles);
   }
 
-  public SecurityUserIml addRole(DatabaseSessionInternal session, final String iRole) {
+  public SecurityUserImpl addRole(DatabaseSessionInternal session, final String iRole) {
     throw new UnsupportedOperationException();
   }
 
-  public SecurityUserIml addRole(DatabaseSessionInternal session, final SecurityRole iRole) {
+  public SecurityUserImpl addRole(DatabaseSessionInternal session, final SecurityRole iRole) {
     throw new UnsupportedOperationException();
   }
 
@@ -226,7 +228,7 @@ public class ImmutableUser implements SecurityUser {
       }
 
       if (iIncludeInherited) {
-        SecurityRole r = role.getParentRole();
+        var r = role.getParentRole();
         while (r != null) {
           if (r.getName(session).equals(iRoleName)) {
             return true;
@@ -249,7 +251,7 @@ public class ImmutableUser implements SecurityUser {
   }
 
   @Override
-  public Identifiable getIdentity(DatabaseSessionInternal session) {
+  public Identifiable getIdentity() {
     return rid;
   }
 

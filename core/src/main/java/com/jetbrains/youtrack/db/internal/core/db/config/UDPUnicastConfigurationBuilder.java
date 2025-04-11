@@ -22,7 +22,7 @@ public class UDPUnicastConfigurationBuilder {
   }
 
   public UDPUnicastConfiguration build() {
-    UDPUnicastConfiguration result = new UDPUnicastConfiguration();
+    var result = new UDPUnicastConfiguration();
     result.setEnabled(confguration.isEnabled());
     result.setPort(confguration.getPort());
     result.setDiscoveryAddresses(new ArrayList<>(confguration.getDiscoveryAddresses()));

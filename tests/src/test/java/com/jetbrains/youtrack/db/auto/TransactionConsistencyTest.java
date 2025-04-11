@@ -17,7 +17,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -28,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.ArrayUtils;
@@ -58,59 +56,58 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
     // Create docA.
     EntityImpl vDocA_db1 = database1.newInstance();
-    vDocA_db1.field(NAME, "docA");
-    database1.save(vDocA_db1);
+    vDocA_db1.setProperty(NAME, "docA");
 
     // Create docB.
     EntityImpl vDocB_db1 = database1.newInstance();
-    vDocB_db1.field(NAME, "docB");
+    vDocB_db1.setProperty(NAME, "docB");
 
-    database1.save(vDocB_db1);
     database1.commit();
 
     // Keep the IDs.
     RID vDocA_Rid = vDocA_db1.getIdentity().copy();
     RID vDocB_Rid = vDocB_db1.getIdentity().copy();
 
-    int vDocA_version = -1;
-    int vDocB_version = -1;
+    var vDocA_version = -1;
+    var vDocB_version = -1;
 
     database2 = acquireSession();
     database2.begin();
     try {
       // Get docA and update in db2 transaction context
       EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
-      vDocA_db2.field(NAME, "docA_v2");
-      database2.save(vDocA_db2);
+      vDocA_db2.setProperty(NAME, "docA_v2");
 
       // Concurrent update docA via database1 -> will throw ConcurrentModificationException at
       // database2.commit().
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
 
-        vDocA_db1.field(NAME, "docA_v3");
-        database1.save(vDocA_db1);
+        vDocA_db1.setProperty(NAME, "docA_v3");
 
         database1.commit();
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
-      vDocB_db1 = database1.bindToSession(vDocB_db1);
+      database1.begin();
+      var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
+      vDocB_db1 = activeTx.load(vDocB_db1);
 
-      Assert.assertEquals(vDocA_db1.field(NAME), "docA_v3");
+      Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
       // Keep the last versions.
       // Following updates should failed and reverted.
       vDocA_version = vDocA_db1.getVersion();
       vDocB_version = vDocB_db1.getVersion();
+      database1.commit();
 
       // Update docB in db2 transaction context -> should be rollbacked.
       database2.activateOnCurrentThread();
       EntityImpl vDocB_db2 = database2.load(vDocB_Rid);
-      vDocB_db2.field(NAME, "docB_UpdatedInTranscationThatWillBeRollbacked");
-      database2.save(vDocB_db2);
+      vDocB_db2.setProperty(NAME, "docB_UpdatedInTranscationThatWillBeRollbacked");
 
       // Will throw ConcurrentModificationException
       database2.commit();
@@ -126,14 +123,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.activateOnCurrentThread();
     database2 = acquireSession();
 
+    database2.begin();
     EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
-    Assert.assertEquals(vDocA_db2.field(NAME), "docA_v3");
+    Assert.assertEquals(vDocA_db2.getProperty(NAME), "docA_v3");
     Assert.assertEquals(vDocA_db2.getVersion(), vDocA_version);
 
     // docB should be in the first state : "docB"
     EntityImpl vDocB_db2 = database2.load(vDocB_Rid);
-    Assert.assertEquals(vDocB_db2.field(NAME), "docB");
+    Assert.assertEquals(vDocB_db2.getProperty(NAME), "docB");
     Assert.assertEquals(vDocB_db2.getVersion(), vDocB_version);
+    database2.commit();
 
     database2.close();
   }
@@ -142,11 +141,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void test4RollbackWithPin() {
     database1 = acquireSession();
 
+    database1.begin();
     // Create docA.
     EntityImpl vDocA_db1 = database1.newInstance();
-    vDocA_db1.field(NAME, "docA");
-    database1.begin();
-    database1.save(vDocA_db1);
+    vDocA_db1.setProperty(NAME, "docA");
     database1.commit();
 
     // Keep the IDs.
@@ -157,21 +155,23 @@ public class TransactionConsistencyTest extends BaseDBTest {
     try {
       // Get docA and update in db2 transaction context
       EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
-      vDocA_db2.field(NAME, "docA_v2");
-      database2.save(vDocA_db2);
+      vDocA_db2.setProperty(NAME, "docA_v2");
 
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
-        vDocA_db1.field(NAME, "docA_v3");
-        database1.save(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
+        vDocA_db1.setProperty(NAME, "docA_v3");
         database1.commit();
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
-      Assert.assertEquals(vDocA_db1.field(NAME), "docA_v3");
+      database1.begin();
+      var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
+      Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
+      database1.commit();
 
       // Will throw ConcurrentModificationException
       database2.activateOnCurrentThread();
@@ -189,9 +189,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.close();
     database2 = acquireSession();
 
+    database2.begin();
     // docB should be in the last state : "docA_v3"
     EntityImpl vDocB_db2 = database2.load(vDocA_Rid);
-    Assert.assertEquals(vDocB_db2.field(NAME), "docA_v3");
+    Assert.assertEquals(vDocB_db2.getProperty(NAME), "docA_v3");
+    database2.commit();
 
     database1.activateOnCurrentThread();
     database1.close();
@@ -204,11 +206,10 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void test3RollbackWithCopyCacheStrategy() {
     database1 = acquireSession();
 
+    database1.begin();
     // Create docA.
     EntityImpl vDocA_db1 = database1.newInstance();
-    vDocA_db1.field(NAME, "docA");
-    database1.begin();
-    database1.save(vDocA_db1);
+    vDocA_db1.setProperty(NAME, "docA");
     database1.commit();
 
     // Keep the IDs.
@@ -219,22 +220,24 @@ public class TransactionConsistencyTest extends BaseDBTest {
     try {
       // Get docA and update in db2 transaction context
       EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
-      vDocA_db2.field(NAME, "docA_v2");
-      database2.save(vDocA_db2);
+      vDocA_db2.setProperty(NAME, "docA_v2");
 
       database1.activateOnCurrentThread();
       database1.begin();
       try {
-        vDocA_db1 = database1.bindToSession(vDocA_db1);
-        vDocA_db1.field(NAME, "docA_v3");
-        database1.save(vDocA_db1);
+        var activeTx = database1.getActiveTransaction();
+        vDocA_db1 = activeTx.load(vDocA_db1);
+        vDocA_db1.setProperty(NAME, "docA_v3");
         database1.commit();
       } catch (ConcurrentModificationException e) {
         Assert.fail("Should not failed here...");
       }
 
-      vDocA_db1 = database1.bindToSession(vDocA_db1);
-      Assert.assertEquals(vDocA_db1.field(NAME), "docA_v3");
+      database1.begin();
+      var activeTx = database1.getActiveTransaction();
+      vDocA_db1 = activeTx.load(vDocA_db1);
+      Assert.assertEquals(vDocA_db1.getProperty(NAME), "docA_v3");
+      database1.commit();
 
       // Will throw ConcurrentModificationException
       database2.activateOnCurrentThread();
@@ -252,9 +255,11 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2.close();
     database2 = acquireSession();
 
+    database2.begin();
     // docB should be in the last state : "docA_v3"
     EntityImpl vDocB_db2 = database2.load(vDocA_Rid);
-    Assert.assertEquals(vDocB_db2.field(NAME), "docA_v3");
+    Assert.assertEquals(vDocB_db2.getProperty(NAME), "docA_v3");
+    database2.commit();
 
     database1.activateOnCurrentThread();
     database1.close();
@@ -269,8 +274,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
     // Create docA in db1
     database1.begin();
     EntityImpl vDocA_db1 = database1.newInstance();
-    vDocA_db1.field(NAME, "docA");
-    database1.save(vDocA_db1);
+    vDocA_db1.setProperty(NAME, "docA");
     database1.commit();
 
     // Keep the ID.
@@ -280,15 +284,14 @@ public class TransactionConsistencyTest extends BaseDBTest {
     database2 = acquireSession();
     database2.begin();
     EntityImpl vDocA_db2 = database2.load(vDocA_Rid);
-    vDocA_db2.field(NAME, "docA_v2");
-    database2.save(vDocA_db2);
+    vDocA_db2.setProperty(NAME, "docA_v2");
     database2.commit();
 
     // Later... read docA with db1.
     database1.activateOnCurrentThread();
     database1.begin();
     EntityImpl vDocA_db1_later = database1.load(vDocA_Rid);
-    Assert.assertEquals(vDocA_db1_later.field(NAME), "docA_v2");
+    Assert.assertEquals(vDocA_db1_later.getProperty(NAME), "docA_v2");
     database1.commit();
 
     database1.close();
@@ -300,172 +303,176 @@ public class TransactionConsistencyTest extends BaseDBTest {
   @SuppressWarnings("unchecked")
   @Test
   public void checkVersionsInConnectedDocuments() {
-    database = acquireSession();
-    database.begin();
+    session = acquireSession();
+    session.begin();
 
-    EntityImpl kim = new EntityImpl("Profile").field("name", "Kim").field("surname", "Bauer");
-    EntityImpl teri = new EntityImpl("Profile").field("name", "Teri").field("surname", "Bauer");
-    EntityImpl jack = new EntityImpl("Profile").field("name", "Jack").field("surname", "Bauer");
+    var kim = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Kim")
+        .setPropertyInChain("surname", "Bauer");
+    var teri = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Teri")
+        .setPropertyInChain("surname", "Bauer");
+    var jack = ((EntityImpl) session.newEntity("Profile")).setPropertyInChain("name", "Jack")
+        .setPropertyInChain("surname", "Bauer");
 
-    ((HashSet<EntityImpl>) jack.field("following", new HashSet<EntityImpl>())
-        .field("following"))
-        .add(kim);
-    ((HashSet<EntityImpl>) kim.field("following", new HashSet<EntityImpl>()).field("following"))
-        .add(teri);
-    ((HashSet<EntityImpl>) teri.field("following", new HashSet<EntityImpl>())
-        .field("following"))
-        .add(jack);
+    jack.getOrCreateLinkSet("following").add(kim);
+    kim.getOrCreateLinkSet("following").add(teri);
+    teri.getOrCreateLinkSet("following").add(jack);
 
-    jack.save();
+    session.commit();
 
-    database.commit();
+    session.close();
+    session = acquireSession();
 
-    database.close();
-    database = acquireSession();
+    session.begin();
+    EntityImpl loadedJack = session.load(jack.getIdentity());
+    var jackLastVersion = loadedJack.getVersion();
+    session.commit();
 
-    EntityImpl loadedJack = database.load(jack.getIdentity());
+    session.begin();
+    var activeTx3 = session.getActiveTransaction();
+    loadedJack = activeTx3.load(loadedJack);
+    loadedJack.setProperty("occupation", "agent");
+    session.commit();
 
-    int jackLastVersion = loadedJack.getVersion();
-    database.begin();
-    loadedJack = database.bindToSession(loadedJack);
-    loadedJack.field("occupation", "agent");
-    loadedJack.save();
-    database.commit();
-    Assert.assertTrue(jackLastVersion != database.bindToSession(loadedJack).getVersion());
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx2.<EntityImpl>load(loadedJack).getVersion());
 
-    loadedJack = database.load(jack.getIdentity());
-    Assert.assertTrue(jackLastVersion != database.bindToSession(loadedJack).getVersion());
+    loadedJack = session.load(jack.getIdentity());
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx1.<EntityImpl>load(loadedJack).getVersion());
+    session.commit();
 
-    database.close();
+    session.close();
 
-    database = acquireSession();
-    loadedJack = database.load(jack.getIdentity());
-    Assert.assertTrue(jackLastVersion != database.bindToSession(loadedJack).getVersion());
-    database.close();
+    session = acquireSession();
+    session.begin();
+    loadedJack = session.load(jack.getIdentity());
+    var activeTx = session.getActiveTransaction();
+    Assert.assertTrue(jackLastVersion != activeTx.<EntityImpl>load(loadedJack).getVersion());
+    session.commit();
+    session.close();
   }
 
   @SuppressWarnings("unchecked")
   @Test
   public void createLinkInTx() {
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    SchemaClass profile = database.getMetadata().getSchema().createClass("MyProfile", 1);
-    SchemaClass edge = database.getMetadata().getSchema().createClass("MyEdge", 1);
+    var profile = session.getMetadata().getSchema().createClass("MyProfile", 1);
+    var edge = session.getMetadata().getSchema().createClass("MyEdge", 1);
     profile
-        .createProperty(database, "name", PropertyType.STRING)
-        .setMin(database, "3")
-        .setMax(database, "30")
-        .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    profile.createProperty(database, "surname", PropertyType.STRING).setMin(database, "3")
-        .setMax(database, "30");
-    profile.createProperty(database, "in", PropertyType.LINKSET, edge);
-    profile.createProperty(database, "out", PropertyType.LINKSET, edge);
-    edge.createProperty(database, "in", PropertyType.LINK, profile);
-    edge.createProperty(database, "out", PropertyType.LINK, profile);
+        .createProperty("name", PropertyType.STRING)
+        .setMin("3")
+        .setMax("30")
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    profile.createProperty("surname", PropertyType.STRING).setMin("3")
+        .setMax("30");
+    profile.createProperty("in", PropertyType.LINKSET, edge);
+    profile.createProperty("out", PropertyType.LINKSET, edge);
+    edge.createProperty("in", PropertyType.LINK, profile);
+    edge.createProperty("out", PropertyType.LINK, profile);
 
-    database.begin();
+    session.begin();
 
-    EntityImpl kim = new EntityImpl("MyProfile").field("name", "Kim").field("surname", "Bauer");
-    EntityImpl teri = new EntityImpl("MyProfile").field("name", "Teri")
-        .field("surname", "Bauer");
-    EntityImpl jack = new EntityImpl("MyProfile").field("name", "Jack")
-        .field("surname", "Bauer");
+    var kim = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Kim")
+        .setPropertyInChain("surname", "Bauer");
+    var teri = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Teri")
+        .setPropertyInChain("surname", "Bauer");
+    var jack = ((EntityImpl) session.newEntity("MyProfile"))
+        .setPropertyInChain("name", "Jack")
+        .setPropertyInChain("surname", "Bauer");
 
-    EntityImpl myedge = new EntityImpl("MyEdge").field("in", kim).field("out", jack);
-    myedge.save();
-    ((HashSet<EntityImpl>) kim.field("out", new HashSet<RID>()).field("out")).add(myedge);
-    ((HashSet<EntityImpl>) jack.field("in", new HashSet<RID>()).field("in")).add(myedge);
+    var myedge = ((EntityImpl) session.newEntity("MyEdge"))
+        .setPropertyInChain("in", kim)
+        .setPropertyInChain("out", jack);
 
-    jack.save();
-    kim.save();
-    teri.save();
-    database.commit();
+    kim.getOrCreateLinkSet("out").add(myedge);
+    jack.getOrCreateLinkSet("in").add(myedge);
 
-    ResultSet result = database.command("select from MyProfile ");
+    session.commit();
 
+    session.begin();
+    var result = session.execute("select from MyProfile ");
     Assert.assertTrue(result.stream().findAny().isPresent());
+    session.commit();
   }
 
   @SuppressWarnings("unchecked")
   @Test
   public void loadRecordTest() {
-    database.begin();
+    session.begin();
 
-    EntityImpl kim = new EntityImpl("Profile").field("name", "Kim").field("surname", "Bauer");
-    EntityImpl teri = new EntityImpl("Profile").field("name", "Teri").field("surname", "Bauer");
-    EntityImpl jack = new EntityImpl("Profile").field("name", "Jack").field("surname", "Bauer");
-    EntityImpl chloe = new EntityImpl("Profile").field("name", "Chloe")
-        .field("surname", "O'Brien");
+    var kim = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Kim")
+        .setPropertyInChain("surname", "Bauer");
+    var teri = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Teri")
+        .setPropertyInChain("surname", "Bauer");
+    var jack = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Jack")
+        .setPropertyInChain("surname", "Bauer");
+    var chloe = ((EntityImpl) session.newEntity("Profile"))
+        .setPropertyInChain("name", "Chloe")
+        .setPropertyInChain("surname", "O'Brien");
 
-    ((HashSet<EntityImpl>) jack.field("following", new HashSet<EntityImpl>())
-        .field("following"))
-        .add(kim);
-    ((HashSet<EntityImpl>) kim.field("following", new HashSet<EntityImpl>()).field("following"))
-        .add(teri);
-    ((HashSet<EntityImpl>) teri.field("following", new HashSet<EntityImpl>())
-        .field("following"))
-        .add(jack);
-    ((HashSet<EntityImpl>) teri.field("following")).add(kim);
-    ((HashSet<EntityImpl>) chloe.field("following", new HashSet<EntityImpl>())
-        .field("following"))
-        .add(jack);
-    ((HashSet<EntityImpl>) chloe.field("following")).add(teri);
-    ((HashSet<EntityImpl>) chloe.field("following")).add(kim);
+    jack.getOrCreateLinkSet("following").add(kim);
+    kim.getOrCreateLinkSet("following").add(teri);
+    teri.getOrCreateLinkSet("following").addAll(List.of(jack, kim));
+    chloe.getOrCreateLinkSet("following").addAll(List.of(jack, teri, kim));
 
-    var schema = database.getSchema();
-    var profileClusterIds =
-        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getClusterIds()));
+    var schema = session.getSchema();
+    var profileCollectionIds =
+        Arrays.asList(ArrayUtils.toObject(schema.getClass("Profile").getCollectionIds()));
 
-    jack.save();
-    kim.save();
-    teri.save();
-    chloe.save();
-
-    database.commit();
+    session.commit();
 
     Assert.assertListContainsObject(
-        profileClusterIds, jack.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, jack.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, kim.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, kim.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, teri.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, teri.getIdentity().getCollectionId(), "Collection id not found");
     Assert.assertListContainsObject(
-        profileClusterIds, chloe.getIdentity().getClusterId(), "Cluster id not found");
+        profileCollectionIds, chloe.getIdentity().getCollectionId(), "Collection id not found");
 
-    database.load(chloe.getIdentity());
+    session.begin();
+    session.load(chloe.getIdentity());
+    session.commit();
   }
 
   @Test
   public void testTransactionPopulateDelete() {
-    if (!database.getMetadata().getSchema().existsClass("MyFruit")) {
-      SchemaClass fruitClass = database.getMetadata().getSchema().createClass("MyFruit");
-      fruitClass.createProperty(database, "name", PropertyType.STRING);
-      fruitClass.createProperty(database, "color", PropertyType.STRING);
-      fruitClass.createProperty(database, "flavor", PropertyType.STRING);
+    if (!session.getMetadata().getSchema().existsClass("MyFruit")) {
+      var fruitClass = session.getMetadata().getSchema().createClass("MyFruit");
+      fruitClass.createProperty("name", PropertyType.STRING);
+      fruitClass.createProperty("color", PropertyType.STRING);
+      fruitClass.createProperty("flavor", PropertyType.STRING);
 
-      database
+      session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
           .getProperty("name")
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      database
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
           .getProperty("color")
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      database
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      session
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
           .getProperty("flavor")
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     }
 
-    int chunkSize = 10;
-    for (int initialValue = 0; initialValue < 10; initialValue++) {
-      Assert.assertEquals(database.countClusterElements("MyFruit"), 0);
+    var chunkSize = 10;
+    for (var initialValue = 0; initialValue < 10; initialValue++) {
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
 
       System.out.println(
           "[testTransactionPopulateDelete] Populating chunk "
@@ -476,21 +483,21 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
       // do insert
       List<EntityImpl> v = new ArrayList<>();
-      database.begin();
-      for (int i = initialValue * chunkSize; i < (initialValue * chunkSize) + chunkSize; i++) {
-        EntityImpl d =
-            new EntityImpl("MyFruit")
-                .field("name", "" + i)
-                .field("color", "FOO")
-                .field("flavor", "BAR" + i);
-        d.save();
+      session.begin();
+      for (var i = initialValue * chunkSize; i < (initialValue * chunkSize) + chunkSize; i++) {
+        var d =
+            ((EntityImpl) session.newEntity("MyFruit"))
+                .setPropertyInChain("name", "" + i)
+                .setPropertyInChain("color", "FOO")
+                .setPropertyInChain("flavor", "BAR" + i);
+
         v.add(d);
       }
 
       System.out.println(
           "[testTransactionPopulateDelete] Committing chunk " + initialValue + "...");
 
-      database.commit();
+      session.commit();
 
       System.out.println(
           "[testTransactionPopulateDelete] Committed chunk "
@@ -500,15 +507,16 @@ public class TransactionConsistencyTest extends BaseDBTest {
               + ")...");
 
       // do delete
-      database.begin();
-      for (EntityImpl entries : v) {
-        database.delete(database.bindToSession(entries));
+      session.begin();
+      for (var entries : v) {
+        var activeTx = session.getActiveTransaction();
+        session.delete(activeTx.<EntityImpl>load(entries));
       }
-      database.commit();
+      session.commit();
 
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
-      Assert.assertEquals(database.countClusterElements("MyFruit"), 0);
+      Assert.assertEquals(session.countCollectionElements("MyFruit"), 0);
     }
 
     System.out.println("[testTransactionPopulateDelete] End of the test");
@@ -516,181 +524,189 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void testConsistencyOnDelete() {
-    if (database.getMetadata().getSchema().getClass("Foo") == null) {
-      database.createVertexClass("Foo");
+    if (session.getMetadata().getSchema().getClass("Foo") == null) {
+      session.createVertexClass("Foo");
     }
 
-    database.begin();
+    session.begin();
     // Step 1
     // Create several foo's
-    var v = database.newVertex("Foo");
+    var v = session.newVertex("Foo");
     v.setProperty("address", "test1");
-    v.save();
 
-    v = database.newVertex("Foo");
+    v = session.newVertex("Foo");
     v.setProperty("address", "test2");
-    v.save();
 
-    v = database.newVertex("Foo");
+    v = session.newVertex("Foo");
     v.setProperty("address", "test3");
-    v.save();
-    database.commit();
+    session.commit();
 
     // remove those foos in a transaction
     // Step 3a
     var result =
-        database.query("select * from Foo where address = 'test1'").entityStream().toList();
+        session.query("select * from Foo where address = 'test1'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
     // Step 4a
-    database.begin();
-    database.delete(database.bindToSession(result.get(0)));
-    database.commit();
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Entity>load(result.get(0)));
+    session.commit();
 
     // Step 3b
-    result = database.query("select * from Foo where address = 'test2'").entityStream().toList();
+    result = session.query("select * from Foo where address = 'test2'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
     // Step 4b
-    database.begin();
-    database.delete(database.bindToSession(result.get(0)));
-    database.commit();
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Entity>load(result.get(0)));
+    session.commit();
 
     // Step 3c
-    result = database.query("select * from Foo where address = 'test3'").entityStream().toList();
+    result = session.query("select * from Foo where address = 'test3'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
     // Step 4c
-    database.begin();
-    database.delete(database.bindToSession(result.get(0)));
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(result.get(0)));
+    session.commit();
   }
 
   @Test
   public void deletesWithinTransactionArentWorking() {
-    if (database.getClass("Foo") == null) {
-      database.createVertexClass("Foo");
+    if (session.getClass("Foo") == null) {
+      session.createVertexClass("Foo");
     }
-    if (database.getClass("Bar") == null) {
-      database.createVertexClass("Bar");
+    if (session.getClass("Bar") == null) {
+      session.createVertexClass("Bar");
     }
-    if (database.getClass("Sees") == null) {
-      database.createEdgeClass("Sees");
+    if (session.getClass("Sees") == null) {
+      session.createEdgeClass("Sees");
     }
 
+    session.begin();
     // Commenting out the transaction will result in the test succeeding.
-    var foo = database.newVertex("Foo");
+    var foo = session.newVertex("Foo");
     foo.setProperty("prop", "test1");
-    database.begin();
-    foo.save();
-    database.commit();
+    session.commit();
 
+    session.begin();
     // Comment out these two lines and the test will succeed. The issue appears to be related to
     // an edge
     // connecting a deleted vertex during a transaction
-    var bar = database.newVertex("Bar");
+    var bar = session.newVertex("Bar");
     bar.setProperty("prop", "test1");
-    database.begin();
-    bar.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    foo = database.bindToSession(foo);
-    bar = database.bindToSession(bar);
-    var sees = database.newRegularEdge(foo, bar, "Sees");
-    sees.save();
-    database.commit();
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    foo = activeTx2.load(foo);
+    var activeTx1 = session.getActiveTransaction();
+    bar = activeTx1.load(bar);
+    var sees = session.newStatefulEdge(foo, bar, "Sees");
+    session.commit();
 
-    var foos = database.query("select * from Foo").stream().toList();
+    session.begin();
+    var foos = session.query("select * from Foo").stream().toList();
     Assert.assertEquals(foos.size(), 1);
+    session.commit();
 
-    database.begin();
-    database.delete(database.bindToSession(foos.get(0).toEntity()));
-    database.commit();
+    session.begin();
+    Entity identifiable = foos.getFirst().asEntityOrNull();
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(identifiable));
+    session.commit();
   }
 
   public void transactionRollbackConstistencyTest() {
-    SchemaClass vertexClass = database.getMetadata().getSchema().createClass("TRVertex");
-    SchemaClass edgeClass = database.getMetadata().getSchema().createClass("TREdge");
-    vertexClass.createProperty(database, "in", PropertyType.LINKSET, edgeClass);
-    vertexClass.createProperty(database, "out", PropertyType.LINKSET, edgeClass);
-    edgeClass.createProperty(database, "in", PropertyType.LINK, vertexClass);
-    edgeClass.createProperty(database, "out", PropertyType.LINK, vertexClass);
+    var vertexClass = session.getMetadata().getSchema().createClass("TRVertex");
+    var edgeClass = session.getMetadata().getSchema().createClass("TREdge");
+    vertexClass.createProperty("in", PropertyType.LINKSET, edgeClass);
+    vertexClass.createProperty("out", PropertyType.LINKSET, edgeClass);
+    edgeClass.createProperty("in", PropertyType.LINK, vertexClass);
+    edgeClass.createProperty("out", PropertyType.LINK, vertexClass);
 
-    SchemaClass personClass = database.getMetadata().getSchema()
+    var personClass = session.getMetadata().getSchema()
         .createClass("TRPerson", vertexClass);
-    personClass.createProperty(database, "name", PropertyType.STRING)
-        .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE);
-    personClass.createProperty(database, "surname", PropertyType.STRING)
-        .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    personClass.createProperty(database, "version", PropertyType.INTEGER);
+    personClass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    personClass.createProperty("surname", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    personClass.createProperty("version", PropertyType.INTEGER);
 
-    database.close();
+    session.close();
 
-    final int cnt = 4;
+    final var cnt = 4;
 
-    database = createSessionInstance();
-    database.begin();
+    session = createSessionInstance();
+    session.begin();
     List<Entity> inserted = new ArrayList<>();
 
-    for (int i = 0; i < cnt; i++) {
-      EntityImpl person = new EntityImpl("TRPerson");
-      person.field("name", Character.toString((char) ('A' + i)));
-      person.field("surname", Character.toString((char) ('A' + (i % 3))));
-      person.field("myversion", 0);
-      person.field("in", new HashSet<EntityImpl>());
-      person.field("out", new HashSet<EntityImpl>());
+    for (var i = 0; i < cnt; i++) {
+      var person = ((EntityImpl) session.newEntity("TRPerson"));
+      person.setPropertyInChain("name", Character.toString((char) ('A' + i)));
+      person.setPropertyInChain("surname", Character.toString((char) ('A' + (i % 3))));
+      person.setProperty("myversion", 0);
+      person.getOrCreateLinkSet("in");
+      person.getOrCreateLinkSet("out");
 
       if (i >= 1) {
-        EntityImpl edge = new EntityImpl("TREdge");
-        edge.field("in", person.getIdentity());
-        edge.field("out", inserted.get(i - 1));
+        var edge = ((EntityImpl) session.newEntity("TREdge"));
+        edge.setProperty("in", person.getIdentity());
+        edge.setProperty("out", inserted.get(i - 1));
         (person.<Set<EntityImpl>>getProperty("out")).add(edge);
-        (database.bindToSession(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(
+        var activeTx = session.getActiveTransaction();
+        (activeTx.<Entity>load(inserted.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(
             edge);
-        edge.save();
+
       }
       inserted.add(person);
-      person.save();
-    }
-    database.commit();
 
-    final ResultSet result1 = database.command("select from TRPerson");
+    }
+    session.commit();
+
+    session.begin();
+    final var result1 = session.execute("select from TRPerson");
     Assert.assertEquals(result1.stream().count(), cnt);
+    session.commit();
 
     try {
-      database.executeInTx(
-          () -> {
+      session.executeInTx(
+          transaction -> {
             List<Entity> inserted2 = new ArrayList<>();
 
-            for (int i = 0; i < cnt; i++) {
-              EntityImpl person = new EntityImpl("TRPerson");
-              person.field("name", Character.toString((char) ('a' + i)));
-              person.field("surname", Character.toString((char) ('a' + (i % 3))));
-              person.field("myversion", 0);
-              person.field("in", new HashSet<EntityImpl>());
-              person.field("out", new HashSet<EntityImpl>());
+            for (var i = 0; i < cnt; i++) {
+              var person = ((EntityImpl) session.newEntity("TRPerson"));
+              person.setProperty("name", Character.toString((char) ('a' + i)));
+              person.setProperty("surname", Character.toString((char) ('a' + (i % 3))));
+              person.setProperty("myversion", 0);
+              person.getOrCreateLinkSet("in");
+              person.getOrCreateLinkSet("out");
 
               if (i >= 1) {
-                EntityImpl edge = new EntityImpl("TREdge");
-                edge.field("in", person.getIdentity());
-                edge.field("out", inserted2.get(i - 1));
+                var edge = ((EntityImpl) session.newEntity("TREdge"));
+                edge.setProperty("in", person.getIdentity());
+                edge.setProperty("out", inserted2.get(i - 1));
                 (person.<Set<EntityImpl>>getProperty("out")).add(edge);
                 ((inserted2.get(i - 1)).<Set<EntityImpl>>getProperty("in")).add(edge);
-                edge.save();
+
               }
 
               inserted2.add(person);
-              person.save();
+
             }
 
-            for (int i = 0; i < cnt; i++) {
+            for (var i = 0; i < cnt; i++) {
               if (i != cnt - 1) {
-                var doc = database.bindToSession((EntityImpl) inserted.get(i));
+                var activeTx = session.getActiveTransaction();
+                var doc = activeTx.<EntityImpl>load(inserted.get(i));
                 doc.setProperty("myversion", 2);
-                doc.save();
+
               }
             }
 
             var doc = ((EntityImpl) inserted.get(cnt - 1));
-            database.bindToSession(doc).delete();
+            var activeTx = session.getActiveTransaction();
+            activeTx.<EntityImpl>load(doc).delete();
 
             throw new IllegalStateException();
           });
@@ -699,30 +715,31 @@ public class TransactionConsistencyTest extends BaseDBTest {
       Assert.assertTrue(true);
     }
 
-    final ResultSet result2 = database.command("select from TRPerson");
+    session.begin();
+    final var result2 = session.execute("select from TRPerson");
     Assert.assertNotNull(result2);
     Assert.assertEquals(result2.stream().count(), cnt);
+    session.commit();
   }
 
   @Test
   public void testQueryIsolation() {
-    database.begin();
-    var v = database.newVertex();
+    session.begin();
+    var v = session.newVertex();
 
     v.setProperty("purpose", "testQueryIsolation");
-    v.save();
 
     var result =
-        database
+        session
             .query("select from V where purpose = 'testQueryIsolation'")
             .entityStream()
             .toList();
     Assert.assertEquals(result.size(), 1);
 
-    database.commit();
+    session.commit();
 
     result =
-        database
+        session
             .query("select from V where purpose = 'testQueryIsolation'")
             .entityStream()
             .toList();
@@ -738,32 +755,32 @@ public class TransactionConsistencyTest extends BaseDBTest {
   @SuppressWarnings("unused")
   @Test
   public void testRollbackWithRemove() {
-    var account = database.newEntity("Account");
+    session.begin();
+    var account = session.newEntity("Account");
     account.setProperty("name", "John Grisham");
-    database.begin();
-    account = database.save(account);
-    database.commit();
+    account = account;
+    session.commit();
 
-    database.begin();
-    account = database.bindToSession(account);
-    var address1 = database.newEntity("Address");
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    account = activeTx2.load(account);
+    var address1 = session.newEntity("Address");
     address1.setProperty("street", "Mulholland drive");
-    address1.save();
 
-    var address2 = database.newEntity("Address");
+    var address2 = session.newEntity("Address");
     address2.setProperty("street", "Via Veneto");
 
-    List<Entity> addresses = new ArrayList<>();
+    final var addresses = session.newLinkList();
     addresses.add(address1);
     addresses.add(address2);
 
     account.setProperty("addresses", addresses);
 
-    account = database.save(account);
-    database.commit();
+    session.commit();
 
-    database.begin();
-    account = database.bindToSession(account);
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    account = activeTx1.load(account);
     String originalName = account.getProperty("name");
     Assert.assertEquals(account.<List<Identifiable>>getProperty("addresses").size(), 2);
     account
@@ -772,22 +789,26 @@ public class TransactionConsistencyTest extends BaseDBTest {
     Assert.assertEquals(account.<List<Identifiable>>getProperty("addresses").size(), 1);
     account.setProperty(
         "name", "New Name"); // change an attribute to see if the change is rolled back
-    account = database.save(account);
+    account = account;
 
     Assert.assertEquals(
         account.<List<Identifiable>>getProperty("addresses").size(),
         1); // before rollback this is fine because one of the books was removed
 
-    database.rollback(); // rollback the transaction
+    session.rollback(); // rollback the transaction
 
-    account = database.bindToSession(account);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    account = activeTx.load(account);
     Assert.assertEquals(
         account.<List<Identifiable>>getProperty("addresses").size(),
         2); // this is fine, author still linked to 2 books
     Assert.assertEquals(account.getProperty("name"), originalName); // name is restored
 
-    int bookCount = 0;
-    for (var b : database.browseClass("Address")) {
+    var bookCount = 0;
+    var entityIterator = session.browseClass("Address");
+    while (entityIterator.hasNext()) {
+      var b = entityIterator.next();
       var street = b.getProperty("street");
       if ("Mulholland drive".equals(street) || "Via Veneto".equals(street)) {
         bookCount++;
@@ -795,31 +816,37 @@ public class TransactionConsistencyTest extends BaseDBTest {
     }
 
     Assert.assertEquals(bookCount, 2); // this fails, only 1 entry in the datastore :(
+    session.commit();
   }
 
   public void testTransactionsCache() {
-    Assert.assertFalse(database.getTransaction().isActive());
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("TransA");
-    classA.createProperty(database, "name", PropertyType.STRING);
-    EntityImpl doc = new EntityImpl(classA);
-    doc.field("name", "test1");
+    Assert.assertFalse(session.getTransactionInternal().isActive());
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("TransA");
+    classA.createProperty("name", PropertyType.STRING);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity(classA));
+    doc.setProperty("name", "test1");
+    session.commit();
+
     RID orid = doc.getIdentity();
-    database.begin();
-    Assert.assertTrue(database.getTransaction().isActive());
-    doc = orid.getRecord();
-    Assert.assertEquals(doc.field("name"), "test1");
-    doc.field("name", "test2");
-    doc = orid.getRecord();
-    Assert.assertEquals(doc.field("name"), "test2");
+    session.begin();
+    Assert.assertTrue(session.getTransactionInternal().isActive());
+    var transaction2 = session.getActiveTransaction();
+    doc = transaction2.load(orid);
+    Assert.assertEquals(doc.getProperty("name"), "test1");
+    doc.setProperty("name", "test2");
+    var transaction1 = session.getActiveTransaction();
+    doc = transaction1.load(orid);
+    Assert.assertEquals(doc.getProperty("name"), "test2");
     // There is NO SAVE!
-    database.commit();
+    session.commit();
 
-    doc = orid.getRecord();
-    Assert.assertEquals(doc.field("name"), "test1");
+    session.begin();
+    var transaction = session.getActiveTransaction();
+    doc = transaction.load(orid);
+    Assert.assertEquals(doc.getProperty("name"), "test2");
+    session.commit();
   }
 }

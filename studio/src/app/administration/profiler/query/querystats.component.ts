@@ -33,7 +33,7 @@ export class QueryStatsComponent implements OnInit, OnDestroy, OnChanges {
   fetchQueries() {
     if (this.server) {
       this.metrics.getMetrics().then(response => {
-        let histo = response.clusterStats[this.server].histograms;
+        let histo = response.collectionStats[this.server].histograms;
         this.queries = Object.keys(histo)
           .filter(k => {
             return k.match(/db.*query./g) != null;

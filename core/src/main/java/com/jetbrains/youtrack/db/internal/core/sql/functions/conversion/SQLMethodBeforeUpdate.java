@@ -16,11 +16,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.conversion;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * ONLY FOR LIVE QUERY. Returns the value of current record (as an Result) before it was updated.
@@ -41,15 +42,16 @@ public class SQLMethodBeforeUpdate extends AbstractSQLMethod {
     return "beforeUpdate()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    if (iThis instanceof Result) {
-      return ((Result) iThis).getMetadata(LiveQueryListenerImpl.BEFORE_METADATA_KEY);
+    if (iThis instanceof ResultInternal internal) {
+      return internal.getMetadata(LiveQueryListenerImpl.BEFORE_METADATA_KEY);
     }
     return null;
   }

@@ -15,21 +15,21 @@ public class ServerQueryRequestTest extends DbTestBase {
 
   @Test
   public void testWithPositionalParams() throws IOException {
-    Object[] params = new Object[]{1, "Foo"};
-    ServerQueryRequest request =
+    var params = new Object[]{1, "Foo"};
+    var request =
         new ServerQueryRequest(
             "sql",
             "some random statement",
             params,
-            ServerQueryRequest.QUERY, RecordSerializerNetworkFactory.INSTANCE.current(), 123);
+            ServerQueryRequest.QUERY, RecordSerializerNetworkFactory.current(), 123);
 
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     request.write(null, channel, null);
 
     channel.close();
 
-    ServerQueryRequest other = new ServerQueryRequest();
-    other.read(db, channel, -1, RecordSerializerNetworkFactory.INSTANCE.current());
+    var other = new ServerQueryRequest();
+    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
 
@@ -45,21 +45,21 @@ public class ServerQueryRequestTest extends DbTestBase {
     Map<String, Object> params = new HashMap<>();
     params.put("foo", "bar");
     params.put("baz", 12);
-    ServerQueryRequest request =
+    var request =
         new ServerQueryRequest(
             "sql",
             "some random statement",
             params,
             ServerQueryRequest.QUERY,
-            RecordSerializerNetworkFactory.INSTANCE.current(), 123);
+            RecordSerializerNetworkFactory.current(), 123);
 
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     request.write(null, channel, null);
 
     channel.close();
 
-    ServerQueryRequest other = new ServerQueryRequest();
-    other.read(db, channel, -1, RecordSerializerNetworkFactory.INSTANCE.current());
+    var other = new ServerQueryRequest();
+    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
@@ -71,21 +71,21 @@ public class ServerQueryRequestTest extends DbTestBase {
   @Test
   public void testWithNoParams() throws IOException {
     Map<String, Object> params = null;
-    ServerQueryRequest request =
+    var request =
         new ServerQueryRequest(
             "sql",
             "some random statement",
             params,
             ServerQueryRequest.QUERY,
-            RecordSerializerNetworkFactory.INSTANCE.current(), 123);
+            RecordSerializerNetworkFactory.current(), 123);
 
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     request.write(null, channel, null);
 
     channel.close();
 
-    ServerQueryRequest other = new ServerQueryRequest();
-    other.read(db, channel, -1, RecordSerializerNetworkFactory.INSTANCE.current());
+    var other = new ServerQueryRequest();
+    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());

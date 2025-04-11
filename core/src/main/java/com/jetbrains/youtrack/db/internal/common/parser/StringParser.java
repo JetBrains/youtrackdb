@@ -45,21 +45,21 @@ public class StringParser {
       final boolean iIncludeStringSep) {
     iText = iText.trim();
 
-    final ArrayList<String> fields = new ArrayList<String>();
-    final StringBuilder buffer = new StringBuilder(64);
-    char stringBeginChar = ' ';
+    final var fields = new ArrayList<String>();
+    final var buffer = new StringBuilder(64);
+    var stringBeginChar = ' ';
     char c;
-    int openBraket = 0;
-    int openGraph = 0;
+    var openBraket = 0;
+    var openGraph = 0;
     boolean charFound;
-    boolean escape = false;
+    var escape = false;
 
-    for (int i = 0; i < iText.length(); ++i) {
+    for (var i = 0; i < iText.length(); ++i) {
       c = iText.charAt(i);
 
       if (!escape && c == '\\' && ((i + 1) < iText.length())) {
         // ESCAPE CHARS
-        final char nextChar = iText.charAt(i + 1);
+        final var nextChar = iText.charAt(i + 1);
 
         if (nextChar == 'u') {
           i = readUnicode(iText, i + 2, buffer);
@@ -119,7 +119,7 @@ public class StringParser {
           openGraph--;
         } else if (openBraket == 0 && openGraph == 0) {
           charFound = false;
-          for (int sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
+          for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
             if (iSeparatorChars.charAt(sepIndex) == c) {
               charFound = true;
               if (buffer.length() > 0) {
@@ -140,7 +140,7 @@ public class StringParser {
           // CHECK FOR CHAR TO JUMP
           charFound = false;
 
-          for (int jumpIndex = 0; jumpIndex < iJumpChars.length(); ++jumpIndex) {
+          for (var jumpIndex = 0; jumpIndex < iJumpChars.length(); ++jumpIndex) {
             if (iJumpChars.charAt(jumpIndex) == c) {
               charFound = true;
               break;
@@ -165,7 +165,7 @@ public class StringParser {
       fields.add(buffer.toString());
     }
 
-    String[] result = new String[fields.size()];
+    var result = new String[fields.size()];
     fields.toArray(result);
     return result;
   }
@@ -173,15 +173,15 @@ public class StringParser {
   public static String[] split(String iText, final char iSplitChar, String iJumpChars) {
     iText = iText.trim();
 
-    ArrayList<String> fields = new ArrayList<String>();
-    StringBuilder buffer = new StringBuilder(256);
+    var fields = new ArrayList<String>();
+    var buffer = new StringBuilder(256);
     char c;
-    char stringChar = ' ';
-    boolean escape = false;
-    boolean jumpSplitChar = false;
+    var stringChar = ' ';
+    var escape = false;
+    var jumpSplitChar = false;
     boolean charFound;
 
-    for (int i = 0; i < iText.length(); i++) {
+    for (var i = 0; i < iText.length(); i++) {
       c = iText.charAt(i);
 
       if (!escape && c == '\\' && ((i + 1) < iText.length())) {
@@ -217,7 +217,7 @@ public class StringParser {
       if (buffer.length() == 0) {
         charFound = false;
 
-        for (int jumpIndex = 0; jumpIndex < iJumpChars.length(); ++jumpIndex) {
+        for (var jumpIndex = 0; jumpIndex < iJumpChars.length(); ++jumpIndex) {
           if (iJumpChars.charAt(jumpIndex) == c) {
             charFound = true;
             break;
@@ -240,7 +240,7 @@ public class StringParser {
       fields.add(buffer.toString());
       buffer.setLength(0);
     }
-    String[] result = new String[fields.size()];
+    var result = new String[fields.size()];
     fields.toArray(result);
     return result;
   }
@@ -259,12 +259,12 @@ public class StringParser {
     }
 
     char c;
-    char stringChar = ' ';
-    boolean escape = false;
+    var stringChar = ' ';
+    var escape = false;
 
-    final StringBuilder buffer = new StringBuilder(1024);
+    final var buffer = new StringBuilder(1024);
 
-    int i = iFrom;
+    var i = iFrom;
     while (true) {
       c = iText.charAt(i);
 
@@ -343,14 +343,14 @@ public class StringParser {
       return -1;
     }
 
-    final int size = iMaxPosition > -1 ? Math.min(iMaxPosition, iText.length()) : iText.length();
-    final int jumpCharSize = iJumpChars.length();
-    boolean found = true;
+    final var size = iMaxPosition > -1 ? Math.min(iMaxPosition, iText.length()) : iText.length();
+    final var jumpCharSize = iJumpChars.length();
+    var found = true;
     char c;
     for (; iCurrentPosition < size; ++iCurrentPosition) {
       found = false;
       c = iText.charAt(iCurrentPosition);
-      for (int jumpIndex = 0; jumpIndex < jumpCharSize; ++jumpIndex) {
+      for (var jumpIndex = 0; jumpIndex < jumpCharSize; ++jumpIndex) {
         if (iJumpChars.charAt(jumpIndex) == c) {
           found = true;
           break;
@@ -367,8 +367,8 @@ public class StringParser {
 
   public static int readUnicode(String iText, int position, final StringBuilder buffer) {
     // DECODE UNICODE CHAR
-    final StringBuilder buff = new StringBuilder(64);
-    final int lastPos = position + 4;
+    final var buff = new StringBuilder(64);
+    final var lastPos = position + 4;
     for (; position < lastPos; ++position) {
       buff.append(iText.charAt(position));
     }
@@ -379,8 +379,8 @@ public class StringParser {
 
   public static int readUnicode(char[] iText, int position, final StringBuilder buffer) {
     // DECODE UNICODE CHAR
-    final StringBuilder buff = new StringBuilder(64);
-    final int lastPos = position + 4;
+    final var buff = new StringBuilder(64);
+    final var lastPos = position + 4;
     for (; position < lastPos; ++position) {
       buff.append(iText[position]);
     }
@@ -394,9 +394,9 @@ public class StringParser {
     if (iText == null || iText.length() <= 0 || iToReplace == null || iToReplace.length() <= 0) {
       return iText;
     }
-    int pos = iText.indexOf(iToReplace);
-    int lastAppend = 0;
-    final StringBuffer buffer = new StringBuffer(1024);
+    var pos = iText.indexOf(iToReplace);
+    var lastAppend = 0;
+    final var buffer = new StringBuffer(1024);
     while (pos > -1) {
       buffer.append(iText, lastAppend, pos);
       buffer.append(iReplacement);

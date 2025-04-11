@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,8 +32,8 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   @Override
   public String getName() {
-    String name = "";
-    for (IndexCandidate indexCandidate : canditates) {
+    var name = "";
+    for (var indexCandidate : canditates) {
       name = indexCandidate.getName() + "|";
     }
     return name;
@@ -52,7 +52,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   @Override
   public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    Collection<IndexCandidate> newCanditates = normalizeBetween(this.canditates, ctx);
+    var newCanditates = normalizeBetween(this.canditates, ctx);
     newCanditates = normalizeComposite(newCanditates, ctx);
     if (newCanditates.isEmpty()) {
       return Optional.empty();
@@ -66,13 +66,14 @@ public class MultipleIndexCanditate implements IndexCandidate {
   private Collection<IndexCandidate> normalizeBetween(
       List<IndexCandidate> canditates, CommandContext ctx) {
     List<IndexCandidate> newCanditates = new ArrayList<>();
-    for (int i = 0; i < canditates.size(); i++) {
-      boolean matched = false;
-      IndexCandidate canditate = canditates.get(i);
-      List<SchemaProperty> properties = canditate.properties();
-      for (int z = canditates.size() - 1; z > i; z--) {
-        IndexCandidate lastCandidate = canditates.get(z);
-        List<SchemaProperty> lastProperties = lastCandidate.properties();
+    var sesssion = ctx.getDatabaseSession();
+    for (var i = 0; i < canditates.size(); i++) {
+      var matched = false;
+      var canditate = canditates.get(i);
+      var properties = canditate.properties();
+      for (var z = canditates.size() - 1; z > i; z--) {
+        var lastCandidate = canditates.get(z);
+        var lastProperties = lastCandidate.properties();
         if (properties.size() == 1
             && lastProperties.size() == 1
             && properties.get(0).getName() == lastProperties.get(0).getName()) {
@@ -95,15 +96,17 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   private Collection<IndexCandidate> normalizeComposite(
       Collection<IndexCandidate> canditates, CommandContext ctx) {
-    List<SchemaProperty> propeties = properties();
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var propeties = properties();
     Map<String, IndexCandidate> newCanditates = new HashMap<>();
-    for (IndexCandidate cand : canditates) {
+    for (var cand : canditates) {
       if (!newCanditates.containsKey(cand.getName())) {
-        Index index = ctx.getDatabase().getMetadata().getIndexManager().getIndex(cand.getName());
+        var index = session.getSharedContext().getIndexManager()
+            .getIndex(session, cand.getName());
         List<SchemaProperty> foundProps = new ArrayList<>();
-        for (String field : index.getDefinition().getFields()) {
-          boolean found = false;
-          for (SchemaProperty property : propeties) {
+        for (var field : index.getDefinition().getFields()) {
+          var found = false;
+          for (var property : propeties) {
             if (property.getName().equals(field)) {
               found = true;
               foundProps.add(property);
@@ -129,7 +132,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
   @Override
   public List<SchemaProperty> properties() {
     List<SchemaProperty> props = new ArrayList<>();
-    for (IndexCandidate cand : this.canditates) {
+    for (var cand : this.canditates) {
       props.addAll(cand.properties());
     }
     return props;

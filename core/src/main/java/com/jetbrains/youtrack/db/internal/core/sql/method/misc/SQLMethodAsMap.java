@@ -16,13 +16,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Transforms current value into a Map.
@@ -35,11 +36,12 @@ public class SQLMethodAsMap extends AbstractSQLMethod {
     super(NAME);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -70,11 +72,11 @@ public class SQLMethodAsMap extends AbstractSQLMethod {
       return null;
     }
 
-    final HashMap<Object, Object> map = new HashMap<Object, Object>();
+    final var map = new HashMap<Object, Object>();
     while (iter.hasNext()) {
-      final Object key = iter.next();
+      final var key = iter.next();
       if (iter.hasNext()) {
-        final Object value = iter.next();
+        final var value = iter.next();
         map.put(key, value);
       }
     }

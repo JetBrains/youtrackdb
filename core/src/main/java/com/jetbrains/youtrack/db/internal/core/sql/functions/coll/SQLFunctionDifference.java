@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.HashSet;
@@ -42,13 +42,14 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
   @SuppressWarnings("unchecked")
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
 
     if (Boolean.TRUE.equals(iContext.getVariable("aggregation"))) {
-      throw new CommandExecutionException("difference function cannot be used in aggregation mode");
+      throw new CommandExecutionException(iContext.getDatabaseSession(),
+          "difference function cannot be used in aggregation mode");
     }
 
     // if the first parameter is null, then the overall result is empty
@@ -68,7 +69,7 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
       return Set.of();
     }
 
-    for (int i = 1; i < iParams.length; i++) {
+    for (var i = 1; i < iParams.length; i++) {
       // if the parameter is null, ignoring it, it will not affect the difference result
       if (iParams[i] == null) {
         continue;

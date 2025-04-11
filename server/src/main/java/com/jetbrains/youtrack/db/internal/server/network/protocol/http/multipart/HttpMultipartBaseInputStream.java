@@ -87,16 +87,16 @@ public class HttpMultipartBaseInputStream extends InputStream {
   @Override
   public int read(final byte[] b, final int off, final int len) throws IOException {
     if (buffer.size() > 0) {
-      int tot2Read = Math.min(buffer.size(), len);
+      var tot2Read = Math.min(buffer.size(), len);
 
-      for (int i = 0; i < tot2Read; ++i) {
+      for (var i = 0; i < tot2Read; ++i) {
         b[i] = buffer.remove(0).byteValue();
         contentLength--;
       }
       return tot2Read;
     }
 
-    int totRead = wrappedInputStream.read(b, off, len);
+    var totRead = wrappedInputStream.read(b, off, len);
     contentLength -= totRead;
     return totRead;
   }

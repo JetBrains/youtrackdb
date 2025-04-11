@@ -10,8 +10,8 @@ import org.junit.Test;
 public class ProfileStorageStatementTest {
 
   protected SimpleNode checkRightSyntax(String query) {
-    SimpleNode result = checkSyntax(query, true);
-    StringBuilder builder = new StringBuilder();
+    var result = checkSyntax(query, true);
+    var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntax(builder.toString(), true);
   }
@@ -21,7 +21,7 @@ public class ProfileStorageStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -49,25 +49,25 @@ public class ProfileStorageStatementTest {
 
   @Test
   public void testParserSimple1() {
-    SimpleNode stm = checkRightSyntax("profile storage on");
+    var stm = checkRightSyntax("profile storage on");
     assertTrue(stm instanceof SQLProfileStorageStatement);
   }
 
   @Test
   public void testParserSimple2() {
-    SimpleNode stm = checkRightSyntax("profile storage off");
+    var stm = checkRightSyntax("profile storage off");
     assertTrue(stm instanceof SQLProfileStorageStatement);
   }
 
   @Test
   public void testParserSimpleUpper1() {
-    SimpleNode stm = checkRightSyntax("PROFILE STORAGE ON");
+    var stm = checkRightSyntax("PROFILE STORAGE ON");
     assertTrue(stm instanceof SQLProfileStorageStatement);
   }
 
   @Test
   public void testParserSimpleUpper2() {
-    SimpleNode stm = checkRightSyntax("PROFILE STORAGE OFF");
+    var stm = checkRightSyntax("PROFILE STORAGE OFF");
     assertTrue(stm instanceof SQLProfileStorageStatement);
   }
 
@@ -82,7 +82,7 @@ public class ProfileStorageStatementTest {
   }
 
   private void printTree(String s) {
-    YouTrackDBSql osql = getParserFor(s);
+    var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
 
@@ -93,7 +93,7 @@ public class ProfileStorageStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

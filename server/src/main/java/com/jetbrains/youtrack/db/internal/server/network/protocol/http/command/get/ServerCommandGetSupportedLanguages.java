@@ -17,12 +17,10 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.util.HashSet;
 import java.util.Set;
@@ -32,35 +30,27 @@ public class ServerCommandGetSupportedLanguages extends ServerCommandAuthenticat
   private static final String[] NAMES = {"GET|supportedLanguages/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(iRequest.getUrl(), 2, "Syntax error: supportedLanguages/<database>");
 
     iRequest.getData().commandInfo = "Returns the supported languages";
 
-    DatabaseSession db = null;
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      var result = new EntityImpl(null);
+      Set<String> languages = new HashSet<>();
 
-    try {
-      db = getProfiledDatabaseInstance(iRequest);
-
-      EntityImpl result = new EntityImpl();
-      Set<String> languages = new HashSet<String>();
-
-      ScriptManager scriptManager =
+      var scriptManager =
           YouTrackDBInternal.extract(server.getContext()).getScriptManager();
-      for (String language : scriptManager.getSupportedLanguages()) {
+      for (var language : scriptManager.getSupportedLanguages()) {
         if (scriptManager.getFormatters() != null
             && scriptManager.getFormatters().get(language) != null) {
           languages.add(language);
         }
       }
 
-      result.field("languages", languages);
+      result.setProperty("languages", languages);
       iResponse.writeRecord(result);
-    } finally {
-      if (db != null) {
-        db.close();
-      }
     }
     return false;
   }

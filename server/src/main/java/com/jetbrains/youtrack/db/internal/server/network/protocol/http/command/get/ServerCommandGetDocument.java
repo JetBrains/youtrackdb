@@ -21,11 +21,10 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandGetDocument extends ServerCommandAuthenticatedDbAbstract {
@@ -33,61 +32,60 @@ public class ServerCommandGetDocument extends ServerCommandAuthenticatedDbAbstra
   private static final String[] NAMES = {"GET|document/*", "HEAD|document/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var urlParts =
         checkSyntax(
             iRequest.getUrl(), 3, "Syntax error: document/<database>/<record-id>[/fetchPlan]");
 
-    final String fetchPlan = urlParts.length > 3 ? urlParts[3] : null;
+    final var fetchPlan = urlParts.length > 3 ? urlParts[3] : null;
 
     iRequest.getData().commandInfo = "Load document";
 
-    final DBRecord rec;
-
-    final int parametersPos = urlParts[2].indexOf('?');
-    final String rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
-
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
-      try {
-        rec = db.load(new RecordId(rid));
-      } catch (RecordNotFoundException e) {
-        iResponse.send(
-            HttpUtils.STATUS_NOTFOUND_CODE,
-            HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
-            HttpUtils.CONTENT_JSON,
-            "Record with id '" + urlParts[2] + "' was not found.",
-            null);
-        return false;
-      }
-
-      if (iRequest.getHttpMethod().equals("HEAD"))
-      // JUST SEND HTTP CODE 200
-      {
-        iResponse.send(
-            HttpUtils.STATUS_OK_CODE,
-            HttpUtils.STATUS_OK_DESCRIPTION,
-            null,
-            null,
-            HttpUtils.HEADER_ETAG + rec.getVersion());
-      } else {
-        final String ifNoneMatch = iRequest.getHeader("If-None-Match");
-        if (ifNoneMatch != null && Integer.toString(rec.getVersion()).equals(ifNoneMatch)) {
-          // SAME CONTENT, DON'T SEND BACK RECORD
+    final var parametersPos = urlParts[2].indexOf('?');
+    var rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      return db.computeInTx(transaction -> {
+        final DBRecord rec;
+        try {
+          rec = db.load(new RecordId(rid));
+        } catch (RecordNotFoundException e) {
           iResponse.send(
-              HttpUtils.STATUS_OK_NOMODIFIED_CODE,
-              HttpUtils.STATUS_OK_NOMODIFIED_DESCRIPTION,
+              HttpUtils.STATUS_NOTFOUND_CODE,
+              HttpUtils.STATUS_NOTFOUND_DESCRIPTION,
+              HttpUtils.CONTENT_JSON,
+              "Record with id '" + urlParts[2] + "' was not found.",
+              null);
+          return false;
+        }
+
+        if (iRequest.getHttpMethod().equals("HEAD"))
+        // JUST SEND HTTP CODE 200
+        {
+          iResponse.send(
+              HttpUtils.STATUS_OK_CODE,
+              HttpUtils.STATUS_OK_DESCRIPTION,
               null,
               null,
               HttpUtils.HEADER_ETAG + rec.getVersion());
+        } else {
+          final var ifNoneMatch = iRequest.getHeader("If-None-Match");
+          if (ifNoneMatch != null && Integer.toString(rec.getVersion()).equals(ifNoneMatch)) {
+            // SAME CONTENT, DON'T SEND BACK RECORD
+            iResponse.send(
+                HttpUtils.STATUS_OK_NOMODIFIED_CODE,
+                HttpUtils.STATUS_OK_NOMODIFIED_DESCRIPTION,
+                null,
+                null,
+                HttpUtils.HEADER_ETAG + rec.getVersion());
+          }
+
+          // SEND THE DOCUMENT BACK
+          iResponse.writeRecord(rec, fetchPlan, null);
+
         }
-
-        // SEND THE DOCUMENT BACK
-        iResponse.writeRecord(rec, fetchPlan, null);
-      }
-
+        return false;
+      });
     }
-
-    return false;
   }
 
   @Override

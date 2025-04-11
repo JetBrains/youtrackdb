@@ -19,15 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
-import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Evaluates a complex expression.
@@ -42,24 +42,24 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      final Identifiable iRecord,
+      final Result iRecord,
       final Object iCurrentResult,
       final Object[] iParams,
-      @Nonnull CommandContext iContext) {
+      @Nonnull CommandContext context) {
     if (iParams.length < 1) {
-      throw new CommandExecutionException("invalid ");
+      throw new CommandExecutionException(context.getDatabaseSession(), "invalid ");
     }
     if (predicate == null) {
-      predicate = new SQLPredicate(iContext, String.valueOf(iParams[0]));
+      predicate = new SQLPredicate(context, String.valueOf(iParams[0]));
     }
 
-    final EntityImpl currentResult =
+    final var currentResult =
         iCurrentResult instanceof EntityImpl ? (EntityImpl) iCurrentResult : null;
     try {
-      return predicate.evaluate(
-          iRecord != null ? iRecord.getRecord() : null, currentResult, iContext);
+      return predicate.evaluate(iRecord, currentResult, context);
     } catch (ArithmeticException e) {
       LogManager.instance().error(this, "Division by 0", e);
       // DIVISION BY 0
@@ -78,13 +78,10 @@ public class SQLFunctionEval extends SQLFunctionMathAbstract {
     return "eval(<expression>)";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;
   }
 
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    return null;
-  }
 }

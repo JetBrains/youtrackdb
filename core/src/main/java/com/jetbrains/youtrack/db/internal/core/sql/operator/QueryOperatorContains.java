@@ -20,25 +20,23 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * CONTAINS operator.
@@ -52,12 +50,12 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
-    var database = iContext.getDatabase();
+    var session = iContext.getDatabaseSession();
     final SQLFilterCondition condition;
     if (iCondition.getLeft() instanceof SQLFilterCondition) {
       condition = (SQLFilterCondition) iCondition.getLeft();
@@ -69,30 +67,41 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
 
     if (iLeft instanceof Iterable<?>) {
 
-      final Iterable<Object> iterable = (Iterable<Object>) iLeft;
-
+      final var iterable = (Iterable<Object>) iLeft;
       if (condition != null) {
         // CHECK AGAINST A CONDITION
-        for (final Object o : iterable) {
-          final Identifiable id;
-          if (o instanceof Identifiable) {
-            id = (Identifiable) o;
-          } else if (o instanceof Map<?, ?>) {
-            final Iterator<Object> iter = ((Map<?, Object>) o).values().iterator();
-            final Object v = iter.hasNext() ? iter.next() : null;
-            if (v instanceof Identifiable) {
-              id = (Identifiable) v;
-            } else
-            // TRANSFORM THE ENTIRE MAP IN A DOCUMENT. PROBABLY HAS BEEN IMPORTED FROM JSON
-            {
-              id = new EntityImpl((Map) o);
-            }
 
-          } else if (o instanceof Iterable<?>) {
-            final Iterator<Identifiable> iter = ((Iterable<Identifiable>) o).iterator();
-            id = iter.hasNext() ? iter.next() : null;
-          } else {
-            continue;
+        for (final var o : iterable) {
+          final Result id;
+          switch (o) {
+            case Identifiable identifiable -> {
+              var transaction = session.getActiveTransaction();
+              id = transaction.loadEntity(identifiable);
+            }
+            case Map<?, ?> map -> {
+              final var iter = map.values().iterator();
+              final var v = iter.hasNext() ? iter.next() : null;
+              if (v instanceof Identifiable identifiable) {
+                var transaction = session.getActiveTransaction();
+                id = transaction.loadEntity(identifiable);
+              } else {
+                id = new ResultInternal(session, (Map<String, ?>) o);
+              }
+
+            }
+            case Iterable<?> objects -> {
+              final var iter = objects.iterator();
+              if (iter.hasNext()) {
+                Identifiable identifiable = ((Identifiable) iter.next());
+                var transaction = session.getActiveTransaction();
+                id = transaction.loadEntity(identifiable);
+              } else {
+                id = null;
+              }
+            }
+            case null, default -> {
+              continue;
+            }
           }
 
           if (condition.evaluate(id, null, iContext) == Boolean.TRUE) {
@@ -101,27 +110,29 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
         }
       } else {
         // CHECK AGAINST A SINGLE VALUE
-        PropertyType type = null;
+        PropertyTypeInternal type = null;
 
         if (iCondition.getLeft() instanceof SQLFilterItemField
             && ((SQLFilterItemField) iCondition.getLeft()).isFieldChain()
             && ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemCount() == 1) {
-          String fieldName =
+          var fieldName =
               ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
           if (fieldName != null) {
-            Object record = iRecord.getRecord();
-            if (record instanceof EntityImpl) {
-              SchemaProperty property =
-                  EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record))
+            if (iRecord.isEntity()) {
+              var entity = iRecord.asEntity();
+              var result = ((EntityImpl) entity).getImmutableSchemaClass(session);
+              var property =
+                  result
                       .getProperty(fieldName);
-              if (property != null && property.getType().isMultiValue()) {
-                type = property.getLinkedType();
+              if (property != null && PropertyTypeInternal.convertFromPublicType(property.getType())
+                  .isMultiValue()) {
+                type = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
               }
             }
           }
         }
-        for (final Object o : iterable) {
-          if (QueryOperatorEquals.equals(database, iRight, o, type)) {
+        for (final var o : iterable) {
+          if (QueryOperatorEquals.equals(session, iRight, o, type)) {
             return true;
           }
         }
@@ -129,18 +140,19 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
     } else if (iRight instanceof Iterable<?>) {
 
       // CHECK AGAINST A CONDITION
-      final Iterable<Identifiable> iterable = (Iterable<Identifiable>) iRight;
+      final var iterable = (Iterable<Identifiable>) iRight;
 
       if (condition != null) {
-        for (final Identifiable o : iterable) {
-          if (condition.evaluate(o, null, iContext) == Boolean.TRUE) {
+        for (final var o : iterable) {
+          var transaction = session.getActiveTransaction();
+          if (condition.evaluate(transaction.loadEntity(o), null, iContext) == Boolean.TRUE) {
             return true;
           }
         }
       } else {
         // CHECK AGAINST A SINGLE VALUE
         for (final Object o : iterable) {
-          if (QueryOperatorEquals.equals(database, iLeft, o)) {
+          if (QueryOperatorEquals.equals(session, iLeft, o)) {
             return true;
           }
         }
@@ -158,54 +170,55 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    var database = iContext.getDatabase();
-    final IndexDefinition indexDefinition = index.getDefinition();
+    var session = iContext.getDatabaseSession();
+    final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final IndexInternal internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
+    var transaction = session.getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(database, keyParams.get(0));
+                .createSingleValue(transaction, keyParams.getFirst());
       } else {
-        key = indexDefinition.createValue(database, keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
         return null;
       }
 
-      stream = index.getInternal().getRids(database, key).map((rid) -> new RawPair<>(key, rid));
+      stream = index.getRids(session, key).map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
       // using part of composite key stored in index.
 
-      final CompositeIndexDefinition compositeIndexDefinition =
+      final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
-      final Object keyOne = compositeIndexDefinition.createSingleValue(database, keyParams);
+      final Object keyOne = compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
       }
 
-      final Object keyTwo = compositeIndexDefinition.createSingleValue(database, keyParams);
-      if (internalIndex.hasRangeQuerySupport()) {
-        stream = index.getInternal().streamEntriesBetween(database, keyOne, true, keyTwo, true,
+      final Object keyTwo = compositeIndexDefinition.createSingleValue(transaction, keyParams);
+      if (index.hasRangeQuerySupport()) {
+        stream = index.streamEntriesBetween(session, keyOne, true, keyTwo, true,
             ascSortOrder);
       } else {
-        int indexParamCount = indexDefinition.getParamCount();
+        var indexParamCount = indexDefinition.getParamCount();
         if (indexParamCount == keyParams.size()) {
-          stream = index.getInternal().getRids(database, keyOne)
+          stream = index.getRids(session, keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;
@@ -217,11 +230,13 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

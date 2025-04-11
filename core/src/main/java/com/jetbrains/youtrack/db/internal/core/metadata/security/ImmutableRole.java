@@ -1,23 +1,22 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule.ResourceGeneric;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * @since 03/11/14
  */
 public class ImmutableRole implements SecurityRole {
 
-  private static final long serialVersionUID = 1L;
-  private final ALLOW_MODES mode;
   private final SecurityRole parentRole;
 
   private final Map<Rule.ResourceGeneric, Rule> rules =
@@ -33,20 +32,17 @@ public class ImmutableRole implements SecurityRole {
       this.parentRole = new ImmutableRole(session, role.getParentRole());
     }
 
-    this.mode = role.getMode();
     this.name = role.getName(session);
-    this.rid = role.getIdentity(session).getIdentity();
+    this.rid = role.getIdentity().getIdentity();
 
-    for (Rule rule : role.getRuleSet()) {
+    for (var rule : role.getRuleSet()) {
       rules.put(rule.getResourceGeneric(), rule);
     }
-    Map<String, SecurityPolicy> policies = role.getPolicies(session);
+    var policies = role.getPolicies(session);
     if (policies != null) {
-      Map<String, SecurityPolicy> result = new HashMap<String, SecurityPolicy>();
+      Map<String, SecurityPolicy> result = new HashMap<>();
       policies
-          .entrySet()
-          .forEach(
-              x -> result.put(x.getKey(), new ImmutableSecurityPolicy(session, x.getValue())));
+          .forEach((key, value) -> result.put(key, new ImmutableSecurityPolicy(value)));
       this.policies = result;
     } else {
       this.policies = null;
@@ -57,27 +53,25 @@ public class ImmutableRole implements SecurityRole {
       ImmutableRole parent,
       String name,
       Map<ResourceGeneric, Rule> rules,
-      Map<String, ImmutableSecurityPolicy> policies) {
+      Map<String, SecurityPolicy> policies) {
     this.parentRole = parent;
-
-    this.mode = ALLOW_MODES.DENY_ALL_BUT;
     this.name = name;
     this.rid = new RecordId(-1, -1);
     this.rules.putAll(rules);
-    this.policies = (Map<String, SecurityPolicy>) (Map) policies;
+    this.policies = policies;
   }
 
   public boolean allow(
       final Rule.ResourceGeneric resourceGeneric,
       final String resourceSpecific,
       final int iCRUDOperation) {
-    Rule rule = rules.get(resourceGeneric);
+    var rule = rules.get(resourceGeneric);
     if (rule == null) {
       rule = rules.get(Rule.ResourceGeneric.ALL);
     }
 
     if (rule != null) {
-      final Boolean allowed = rule.isAllowed(resourceSpecific, iCRUDOperation);
+      final var allowed = rule.isAllowed(resourceSpecific, iCRUDOperation);
       if (allowed != null) {
         return allowed;
       }
@@ -93,7 +87,7 @@ public class ImmutableRole implements SecurityRole {
   }
 
   public boolean hasRule(final Rule.ResourceGeneric resourceGeneric, String resourceSpecific) {
-    Rule rule = rules.get(resourceGeneric);
+    var rule = rules.get(resourceGeneric);
 
     if (rule == null) {
       return false;
@@ -123,8 +117,8 @@ public class ImmutableRole implements SecurityRole {
   @Deprecated
   @Override
   public boolean allow(String iResource, int iCRUDOperation) {
-    final String specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
-    final Rule.ResourceGeneric resourceGeneric =
+    final var specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
+    final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
 
     if (specificResource == null || specificResource.equals("*")) {
@@ -137,8 +131,8 @@ public class ImmutableRole implements SecurityRole {
   @Deprecated
   @Override
   public boolean hasRule(String iResource) {
-    final String specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
-    final Rule.ResourceGeneric resourceGeneric =
+    final var specificResource = Rule.mapLegacyResourceToSpecificResource(iResource);
+    final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
 
     if (specificResource == null || specificResource.equals("*")) {
@@ -167,24 +161,16 @@ public class ImmutableRole implements SecurityRole {
     return name;
   }
 
-  public ALLOW_MODES getMode() {
-    return mode;
-  }
-
-  public Role setMode(final ALLOW_MODES iMode) {
-    throw new UnsupportedOperationException();
-  }
-
   public SecurityRole getParentRole() {
     return parentRole;
   }
 
-  public Role setParentRole(DatabaseSession session, final SecurityRole iParent) {
+  public void setParentRole(DatabaseSession session, final SecurityRole iParent) {
     throw new UnsupportedOperationException();
   }
 
   public Set<Rule> getRuleSet() {
-    return new HashSet<Rule>(rules.values());
+    return new HashSet<>(rules.values());
   }
 
   @Override
@@ -193,7 +179,7 @@ public class ImmutableRole implements SecurityRole {
   }
 
   @Override
-  public Identifiable getIdentity(DatabaseSession session) {
+  public Identifiable getIdentity() {
     return rid;
   }
 
@@ -202,6 +188,7 @@ public class ImmutableRole implements SecurityRole {
     return policies;
   }
 
+  @Nullable
   @Override
   public SecurityPolicy getPolicy(DatabaseSession session, String resource) {
     if (policies == null) {

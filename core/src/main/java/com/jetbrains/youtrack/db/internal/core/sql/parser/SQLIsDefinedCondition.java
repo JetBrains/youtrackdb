@@ -2,12 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -29,15 +29,17 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
+    var db = ctx.getDatabaseSession();
     Object elem;
     try {
-      elem = currentRecord.getRecord();
+      var transaction = db.getActiveTransaction();
+      elem = transaction.load(currentRecord);
     } catch (RecordNotFoundException rnf) {
       return false;
     }
 
     if (elem instanceof Entity) {
-      return expression.isDefinedFor((Entity) elem);
+      return expression.isDefinedFor(db, (Entity) elem);
     }
 
     return false;
@@ -86,7 +88,7 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
 
   @Override
   public SQLIsDefinedCondition copy() {
-    SQLIsDefinedCondition result = new SQLIsDefinedCondition(-1);
+    var result = new SQLIsDefinedCondition(-1);
     result.expression = expression.copy();
     return result;
   }
@@ -110,7 +112,7 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
       return false;
     }
 
-    SQLIsDefinedCondition that = (SQLIsDefinedCondition) o;
+    var that = (SQLIsDefinedCondition) o;
 
     return Objects.equals(expression, that.expression);
   }

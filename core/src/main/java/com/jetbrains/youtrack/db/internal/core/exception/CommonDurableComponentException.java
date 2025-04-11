@@ -12,8 +12,9 @@ public final class CommonDurableComponentException extends CoreException {
     super(exception);
   }
 
-  public CommonDurableComponentException(String message, String componentName,
+  public CommonDurableComponentException(String message,
+      String componentName,
       String dbName) {
-    super(message, componentName, dbName);
+    super(dbName, message, componentName);
   }
 }

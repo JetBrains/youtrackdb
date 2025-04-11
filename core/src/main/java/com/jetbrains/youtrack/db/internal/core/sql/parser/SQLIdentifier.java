@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * This class is used to represent all the indentifies in the SQL grammar, ie. class names, property
@@ -43,7 +44,7 @@ public class SQLIdentifier extends SimpleNode {
   }
 
   public static SQLIdentifier deserialize(Result fromResult) {
-    SQLIdentifier identifier = new SQLIdentifier(-1);
+    var identifier = new SQLIdentifier(-1);
     identifier.value = fromResult.getProperty("value");
     identifier.quoted = fromResult.getProperty("quoted");
     return identifier;
@@ -77,6 +78,7 @@ public class SQLIdentifier extends SimpleNode {
    *
    * @return
    */
+  @Nullable
   public String getStringValue() {
     if (value == null) {
       return null;
@@ -148,7 +150,7 @@ public class SQLIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLIdentifier that = (SQLIdentifier) o;
+    var that = (SQLIdentifier) o;
 
     if (quoted != that.quoted) {
       return false;
@@ -161,14 +163,14 @@ public class SQLIdentifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = value != null ? value.hashCode() : 0;
+    var result = value != null ? value.hashCode() : 0;
     result = 31 * result + (quoted ? 1 : 0);
     result = 31 * result + (internalAlias ? 1 : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("value", value);
     result.setProperty("quoted", quoted);
     return result;
@@ -178,7 +180,7 @@ public class SQLIdentifier extends SimpleNode {
     if (internalAlias) {
       return true;
     }
-    String stringVal = getStringValue();
+    var stringVal = getStringValue();
     return ctx.isScriptVariableDeclared(stringVal); // context variable, for batch scripts
   }
 }

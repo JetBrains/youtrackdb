@@ -13,34 +13,34 @@ public final class WALRecordTypes {
   public static final int ATOMIC_UNIT_START_METADATA_RECORD = 15;
   public static final int HIGH_LEVEL_TRANSACTION_CHANGE_RECORD = 18;
 
-  public static final int CLUSTER_POSITION_MAP_INIT_PO = 35;
-  public static final int CLUSTER_POSITION_MAP_ADD_PO = 36;
-  public static final int CLUSTER_POSITION_MAP_ALLOCATE_PO = 37;
-  public static final int CLUSTER_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO = 38;
-  public static final int CLUSTER_POSITION_MAP_UPDATE_ENTRY_PO = 40;
-  public static final int CLUSTER_POSITION_MAP_UPDATE_STATUS_PO = 41;
+  public static final int COLLECTION_POSITION_MAP_INIT_PO = 35;
+  public static final int COLLECTION_POSITION_MAP_ADD_PO = 36;
+  public static final int COLLECTION_POSITION_MAP_ALLOCATE_PO = 37;
+  public static final int COLLECTION_POSITION_MAP_TRUNCATE_LAST_ENTRY_PO = 38;
+  public static final int COLLECTION_POSITION_MAP_UPDATE_ENTRY_PO = 40;
+  public static final int COLLECTION_POSITION_MAP_UPDATE_STATUS_PO = 41;
 
-  public static final int CLUSTER_PAGE_INIT_PO = 42;
-  public static final int CLUSTER_PAGE_APPEND_RECORD_PO = 43;
-  public static final int CLUSTER_PAGE_REPLACE_RECORD_PO = 44;
-  public static final int CLUSTER_PAGE_DELETE_RECORD_PO = 45;
-  public static final int CLUSTER_PAGE_SET_NEXT_PAGE_PO = 46;
-  public static final int CLUSTER_PAGE_SET_PREV_PAGE_PO = 47;
-  public static final int CLUSTER_PAGE_SET_RECORD_LONG_VALUE_PO = 48;
+  public static final int COLLECTION_PAGE_INIT_PO = 42;
+  public static final int COLLECTION_PAGE_APPEND_RECORD_PO = 43;
+  public static final int COLLECTION_PAGE_REPLACE_RECORD_PO = 44;
+  public static final int COLLECTION_PAGE_DELETE_RECORD_PO = 45;
+  public static final int COLLECTION_PAGE_SET_NEXT_PAGE_PO = 46;
+  public static final int COLLECTION_PAGE_SET_PREV_PAGE_PO = 47;
+  public static final int COLLECTION_PAGE_SET_RECORD_LONG_VALUE_PO = 48;
 
-  public static final int PAGINATED_CLUSTER_STATE_V0_SET_SIZE_PO = 49;
-  public static final int PAGINATED_CLUSTER_STATE_V0_SET_RECORDS_SIZE_PO = 50;
-  public static final int PAGINATED_CLUSTER_STATE_V0_SET_FREE_LIST_PAGE_PO = 51;
+  public static final int PAGINATED_COLLECTION_STATE_V0_SET_SIZE_PO = 49;
+  public static final int PAGINATED_COLLECTION_STATE_V0_SET_RECORDS_SIZE_PO = 50;
+  public static final int PAGINATED_COLLECTION_STATE_V0_SET_FREE_LIST_PAGE_PO = 51;
 
-  public static final int PAGINATED_CLUSTER_STATE_V1_SET_FREE_LIST_PAGE_PO = 52;
-  public static final int PAGINATED_CLUSTER_STATE_V1_SET_RECORDS_SIZE_PO = 53;
-  public static final int PAGINATED_CLUSTER_STATE_V1_SET_SIZE_PO = 54;
-  public static final int PAGINATED_CLUSTER_STATE_V1_SET_FILE_SIZE_PO = 55;
+  public static final int PAGINATED_COLLECTION_STATE_V1_SET_FREE_LIST_PAGE_PO = 52;
+  public static final int PAGINATED_COLLECTION_STATE_V1_SET_RECORDS_SIZE_PO = 53;
+  public static final int PAGINATED_COLLECTION_STATE_V1_SET_SIZE_PO = 54;
+  public static final int PAGINATED_COLLECTION_STATE_V1_SET_FILE_SIZE_PO = 55;
 
-  public static final int PAGINATED_CLUSTER_STATE_V2_SET_FILE_SIZE_PO = 56;
-  public static final int PAGINATED_CLUSTER_STATE_V2_SET_FREE_LIST_PAGE_PO = 57;
-  public static final int PAGINATED_CLUSTER_STATE_V2_SET_RECORDS_SIZE_PO = 58;
-  public static final int PAGINATED_CLUSTER_STATE_V2_SET_SIZE_PO = 59;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_PO = 56;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_FREE_LIST_PAGE_PO = 57;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_RECORDS_SIZE_PO = 58;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_SIZE_PO = 59;
 
   public static final int CELL_BTREE_BUCKET_SINGLE_VALUE_V1_INIT_PO = 60;
   public static final int CELL_BTREE_BUCKET_SINGLE_VALUE_V1_ADD_LEAF_ENTRY_PO = 61;

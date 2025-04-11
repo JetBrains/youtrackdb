@@ -20,10 +20,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -34,48 +31,49 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    SchemaClass type = db.createVertexClass("City");
-    type.createProperty(db, "name", PropertyType.STRING);
+    var type = session.createVertexClass("City");
+    type.createProperty("name", PropertyType.STRING);
 
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void graphTxTest() throws Exception {
-
-    Vertex v = db.newVertex("City");
+    session.begin();
+    var v = session.newVertex("City");
     v.setProperty("name", "London");
 
     // save london
-    db.begin();
-    db.save(v);
-    db.commit();
 
-    db.begin();
-    ResultSet resultSet = db.command("select from City where search_class('London') =true ");
+    session.commit();
+
+    session.begin();
+    var resultSet = session.execute("select from City where search_class('London') =true ");
 
     assertThat(resultSet).hasSize(1);
 
-    v = db.bindToSession(v);
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
     // modifiy vertex
     v.setProperty("name", "Berlin");
 
     // re-save
 
-    db.save(v);
-    db.commit();
+    session.commit();
 
     // only berlin
-    resultSet = db.command("select from City where search_class('Berlin') =true ");
+    session.begin();
+    resultSet = session.execute("select from City where search_class('Berlin') =true ");
     assertThat(resultSet).hasSize(1);
 
-    resultSet = db.command("select from City where search_class('London') =true ");
+    resultSet = session.execute("select from City where search_class('London') =true ");
     assertThat(resultSet).hasSize(0);
 
-    resultSet = db.command("select from City where search_class('Berlin') =true ");
+    resultSet = session.execute("select from City where search_class('Berlin') =true ");
     assertThat(resultSet).hasSize(1);
 
-    resultSet = db.command("select from City where search_class('London') =true ");
+    resultSet = session.execute("select from City where search_class('London') =true ");
     assertThat(resultSet).hasSize(0);
+    session.commit();
   }
 }

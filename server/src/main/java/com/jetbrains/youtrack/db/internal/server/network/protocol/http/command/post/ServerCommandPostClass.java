@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandPostClass extends ServerCommandAuthenticatedDbAbstract {
@@ -30,14 +29,14 @@ public class ServerCommandPostClass extends ServerCommandAuthenticatedDbAbstract
   private static final String[] NAMES = {"POST|class/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(iRequest.getUrl(), 3, "Syntax error: class/<database>/<class-name>");
 
     iRequest.getData().commandInfo = "Create class";
     iRequest.getData().commandDetail = urlParts[2];
 
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
 
       if (db.getMetadata().getSchema().getClass(urlParts[2]) != null) {
         throw new IllegalArgumentException("Class '" + urlParts[2] + "' already exists");
@@ -49,7 +48,7 @@ public class ServerCommandPostClass extends ServerCommandAuthenticatedDbAbstract
           HttpUtils.STATUS_CREATED_CODE,
           HttpUtils.STATUS_CREATED_DESCRIPTION,
           HttpUtils.CONTENT_TEXT_PLAIN,
-          db.getMetadata().getSchema().getClasses(db).size(),
+          db.getMetadata().getSchema().getClasses().size(),
           null);
 
     }

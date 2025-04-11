@@ -1,13 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DDLExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,33 +27,34 @@ public abstract class DDLStatement extends SQLStatement {
   public abstract ExecutionStream executeDDL(CommandContext ctx);
 
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
     ctx.setInputParameters(params);
-    DDLExecutionPlan executionPlan = (DDLExecutionPlan) createExecutionPlan(ctx, false);
+    var executionPlan = (DDLExecutionPlan) createExecutionPlan(ctx, false);
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
-    DDLExecutionPlan executionPlan = (DDLExecutionPlan) createExecutionPlan(ctx, false);
+    var executionPlan = (DDLExecutionPlan) createExecutionPlan(ctx, false);
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 

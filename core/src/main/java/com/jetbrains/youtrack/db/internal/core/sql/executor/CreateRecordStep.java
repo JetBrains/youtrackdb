@@ -1,21 +1,29 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 
 /**
  *
  */
 public class CreateRecordStep extends AbstractExecutionStep {
 
-  private int total = 0;
+  private final int total;
+  private String targetClass;
 
-  public CreateRecordStep(CommandContext ctx, int total, boolean profilingEnabled) {
+  public CreateRecordStep(CommandContext ctx, SQLIdentifier targetClass, int total,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.total = total;
+    if (targetClass != null) {
+      this.targetClass = targetClass.getStringValue();
+    }
   }
 
   @Override
@@ -24,18 +32,36 @@ public class CreateRecordStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    return new ProduceExecutionStream(CreateRecordStep::produce).limit(total);
+    return new ProduceExecutionStream(this::produce).limit(total);
   }
 
-  private static Result produce(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    return new UpdatableResult(db, db.newInstance());
+  private Result produce(CommandContext ctx) {
+    var db = ctx.getDatabaseSession();
+    final Entity entity;
+    if (targetClass != null) {
+      var cls = db.getMetadata().getImmutableSchemaSnapshot().getClass(targetClass);
+      if (cls == null) {
+        throw new DatabaseException("Class " + targetClass + " not found");
+      }
+      if (cls.isVertexType()) {
+        entity = db.newVertex(targetClass);
+      } else if (cls.isEdgeType()) {
+        throw new DatabaseException(
+            "Class " + targetClass + " is an edge class please use create edge command.");
+      } else {
+        entity = db.newEntity(targetClass);
+      }
+    } else {
+      entity = db.newEntity();
+    }
+
+    return new UpdatableResult(db, entity);
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ CREATE EMPTY RECORDS");
     if (profilingEnabled) {

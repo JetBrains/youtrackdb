@@ -67,8 +67,8 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
 
   private void cleanUpCache() {
     synchronized (this) {
-      for (DatabasePoolInternal pool : poolCache.values()) {
-        long delta = System.currentTimeMillis() - pool.getLastCloseTime();
+      for (var pool : poolCache.values()) {
+        var delta = System.currentTimeMillis() - pool.getLastCloseTime();
         if (pool.isUnused() && delta > timeout) {
           pool.close();
         }
@@ -96,14 +96,14 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
       String database, String username, String password, YouTrackDBConfigImpl parentConfig) {
     checkForClose();
 
-    String key = SecurityManager.createSHA256(database + username + password);
+    var key = SecurityManager.createSHA256(database + username + password);
 
-    DatabasePoolInternal pool = poolCache.get(key);
+    var pool = poolCache.get(key);
     if (pool != null && !pool.isClosed()) {
       return pool;
     }
 
-    YouTrackDBConfigImpl config = (YouTrackDBConfigImpl)
+    var config = (YouTrackDBConfigImpl)
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, maxPoolSize)
             .build();

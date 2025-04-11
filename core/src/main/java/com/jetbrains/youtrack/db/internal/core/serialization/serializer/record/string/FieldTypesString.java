@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,92 +17,88 @@ public class FieldTypesString {
    * @param iCharType Char value indicating the type
    * @return The closest type recognized
    */
-  public static PropertyType getType(final String iValue, final char iCharType) {
+  public static PropertyTypeInternal getType(final String iValue, final char iCharType) {
     if (iCharType == 'f') {
-      return PropertyType.FLOAT;
+      return PropertyTypeInternal.FLOAT;
     } else if (iCharType == 'c') {
-      return PropertyType.DECIMAL;
+      return PropertyTypeInternal.DECIMAL;
     } else if (iCharType == 'l') {
-      return PropertyType.LONG;
+      return PropertyTypeInternal.LONG;
     } else if (iCharType == 'd') {
-      return PropertyType.DOUBLE;
+      return PropertyTypeInternal.DOUBLE;
     } else if (iCharType == 'b') {
       if (iValue.length() >= 1 && iValue.length() <= 3) {
-        return PropertyType.BYTE;
+        return PropertyTypeInternal.BYTE;
       } else {
-        return PropertyType.BINARY;
+        return PropertyTypeInternal.BINARY;
       }
     } else if (iCharType == 'a') {
-      return PropertyType.DATE;
+      return PropertyTypeInternal.DATE;
     } else if (iCharType == 't') {
-      return PropertyType.DATETIME;
+      return PropertyTypeInternal.DATETIME;
     } else if (iCharType == 's') {
-      return PropertyType.SHORT;
+      return PropertyTypeInternal.SHORT;
     } else if (iCharType == 'e') {
-      return PropertyType.EMBEDDEDSET;
+      return PropertyTypeInternal.EMBEDDEDSET;
     } else if (iCharType == 'g') {
-      return PropertyType.LINKBAG;
+      return PropertyTypeInternal.LINKBAG;
     } else if (iCharType == 'z') {
-      return PropertyType.LINKLIST;
+      return PropertyTypeInternal.LINKLIST;
     } else if (iCharType == 'm') {
-      return PropertyType.LINKMAP;
+      return PropertyTypeInternal.LINKMAP;
     } else if (iCharType == 'x') {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     } else if (iCharType == 'n') {
-      return PropertyType.LINKSET;
-    } else if (iCharType == 'u') {
-      return PropertyType.CUSTOM;
+      return PropertyTypeInternal.LINKSET;
     }
 
-    return PropertyType.STRING;
+    return PropertyTypeInternal.STRING;
   }
 
-  public static PropertyType getOTypeFromChar(final char iCharType) {
+  public static PropertyTypeInternal getOTypeFromChar(final char iCharType) {
     if (iCharType == 'f') {
-      return PropertyType.FLOAT;
+      return PropertyTypeInternal.FLOAT;
     } else if (iCharType == 'c') {
-      return PropertyType.DECIMAL;
+      return PropertyTypeInternal.DECIMAL;
     } else if (iCharType == 'l') {
-      return PropertyType.LONG;
+      return PropertyTypeInternal.LONG;
     } else if (iCharType == 'd') {
-      return PropertyType.DOUBLE;
+      return PropertyTypeInternal.DOUBLE;
     } else if (iCharType == 'b') {
-      return PropertyType.BINARY;
+      return PropertyTypeInternal.BINARY;
     } else if (iCharType == 'a') {
-      return PropertyType.DATE;
+      return PropertyTypeInternal.DATE;
     } else if (iCharType == 't') {
-      return PropertyType.DATETIME;
+      return PropertyTypeInternal.DATETIME;
     } else if (iCharType == 's') {
-      return PropertyType.SHORT;
+      return PropertyTypeInternal.SHORT;
     } else if (iCharType == 'e') {
-      return PropertyType.EMBEDDEDSET;
+      return PropertyTypeInternal.EMBEDDEDSET;
     } else if (iCharType == 'g') {
-      return PropertyType.LINKBAG;
+      return PropertyTypeInternal.LINKBAG;
     } else if (iCharType == 'z') {
-      return PropertyType.LINKLIST;
+      return PropertyTypeInternal.LINKLIST;
     } else if (iCharType == 'm') {
-      return PropertyType.LINKMAP;
+      return PropertyTypeInternal.LINKMAP;
     } else if (iCharType == 'x') {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     } else if (iCharType == 'n') {
-      return PropertyType.LINKSET;
-    } else if (iCharType == 'u') {
-      return PropertyType.CUSTOM;
+      return PropertyTypeInternal.LINKSET;
     }
 
-    return PropertyType.STRING;
+    return PropertyTypeInternal.STRING;
   }
 
   public static Map<String, Character> loadFieldTypesV0(
       Map<String, Character> fieldTypes, final String fieldValueAsString) {
     // LOAD THE FIELD TYPE MAP
-    final String[] fieldTypesParts = fieldValueAsString.split(",");
+    final var fieldTypesParts = fieldValueAsString.split(",");
     if (fieldTypesParts.length > 0) {
       if (fieldTypes == null) {
         fieldTypes = new HashMap<>();
       }
       String[] part;
-      for (String f : fieldTypesParts) {
+      for (var f : fieldTypesParts) {
         part = f.split("=");
         if (part.length == 2) {
           fieldTypes.put(part[0], part[1].charAt(0));

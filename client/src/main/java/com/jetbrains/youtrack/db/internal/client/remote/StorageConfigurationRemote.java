@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.client.remote.message.push.StorageConfigurationPayload;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
-import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public class StorageConfigurationRemote implements StorageConfiguration {
 
@@ -28,11 +29,11 @@ public class StorageConfigurationRemote implements StorageConfiguration {
   private final Map<String, StorageEntryConfiguration> properties;
   private final String schemaRecordId;
   private final String indexMgrRecordId;
-  private final String clusterSelection;
+  private final String collectionSelection;
   private final String conflictStrategy;
   private final boolean validationEnabled;
   private final String localeLanguage;
-  private final int minimumClusters;
+  private final int minimumCollections;
   private final boolean strictSql;
   private final String charset;
   private final TimeZone timeZone;
@@ -40,7 +41,7 @@ public class StorageConfigurationRemote implements StorageConfiguration {
   private final String recordSerializer;
   private final int recordSerializerVersion;
   private final int binaryFormatVersion;
-  private final List<StorageClusterConfiguration> clusters;
+  private final List<StorageCollectionConfiguration> collections;
   private final String networkRecordSerializer;
 
   public StorageConfigurationRemote(
@@ -55,16 +56,16 @@ public class StorageConfigurationRemote implements StorageConfiguration {
     this.version = payload.getVersion();
     this.directory = payload.getDirectory();
     this.properties = new HashMap<>();
-    for (StorageEntryConfiguration conf : payload.getProperties()) {
+    for (var conf : payload.getProperties()) {
       this.properties.put(conf.name, conf);
     }
     this.schemaRecordId = payload.getSchemaRecordId().toString();
     this.indexMgrRecordId = payload.getIndexMgrRecordId().toString();
-    this.clusterSelection = payload.getClusterSelection();
+    this.collectionSelection = payload.getCollectionSelection();
     this.conflictStrategy = payload.getConflictStrategy();
     this.validationEnabled = payload.isValidationEnabled();
     this.localeLanguage = payload.getLocaleLanguage();
-    this.minimumClusters = payload.getMinimumClusters();
+    this.minimumCollections = payload.getMinimumCollections();
     this.strictSql = payload.isStrictSql();
     this.charset = payload.getCharset();
     this.timeZone = payload.getTimeZone();
@@ -72,7 +73,7 @@ public class StorageConfigurationRemote implements StorageConfiguration {
     this.recordSerializer = payload.getRecordSerializer();
     this.recordSerializerVersion = payload.getRecordSerializerVersion();
     this.binaryFormatVersion = payload.getBinaryFormatVersion();
-    this.clusters = payload.getClusters();
+    this.collections = payload.getCollections();
   }
 
   @Override
@@ -101,8 +102,8 @@ public class StorageConfigurationRemote implements StorageConfiguration {
   }
 
   @Override
-  public int getMinimumClusters() {
-    return minimumClusters;
+  public int getMinimumCollections() {
+    return minimumCollections;
   }
 
   @Override
@@ -110,6 +111,7 @@ public class StorageConfigurationRemote implements StorageConfiguration {
     return strictSql;
   }
 
+  @Nullable
   public StorageConfiguration load(ContextConfiguration contextConfiguration) {
     this.contextConfiguration = contextConfiguration;
     return null;
@@ -156,8 +158,8 @@ public class StorageConfigurationRemote implements StorageConfiguration {
   }
 
   @Override
-  public String getClusterSelection() {
-    return clusterSelection;
+  public String getCollectionSelection() {
+    return collectionSelection;
   }
 
   @Override
@@ -190,10 +192,10 @@ public class StorageConfigurationRemote implements StorageConfiguration {
     return binaryFormatVersion;
   }
 
-  public void dropCluster(int iClusterId) {
+  public void dropCollection(int iCollectionId) {
     // this just remove it locally before a proper update from the push arrive
-    if (clusters.size() > iClusterId) {
-      clusters.set(iClusterId, null);
+    if (collections.size() > iCollectionId) {
+      collections.set(iCollectionId, null);
     }
   }
 
@@ -218,8 +220,8 @@ public class StorageConfigurationRemote implements StorageConfiguration {
   }
 
   @Override
-  public List<StorageClusterConfiguration> getClusters() {
-    return clusters;
+  public List<StorageCollectionConfiguration> getCollections() {
+    return collections;
   }
 
   @Override

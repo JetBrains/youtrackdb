@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
@@ -57,21 +56,21 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     @Override
     public void run() {
       try {
-        DatabaseSessionInternal db = acquireSession();
-        for (int i = 0; i < OPTIMISTIC_CYCLES; i++) {
-          int retries = 0;
+        var db = acquireSession();
+        for (var i = 0; i < OPTIMISTIC_CYCLES; i++) {
+          var retries = 0;
           while (true) {
             retries++;
             try {
               db.begin();
 
               EntityImpl vDoc1 = db.load(rid1);
-              vDoc1.field(threadName, vDoc1.field(threadName) + ";" + i);
-              vDoc1.save();
+              Object iPropertyValue1 = vDoc1.getProperty(threadName) + ";" + i;
+              vDoc1.setProperty(threadName, iPropertyValue1);
 
               EntityImpl vDoc2 = db.load(rid2);
-              vDoc2.field(threadName, vDoc2.field(threadName) + ";" + i);
-              vDoc2.save();
+              Object iPropertyValue = vDoc2.getProperty(threadName) + ";" + i;
+              vDoc2.setProperty(threadName, iPropertyValue);
 
               db.commit();
 
@@ -108,20 +107,20 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     @Override
     public void run() {
       try {
-        DatabaseSessionInternal db = acquireSession();
+        var db = acquireSession();
 
-        for (int i = 0; i < PESSIMISTIC_CYCLES; i++) {
-          String cmd = "update " + rid + " set total = total + 1";
+        for (var i = 0; i < PESSIMISTIC_CYCLES; i++) {
+          var cmd = "update " + rid + " set total = total + 1";
           if (lock) {
             cmd += " lock record";
           }
 
-          int retries = 0;
+          var retries = 0;
           while (true) {
             try {
               retries++;
               db.begin();
-              db.command(cmd).close();
+              db.execute(cmd).close();
               db.commit();
               counter.incrementAndGet();
 
@@ -149,61 +148,63 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
   public void concurrentOptimisticUpdates() throws Exception {
     counter.set(0);
 
-    DatabaseSessionInternal database = acquireSession();
+    var database = acquireSession();
 
-    EntityImpl doc1 = database.newInstance();
-    doc1.field("INIT", "ok");
     database.begin();
-    database.save(doc1);
+    EntityImpl doc1 = database.newInstance();
+    doc1.setProperty("INIT", "ok");
     database.commit();
 
     RID rid1 = doc1.getIdentity();
 
-    EntityImpl doc2 = database.newInstance();
-    doc2.field("INIT", "ok");
-
     database.begin();
-    database.save(doc2);
+    EntityImpl doc2 = database.newInstance();
+    doc2.setProperty("INIT", "ok");
+
     database.commit();
 
     RID rid2 = doc2.getIdentity();
 
-    OptimisticUpdateField[] ops = new OptimisticUpdateField[THREADS];
-    for (int i = 0; i < THREADS; ++i) {
+    var ops = new OptimisticUpdateField[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
       ops[i] = new OptimisticUpdateField(rid1, rid2, "thread" + i);
     }
 
-    Thread[] threads = new Thread[THREADS];
-    for (int i = 0; i < THREADS; ++i) {
+    var threads = new Thread[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
       threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
     }
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       threads[i].start();
     }
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       threads[i].join();
     }
 
     Assert.assertEquals(counter.get(), OPTIMISTIC_CYCLES * THREADS);
 
+    database.begin();
     doc1 = database.load(rid1);
 
-    for (int i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc1.field(ops[i].threadName), ops[i].fieldValue, ops[i].threadName);
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(doc1.getProperty(ops[i].threadName), ops[i].fieldValue,
+          ops[i].threadName);
     }
 
     doc1.toJSON();
 
     doc2 = database.load(rid2);
 
-    for (int i = 0; i < THREADS; ++i) {
-      Assert.assertEquals(doc2.field(ops[i].threadName), ops[i].fieldValue, ops[i].threadName);
+    for (var i = 0; i < THREADS; ++i) {
+      Assert.assertEquals(doc2.getProperty(ops[i].threadName), ops[i].fieldValue,
+          ops[i].threadName);
     }
 
     doc2.toJSON();
     System.out.println(doc2.toJSON());
+    database.commit();
 
     database.close();
   }
@@ -221,38 +222,39 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
   protected void sqlUpdate(boolean lock) throws InterruptedException {
     counter.set(0);
 
-    DatabaseSessionInternal database = acquireSession();
-    EntityImpl doc1 = database.newInstance();
-    doc1.field("total", 0);
-
+    var database = acquireSession();
     database.begin();
-    database.save(doc1);
+    EntityImpl doc1 = database.newInstance();
+    doc1.setProperty("total", 0);
+
     database.commit();
 
     RID rid1 = doc1.getIdentity();
 
-    PessimisticUpdate[] ops = new PessimisticUpdate[THREADS];
-    for (int i = 0; i < THREADS; ++i) {
+    var ops = new PessimisticUpdate[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
       ops[i] = new PessimisticUpdate(rid1, "thread" + i, lock);
     }
 
-    Thread[] threads = new Thread[THREADS];
-    for (int i = 0; i < THREADS; ++i) {
+    var threads = new Thread[THREADS];
+    for (var i = 0; i < THREADS; ++i) {
       threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
     }
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       threads[i].start();
     }
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       threads[i].join();
     }
 
     Assert.assertEquals(counter.get(), PESSIMISTIC_CYCLES * THREADS);
 
+    database.begin();
     doc1 = database.load(rid1);
-    Assert.assertEquals(doc1.<Object>field("total"), PESSIMISTIC_CYCLES * THREADS);
+    Assert.assertEquals(doc1.<Object>getProperty("total"), PESSIMISTIC_CYCLES * THREADS);
+    database.commit();
 
     database.close();
   }

@@ -13,7 +13,6 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -25,28 +24,28 @@ public class LuceneGeoUpdateTest extends BaseSpatialLuceneTest {
   @Test
   public void testUpdate() {
 
-    db.command("create class City extends V").close();
+    session.execute("create class City extends V").close();
 
-    db.command("create property City.location embedded OPoint").close();
+    session.execute("create property City.location embedded OPoint").close();
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
-    db.begin();
-    db.command(
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.begin();
+    session.execute(
             "insert into City set name = 'TestInsert' , location ="
                 + " ST_GeomFromText('POINT(-160.2075374 21.9029803)')")
         .close();
-    db.commit();
+    session.commit();
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
 
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "update City set name = 'TestInsert' , location = ST_GeomFromText('POINT(12.5 41.9)')")
         .close();
-    db.commit();
+    session.commit();
 
-    db.begin();
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 }

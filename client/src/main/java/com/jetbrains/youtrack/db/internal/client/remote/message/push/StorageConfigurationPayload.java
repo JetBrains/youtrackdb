@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message.push;
 
+import com.jetbrains.youtrack.db.internal.client.remote.StorageCollectionConfigurationRemote;
+import com.jetbrains.youtrack.db.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageClusterConfigurationRemote;
-import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -22,11 +22,11 @@ public class StorageConfigurationPayload {
   private List<StorageEntryConfiguration> properties;
   private RecordId schemaRecordId;
   private RecordId indexMgrRecordId;
-  private String clusterSelection;
+  private String collectionSelection;
   private String conflictStrategy;
   private boolean validationEnabled;
   private String localeLanguage;
-  private int minimumClusters;
+  private int minimumCollections;
   private boolean strictSql;
   private String charset;
   private TimeZone timeZone;
@@ -34,7 +34,7 @@ public class StorageConfigurationPayload {
   private String recordSerializer;
   private int recordSerializerVersion;
   private int binaryFormatVersion;
-  private List<StorageClusterConfiguration> clusters;
+  private List<StorageCollectionConfiguration> collections;
 
   public StorageConfigurationPayload(StorageConfiguration configuration) {
     this.dateFormat = configuration.getDateFormat();
@@ -45,11 +45,11 @@ public class StorageConfigurationPayload {
     this.properties = configuration.getProperties();
     this.schemaRecordId = new RecordId(configuration.getSchemaRecordId());
     this.indexMgrRecordId = new RecordId(configuration.getIndexMgrRecordId());
-    this.clusterSelection = configuration.getClusterSelection();
+    this.collectionSelection = configuration.getCollectionSelection();
     this.conflictStrategy = configuration.getConflictStrategy();
     this.validationEnabled = configuration.isValidationEnabled();
     this.localeLanguage = configuration.getLocaleLanguage();
-    this.minimumClusters = configuration.getMinimumClusters();
+    this.minimumCollections = configuration.getMinimumCollections();
     this.strictSql = configuration.isStrictSql();
     this.charset = configuration.getCharset();
     this.timeZone = configuration.getTimeZone();
@@ -57,10 +57,10 @@ public class StorageConfigurationPayload {
     this.recordSerializer = configuration.getRecordSerializer();
     this.recordSerializerVersion = configuration.getRecordSerializerVersion();
     this.binaryFormatVersion = configuration.getBinaryFormatVersion();
-    this.clusters = new ArrayList<>();
-    for (StorageClusterConfiguration conf : configuration.getClusters()) {
+    this.collections = new ArrayList<>();
+    for (var conf : configuration.getCollections()) {
       if (conf != null) {
-        this.clusters.add(conf);
+        this.collections.add(conf);
       }
     }
   }
@@ -75,17 +75,17 @@ public class StorageConfigurationPayload {
     channel.writeInt(this.version);
     channel.writeString(this.directory);
     channel.writeInt(properties.size());
-    for (StorageEntryConfiguration property : properties) {
+    for (var property : properties) {
       channel.writeString(property.name);
       channel.writeString(property.value);
     }
     channel.writeRID(this.schemaRecordId);
     channel.writeRID(this.indexMgrRecordId);
-    channel.writeString(this.clusterSelection);
+    channel.writeString(this.collectionSelection);
     channel.writeString(this.conflictStrategy);
     channel.writeBoolean(this.validationEnabled);
     channel.writeString(this.localeLanguage);
-    channel.writeInt(this.minimumClusters);
+    channel.writeInt(this.minimumCollections);
     channel.writeBoolean(this.strictSql);
     channel.writeString(this.charset);
     channel.writeString(this.timeZone.getID());
@@ -93,10 +93,10 @@ public class StorageConfigurationPayload {
     channel.writeString(this.recordSerializer);
     channel.writeInt(this.recordSerializerVersion);
     channel.writeInt(this.binaryFormatVersion);
-    channel.writeInt(clusters.size());
-    for (StorageClusterConfiguration cluster : clusters) {
-      channel.writeInt(cluster.getId());
-      channel.writeString(cluster.getName());
+    channel.writeInt(collections.size());
+    for (var collection : collections) {
+      channel.writeInt(collection.getId());
+      channel.writeString(collection.getName());
     }
   }
 
@@ -106,20 +106,20 @@ public class StorageConfigurationPayload {
     this.name = network.readString();
     this.version = network.readInt();
     this.directory = network.readString();
-    int propSize = network.readInt();
+    var propSize = network.readInt();
     properties = new ArrayList<>(propSize);
     while (propSize-- > 0) {
-      String name = network.readString();
-      String value = network.readString();
+      var name = network.readString();
+      var value = network.readString();
       properties.add(new StorageEntryConfiguration(name, value));
     }
     this.schemaRecordId = network.readRID();
     this.indexMgrRecordId = network.readRID();
-    this.clusterSelection = network.readString();
+    this.collectionSelection = network.readString();
     this.conflictStrategy = network.readString();
     this.validationEnabled = network.readBoolean();
     this.localeLanguage = network.readString();
-    this.minimumClusters = network.readInt();
+    this.minimumCollections = network.readInt();
     this.strictSql = network.readBoolean();
     this.charset = network.readString();
     this.timeZone = TimeZone.getTimeZone(network.readString());
@@ -127,12 +127,12 @@ public class StorageConfigurationPayload {
     this.recordSerializer = network.readString();
     this.recordSerializerVersion = network.readInt();
     this.binaryFormatVersion = network.readInt();
-    int clustersSize = network.readInt();
-    clusters = new ArrayList<>(clustersSize);
-    while (clustersSize-- > 0) {
-      int clusterId = network.readInt();
-      String clusterName = network.readString();
-      clusters.add(new StorageClusterConfigurationRemote(clusterId, clusterName));
+    var collectionsSize = network.readInt();
+    collections = new ArrayList<>(collectionsSize);
+    while (collectionsSize-- > 0) {
+      var collectionId = network.readInt();
+      var collectionName = network.readString();
+      collections.add(new StorageCollectionConfigurationRemote(collectionId, collectionName));
     }
   }
 
@@ -168,8 +168,8 @@ public class StorageConfigurationPayload {
     return indexMgrRecordId;
   }
 
-  public String getClusterSelection() {
-    return clusterSelection;
+  public String getCollectionSelection() {
+    return collectionSelection;
   }
 
   public String getConflictStrategy() {
@@ -184,8 +184,8 @@ public class StorageConfigurationPayload {
     return localeLanguage;
   }
 
-  public int getMinimumClusters() {
-    return minimumClusters;
+  public int getMinimumCollections() {
+    return minimumCollections;
   }
 
   public boolean isStrictSql() {
@@ -216,7 +216,7 @@ public class StorageConfigurationPayload {
     return binaryFormatVersion;
   }
 
-  public List<StorageClusterConfiguration> getClusters() {
-    return clusters;
+  public List<StorageCollectionConfiguration> getCollections() {
+    return collections;
   }
 }

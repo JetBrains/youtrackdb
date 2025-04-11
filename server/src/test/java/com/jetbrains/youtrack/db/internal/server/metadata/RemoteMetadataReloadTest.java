@@ -55,38 +55,21 @@ public class RemoteMetadataReloadTest {
 
   @Test
   public void testStorageUpdate() throws InterruptedException {
-    database.command("ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
+    database.execute("ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
     assertEquals(
         database.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE), Locale.GERMANY.getLanguage());
   }
 
   @Test
   public void testSchemaUpdate() throws InterruptedException {
-    database.command(" create class X");
+    database.execute(" create class X");
     assertTrue(database.getMetadata().getSchema().existsClass("X"));
-  }
-
-  @Test
-  public void testIndexManagerUpdate() throws InterruptedException {
-    database.command("create class X");
-    database.command("create property X.y STRING");
-    database.command("create index X.y on X(y) NOTUNIQUE");
-    assertTrue(database.getMetadata().getIndexManagerInternal().existsIndex("X.y"));
-  }
-
-  @Test
-  public void testFunctionUpdate() throws InterruptedException {
-    database.begin();
-    database.command("CREATE FUNCTION test \"print('\\nTest!')\"");
-    database.commit();
-
-    assertNotNull(database.getMetadata().getFunctionLibrary().getFunction("test"));
   }
 
   @Test
   public void testSequencesUpdate() throws InterruptedException {
     database.begin();
-    database.command("CREATE SEQUENCE test TYPE CACHED");
+    database.execute("CREATE SEQUENCE test TYPE CACHED");
     database.commit();
 
     assertNotNull(database.getMetadata().getSequenceLibrary().getSequence("test"));

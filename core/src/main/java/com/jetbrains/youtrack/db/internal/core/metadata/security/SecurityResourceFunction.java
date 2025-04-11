@@ -26,7 +26,7 @@ public class SecurityResourceFunction extends SecurityResource {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SecurityResourceFunction that = (SecurityResourceFunction) o;
+    var that = (SecurityResourceFunction) o;
     return Objects.equals(functionName, that.functionName);
   }
 

@@ -31,7 +31,7 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(".(");
-    for (SQLMatchPathItem item : items) {
+    for (var item : items) {
       item.toString(params, builder);
     }
     builder.append(")");
@@ -42,7 +42,7 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
 
   public void toGenericStatement(StringBuilder builder) {
     builder.append(".(");
-    for (SQLMatchPathItem item : items) {
+    for (var item : items) {
       item.toGenericStatement(builder);
     }
     builder.append(")");
@@ -57,16 +57,16 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
       CommandContext iCommandContext) {
     Set<Identifiable> result = new HashSet<Identifiable>();
     result.add(startingPoint);
-    for (SQLMatchPathItem subItem : items) {
-      Set<Identifiable> startingPoints = result;
+    for (var subItem : items) {
+      var startingPoints = result;
       result = new HashSet<Identifiable>();
-      for (Identifiable sp : startingPoints) {
-        Iterable<Identifiable> subResult =
+      for (var sp : startingPoints) {
+        var subResult =
             subItem.executeTraversal(matchContext, iCommandContext, sp, 0);
         if (subResult instanceof Collection) {
           result.addAll((Collection) subResult);
         } else {
-          for (Identifiable id : subResult) {
+          for (var id : subResult) {
             result.add(id);
           }
         }
@@ -77,7 +77,7 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
 
   @Override
   public SQLMultiMatchPathItem copy() {
-    SQLMultiMatchPathItem result = (SQLMultiMatchPathItem) super.copy();
+    var result = (SQLMultiMatchPathItem) super.copy();
     result.items =
         items == null ? null : items.stream().map(x -> x.copy()).collect(Collectors.toList());
     return result;
@@ -95,14 +95,14 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
       return false;
     }
 
-    SQLMultiMatchPathItem that = (SQLMultiMatchPathItem) o;
+    var that = (SQLMultiMatchPathItem) o;
 
     return Objects.equals(items, that.items);
   }
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + (items != null ? items.hashCode() : 0);
     return result;
   }

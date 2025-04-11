@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
@@ -18,9 +18,9 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
   }
 
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
-    Object prevCurrent = iCommandContext.getVariable("$current");
+    var prevCurrent = iCommandContext.getVariable("$current");
     iCommandContext.setVariable("$current", startingPoint);
     Object qR;
     try {
@@ -35,7 +35,7 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
     }
     if (qR instanceof Identifiable) {
       return ExecutionStream.singleton(new ResultInternal(
-          iCommandContext.getDatabase(), (Identifiable) qR));
+          iCommandContext.getDatabaseSession(), (Identifiable) qR));
     }
     if (qR instanceof Iterable) {
       return ExecutionStream.iterator(((Iterable) qR).iterator());

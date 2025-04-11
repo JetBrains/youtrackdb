@@ -2,13 +2,12 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.exception.SequenceException;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibrary;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -22,8 +21,8 @@ public class SQLDBSequenceTest extends BaseDBTest {
   private static final long SECOND_START = 31;
 
   @Parameters(value = "remote")
-  public SQLDBSequenceTest(boolean remote) {
-    super(remote);
+  public SQLDBSequenceTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -34,11 +33,11 @@ public class SQLDBSequenceTest extends BaseDBTest {
 
   private void testSequence(String sequenceName, DBSequence.SEQUENCE_TYPE sequenceType) {
 
-    database.command("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
+    session.execute("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
 
     CommandExecutionException err = null;
     try {
-      database.command("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
+      session.execute("CREATE SEQUENCE " + sequenceName + " TYPE " + sequenceType).close();
     } catch (CommandExecutionException se) {
       err = se;
     }
@@ -49,7 +48,8 @@ public class SQLDBSequenceTest extends BaseDBTest {
             + " sequences with same name doesn't throw an exception");
 
     // Doing it twice to check everything works after reset
-    for (int i = 0; i < 2; ++i) {
+    session.begin();
+    for (var i = 0; i < 2; ++i) {
       Assert.assertEquals(sequenceCurrent(sequenceName), 0L);
       Assert.assertEquals(sequenceNext(sequenceName), 1L);
       Assert.assertEquals(sequenceCurrent(sequenceName), 1L);
@@ -59,6 +59,7 @@ public class SQLDBSequenceTest extends BaseDBTest {
       Assert.assertEquals(sequenceCurrent(sequenceName), 4L);
       Assert.assertEquals(sequenceReset(sequenceName), 0L);
     }
+    session.commit();
   }
 
   private long sequenceReset(String sequenceName) {
@@ -74,15 +75,15 @@ public class SQLDBSequenceTest extends BaseDBTest {
   }
 
   private long sequenceSql(String sequenceName, String cmd) {
-    try (ResultSet ret =
-        database.command("SELECT sequence('" + sequenceName + "')." + cmd + " as value")) {
+    try (var ret =
+        session.execute("SELECT sequence('" + sequenceName + "')." + cmd + " as value")) {
       return ret.next().getProperty("value");
     }
   }
 
   @Test
   public void testFree() throws ExecutionException, InterruptedException {
-    SequenceLibrary sequenceManager = database.getMetadata().getSequenceLibrary();
+    var sequenceManager = session.getMetadata().getSequenceLibrary();
 
     DBSequence seq = null;
     try {
@@ -104,16 +105,17 @@ public class SQLDBSequenceTest extends BaseDBTest {
         err == null || err.getMessage().toLowerCase(Locale.ENGLISH).contains("already exists"),
         "Creating two ordered sequences with same name doesn't throw an exception");
 
-    DBSequence seqSame = sequenceManager.getSequence("seqSQLOrdered");
+    var seqSame = sequenceManager.getSequence("seqSQLOrdered");
     Assert.assertEquals(seqSame, seq);
 
     testUsage(seq, FIRST_START);
 
     //
     try {
-      database.begin();
-      seq.updateParams(new DBSequence.CreateParams().setStart(SECOND_START).setCacheSize(13));
-      database.commit();
+      session.begin();
+      seq.updateParams(session,
+          new DBSequence.CreateParams().setStart(SECOND_START).setCacheSize(13));
+      session.commit();
     } catch (DatabaseException exc) {
       Assert.fail("Unable to update paramas");
     }
@@ -122,16 +124,16 @@ public class SQLDBSequenceTest extends BaseDBTest {
 
   private void testUsage(DBSequence seq, long reset)
       throws ExecutionException, InterruptedException {
-    for (int i = 0; i < 2; ++i) {
-      Assert.assertEquals(seq.reset(), reset);
-      Assert.assertEquals(seq.current(), reset);
-      Assert.assertEquals(seq.next(), reset + 1L);
-      Assert.assertEquals(seq.current(), reset + 1L);
-      Assert.assertEquals(seq.next(), reset + 2L);
-      Assert.assertEquals(seq.next(), reset + 3L);
-      Assert.assertEquals(seq.next(), reset + 4L);
-      Assert.assertEquals(seq.current(), reset + 4L);
-      Assert.assertEquals(seq.reset(), reset);
+    for (var i = 0; i < 2; ++i) {
+      Assert.assertEquals(seq.reset(session), reset);
+      Assert.assertEquals(seq.current(session), reset);
+      Assert.assertEquals(seq.next(session), reset + 1L);
+      Assert.assertEquals(seq.current(session), reset + 1L);
+      Assert.assertEquals(seq.next(session), reset + 2L);
+      Assert.assertEquals(seq.next(session), reset + 3L);
+      Assert.assertEquals(seq.next(session), reset + 4L);
+      Assert.assertEquals(seq.current(session), reset + 4L);
+      Assert.assertEquals(seq.reset(session), reset);
     }
   }
 }

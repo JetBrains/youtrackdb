@@ -14,7 +14,6 @@
 package com.jetbrains.youtrack.db.internal.spatial;
 
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.Assert;
@@ -28,73 +27,41 @@ public class LuceneSpatialGeometryCollectionTest extends BaseSpatialLuceneTest {
 
   @Before
   public void init() {
-    db.command("create class test").close();
-    db.command("create property test.name STRING").close();
-    db.command("create property test.geometry EMBEDDED OGeometryCollection").close();
+    session.execute("create class test").close();
+    session.execute("create property test.name STRING").close();
+    session.execute("create property test.geometry EMBEDDED OGeometryCollection").close();
 
-    db.command("create index test.geometry on test (geometry) SPATIAL engine lucene").close();
-  }
-
-  @Test
-  public void testGeoCollectionOutsideTx() {
-    EntityImpl test1 = new EntityImpl("test");
-    test1.field("name", "test1");
-    EntityImpl geometry = new EntityImpl("OGeometryCollection");
-    EntityImpl point = new EntityImpl("OPoint");
-    point.field("coordinates", Arrays.asList(1.0, 2.0));
-    EntityImpl polygon = new EntityImpl("OPolygon");
-    polygon.field(
-        "coordinates",
-        List.of(
-            Arrays.asList(
-                Arrays.asList(0.0, 0.0),
-                Arrays.asList(10.0, 0.0),
-                Arrays.asList(10.0, 10.0),
-                Arrays.asList(0.0, 10.0),
-                Arrays.asList(0.0, 0.0))));
-    geometry.field("geometries", Arrays.asList(point, polygon));
-    test1.field("geometry", geometry);
-
-    db.begin();
-    test1.save();
-    db.commit();
-
-    ResultSet execute =
-        db.command(
-            "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
-
-    Assert.assertEquals(execute.stream().count(), 1);
+    session.execute("create index test.geometry on test (geometry) SPATIAL engine lucene").close();
   }
 
   @Test
   public void testGeoCollectionInsideTransaction() {
-    db.begin();
+    session.begin();
 
-    EntityImpl test1 = new EntityImpl("test");
-    test1.field("name", "test1");
-    EntityImpl geometry = new EntityImpl("OGeometryCollection");
-    EntityImpl point = new EntityImpl("OPoint");
-    point.field("coordinates", Arrays.asList(1.0, 2.0));
-    EntityImpl polygon = new EntityImpl("OPolygon");
-    polygon.field(
-        "coordinates",
-        List.of(
-            Arrays.asList(
-                Arrays.asList(0.0, 0.0),
-                Arrays.asList(10.0, 0.0),
-                Arrays.asList(10.0, 10.0),
-                Arrays.asList(0.0, 10.0),
-                Arrays.asList(0.0, 0.0))));
-    geometry.field("geometries", Arrays.asList(point, polygon));
-    test1.field("geometry", geometry);
-    test1.save();
+    var test1 = ((EntityImpl) session.newEntity("test"));
+    test1.setProperty("name", "test1");
+    var geometry = ((EntityImpl) session.newEmbeddedEntity("OGeometryCollection"));
+    var point = ((EntityImpl) session.newEmbeddedEntity("OPoint"));
+    point.newEmbeddedList("coordinates", Arrays.asList(1.0, 2.0));
+    var polygon = ((EntityImpl) session.newEmbeddedEntity("OPolygon"));
+    polygon.newEmbeddedList("coordinates", List.of(
+        Arrays.asList(
+            Arrays.asList(0.0, 0.0),
+            Arrays.asList(10.0, 0.0),
+            Arrays.asList(10.0, 10.0),
+            Arrays.asList(0.0, 10.0),
+            Arrays.asList(0.0, 0.0))));
+    geometry.newEmbeddedList("geometries", Arrays.asList(point, polygon));
+    test1.setProperty("geometry", geometry);
 
-    db.commit();
+    session.commit();
 
-    ResultSet execute =
-        db.command(
+    session.begin();
+    var execute =
+        session.execute(
             "SELECT from test where ST_Contains(geometry, ST_GeomFromText('POINT(1 1)')) = true");
 
-    Assert.assertEquals(execute.stream().count(), 1);
+    Assert.assertEquals(1, execute.stream().count());
+    session.commit();
   }
 }

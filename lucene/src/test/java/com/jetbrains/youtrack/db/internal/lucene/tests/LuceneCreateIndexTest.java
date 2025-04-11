@@ -20,9 +20,6 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,61 +32,59 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
 
-    db.command(
+    session.execute(
             "create index Song.title on Song (title) fulltext ENGINE LUCENE METADATA"
                 + " {\"analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
-    db.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE lucene METADATA"
                 + " {\"analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
 
-    Vertex doc = db.newVertex("Song");
-
+    session.begin();
+    var doc = session.newVertex("Song");
     doc.setProperty("title", "Local");
     doc.setProperty("author", "Local");
-
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testMetadata() {
     var index =
-        db.getMetadata().getIndexManagerInternal().getIndex(db, "Song.title").getMetadata();
+        session.getSharedContext().getIndexManager().getIndex(session, "Song.title")
+            .getMetadata();
 
     Assert.assertEquals(index.get("analyzer"), StandardAnalyzer.class.getName());
   }
 
   @Test
   public void testQueries() {
-    ResultSet docs = db.query(
+    var docs = session.query(
         "select * from Song where search_fields(['title'],'mountain')=true");
 
     assertThat(docs).hasSize(4);
     docs.close();
-    docs = db.query("select * from Song where search_fields(['author'],'Fabbio')=true");
+    docs = session.query("select * from Song where search_fields(['author'],'Fabbio')=true");
 
     assertThat(docs).hasSize(87);
     docs.close();
-    String query =
+    var query =
         "select * from Song where search_fields(['title'],'mountain')=true AND"
             + " search_fields(['author'],'Fabbio')=true";
-    docs = db.query(query);
+    docs = session.query(query);
     assertThat(docs).hasSize(1);
     docs.close();
     query =
         "select * from Song where search_fields(['title'],'mountain')=true   and author = 'Fabbio'";
-    docs = db.query(query);
+    docs = session.query(query);
 
     assertThat(docs).hasSize(1);
     docs.close();
@@ -97,8 +92,8 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
 
   @Test
   public void testQeuryOnAddedDocs() {
-    String query = "select * from Song where search_fields(['title'],'local')=true ";
-    ResultSet docs = db.query(query);
+    var query = "select * from Song where search_fields(['title'],'local')=true ";
+    var docs = session.query(query);
 
     assertThat(docs).hasSize(1);
     docs.close();

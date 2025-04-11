@@ -22,11 +22,11 @@ public abstract class SpeedTestMultiThreads extends SpeedTestAbstract {
 
   @Override
   public void cycle() throws InterruptedException {
-    final SpeedTestThread[] ts = new SpeedTestThread[threads];
+    final var ts = new SpeedTestThread[threads];
     SpeedTestThread t;
-    for (int i = 0; i < threads; ++i) {
+    for (var i = 0; i < threads; ++i) {
       try {
-        final Constructor<? extends SpeedTestThread> c =
+        final var c =
             threadClass.getConstructor(SpeedTestMultiThreads.class, Integer.TYPE);
         t = c.newInstance(this, i);
         ts[i] = t;
@@ -39,7 +39,7 @@ public abstract class SpeedTestMultiThreads extends SpeedTestAbstract {
       }
     }
 
-    for (int i = 0; i < threads; ++i) {
+    for (var i = 0; i < threads; ++i) {
       ts[i].join();
     }
   }

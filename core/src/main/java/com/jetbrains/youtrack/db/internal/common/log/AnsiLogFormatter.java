@@ -34,12 +34,12 @@ public class AnsiLogFormatter extends LogFormatter {
 
   @Override
   protected String customFormatMessage(final LogRecord iRecord) {
-    final Level level = iRecord.getLevel();
-    final String message = AnsiCode.format(iRecord.getMessage());
-    final Object[] additionalArgs = iRecord.getParameters();
-    final String requester = getSourceClassSimpleName(iRecord.getLoggerName());
+    final var level = iRecord.getLevel();
+    final var message = AnsiCode.format(iRecord.getMessage());
+    final var additionalArgs = iRecord.getParameters();
+    final var requester = getSourceClassSimpleName(iRecord.getLoggerName());
 
-    final StringBuilder buffer = new StringBuilder(512);
+    final var buffer = new StringBuilder(512);
     buffer.append(EOL);
     buffer.append("$ANSI{cyan ");
     buffer.append(dateFormatter.format(LocalDateTime.now()));

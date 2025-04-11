@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.stream.Streams;
-import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
@@ -34,15 +33,11 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.DescComparator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxMultiValueBetweenIndexBackwardSplititerator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxMultiValueBetweenIndexForwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.index.multivalue.MultiValuesTransformer;
-import com.jetbrains.youtrack.db.internal.core.index.multivalue.MultivalueEntityRemover;
-import com.jetbrains.youtrack.db.internal.core.index.multivalue.MultivalueIndexKeyUpdaterImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -50,26 +45,32 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Abstract index implementation that supports multi-values for the same key.
  */
 public abstract class IndexMultiValues extends IndexAbstract {
 
-  IndexMultiValues(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public IndexMultiValues(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexMultiValues(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Deprecated
   @Override
   public Collection<RID> get(DatabaseSessionInternal session, Object key) {
     final List<RID> rids;
-    try (Stream<RID> stream = getRids(session, key)) {
+    try (var stream = getRids(session, key)) {
       rids = stream.collect(Collectors.toList());
     }
     return rids;
@@ -77,31 +78,15 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
-    final Object collatedKey = getCollatingValue(key);
+    final var collatedKey = getCollatingValue(key);
     Stream<RID> backedStream;
     acquireSharedLock();
     try {
       Stream<RID> stream;
       while (true) {
         try {
-          if (apiVersion == 0) {
-            //noinspection unchecked
-            final Collection<RID> values =
-                (Collection<RID>) storage.getIndexValue(session, indexId, collatedKey);
-            if (values != null) {
-              //noinspection resource
-              stream = values.stream();
-            } else {
-              //noinspection resource
-              stream = Stream.empty();
-            }
-          } else if (apiVersion == 1) {
-            //noinspection resource
-            stream = storage.getIndexValues(indexId, collatedKey);
-          } else {
-            throw new IllegalStateException("Invalid version of index API - " + apiVersion);
-          }
-          backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream);
+          stream = storage.getIndexValues(indexId, collatedKey);
+          backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -115,14 +100,14 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
-    final Object collatedKey = getCollatingValue(key);
-    Stream<RID> backedStream = getRidsIgnoreTx(session, key);
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var collatedKey = getCollatingValue(key);
+    var backedStream = getRidsIgnoreTx(session, key);
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return backedStream;
     }
-    Set<Identifiable> txChanges = calculateTxValue(collatedKey, indexChanges);
+    var txChanges = calculateTxValue(collatedKey, indexChanges);
     if (txChanges == null) {
       txChanges = Collections.emptySet();
     }
@@ -132,18 +117,17 @@ public abstract class IndexMultiValues extends IndexAbstract {
             backedStream
                 .map((rid) -> calculateTxIndexEntry(collatedKey, rid, indexChanges))
                 .filter(Objects::nonNull)
-                .map((pair) -> pair.second),
-            txChanges.stream().map(Identifiable::getIdentity)));
+                .map(RawPair::second),
+            txChanges.stream().map(Identifiable::getIdentity)), session);
   }
 
-  public IndexMultiValues put(DatabaseSessionInternal session, Object key,
+  public IndexMultiValues put(FrontendTransaction transaction, Object key,
       final Identifiable singleValue) {
-    final RecordId rid = (RecordId) singleValue.getIdentity();
+    final var rid = (RecordId) singleValue.getIdentity();
 
-    if (!rid.isValid()) {
+    if (!rid.isValidPosition()) {
       if (singleValue instanceof DBRecord) {
         // EARLY SAVE IT
-        ((DBRecord) singleValue).save();
       } else {
         throw new IllegalArgumentException(
             "Cannot store non persistent RID as index value for key '" + key + "'");
@@ -152,96 +136,34 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     key = getCollatingValue(key);
 
-    FrontendTransaction singleTx = session.getTransaction();
-    singleTx.addIndexEntry(
+    transaction.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key, singleValue);
     return this;
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
-    if (apiVersion == 0) {
-      doPutV0(session, indexId, storage, im.getValueContainerAlgorithm(), getName(), key, rid);
-    } else if (apiVersion == 1) {
-      doPutV1(storage, indexId, key, rid);
-    } else {
-      throw new IllegalStateException("Invalid API version, " + apiVersion);
-    }
-  }
-
-  @Override
-  public boolean isNativeTxSupported() {
-    return true;
-  }
-
-  private static void doPutV0(
-      DatabaseSessionInternal session, final int indexId,
-      final AbstractPaginatedStorage storage,
-      String valueContainerAlgorithm,
-      String indexName,
-      Object key,
-      RID identity)
-      throws InvalidIndexEngineIdException {
-    int binaryFormatVersion = storage.getConfiguration().getBinaryFormatVersion();
-    final IndexKeyUpdater<Object> creator =
-        new MultivalueIndexKeyUpdaterImpl(
-            identity, valueContainerAlgorithm, binaryFormatVersion, indexName);
-
-    storage.updateIndexEntry(session, indexId, key, creator);
+    doPutV1(storage, indexId, key, rid);
   }
 
   private static void doPutV1(
-      AbstractPaginatedStorage storage, int indexId, Object key, RID identity)
+      AbstractStorage storage, int indexId, Object key, RID identity)
       throws InvalidIndexEngineIdException {
     storage.putRidIndexEntry(indexId, key, identity);
   }
 
   @Override
-  public boolean remove(DatabaseSessionInternal session, Object key, final Identifiable value) {
-    key = getCollatingValue(key);
-    session.getTransaction().addIndexEntry(this, super.getName(), OPERATION.REMOVE, key, value);
-    return true;
-  }
-
-  @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
-    if (apiVersion == 0) {
-      return doRemoveV0(session, indexId, storage, key, rid);
-    }
-
-    if (apiVersion == 1) {
-      return doRemoveV1(indexId, storage, key, rid);
-    }
-
-    throw new IllegalStateException("Invalid API version, " + apiVersion);
-  }
-
-  private static boolean doRemoveV0(
-      DatabaseSessionInternal session, int indexId, AbstractPaginatedStorage storage, Object key,
-      Identifiable value)
-      throws InvalidIndexEngineIdException {
-    Set<Identifiable> values;
-    //noinspection unchecked
-    values = (Set<Identifiable>) storage.getIndexValue(session, indexId, key);
-
-    if (values == null) {
-      return false;
-    }
-
-    final ModifiableBoolean removed = new ModifiableBoolean(false);
-    final IndexKeyUpdater<Object> creator = new MultivalueEntityRemover(value, removed);
-    storage.updateIndexEntry(session, indexId, key, creator);
-
-    return removed.getValue();
+    return doRemoveV1(indexId, storage, key, rid);
   }
 
   private static boolean doRemoveV1(
-      int indexId, AbstractPaginatedStorage storage, Object key, Identifiable value)
+      int indexId, AbstractStorage storage, Object key, Identifiable value)
       throws InvalidIndexEngineIdException {
     return storage.removeRidIndexEntry(indexId, key, value.getIdentity());
   }
@@ -265,8 +187,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
                       fromKey,
                       fromInclusive,
                       toKey,
-                      toInclusive,
-                      ascOrder, MultiValuesTransformer.INSTANCE));
+                      toInclusive, ascOrder, MultiValuesTransformer.INSTANCE), session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -276,8 +197,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
@@ -298,11 +219,11 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder), session);
   }
 
   @Override
@@ -318,7 +239,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMajor(
-                      indexId, fromKey, fromInclusive, ascOrder, MultiValuesTransformer.INSTANCE));
+                      indexId, fromKey, fromInclusive, ascOrder, MultiValuesTransformer.INSTANCE),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -328,15 +250,15 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
 
     final Stream<RawPair<Object, RID>> txStream;
 
-    final Object lastKey = indexChanges.getLastKey();
+    final var lastKey = indexChanges.getLastKey();
     if (ascOrder) {
       txStream =
           StreamSupport.stream(
@@ -352,11 +274,11 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder), session);
   }
 
   @Override
@@ -373,7 +295,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMinor(
-                      indexId, toKey, toInclusive, ascOrder, MultiValuesTransformer.INSTANCE));
+                      indexId, toKey, toInclusive, ascOrder, MultiValuesTransformer.INSTANCE),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -383,15 +306,15 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
 
     final Stream<RawPair<Object, RID>> txStream;
 
-    final Object firstKey = indexChanges.getFirstKey();
+    final var firstKey = indexChanges.getFirstKey();
     if (ascOrder) {
       txStream =
           StreamSupport.stream(
@@ -407,11 +330,11 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder), session);
   }
 
   @Override
@@ -427,11 +350,11 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     sortedKeys.sort(comparator);
 
-    Stream<RawPair<Object, RID>> stream =
+    var stream =
         IndexStreamSecurityDecorator.decorateStream(
-            this, sortedKeys.stream().flatMap(key1 -> streamForKey(session, key1)));
+            this, sortedKeys.stream().flatMap(key1 -> streamForKey(session, key1)), session);
 
-    final FrontendTransactionIndexChanges indexChanges = session.getTransaction()
+    final var indexChanges = session.getTransactionInternal()
         .getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
@@ -444,23 +367,24 @@ public abstract class IndexMultiValues extends IndexAbstract {
       keyComparator = DescComparator.INSTANCE;
     }
 
-    final Stream<RawPair<Object, RID>> txStream =
+    final var txStream =
         keys.stream()
             .flatMap((key) -> txStramForKey(indexChanges, key))
             .filter(Objects::nonNull)
             .sorted(keyComparator);
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder), session);
   }
 
+  @Nullable
   private Stream<RawPair<Object, RID>> txStramForKey(
       final FrontendTransactionIndexChanges indexChanges, Object key) {
-    final Set<Identifiable> result = calculateTxValue(getCollatingValue(key), indexChanges);
+    final var result = calculateTxValue(getCollatingValue(key), indexChanges);
     if (result != null) {
       return result.stream()
           .map((rid) -> new RawPair<>(getCollatingValue(key), rid.getIdentity()));
@@ -468,27 +392,16 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return null;
   }
 
-  private Stream<RawPair<Object, RID>> streamForKey(DatabaseSessionInternal session,
+  private Stream<RawPair<Object, RID>> streamForKey(DatabaseSessionInternal db,
       Object key) {
     key = getCollatingValue(key);
 
-    final Object entryKey = key;
+    final var entryKey = key;
     acquireSharedLock();
     try {
       while (true) {
         try {
-          if (apiVersion == 0) {
-            //noinspection unchecked,resource
-            return Optional.ofNullable(
-                    (Collection<RID>) storage.getIndexValue(session, indexId, key))
-                .map((rids) -> rids.stream().map((rid) -> new RawPair<>(entryKey, rid)))
-                .orElse(Stream.empty());
-          } else if (apiVersion == 1) {
-            //noinspection resource
-            return storage.getIndexValues(indexId, key).map((rid) -> new RawPair<>(entryKey, rid));
-          } else {
-            throw new IllegalStateException("Invalid version of index API - " + apiVersion);
-          }
+          return storage.getIndexValues(indexId, key).map((rid) -> new RawPair<>(entryKey, rid));
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
         }
@@ -499,15 +412,16 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
   }
 
+  @Nullable
   public static Set<Identifiable> calculateTxValue(
       final Object key, FrontendTransactionIndexChanges indexChanges) {
     final List<Identifiable> result = new ArrayList<>();
-    final FrontendTransactionIndexChangesPerKey changesPerKey = indexChanges.getChangesPerKey(key);
+    final var changesPerKey = indexChanges.getChangesPerKey(key);
     if (changesPerKey.isEmpty()) {
       return null;
     }
 
-    for (TransactionIndexEntry entry : changesPerKey.getEntriesAsList()) {
+    for (var entry : changesPerKey.getEntriesAsList()) {
       if (entry.getOperation() == OPERATION.REMOVE) {
         if (entry.getValue() == null) {
           result.clear();
@@ -542,10 +456,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChanges(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChanges(getName());
     if (indexChanges != null) {
-      try (Stream<RawPair<Object, RID>> stream = stream(session)) {
+      try (var stream = stream(session)) {
         return stream.count();
       }
     }
@@ -562,7 +476,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         try {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexStream(indexId, MultiValuesTransformer.INSTANCE));
+                  this, storage.getIndexStream(indexId, MultiValuesTransformer.INSTANCE), session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -573,24 +487,24 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
 
-    final Stream<RawPair<Object, RID>> txStream =
+    final var txStream =
         StreamSupport.stream(
             new PureTxMultiValueBetweenIndexForwardSpliterator(
                 this, null, true, null, true, indexChanges),
             false);
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, true));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, true), session);
   }
 
   private Stream<RawPair<Object, RID>> mergeTxAndBackedStreams(
@@ -607,21 +521,22 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return Streams.mergeSortedSpliterators(
         txStream,
         backedStream
-            .map((entry) -> calculateTxIndexEntry(entry.first, entry.second, indexChanges))
+            .map((entry) -> calculateTxIndexEntry(entry.first(), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         keyComparator);
   }
 
+  @Nullable
   private RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
     key = getCollatingValue(key);
-    final FrontendTransactionIndexChangesPerKey changesPerKey = indexChanges.getChangesPerKey(key);
+    final var changesPerKey = indexChanges.getChangesPerKey(key);
     if (changesPerKey.isEmpty()) {
       return new RawPair<>(key, backendValue);
     }
 
-    int putCounter = 1;
-    for (TransactionIndexEntry entry : changesPerKey.getEntriesAsList()) {
+    var putCounter = 1;
+    for (var entry : changesPerKey.getEntriesAsList()) {
       if (entry.getOperation() == OPERATION.PUT && entry.getValue().equals(backendValue)) {
         putCounter++;
       } else if (entry.getOperation() == OPERATION.REMOVE) {
@@ -649,7 +564,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
         try {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexDescStream(indexId, MultiValuesTransformer.INSTANCE));
+                  this, storage.getIndexDescStream(indexId, MultiValuesTransformer.INSTANCE),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -659,23 +575,23 @@ public abstract class IndexMultiValues extends IndexAbstract {
       releaseSharedLock();
     }
 
-    final FrontendTransactionIndexChanges indexChanges =
-        session.getTransaction().getIndexChangesInternal(getName());
+    final var indexChanges =
+        session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
       return stream;
     }
 
-    final Stream<RawPair<Object, RID>> txStream =
+    final var txStream =
         StreamSupport.stream(
             new PureTxMultiValueBetweenIndexBackwardSplititerator(
                 this, null, true, null, true, indexChanges),
             false);
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateStream(this, txStream);
+      return IndexStreamSecurityDecorator.decorateStream(this, txStream, session);
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, false));
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, false), session);
   }
 }

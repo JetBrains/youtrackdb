@@ -18,15 +18,14 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.IOException;
 import java.util.Date;
@@ -39,14 +38,14 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
   private static final String[] NAMES = {"GET|fileDownload/*"};
 
   @Override
-  public boolean execute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             3,
             "Syntax error: fileDownload/<database>/rid/[/<fileName>][/<fileType>].");
 
-    final String fileName = urlParts.length > 3 ? encodeResponseText(urlParts[3]) : "unknown";
+    final var fileName = urlParts.length > 3 ? encodeResponseText(urlParts[3]) : "unknown";
 
     final String fileType;
     if (urlParts.length > 5) {
@@ -55,16 +54,16 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
       fileType = (urlParts.length > 4 ? encodeResponseText(urlParts[4]) : "");
     }
 
-    final String rid = urlParts[2];
+    final var rid = urlParts[2];
 
     iRequest.getData().commandInfo = "Download";
     iRequest.getData().commandDetail = rid;
 
     final RecordAbstract response;
-    var db = getProfiledDatabaseInstance(iRequest);
+    var session = getProfiledDatabaseSessionInstance(iRequest);
     try {
       try {
-        response = db.load(new RecordId(rid));
+        response = session.load(new RecordId(rid));
         if (response instanceof Blob) {
           sendORecordBinaryFileContent(
               iResponse,
@@ -74,16 +73,22 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
               (Blob) response,
               fileName);
         } else if (response instanceof EntityImpl) {
-          for (SchemaProperty prop :
-              EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) response)).properties(db)) {
+          SchemaImmutableClass result = null;
+          if (response != null) {
+            result = ((EntityImpl) response).getImmutableSchemaClass(session);
+          }
+          for (var prop :
+              result
+                  .getProperties()) {
             if (prop.getType().equals(PropertyType.BINARY)) {
+              final String iFieldName = prop.getName();
               sendBinaryFieldFileContent(
                   iRequest,
                   iResponse,
                   HttpUtils.STATUS_OK_CODE,
                   HttpUtils.STATUS_OK_DESCRIPTION,
                   fileType,
-                  ((EntityImpl) response).field(prop.getName()),
+                  ((EntityImpl) response).getProperty(iFieldName),
                   fileName);
             }
           }
@@ -104,8 +109,8 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
           e.getMessage(),
           null);
     } finally {
-      if (db != null) {
-        db.close();
+      if (session != null) {
+        session.close();
       }
     }
 
@@ -133,7 +138,7 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
   }
 
   protected void sendBinaryFieldFileContent(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final int iCode,
       final String iReason,

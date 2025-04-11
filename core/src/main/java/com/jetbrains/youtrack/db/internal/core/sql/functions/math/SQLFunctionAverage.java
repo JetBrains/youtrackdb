@@ -19,16 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Compute the average value for a field. Uses the context to save the last average number. When
@@ -47,7 +45,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
 
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -55,14 +53,14 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
       if (iParams[0] instanceof Number) {
         sum((Number) iParams[0]);
       } else if (MultiValue.isMultiValue(iParams[0])) {
-        for (Object n : MultiValue.getMultiValueIterable(iParams[0])) {
+        for (var n : MultiValue.getMultiValueIterable(iParams[0])) {
           sum((Number) n);
         }
       }
 
     } else {
       sum = null;
-      for (int i = 0; i < iParams.length; ++i) {
+      for (var i = 0; i < iParams.length; ++i) {
         sum((Number) iParams[i]);
       }
     }
@@ -78,7 +76,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
       {
         sum = value;
       } else {
-        sum = PropertyType.increment(sum, value);
+        sum = PropertyTypeInternal.increment(sum, value);
       }
     }
   }
@@ -89,41 +87,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
 
   @Override
   public Object getResult() {
-    if (returnDistributedResult()) {
-      final Map<String, Object> map = new HashMap<String, Object>();
-      map.put("sum", sum);
-      map.put("total", total);
-      return map;
-    } else {
-      return computeAverage(sum, total);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(final List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      Number dSum = null;
-      int dTotal = 0;
-      for (Object iParameter : resultsToMerge) {
-        final Map<String, Object> item = (Map<String, Object>) iParameter;
-        if (dSum == null) {
-          dSum = (Number) item.get("sum");
-        } else {
-          dSum = PropertyType.increment(dSum, (Number) item.get("sum"));
-        }
-
-        dTotal += (Integer) item.get("total");
-      }
-
-      return computeAverage(dSum, dTotal);
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
+    return computeAverage(sum, total);
   }
 
   @Override
@@ -131,6 +95,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
     return configuredParameters.length == 1;
   }
 
+  @Nullable
   private Object computeAverage(Number iSum, int iTotal) {
     if (iSum instanceof Integer) {
       return iSum.intValue() / iTotal;

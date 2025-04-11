@@ -22,7 +22,7 @@ public class MapTransformer implements ResultTransformer<Map<Object, Object>> {
 
   @Override
   public Result transform(DatabaseSessionInternal db, Map<Object, Object> element) {
-    ResultInternal internal = new ResultInternal(db);
+    var internal = new ResultInternal(db);
     element.forEach(
         (key, val) -> {
           if (transformer.doesHandleResult(val)) {
@@ -30,8 +30,8 @@ public class MapTransformer implements ResultTransformer<Map<Object, Object>> {
           } else {
 
             if (val instanceof Iterable) {
-              Spliterator spliterator = ((Iterable) val).spliterator();
-              Object collect =
+              var spliterator = ((Iterable) val).spliterator();
+              var collect =
                   StreamSupport.stream(spliterator, false)
                       .map((e) -> this.transformer.toResult(db, e))
                       .collect(Collectors.toList());

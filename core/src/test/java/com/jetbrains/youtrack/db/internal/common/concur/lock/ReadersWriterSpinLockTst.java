@@ -38,13 +38,13 @@ public class ReadersWriterSpinLockTst {
   @Ignore
   public void testCompetingAccess() throws Exception {
     List<Future> futures = new ArrayList<Future>();
-    int threads = 8;
+    var threads = 8;
 
-    for (int i = 0; i < threads; i++) {
+    for (var i = 0; i < threads; i++) {
       futures.add(executorService.submit(new Writer()));
     }
 
-    for (int i = 0; i < threads; i++) {
+    for (var i = 0; i < threads; i++) {
       futures.add(executorService.submit(new Reader()));
     }
 
@@ -53,7 +53,7 @@ public class ReadersWriterSpinLockTst {
 
     stop = true;
 
-    for (Future future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -65,13 +65,13 @@ public class ReadersWriterSpinLockTst {
   @Ignore
   public void testCompetingAccessWithTry() throws Exception {
     List<Future> futures = new ArrayList<Future>();
-    int threads = 8;
+    var threads = 8;
 
-    for (int i = 0; i < threads; i++) {
+    for (var i = 0; i < threads; i++) {
       futures.add(executorService.submit(new Writer()));
     }
 
-    for (int i = 0; i < threads; i++) {
+    for (var i = 0; i < threads; i++) {
       futures.add(executorService.submit(new TryReader()));
     }
 
@@ -80,7 +80,7 @@ public class ReadersWriterSpinLockTst {
 
     stop = true;
 
-    for (Future future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -93,8 +93,8 @@ public class ReadersWriterSpinLockTst {
   }
 
   private void consumeCPU(int cycles) {
-    long c1 = c;
-    for (int i = 0; i < cycles; i++) {
+    var c1 = c;
+    for (var i = 0; i < cycles; i++) {
       c1 += c1 * 31 + i * 51L;
     }
     c = c1;
@@ -148,7 +148,7 @@ public class ReadersWriterSpinLockTst {
 
       try {
         while (!stop) {
-          long start = System.nanoTime();
+          var start = System.nanoTime();
           while (!spinLock.tryAcquireReadLock(500)) {
             assertThat(System.nanoTime() - start).isGreaterThan(500);
             readRetryCounter.incrementAndGet();
@@ -206,8 +206,8 @@ public class ReadersWriterSpinLockTst {
 
                 Assert.assertEquals(readersCounter.get(), 0);
 
-                long rCounter = readersCounter.get();
-                long wCounter = writersCounter.get();
+                var rCounter = readersCounter.get();
+                var wCounter = writersCounter.get();
 
                 Assert.assertEquals(rCounter, 0);
                 Assert.assertEquals(wCounter, 1);

@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel.binary;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.exception.InvalidBinaryChunkException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import java.io.DataInputStream;
@@ -34,6 +34,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import javax.annotation.Nullable;
 
 /**
  * Abstract representation of a channel.
@@ -68,7 +69,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading byte (1 byte)...", socket.getRemoteSocketAddress());
-      final byte value = in.readByte();
+      final var value = in.readByte();
       LogManager.instance()
           .info(this, "%s - Read byte: %d", socket.getRemoteSocketAddress(), (int) value);
       return value;
@@ -81,7 +82,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading boolean (1 byte)...", socket.getRemoteSocketAddress());
-      final boolean value = in.readBoolean();
+      final var value = in.readBoolean();
       LogManager.instance()
           .info(this, "%s - Read boolean: %b", socket.getRemoteSocketAddress(), value);
       return value;
@@ -94,7 +95,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading int (4 bytes)...", socket.getRemoteSocketAddress());
-      final int value = in.readInt();
+      final var value = in.readInt();
       LogManager.instance()
           .info(this, "%s - Read int: %d", socket.getRemoteSocketAddress(), value);
       return value;
@@ -107,7 +108,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading long (8 bytes)...", socket.getRemoteSocketAddress());
-      final long value = in.readLong();
+      final var value = in.readLong();
       LogManager.instance()
           .info(this, "%s - Read long: %d", socket.getRemoteSocketAddress(), value);
       return value;
@@ -120,7 +121,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading short (2 bytes)...", socket.getRemoteSocketAddress());
-      final short value = in.readShort();
+      final var value = in.readShort();
       LogManager.instance()
           .info(this, "%s - Read short: %d", socket.getRemoteSocketAddress(), value);
       return value;
@@ -129,11 +130,12 @@ public abstract class SocketChannelBinary extends SocketChannel
     return in.readShort();
   }
 
+  @Nullable
   public String readString() throws IOException {
     if (debug) {
       LogManager.instance()
           .info(this, "%s - Reading string (4+N bytes)...", socket.getRemoteSocketAddress());
-      final int len = in.readInt();
+      final var len = in.readInt();
       if (len > maxChunkSize) {
         throw new IOException(
             "Impossible to read a string chunk of length:"
@@ -151,7 +153,7 @@ public abstract class SocketChannelBinary extends SocketChannel
       }
 
       // REUSE STATIC BUFFER?
-      final byte[] tmp = new byte[len];
+      final var tmp = new byte[len];
       in.readFully(tmp);
 
       final String value = new String(tmp, StandardCharsets.UTF_8);
@@ -160,17 +162,18 @@ public abstract class SocketChannelBinary extends SocketChannel
       return value;
     }
 
-    final int len = in.readInt();
+    final var len = in.readInt();
     if (len < 0) {
       return null;
     }
 
-    final byte[] tmp = new byte[len];
+    final var tmp = new byte[len];
     in.readFully(tmp);
 
     return new String(tmp, StandardCharsets.UTF_8);
   }
 
+  @Nullable
   public byte[] readBytes() throws IOException {
     if (debug) {
       LogManager.instance()
@@ -180,7 +183,7 @@ public abstract class SocketChannelBinary extends SocketChannel
               socket.getRemoteSocketAddress());
     }
 
-    final int len = in.readInt();
+    final var len = in.readInt();
     if (len > maxChunkSize) {
       throw new IOException(
           "Impossible to read a chunk of length:"
@@ -205,7 +208,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     }
 
     // REUSE STATIC BUFFER?
-    final byte[] tmp = new byte[len];
+    final var tmp = new byte[len];
     in.readFully(tmp);
 
     if (debug) {
@@ -222,9 +225,9 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public RecordId readRID() throws IOException {
-    final int clusterId = readShort();
-    final long clusterPosition = readLong();
-    return new RecordId(clusterId, clusterPosition);
+    final int collectionId = readShort();
+    final var collectionPosition = readLong();
+    return new RecordId(collectionId, collectionPosition);
   }
 
   public int readVersion() throws IOException {
@@ -298,7 +301,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     if (iContent == null) {
       out.writeInt(-1);
     } else {
-      final byte[] buffer = iContent.getBytes(StandardCharsets.UTF_8);
+      final var buffer = iContent.getBytes(StandardCharsets.UTF_8);
       if (buffer.length > maxChunkSize) {
         throw new InvalidBinaryChunkException(
             "Impossible to write a chunk of length:"
@@ -351,8 +354,8 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public void writeRID(final RID iRID) throws IOException {
-    writeShort((short) iRID.getClusterId());
-    writeLong(iRID.getClusterPosition());
+    writeShort((short) iRID.getCollectionId());
+    writeLong(iRID.getCollectionPosition());
   }
 
   public void writeVersion(final int version) throws IOException {
@@ -364,10 +367,10 @@ public abstract class SocketChannelBinary extends SocketChannel
       return;
     }
 
-    final StringBuilder dirtyBuffer = new StringBuilder(MAX_LENGTH_DEBUG);
-    int i = 0;
+    final var dirtyBuffer = new StringBuilder(MAX_LENGTH_DEBUG);
+    var i = 0;
     while (in.available() > 0) {
-      char c = (char) in.read();
+      var c = (char) in.read();
       ++i;
 
       if (dirtyBuffer.length() < MAX_LENGTH_DEBUG) {
@@ -375,7 +378,7 @@ public abstract class SocketChannelBinary extends SocketChannel
       }
     }
 
-    final String message =
+    final var message =
         "Received unread response from "
             + socket.getRemoteSocketAddress()
             + " probably corrupted data from the network connection. Cleared dirty data in the"
@@ -446,21 +449,21 @@ public abstract class SocketChannelBinary extends SocketChannel
   }
 
   public void setWaitResponseTimeout() throws SocketException {
-    final Socket s = socket;
+    final var s = socket;
     if (s != null) {
       s.setSoTimeout(responseTimeout);
     }
   }
 
   public void setWaitRequestTimeout() throws SocketException {
-    final Socket s = socket;
+    final var s = socket;
     if (s != null) {
       s.setSoTimeout(0);
     }
   }
 
   public void setReadRequestTimeout() throws SocketException {
-    final Socket s = socket;
+    final var s = socket;
     if (s != null) {
       s.setSoTimeout(networkTimeout);
     }

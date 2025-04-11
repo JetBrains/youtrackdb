@@ -3,19 +3,17 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLServerStatement extends SimpleNode {
 
@@ -42,17 +40,11 @@ public class SQLServerStatement extends SimpleNode {
 
   @Override
   public String toString(String prefix) {
-    StringBuilder builder = new StringBuilder();
+    var builder = new StringBuilder();
     toString(null, builder);
     return builder.toString();
   }
 
-  public Object execute(
-      SQLAsynchQuery<EntityImpl> request,
-      ServerCommandContext context,
-      ProgressListener progressListener) {
-    throw new UnsupportedOperationException("Unsupported command: " + getClass().getSimpleName());
-  }
 
   public ResultSet execute(YouTrackDBInternal db, Object[] args) {
     return execute(db, args, true);
@@ -131,22 +123,25 @@ public class SQLServerStatement extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public static SQLStatement deserializeFromOResult(Result res) {
     try {
-      SQLStatement result =
+      var result =
           (SQLStatement)
               Class.forName(res.getProperty("__class"))
                   .getConstructor(Integer.class)
                   .newInstance(-1);
       result.deserialize(res);
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(
+          new CommandExecutionException(res.getBoundedToSession(), ""), e,
+          res.getBoundedToSession());
     }
     return null;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("__class", getClass().getName());
     return result;
   }

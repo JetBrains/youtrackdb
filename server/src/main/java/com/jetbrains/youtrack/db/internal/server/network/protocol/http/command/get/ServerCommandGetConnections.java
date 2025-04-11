@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWrit
 import com.jetbrains.youtrack.db.internal.server.ServerInfo;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import java.io.StringWriter;
 
@@ -40,17 +40,17 @@ public class ServerCommandGetConnections extends ServerCommandAuthenticatedServe
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] args =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var args =
         checkSyntax(iRequest.getUrl(), 1, "Syntax error: connections[/<database>]");
 
     iRequest.getData().commandInfo = "Server status";
 
-    final StringWriter jsonBuffer = new StringWriter();
-    final JSONWriter json = new JSONWriter(jsonBuffer);
+    final var jsonBuffer = new StringWriter();
+    final var json = new JSONWriter(jsonBuffer);
     json.beginObject();
 
-    final String databaseName = args.length > 1 && args[1].length() > 0 ? args[1] : null;
+    final var databaseName = args.length > 1 && args[1].length() > 0 ? args[1] : null;
 
     ServerInfo.getConnections(server, json, databaseName);
 

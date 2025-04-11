@@ -19,29 +19,26 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule.ResourceGeneric;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecuritySystemUserIml;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecuritySystemUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.DatabaseUserAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.ServerConfigAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.SystemUserAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.TemporaryGlobalUser;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.File;
 import java.io.FileInputStream;
 import java.util.ArrayList;
@@ -50,7 +47,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Provides an implementation of OServerSecurity.
@@ -78,17 +75,17 @@ public class DefaultSecuritySystem implements SecuritySystem {
   private final Object auditingSynch = new Object();
   private AuditingService auditingService;
 
-  private EntityImpl configEntity; // Holds the
+  private Map<String, Object> configEntity; // Holds the
   // current JSON
   // configuration.
   private SecurityConfig serverConfig;
   private YouTrackDBInternal context;
 
-  private EntityImpl auditingEntity;
-  private EntityImpl serverEntity;
-  private EntityImpl authEntity;
-  private EntityImpl passwdValEntity;
-  private EntityImpl ldapImportEntity;
+  private Map<String, Object> auditingEntity;
+  private Map<String, Object> serverEntity;
+  private Map<String, Object> authEntity;
+  private Map<String, Object> passwdValEntity;
+  private Map<String, Object> ldapImportEntity;
 
   // We use a list because the order indicates priority of method.
   private volatile List<SecurityAuthenticator> authenticatorsList;
@@ -114,36 +111,36 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
     onAfterDynamicPlugins(null);
     tokenSign = new TokenSignImpl(context.getConfiguration().getConfiguration());
-    for (GlobalUser user : context.getConfiguration().getUsers()) {
+    for (var user : context.getConfiguration().getUsers()) {
       configUsers.put(user.getName(), user);
     }
   }
 
   public static void createSystemRoles(DatabaseSessionInternal session) {
     session.executeInTx(
-        () -> {
-          Security security = session.getMetadata().getSecurity();
+        transaction -> {
+          var security = session.getMetadata().getSecurity();
           if (security.getRole("root") == null) {
-            Role root = security.createRole("root", Role.ALLOW_MODES.DENY_ALL_BUT);
-            for (Rule.ResourceGeneric resource : Rule.ResourceGeneric.values()) {
+            var root = security.createRole("root");
+            for (var resource : Rule.ResourceGeneric.values()) {
               root.addRule(session, resource, null, Role.PERMISSION_ALL);
             }
             // Do not allow root to have access to audit log class by default.
             root.addRule(session, ResourceGeneric.CLASS, "OAuditingLog", Role.PERMISSION_NONE);
-            root.addRule(session, ResourceGeneric.CLUSTER, "oauditinglog", Role.PERMISSION_NONE);
+            root.addRule(session, ResourceGeneric.COLLECTION, "oauditinglog", Role.PERMISSION_NONE);
             root.save(session);
           }
           if (security.getRole("guest") == null) {
-            Role guest = security.createRole("guest", Role.ALLOW_MODES.DENY_ALL_BUT);
+            var guest = security.createRole("guest");
             guest.addRule(session, ResourceGeneric.SERVER, "listDatabases", Role.PERMISSION_ALL);
             guest.save(session);
           }
           // for monitoring/logging purposes, intended to connect from external monitoring systems
           if (security.getRole("monitor") == null) {
-            Role guest = security.createRole("monitor", Role.ALLOW_MODES.DENY_ALL_BUT);
+            var guest = security.createRole("monitor");
             guest.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
-            guest.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
-            guest.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_READ);
+            guest.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
+            guest.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_READ);
             guest.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
             guest.addRule(session, ResourceGeneric.FUNCTION, null, Role.PERMISSION_ALL);
             guest.addRule(session, ResourceGeneric.COMMAND, null, Role.PERMISSION_ALL);
@@ -154,20 +151,20 @@ public class DefaultSecuritySystem implements SecuritySystem {
           }
           // a separate role for accessing the auditing logs
           if (security.getRole("auditor") == null) {
-            Role auditor = security.createRole("auditor", SecurityRole.ALLOW_MODES.DENY_ALL_BUT);
+            var auditor = security.createRole("auditor");
             auditor.addRule(session, ResourceGeneric.DATABASE, null, Role.PERMISSION_READ);
             auditor.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
             auditor.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_READ);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, null, Role.PERMISSION_READ);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, "orole", Role.PERMISSION_NONE);
-            auditor.addRule(session, ResourceGeneric.CLUSTER, "ouser", Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_READ);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, "orole", Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "orole", Role.PERMISSION_NONE);
-            auditor.addRule(session, ResourceGeneric.SYSTEM_CLUSTERS, null, Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OAuditingLog",
                 Role.PERMISSION_CREATE + Role.PERMISSION_READ + Role.PERMISSION_UPDATE);
             auditor.addRule(session,
-                ResourceGeneric.CLUSTER,
+                ResourceGeneric.COLLECTION,
                 "oauditinglog",
                 Role.PERMISSION_CREATE + Role.PERMISSION_READ + Role.PERMISSION_UPDATE);
             auditor.save(session);
@@ -176,13 +173,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   private void initDefultAuthenticators(DatabaseSessionInternal session) {
-    ServerConfigAuthenticator serverAuth = new ServerConfigAuthenticator();
+    var serverAuth = new ServerConfigAuthenticator();
     serverAuth.config(session, null, this);
 
-    DatabaseUserAuthenticator databaseAuth = new DatabaseUserAuthenticator();
+    var databaseAuth = new DatabaseUserAuthenticator();
     databaseAuth.config(session, null, this);
 
-    SystemUserAuthenticator systemAuth = new SystemUserAuthenticator();
+    var systemAuth = new SystemUserAuthenticator();
     systemAuth.config(session, null, this);
 
     List<SecurityAuthenticator> authenticators = new ArrayList<>();
@@ -196,12 +193,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
     close();
   }
 
-  private Class<?> getClass(final EntityImpl jsonConfig) {
+  private Class<?> getClass(final Map<String, Object> jsonConfig) {
     Class<?> cls = null;
 
     try {
-      if (jsonConfig.containsField("class")) {
-        final String clsName = jsonConfig.field("class");
+      if (jsonConfig.containsKey("class")) {
+        final var clsName = jsonConfig.get("class").toString();
 
         if (securityClassMap.containsKey(clsName)) {
           cls = securityClassMap.get(clsName);
@@ -227,12 +224,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(
       DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
     try {
-      for (SecurityAuthenticator sa : enabledAuthenticators) {
-        SecurityUser principal = sa.authenticate(session, authenticationInfo);
+      for (var sa : enabledAuthenticators) {
+        var principal = sa.authenticate(session, authenticationInfo);
 
         if (principal != null) {
           return principal;
@@ -246,6 +244,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
     try {
@@ -262,8 +261,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
       }
 
-      for (SecurityAuthenticator sa : enabledAuthenticators) {
-        SecurityUser principal = sa.authenticate(session, username, password);
+      for (var sa : enabledAuthenticators) {
+        var principal = sa.authenticate(session, username, password);
 
         if (principal != null) {
           return principal;
@@ -277,10 +276,11 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return null; // Indicates authentication failed.
   }
 
+  @Nullable
   public SecurityUser authenticateServerUser(DatabaseSessionInternal session,
       final String username,
       final String password) {
-    SecurityUser user = getServerUser(session, username);
+    var user = getServerUser(session, username);
 
     if (user != null && user.getPassword(session) != null) {
       if (SecurityManager.checkPassword(password, user.getPassword(session).trim())) {
@@ -307,22 +307,22 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
 
     if (enabled) {
-      StringBuilder sb = new StringBuilder();
+      var sb = new StringBuilder();
 
       // Walk through the list of OSecurityAuthenticators.
-      for (SecurityAuthenticator sa : enabledAuthenticators) {
-        String sah = sa.getAuthenticationHeader(databaseName);
+      for (var sa : enabledAuthenticators) {
+        var sah = sa.getAuthenticationHeader(databaseName);
 
-        if (sah != null && sah.trim().length() > 0) {
+        if (sah != null && !sah.trim().isEmpty()) {
           // If we're not the first authenticator, then append "\n".
-          if (sb.length() > 0) {
+          if (!sb.isEmpty()) {
             sb.append("\r\n");
           }
           sb.append(sah);
         }
       }
 
-      if (sb.length() > 0) {
+      if (!sb.isEmpty()) {
         header = sb.toString();
       }
     }
@@ -344,10 +344,10 @@ public class DefaultSecuritySystem implements SecuritySystem {
     if (enabled) {
 
       // Walk through the list of OSecurityAuthenticators.
-      for (SecurityAuthenticator sa : enabledAuthenticators) {
+      for (var sa : enabledAuthenticators) {
         if (sa.isEnabled()) {
-          Map<String, String> currentHeaders = sa.getAuthenticationHeaders(databaseName);
-          currentHeaders.entrySet().forEach(entry -> headers.put(entry.getKey(), entry.getValue()));
+          var currentHeaders = sa.getAuthenticationHeaders(databaseName);
+          headers.putAll(currentHeaders);
         }
       }
     }
@@ -356,31 +356,31 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
-  public EntityImpl getConfig() {
-    EntityImpl jsonConfig = new EntityImpl();
+  public Map<String, Object> getConfig() {
+    var jsonConfig = new HashMap<String, Object>();
 
     try {
-      jsonConfig.field("enabled", enabled);
-      jsonConfig.field("debug", debug);
+      jsonConfig.put("enabled", enabled);
+      jsonConfig.put("debug", debug);
 
       if (serverEntity != null) {
-        jsonConfig.field("server", serverEntity, PropertyType.EMBEDDED);
+        jsonConfig.put("server", serverEntity);
       }
 
       if (authEntity != null) {
-        jsonConfig.field("authentication", authEntity, PropertyType.EMBEDDED);
+        jsonConfig.put("authentication", authEntity);
       }
 
       if (passwdValEntity != null) {
-        jsonConfig.field("passwordValidator", passwdValEntity, PropertyType.EMBEDDED);
+        jsonConfig.put("passwordValidator", passwdValEntity);
       }
 
       if (ldapImportEntity != null) {
-        jsonConfig.field("ldapImporter", ldapImportEntity, PropertyType.EMBEDDED);
+        jsonConfig.put("ldapImporter", ldapImportEntity);
       }
 
       if (auditingEntity != null) {
-        jsonConfig.field("auditing", auditingEntity, PropertyType.EMBEDDED);
+        jsonConfig.put("auditing", auditingEntity);
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "DefaultServerSecurity.getConfig() Exception: %s", ex);
@@ -392,7 +392,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem (via OServerSecurity)
   // public EntityImpl getComponentConfig(final String name) { return getSection(name); }
 
-  public EntityImpl getComponentConfig(final String name) {
+  @Nullable
+  public Map<String, Object> getComponentConfig(final String name) {
     if (name != null) {
       if (name.equalsIgnoreCase("auditing")) {
         return auditingEntity;
@@ -416,21 +417,25 @@ public class DefaultSecuritySystem implements SecuritySystem {
    * Returns the "System User" associated with 'username' from the system database. If not found,
    * returns null. dbName is used to filter the assigned roles. It may be null.
    */
+  @Nullable
   public SecurityUser getSystemUser(final String username, final String dbName) {
     // ** There are cases when we need to retrieve an OUser that is a system user.
     //  if (isEnabled() && !SystemDatabase.SYSTEM_DB_NAME.equals(dbName)) {
     var systemDb = context.getSystemDatabase();
     if (context.getSystemDatabase().exists()) {
       return systemDb
-          .execute(
+          .query(
               (resultset, session) -> {
                 var sessionInternal = (DatabaseSessionInternal) session;
                 if (resultset != null && resultset.hasNext()) {
+                  Identifiable identifiable = resultset.next().asEntity();
+                  var transaction = session.getActiveTransaction();
                   return new ImmutableUser(sessionInternal,
                       0,
-                      new SecuritySystemUserIml(sessionInternal,
-                          resultset.next().getEntity().orElseThrow().getRecord(), dbName));
+                      new SecuritySystemUserImpl(sessionInternal,
+                          transaction.load(identifiable), dbName));
                 }
+                //noinspection ReturnOfNull
                 return null;
               },
               "select from OUser where name = ? limit 1 fetchplan roles:1",
@@ -449,7 +454,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
 
     // Walk through the list of OSecurityAuthenticators.
-    for (SecurityAuthenticator sa : enabledAuthenticators) {
+    for (var sa : enabledAuthenticators) {
       if (sa.isAuthorized(session, username, resource)) {
         return true;
       }
@@ -459,7 +464,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   public boolean isServerUserAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
-    final SecurityUser user = getServerUser(session, username);
+    final var user = getServerUser(session, username);
 
     if (user != null) {
       // TODO: to verify if this logic match previous logic
@@ -495,7 +500,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // Indicates if the primary security mechanism supports single sign-on.
   public boolean isSingleSignOnSupported() {
     if (enabled) {
-      SecurityAuthenticator priAuth = getPrimaryAuthenticator();
+      var priAuth = getPrimaryAuthenticator();
 
       if (priAuth != null) {
         return priAuth.isSingleSignOnSupported();
@@ -527,8 +532,9 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // OServerSecurity
+  @Nullable
   public SecurityAuthenticator getAuthenticator(final String authMethod) {
-    for (SecurityAuthenticator am : authenticatorsList) {
+    for (var am : authenticatorsList) {
       // If authMethod is null or an empty string, then return the first SecurityAuthenticator.
       if (authMethod == null || authMethod.isEmpty()) {
         return am;
@@ -544,11 +550,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // OServerSecurity
   // Returns the first SecurityAuthenticator in the list.
+  @Nullable
   public SecurityAuthenticator getPrimaryAuthenticator() {
     if (enabled) {
-      List<SecurityAuthenticator> auth = authenticatorsList;
-      if (auth.size() > 0) {
-        return auth.get(0);
+      var auth = authenticatorsList;
+      if (!auth.isEmpty()) {
+        return auth.getFirst();
       }
     }
 
@@ -560,7 +567,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     SecurityUser userCfg = null;
 
     // Walk through the list of OSecurityAuthenticators.
-    for (SecurityAuthenticator sa : enabledAuthenticators) {
+    for (var sa : enabledAuthenticators) {
       userCfg = sa.getUser(username, session);
       if (userCfg != null) {
         break;
@@ -575,9 +582,9 @@ public class DefaultSecuritySystem implements SecuritySystem {
     // This will throw an IllegalArgumentException if iUserName is null or empty.
     // However, a null or empty iUserName is possible with some security implementations.
     if (username != null && !username.isEmpty()) {
-      GlobalUser userCfg = configUsers.get(username);
+      var userCfg = configUsers.get(username);
       if (userCfg == null) {
-        for (TemporaryGlobalUser user : ephemeralUsers.values()) {
+        for (var user : ephemeralUsers.values()) {
           if (username.equalsIgnoreCase(user.getName())) {
             // FOUND
             userCfg = user;
@@ -585,7 +592,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
       }
       if (userCfg != null) {
-        SecurityRole role = SecurityShared.createRole(userCfg);
+        var role = SecurityShared.createRole(userCfg);
         systemUser =
             new ImmutableUser(session,
                 username, userCfg.getPassword(), SecurityUser.SERVER_USER_TYPE, role);
@@ -615,7 +622,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // SecuritySystem
   public void registerSecurityClass(final Class<?> cls) {
-    String fullTypeName = getFullTypeName(cls);
+    var fullTypeName = getFullTypeName(cls);
 
     if (fullTypeName != null) {
       securityClassMap.put(fullTypeName, cls);
@@ -624,7 +631,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // SecuritySystem
   public void unregisterSecurityClass(final Class<?> cls) {
-    String fullTypeName = getFullTypeName(cls);
+    var fullTypeName = getFullTypeName(cls);
 
     if (fullTypeName != null) {
       securityClassMap.remove(fullTypeName);
@@ -637,7 +644,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
     typeName = type.getSimpleName();
 
-    Package pack = type.getPackage();
+    var pack = type.getPackage();
 
     if (pack != null) {
       typeName = pack.getName() + "." + typeName;
@@ -651,13 +658,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem
-  public void reload(DatabaseSessionInternal session, final EntityImpl configEntity) {
+  public void reload(DatabaseSessionInternal session, final Map<String, Object> configEntity) {
     reload(session, null, configEntity);
   }
 
   @Override
   public void reload(DatabaseSessionInternal session, SecurityUser user,
-      EntityImpl configEntity) {
+      Map<String, Object> configEntity) {
     if (configEntity != null) {
       close();
 
@@ -681,7 +688,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   public void reloadComponent(DatabaseSessionInternal session, SecurityUser user,
-      final String name, final EntityImpl jsonConfig) {
+      final String name, final Map<String, Object> jsonConfig) {
     if (name == null || name.isEmpty()) {
       throw new SecuritySystemException(
           "DefaultServerSecurity.reloadComponent() name is null or empty");
@@ -717,29 +724,32 @@ public class DefaultSecuritySystem implements SecuritySystem {
         user, String.format("The %s security component has been reloaded", name));
   }
 
-  private void loadAuthenticators(DatabaseSessionInternal session, final EntityImpl authEntity) {
-    if (authEntity.containsField("authenticators")) {
+  private void loadAuthenticators(DatabaseSessionInternal session,
+      final Map<String, Object> authEntity) {
+    if (authEntity.containsKey("authenticators")) {
       List<SecurityAuthenticator> autheticators = new ArrayList<>();
-      List<EntityImpl> authMethodsList = authEntity.field("authenticators");
+      @SuppressWarnings("unchecked")
+      var authMethodsList = (List<Map<String, Object>>) authEntity.get(
+          "authenticators");
 
-      for (EntityImpl authMethodEntity : authMethodsList) {
+      for (var authMethodEntity : authMethodsList) {
         try {
-          if (authMethodEntity.containsField("name")) {
-            final String name = authMethodEntity.field("name");
+          if (authMethodEntity.containsKey("name")) {
+            final var name = authMethodEntity.get("name").toString();
 
             // defaults to enabled if "enabled" is missing
-            boolean enabled = true;
+            var enabled = true;
 
-            if (authMethodEntity.containsField("enabled")) {
-              enabled = authMethodEntity.field("enabled");
+            if (authMethodEntity.containsKey("enabled")) {
+              enabled = (Boolean) authMethodEntity.get("enabled");
             }
 
             if (enabled) {
-              Class<?> authClass = getClass(authMethodEntity);
+              var authClass = getClass(authMethodEntity);
 
               if (authClass != null) {
                 if (SecurityAuthenticator.class.isAssignableFrom(authClass)) {
-                  SecurityAuthenticator authPlugin =
+                  var authPlugin =
                       (SecurityAuthenticator) authClass.newInstance();
 
                   authPlugin.config(session, authMethodEntity, this);
@@ -833,13 +843,14 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // Returns a section of the JSON document configuration as an EntityImpl if section is present.
-  private EntityImpl getSection(final String section) {
-    EntityImpl sectionEntity = null;
+  private Map<String, Object> getSection(final String section) {
+    Map<String, Object> sectionEntity = null;
 
     try {
       if (configEntity != null) {
-        if (configEntity.containsField(section)) {
-          sectionEntity = configEntity.field(section);
+        if (configEntity.containsKey(section)) {
+          //noinspection unchecked
+          sectionEntity = (Map<String, Object>) configEntity.get(section);
         }
       } else {
         LogManager.instance()
@@ -857,56 +868,49 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // Change the component section and save it to disk
-  private void setSection(final String section, EntityImpl sectionEntity) {
+  private void setSection(final String section, Map<String, Object> sectionEntity) {
 
-    EntityImpl oldSection = getSection(section);
+    var oldSection = getSection(section);
     try {
       if (configEntity != null) {
 
-        configEntity.field(section, sectionEntity);
-        String configFile =
+        configEntity.put(section, sectionEntity);
+        var configFile =
             SystemVariableResolver.resolveSystemVariables(
                 "${YOUTRACKDB_HOME}/config/security.json");
 
-        String ssf = GlobalConfiguration.SERVER_SECURITY_FILE.getValueAsString();
+        var ssf = GlobalConfiguration.SERVER_SECURITY_FILE.getValueAsString();
         if (ssf != null) {
           configFile = ssf;
         }
 
-        File f = new File(configFile);
-        IOUtils.writeFile(f, configEntity.toJSON("prettyPrint"));
+        var f = new File(configFile);
+        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configEntity));
       }
     } catch (Exception ex) {
-      configEntity.field(section, oldSection);
+      configEntity.put(section, oldSection);
       LogManager.instance().error(this, "DefaultServerSecurity.setSection(%s)", ex, section);
     }
   }
 
   // "${YOUTRACKDB_HOME}/config/security.json"
-  private EntityImpl loadConfig(final String cfgPath) {
-    EntityImpl securityEntity = null;
+  private Map<String, Object> loadConfig(final String cfgPath) {
+    Map<String, Object> securityEntity = null;
 
     try {
       if (cfgPath != null) {
         // Default
-        String jsonFile = SystemVariableResolver.resolveSystemVariables(cfgPath);
+        var jsonFile = SystemVariableResolver.resolveSystemVariables(cfgPath);
 
-        File file = new File(jsonFile);
+        var file = new File(jsonFile);
 
         if (file.exists() && file.canRead()) {
-          FileInputStream fis = null;
 
-          try {
-            fis = new FileInputStream(file);
-
-            final byte[] buffer = new byte[(int) file.length()];
+          try (FileInputStream fis = new FileInputStream(file)) {
+            final var buffer = new byte[(int) file.length()];
             fis.read(buffer);
 
-            securityEntity = new EntityImpl().fromJSON(new String(buffer), "noMap");
-          } finally {
-            if (fis != null) {
-              fis.close();
-            }
+            securityEntity = JSONSerializerJackson.mapFromJson(new String(buffer));
           }
         } else {
           if (file.exists()) {
@@ -927,12 +931,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return securityEntity;
   }
 
-  private boolean isEnabled(final EntityImpl sectionEntity) {
-    boolean enabled = true;
+  private boolean isEnabled(final Map<String, Object> sectionEntity) {
+    var enabled = true;
 
     try {
-      if (sectionEntity.containsField("enabled")) {
-        enabled = sectionEntity.field("enabled");
+      if (sectionEntity.containsKey("enabled")) {
+        enabled = (Boolean) sectionEntity.get("enabled");
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "DefaultServerSecurity.isEnabled()", ex);
@@ -946,12 +950,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
       enabled = false;
 
       if (configEntity != null) {
-        if (configEntity.containsField("enabled")) {
-          enabled = configEntity.field("enabled");
+        if (configEntity.containsKey("enabled")) {
+          enabled = (Boolean) configEntity.get("enabled");
         }
 
-        if (configEntity.containsField("debug")) {
-          debug = configEntity.field("debug");
+        if (configEntity.containsKey("debug")) {
+          debug = (Boolean) configEntity.get("debug");
         }
       } else {
         LogManager.instance()
@@ -967,13 +971,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
       storePasswords = true;
 
       if (serverEntity != null) {
-        if (serverEntity.containsField("createDefaultUsers")) {
+        if (serverEntity.containsKey("createDefaultUsers")) {
           GlobalConfiguration.CREATE_DEFAULT_USERS.setValue(
-              serverEntity.field("createDefaultUsers"));
+              serverEntity.get("createDefaultUsers"));
         }
 
-        if (serverEntity.containsField("storePasswords")) {
-          storePasswords = serverEntity.field("storePasswords");
+        if (serverEntity.containsKey("storePasswords")) {
+          storePasswords = (Boolean) serverEntity.get("storePasswords");
         }
       }
     } catch (Exception ex) {
@@ -983,8 +987,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   private void reloadAuthMethods(DatabaseSessionInternal session) {
     if (authEntity != null) {
-      if (authEntity.containsField("allowDefault")) {
-        allowDefault = authEntity.field("allowDefault");
+      if (authEntity.containsKey("allowDefault")) {
+        allowDefault = (Boolean) authEntity.get("allowDefault");
       }
 
       loadAuthenticators(session, authEntity);
@@ -1001,7 +1005,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
             passwordValidator = null;
           }
 
-          Class<?> cls = getClass(passwdValEntity);
+          var cls = getClass(passwdValEntity);
 
           if (cls != null) {
             if (PasswordValidator.class.isAssignableFrom(cls)) {
@@ -1040,7 +1044,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         if (ldapImportEntity != null && isEnabled(ldapImportEntity)) {
-          Class<?> cls = getClass(ldapImportEntity);
+          var cls = getClass(ldapImportEntity);
 
           if (cls != null) {
             if (SecurityComponent.class.isAssignableFrom(cls)) {
@@ -1079,7 +1083,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         if (auditingEntity != null && isEnabled(auditingEntity)) {
-          Class<?> cls = getClass(auditingEntity);
+          var cls = getClass(auditingEntity);
 
           if (cls != null) {
             if (AuditingService.class.isAssignableFrom(cls)) {
@@ -1139,12 +1143,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticateAndAuthorize(
       DatabaseSessionInternal session, String iUserName, String iPassword,
       String iResourceToCheck) {
     // Returns the authenticated username, if successful, otherwise null.
-    SecurityUser user = authenticate(null, iUserName, iPassword);
+    var user = authenticate(null, iUserName, iPassword);
 
     // Authenticated, now see if the user is authorized.
     if (user != null) {
@@ -1160,7 +1165,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   public void addTemporaryUser(String iName, String iPassword, String iPermissions) {
-    TemporaryGlobalUser userCfg = new TemporaryGlobalUser(iName, iPassword, iPermissions);
+    var userCfg = new TemporaryGlobalUser(iName, iPassword, iPermissions);
     ephemeralUsers.put(iName, userCfg);
   }
 
@@ -1171,14 +1176,14 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   public synchronized void setAuthenticatorList(List<SecurityAuthenticator> authenticators) {
     if (authenticatorsList != null) {
-      for (SecurityAuthenticator sa : authenticatorsList) {
+      for (var sa : authenticatorsList) {
         sa.dispose();
       }
     }
     this.authenticatorsList = Collections.unmodifiableList(authenticators);
     this.enabledAuthenticators =
-        Collections.unmodifiableList(
-            authenticators.stream().filter((x) -> x.isEnabled()).collect(Collectors.toList()));
+        authenticators.stream().filter(SecurityComponent::isEnabled)
+            .toList();
   }
 
   public synchronized List<SecurityAuthenticator> getEnabledAuthenticators() {

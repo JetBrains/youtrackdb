@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -42,8 +43,8 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
   private boolean dumpMode = false;
 
   @Parameters(value = {"remote", "testPath"})
-  public DbImportExportRidbagTest(boolean remote, String testPath) {
-    super(remote);
+  public DbImportExportRidbagTest(@Optional Boolean remote, String testPath) {
+    super(remote != null && remote);
     this.testPath = testPath;
 
     exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
@@ -51,31 +52,40 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
 
   @Test
   public void testDbExport() throws IOException {
-    DatabaseSessionInternal database = acquireSession();
-
-    database.command("insert into V set name ='a'");
-    for (int i = 0; i < 100; i++) {
-      database.command("insert into V set name ='b" + i + "'");
+    if (remoteDB) {
+      return;
     }
 
-    database.command(
+    var session = acquireSession();
+    session.begin();
+    session.execute("insert into V set name ='a'");
+    for (var i = 0; i < 100; i++) {
+      session.execute("insert into V set name ='b" + i + "'");
+    }
+
+    session.execute(
         "create edge E from (select from V where name ='a') to (select from V where name != 'a')");
+    session.commit();
 
     // ADD A CUSTOM TO THE CLASS
-    database.command("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
+    session.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
-    DatabaseExport export = new DatabaseExport(database, testPath + "/" + exportFilePath, this);
+    var export = new DatabaseExport(session, testPath + "/" + exportFilePath, this);
     export.exportDatabase();
     export.close();
 
-    database.close();
+    session.close();
   }
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    final File importDir = new File(testPath + "/" + NEW_DB_PATH);
+    if (remoteDB) {
+      return;
+    }
+
+    final var importDir = new File(testPath + "/" + NEW_DB_PATH);
     if (importDir.exists()) {
-      for (File f : importDir.listFiles()) {
+      for (var f : importDir.listFiles()) {
         f.delete();
       }
     } else {
@@ -86,11 +96,11 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
         new DatabaseDocumentTx(getStorageType() + ":" + testPath + "/" + NEW_DB_URL);
     database.create();
 
-    DatabaseImport dbImport = new DatabaseImport(database, testPath + "/" + exportFilePath, this);
+    var dbImport = new DatabaseImport(database, testPath + "/" + exportFilePath, this);
     dbImport.setMaxRidbagStringSizeBeforeLazyImport(50);
 
     // UNREGISTER ALL THE HOOKS
-    for (RecordHook hook : new ArrayList<RecordHook>(database.getHooks().keySet())) {
+    for (var hook : new ArrayList<RecordHook>(database.getHooks())) {
       database.unregisterHook(hook);
     }
 
@@ -104,20 +114,15 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
   @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
     if (remoteDB) {
-      String env = getTestEnv();
-      if (env == null || env.equals("dev")) {
-        return;
-      }
-
-      // EXECUTES ONLY IF NOT REMOTE ON CI/RELEASE TEST ENV
+      return;
     }
 
-    DatabaseSessionInternal first = acquireSession();
+    var first = acquireSession();
     DatabaseSessionInternal second =
         new DatabaseDocumentTx(getStorageType() + ":" + testPath + "/" + NEW_DB_URL);
     second.open("admin", "admin");
 
-    final DatabaseCompare databaseCompare = new DatabaseCompare(first, second, this);
+    final var databaseCompare = new DatabaseCompare(first, second, this);
     databaseCompare.setCompareEntriesForAutomaticIndexes(true);
     databaseCompare.setCompareIndexMetadata(true);
     Assert.assertTrue(databaseCompare.compare());

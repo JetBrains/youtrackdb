@@ -33,8 +33,8 @@ public abstract class AbstractHandler extends Handler {
 
   public AbstractHandler() {
     super();
-    LogManager manager = LogManager.getLogManager();
-    String cname = getClass().getName();
+    var manager = LogManager.getLogManager();
+    var cname = getClass().getName();
     this.logLevel = LogManagerHelper.getLevelProperty(manager, cname + ".level", Level.INFO);
     this.filter = LogManagerHelper.getFilterProperty(manager, cname + ".filter", null);
     this.formatter =

@@ -24,7 +24,7 @@ public class SQLMethodSubStringTest {
   @Test
   public void testRange() {
 
-    Object result = function.execute("foobar", null, null, null, new Object[]{1, 3});
+    var result = function.execute("foobar", null, null, null, new Object[]{1, 3});
     assertEquals(result, "foobar".substring(1, 3));
 
     result = function.execute("foobar", null, null, null, new Object[]{0, 0});
@@ -48,7 +48,7 @@ public class SQLMethodSubStringTest {
 
   @Test
   public void testFrom() {
-    Object result = function.execute("foobar", null, null, null, new Object[]{1});
+    var result = function.execute("foobar", null, null, null, new Object[]{1});
     assertEquals(result, "foobar".substring(1));
 
     result = function.execute("foobar", null, null, null, new Object[]{0});
@@ -67,7 +67,7 @@ public class SQLMethodSubStringTest {
   @Test
   public void testNull() {
 
-    Object result = function.execute(null, null, null, null, null);
+    var result = function.execute(null, null, null, null, null);
     assertNull(result);
   }
 }

@@ -32,7 +32,7 @@ public final class LoaderExecutionStream implements ExecutionStream {
       throw new IllegalStateException();
     }
 
-    Result result = nextResult;
+    var result = nextResult;
     nextResult = null;
     ctx.setVariable("$current", result);
     return result;
@@ -46,9 +46,9 @@ public final class LoaderExecutionStream implements ExecutionStream {
     if (nextResult != null) {
       return;
     }
-    var db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     while (iterator.hasNext()) {
-      Identifiable nextRid = iterator.next();
+      var nextRid = iterator.next();
 
       if (nextRid != null) {
         if (nextRid instanceof DBRecord record) {
@@ -56,8 +56,8 @@ public final class LoaderExecutionStream implements ExecutionStream {
           return;
         } else {
           try {
-            DBRecord nextDoc = db.load(nextRid.getIdentity());
-            ResultInternal res = new ResultInternal(db, nextDoc);
+            var nextDoc = db.load(nextRid.getIdentity());
+            var res = new ResultInternal(db, nextDoc);
             if (nextRid instanceof ContextualRecordId) {
               res.addMetadata(((ContextualRecordId) nextRid).getContext());
             }

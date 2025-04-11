@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
@@ -45,10 +46,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   private static final int ENTRIES_COUNT_OFFSET =
       EMBEDDED_ENTRIES_COUNT_OFFSET + ByteSerializer.BYTE_SIZE;
   private static final int M_ID_OFFSET = ENTRIES_COUNT_OFFSET + IntegerSerializer.INT_SIZE;
-  private static final int CLUSTER_ID_OFFSET = M_ID_OFFSET + LongSerializer.LONG_SIZE;
-  private static final int CLUSTER_POSITION_OFFSET =
-      CLUSTER_ID_OFFSET + ShortSerializer.SHORT_SIZE;
-  private static final int KEY_OFFSET = CLUSTER_POSITION_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int COLLECTION_ID_OFFSET = M_ID_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int COLLECTION_POSITION_OFFSET =
+      COLLECTION_ID_OFFSET + ShortSerializer.SHORT_SIZE;
+  private static final int KEY_OFFSET = COLLECTION_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 
   private static final int EMBEDDED_ITEMS_THRESHOLD = 64;
   private static final int RID_SIZE = ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE;
@@ -84,7 +85,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
           "Type of bucket can be changed only bucket if bucket is empty");
     }
 
-    final boolean isLeaf = isLeaf();
+    final var isLeaf = isLeaf();
     if (isLeaf) {
       setByteValue(IS_LEAF_OFFSET, (byte) 0);
     } else {
@@ -96,14 +97,15 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     return size() == 0;
   }
 
-  int find(final K key, final BinarySerializer<K> keySerializer) {
-    int low = 0;
-    int high = size() - 1;
+  int find(final K key, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
+    var low = 0;
+    var high = size() - 1;
 
     while (low <= high) {
-      final int mid = (low + high) >>> 1;
-      final K midVal = getKey(mid, keySerializer);
-      final int cmp = comparator.compare(midVal, key);
+      final var mid = (low + high) >>> 1;
+      final var midVal = getKey(mid, keySerializer, serializerFactory);
+      final var cmp = comparator.compare(midVal, key);
 
       if (cmp < 0) {
         low = mid + 1;
@@ -120,7 +122,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   private void removeMainLeafEntry(
       final int entryIndex, final int entryPosition, final int keySize) {
     int nextItem;
-    int size = getIntValue(SIZE_OFFSET);
+    var size = getIntValue(SIZE_OFFSET);
 
     if (entryIndex < size - 1) {
       moveData(
@@ -132,15 +134,15 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     size--;
     setIntValue(SIZE_OFFSET, size);
 
-    final int freePointer = getIntValue(FREE_POINTER_OFFSET);
-    final int entrySize =
+    final var freePointer = getIntValue(FREE_POINTER_OFFSET);
+    final var entrySize =
         LongSerializer.LONG_SIZE
             + 2 * IntegerSerializer.INT_SIZE
             + ByteSerializer.BYTE_SIZE
             + RID_SIZE
             + keySize;
 
-    boolean moved = false;
+    var moved = false;
     if (size > 0 && entryPosition > freePointer) {
       moveData(freePointer, freePointer + entrySize, entryPosition - freePointer);
       moved = true;
@@ -149,10 +151,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setIntValue(FREE_POINTER_OFFSET, freePointer + entrySize);
 
     if (moved) {
-      int currentPositionOffset = POSITIONS_ARRAY_OFFSET;
+      var currentPositionOffset = POSITIONS_ARRAY_OFFSET;
 
-      for (int i = 0; i < size; i++) {
-        final int currentEntryPosition = getIntValue(currentPositionOffset);
+      for (var i = 0; i < size; i++) {
+        final var currentEntryPosition = getIntValue(currentPositionOffset);
         final int updatedEntryPosition;
 
         if (currentEntryPosition < entryPosition) {
@@ -178,36 +180,36 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   public int removeLeafEntry(final int entryIndex, final RID value) {
     assert isLeaf();
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
 
-    int position = entryPosition;
-    int nextItem = getIntValue(position);
+    var position = entryPosition;
+    var nextItem = getIntValue(position);
     position += IntegerSerializer.INT_SIZE;
 
-    final int embeddedEntriesCountPosition = position;
+    final var embeddedEntriesCountPosition = position;
     final int embeddedEntriesCount = getByteValue(position);
     position += ByteSerializer.BYTE_SIZE;
 
-    final int entriesCountPosition = position;
-    final int entriesCount = getIntValue(entriesCountPosition);
+    final var entriesCountPosition = position;
+    final var entriesCount = getIntValue(entriesCountPosition);
     position += IntegerSerializer.INT_SIZE;
     position += LongSerializer.LONG_SIZE; // mId
 
     // only single element in list
     if (nextItem == -1) {
-      final int clusterIdPosition = position;
-      final int clusterId = getShortValue(clusterIdPosition);
+      final var collectionIdPosition = position;
+      final int collectionId = getShortValue(collectionIdPosition);
       position += ShortSerializer.SHORT_SIZE;
 
-      final long clusterPosition = getLongValue(position);
+      final var collectionPosition = getLongValue(position);
 
-      if (clusterId != value.getClusterId()) {
+      if (collectionId != value.getCollectionId()) {
         return -1;
       }
 
-      if (clusterPosition == value.getClusterPosition()) {
-        setShortValue(clusterIdPosition, (short) -1);
+      if (collectionPosition == value.getCollectionPosition()) {
+        setShortValue(collectionIdPosition, (short) -1);
 
         assert embeddedEntriesCount == 1;
 
@@ -217,20 +219,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         return entriesCount - 1;
       }
     } else {
-      int clusterId = getShortValue(position);
+      int collectionId = getShortValue(position);
       position += ShortSerializer.SHORT_SIZE;
 
-      long clusterPosition = getLongValue(position);
-      if (clusterId == value.getClusterId() && clusterPosition == value.getClusterPosition()) {
-        final int nextNextItem = getIntValue(nextItem);
-        final int nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
+      var collectionPosition = getLongValue(position);
+      if (collectionId == value.getCollectionId() && collectionPosition == value.getCollectionPosition()) {
+        final var nextNextItem = getIntValue(nextItem);
+        final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
-        final byte[] nextValue =
+        final var nextValue =
             getBinaryValue(
                 nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, RID_SIZE);
 
         assert nextItemSize > 0;
-        final int freePointer = getIntValue(FREE_POINTER_OFFSET);
+        final var freePointer = getIntValue(FREE_POINTER_OFFSET);
         if (nextItemSize == 1) {
           setIntValue(entryPosition, nextNextItem);
           setIntValue(
@@ -259,16 +261,16 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                 nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE - freePointer);
           }
 
-          final int diff =
+          final var diff =
               nextItemSize > 1
                   ? RID_SIZE
                   : IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE + RID_SIZE;
 
-          final int size = getIntValue(SIZE_OFFSET);
-          int currentPositionOffset = POSITIONS_ARRAY_OFFSET;
+          final var size = getIntValue(SIZE_OFFSET);
+          var currentPositionOffset = POSITIONS_ARRAY_OFFSET;
 
-          for (int i = 0; i < size; i++) {
-            final int currentEntryPosition = getIntValue(currentPositionOffset);
+          for (var i = 0; i < size; i++) {
+            final var currentEntryPosition = getIntValue(currentPositionOffset);
             final int updatedEntryPosition;
 
             if (currentEntryPosition < nextItem) {
@@ -278,7 +280,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
               updatedEntryPosition = currentEntryPosition;
             }
 
-            final int currentNextItem = getIntValue(updatedEntryPosition);
+            final var currentNextItem = getIntValue(updatedEntryPosition);
             if (currentNextItem > 0 && currentNextItem < nextItem + diff) {
               // update reference to the first item of linked list
               setIntValue(updatedEntryPosition, currentNextItem + diff);
@@ -295,27 +297,27 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
         return entriesCount - 1;
       } else {
-        int prevItem = entryPosition;
+        var prevItem = entryPosition;
 
         while (nextItem > 0) {
-          final int nextNextItem = getIntValue(nextItem);
-          final int nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
+          final var nextNextItem = getIntValue(nextItem);
+          final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
           if (nextItemSize == 1) {
-            clusterId =
+            collectionId =
                 getShortValue(nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
-            clusterPosition =
+            collectionPosition =
                 getLongValue(
                     nextItem
                         + IntegerSerializer.INT_SIZE
                         + ByteSerializer.BYTE_SIZE
                         + ShortSerializer.SHORT_SIZE);
 
-            if (clusterId == value.getClusterId()
-                && clusterPosition == value.getClusterPosition()) {
+            if (collectionId == value.getCollectionId()
+                && collectionPosition == value.getCollectionPosition()) {
               setIntValue(prevItem, nextNextItem);
 
-              final int freePointer = getIntValue(FREE_POINTER_OFFSET);
+              final var freePointer = getIntValue(FREE_POINTER_OFFSET);
               setIntValue(FREE_POINTER_OFFSET, freePointer + SINGLE_ELEMENT_LINKED_ITEM_SIZE);
 
               if (nextItem > freePointer) {
@@ -324,11 +326,11 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                     freePointer + SINGLE_ELEMENT_LINKED_ITEM_SIZE,
                     nextItem - freePointer);
 
-                final int size = getIntValue(SIZE_OFFSET);
-                int currentPositionOffset = POSITIONS_ARRAY_OFFSET;
+                final var size = getIntValue(SIZE_OFFSET);
+                var currentPositionOffset = POSITIONS_ARRAY_OFFSET;
 
-                for (int i = 0; i < size; i++) {
-                  final int currentEntryPosition = getIntValue(currentPositionOffset);
+                for (var i = 0; i < size; i++) {
+                  final var currentEntryPosition = getIntValue(currentPositionOffset);
                   final int updatedEntryPosition;
 
                   if (currentEntryPosition < nextItem) {
@@ -338,7 +340,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                     updatedEntryPosition = currentEntryPosition;
                   }
 
-                  final int currentNextItem = getIntValue(updatedEntryPosition);
+                  final var currentNextItem = getIntValue(updatedEntryPosition);
                   if (currentNextItem > 0 && currentNextItem < nextItem) {
                     // update reference to the first item of linked list
                     setIntValue(
@@ -358,14 +360,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
               return entriesCount - 1;
             }
           } else {
-            for (int i = 0; i < nextItemSize; i++) {
-              clusterId =
+            for (var i = 0; i < nextItemSize; i++) {
+              collectionId =
                   getShortValue(
                       nextItem
                           + IntegerSerializer.INT_SIZE
                           + ByteSerializer.BYTE_SIZE
                           + i * RID_SIZE);
-              clusterPosition =
+              collectionPosition =
                   getLongValue(
                       nextItem
                           + IntegerSerializer.INT_SIZE
@@ -373,9 +375,9 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                           + ByteSerializer.BYTE_SIZE
                           + i * RID_SIZE);
 
-              if (clusterId == value.getClusterId()
-                  && clusterPosition == value.getClusterPosition()) {
-                final int freePointer = getIntValue(FREE_POINTER_OFFSET);
+              if (collectionId == value.getCollectionId()
+                  && collectionPosition == value.getCollectionPosition()) {
+                final var freePointer = getIntValue(FREE_POINTER_OFFSET);
                 setIntValue(FREE_POINTER_OFFSET, freePointer + RID_SIZE);
 
                 setByteValue(nextItem + IntegerSerializer.INT_SIZE, (byte) (nextItemSize - 1));
@@ -389,11 +391,11 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                         + i * RID_SIZE
                         - freePointer);
 
-                final int size = getIntValue(SIZE_OFFSET);
-                int currentPositionOffset = POSITIONS_ARRAY_OFFSET;
+                final var size = getIntValue(SIZE_OFFSET);
+                var currentPositionOffset = POSITIONS_ARRAY_OFFSET;
 
-                for (int n = 0; n < size; n++) {
-                  final int currentEntryPosition = getIntValue(currentPositionOffset);
+                for (var n = 0; n < size; n++) {
+                  final var currentEntryPosition = getIntValue(currentPositionOffset);
                   final int updatedEntryPosition;
 
                   if (currentEntryPosition < nextItem) {
@@ -403,7 +405,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                     updatedEntryPosition = currentEntryPosition;
                   }
 
-                  final int currentNextItem = getIntValue(updatedEntryPosition);
+                  final var currentNextItem = getIntValue(updatedEntryPosition);
                   if (currentNextItem > 0 && currentNextItem < nextItem + RID_SIZE) {
                     // update reference to the first item of linked list
                     setIntValue(updatedEntryPosition, currentNextItem + RID_SIZE);
@@ -432,10 +434,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   boolean hasExternalEntries(final int entryIndex) {
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final int embeddedEntriesCount = getByteValue(entryPosition + IntegerSerializer.INT_SIZE);
-    final int entriesCount =
+    final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
 
     assert entriesCount >= embeddedEntriesCount;
@@ -443,16 +445,16 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   long getMid(final int entryIndex) {
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     return getLongValue(
         entryPosition + 2 * IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
   }
 
   public boolean decrementEntriesCount(final int entryIndex) {
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
-    final int entriesCount =
+    final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
 
     setIntValue(
@@ -462,15 +464,15 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public void removeMainLeafEntry(final int entryIndex, final int keySize) {
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     removeMainLeafEntry(entryIndex, entryPosition, keySize);
   }
 
   public void incrementEntriesCount(final int entryIndex) {
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
-    final int entriesCount =
+    final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount + 1);
@@ -478,10 +480,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   private void updateAllLinkedListReferences(
       final int firstItem, final int boundary, final int diffSize) {
-    int currentItem = firstItem + diffSize;
+    var currentItem = firstItem + diffSize;
 
     while (true) {
-      final int nextItem = getIntValue(currentItem);
+      final var nextItem = getIntValue(currentItem);
 
       if (nextItem > 0 && nextItem < boundary) {
         setIntValue(currentItem, nextItem + diffSize);
@@ -497,50 +499,52 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public LeafEntry getLeafEntry(
-      final int entryIndex, final BinarySerializer<K> keySerializer) {
+      final int entryIndex, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
     assert isLeaf();
 
-    int entryPosition =
+    var entryPosition =
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
-    int nextItem = getIntValue(entryPosition);
+    var nextItem = getIntValue(entryPosition);
     entryPosition += IntegerSerializer.INT_SIZE;
 
     final int embeddedEntriesCount = getByteValue(entryPosition);
     entryPosition += ByteSerializer.BYTE_SIZE;
 
-    final int entriesCount = getIntValue(entryPosition);
+    final var entriesCount = getIntValue(entryPosition);
     entryPosition += IntegerSerializer.INT_SIZE;
 
-    final long mId = getLongValue(entryPosition);
+    final var mId = getLongValue(entryPosition);
     entryPosition += LongSerializer.LONG_SIZE;
 
     final List<RID> values = new ArrayList<>(entriesCount);
 
-    int clusterId = getShortValue(entryPosition);
+    int collectionId = getShortValue(entryPosition);
     entryPosition += ShortSerializer.SHORT_SIZE;
 
-    if (clusterId >= 0) {
-      final long clusterPosition = getLongValue(entryPosition);
+    if (collectionId >= 0) {
+      final var collectionPosition = getLongValue(entryPosition);
       entryPosition += LongSerializer.LONG_SIZE;
 
-      values.add(new RecordId(clusterId, clusterPosition));
+      values.add(new RecordId(collectionId, collectionPosition));
     } else {
       entryPosition += LongSerializer.LONG_SIZE;
     }
 
-    final int keySize = getObjectSizeInDirectMemory(keySerializer, entryPosition);
-    final byte[] key = getBinaryValue(entryPosition, keySize);
+    final var keySize = getObjectSizeInDirectMemory(keySerializer, serializerFactory,
+        entryPosition);
+    final var key = getBinaryValue(entryPosition, keySize);
 
     while (nextItem > 0) {
-      final int nextNextItem = getIntValue(nextItem);
-      final int nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
+      final var nextNextItem = getIntValue(nextItem);
+      final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
-      for (int i = 0; i < nextItemSize; i++) {
-        clusterId =
+      for (var i = 0; i < nextItemSize; i++) {
+        collectionId =
             getShortValue(
                 nextItem + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE + i * RID_SIZE);
-        final long clusterPosition =
+        final var collectionPosition =
             getLongValue(
                 nextItem
                     + ShortSerializer.SHORT_SIZE
@@ -548,7 +552,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
                     + ByteSerializer.BYTE_SIZE
                     + i * RID_SIZE);
 
-        values.add(new RecordId(clusterId, clusterPosition));
+        values.add(new RecordId(collectionId, collectionPosition));
       }
 
       nextItem = nextNextItem;
@@ -560,21 +564,23 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public NonLeafEntry getNonLeafEntry(
-      final int entryIndex, final BinarySerializer<K> keySerializer) {
+      final int entryIndex, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
     assert !isLeaf();
 
-    int entryPosition =
+    var entryPosition =
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
-    final int leftChild = getIntValue(entryPosition);
+    final var leftChild = getIntValue(entryPosition);
     entryPosition += IntegerSerializer.INT_SIZE;
 
-    final int rightChild = getIntValue(entryPosition);
+    final var rightChild = getIntValue(entryPosition);
     entryPosition += IntegerSerializer.INT_SIZE;
 
     final byte[] key;
 
-    final int keySize = getObjectSizeInDirectMemory(keySerializer, entryPosition);
+    final var keySize = getObjectSizeInDirectMemory(keySerializer, serializerFactory,
+        entryPosition);
     key = getBinaryValue(entryPosition, keySize);
 
     return new NonLeafEntry(key, leftChild, rightChild);
@@ -583,7 +589,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   int getLeft(final int entryIndex) {
     assert !isLeaf();
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
     return getIntValue(entryPosition);
@@ -592,15 +598,16 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   int getRight(final int entryIndex) {
     assert !isLeaf();
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(entryIndex * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
     return getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
   }
 
   public K getKey(
-      final int index, final BinarySerializer<K> keySerializer) {
-    int entryPosition = getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
+      final int index, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
+    var entryPosition = getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
     if (!isLeaf()) {
       entryPosition += 2 * IntegerSerializer.INT_SIZE;
@@ -612,12 +619,13 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
               + RID_SIZE;
     }
 
-    return deserializeFromDirectMemory(keySerializer, entryPosition);
+    return deserializeFromDirectMemory(keySerializer, serializerFactory, entryPosition);
   }
 
   byte[] getRawKey(
-      final int index, final BinarySerializer<K> keySerializer) {
-    int entryPosition = getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
+      final int index, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
+    var entryPosition = getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
 
     if (!isLeaf()) {
       entryPosition += 2 * IntegerSerializer.INT_SIZE;
@@ -629,7 +637,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
               + RID_SIZE;
     }
 
-    final int keySize = getObjectSizeInDirectMemory(keySerializer, entryPosition);
+    final var keySize = getObjectSizeInDirectMemory(keySerializer, serializerFactory,
+        entryPosition);
     return getBinaryValue(entryPosition, keySize);
   }
 
@@ -639,19 +648,19 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public void addAll(
       final List<? extends Entry> entries) {
-    final int currentSize = size();
+    final var currentSize = size();
 
-    final boolean isLeaf = isLeaf();
+    final var isLeaf = isLeaf();
     if (!isLeaf) {
-      for (int i = 0; i < entries.size(); i++) {
-        final NonLeafEntry entry = (NonLeafEntry) entries.get(i);
+      for (var i = 0; i < entries.size(); i++) {
+        final var entry = (NonLeafEntry) entries.get(i);
         doAddNonLeafEntry(i + currentSize, entry.key, entry.leftChild, entry.rightChild, false);
       }
     } else {
-      for (int i = 0; i < entries.size(); i++) {
-        final LeafEntry entry = (LeafEntry) entries.get(i);
-        final byte[] key = entry.key;
-        final List<RID> values = entry.values;
+      for (var i = 0; i < entries.size(); i++) {
+        final var entry = (LeafEntry) entries.get(i);
+        final var key = entry.key;
+        final var values = entry.values;
 
         if (!values.isEmpty()) {
           doCreateMainLeafEntry(i + currentSize, key, values.get(0), entry.mId);
@@ -670,28 +679,29 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public void shrink(
-      final int newSize, final BinarySerializer<K> keySerializer) {
-    final boolean isLeaf = isLeaf();
-    final int currentSize = size();
+      final int newSize, final BinarySerializer<K> keySerializer,
+      BinarySerializerFactory serializerFactory) {
+    final var isLeaf = isLeaf();
+    final var currentSize = size();
     if (isLeaf) {
       final List<LeafEntry> entriesToAdd = new ArrayList<>(newSize);
 
-      for (int i = 0; i < newSize; i++) {
-        entriesToAdd.add(getLeafEntry(i, keySerializer));
+      for (var i = 0; i < newSize; i++) {
+        entriesToAdd.add(getLeafEntry(i, keySerializer, serializerFactory));
       }
 
       final List<LeafEntry> entriesToRemove = new ArrayList<>(currentSize - newSize);
-      for (int i = newSize; i < currentSize; i++) {
-        entriesToRemove.add(getLeafEntry(i, keySerializer));
+      for (var i = newSize; i < currentSize; i++) {
+        entriesToRemove.add(getLeafEntry(i, keySerializer, serializerFactory));
       }
 
       setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
       setIntValue(SIZE_OFFSET, 0);
 
-      int index = 0;
-      for (final LeafEntry entry : entriesToAdd) {
-        final byte[] key = entry.key;
-        final List<RID> values = entry.values;
+      var index = 0;
+      for (final var entry : entriesToAdd) {
+        final var key = entry.key;
+        final var values = entry.values;
 
         if (!values.isEmpty()) {
           doCreateMainLeafEntry(index, key, values.get(0), entry.mId);
@@ -709,20 +719,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     } else {
       final List<NonLeafEntry> entries = new ArrayList<>(newSize);
 
-      for (int i = 0; i < newSize; i++) {
-        entries.add(getNonLeafEntry(i, keySerializer));
+      for (var i = 0; i < newSize; i++) {
+        entries.add(getNonLeafEntry(i, keySerializer, serializerFactory));
       }
 
       final List<NonLeafEntry> entriesToRemove = new ArrayList<>(currentSize - newSize);
-      for (int i = newSize; i < currentSize; i++) {
-        entriesToRemove.add(getNonLeafEntry(i, keySerializer));
+      for (var i = newSize; i < currentSize; i++) {
+        entriesToRemove.add(getNonLeafEntry(i, keySerializer, serializerFactory));
       }
 
       setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
       setIntValue(SIZE_OFFSET, 0);
 
-      int index = 0;
-      for (final NonLeafEntry entry : entries) {
+      var index = 0;
+      for (final var entry : entries) {
         doAddNonLeafEntry(index, entry.key, entry.leftChild, entry.rightChild, false);
         index++;
       }
@@ -737,7 +747,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   private boolean doCreateMainLeafEntry(int index, byte[] serializedKey, RID value, long mId) {
     assert isLeaf();
 
-    final int entrySize =
+    final var entrySize =
         IntegerSerializer.INT_SIZE
             + ByteSerializer.BYTE_SIZE
             + IntegerSerializer.INT_SIZE
@@ -747,9 +757,9 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
             .length; // next item pointer + embedded entries count- entries count + mid + rid +
     // key
 
-    final int size = getIntValue(SIZE_OFFSET);
+    final var size = getIntValue(SIZE_OFFSET);
 
-    int freePointer = getIntValue(FREE_POINTER_OFFSET);
+    var freePointer = getIntValue(FREE_POINTER_OFFSET);
     if (freePointer - entrySize
         < (size + 1) * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET) {
       return true;
@@ -781,8 +791,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     freePointer += setLongValue(freePointer, mId); // mId
 
     if (value != null) {
-      freePointer += setShortValue(freePointer, (short) value.getClusterId()); // rid
-      freePointer += setLongValue(freePointer, value.getClusterPosition());
+      freePointer += setShortValue(freePointer, (short) value.getCollectionId()); // rid
+      freePointer += setLongValue(freePointer, value.getCollectionPosition());
     } else {
       freePointer += setShortValue(freePointer, (short) -1); // rid
       freePointer += setLongValue(freePointer, -1);
@@ -795,24 +805,24 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   public long appendNewLeafEntry(final int index, final RID value) {
     assert isLeaf();
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
-    final int nextItem = getIntValue(entryPosition);
+    final var nextItem = getIntValue(entryPosition);
     final int embeddedEntriesCount = getByteValue(entryPosition + IntegerSerializer.INT_SIZE);
-    final int entriesCount =
+    final var entriesCount =
         getIntValue(entryPosition + ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
-    final long mId =
+    final var mId =
         getLongValue(entryPosition + ByteSerializer.BYTE_SIZE + 2 * IntegerSerializer.INT_SIZE);
 
     if (embeddedEntriesCount < EMBEDDED_ITEMS_THRESHOLD) {
       if (embeddedEntriesCount > 0) {
-        final int itemSize =
+        final var itemSize =
             IntegerSerializer.INT_SIZE
                 + RID_SIZE
                 + ByteSerializer.BYTE_SIZE; // next item pointer + RID + size
-        int freePointer = getIntValue(FREE_POINTER_OFFSET);
+        var freePointer = getIntValue(FREE_POINTER_OFFSET);
 
-        final int size = getIntValue(SIZE_OFFSET);
+        final var size = getIntValue(SIZE_OFFSET);
 
         if (freePointer - itemSize < size * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET) {
           return -2;
@@ -823,14 +833,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
         freePointer += setIntValue(freePointer, nextItem); // next item pointer
         freePointer += setByteValue(freePointer, (byte) 1); // size
-        freePointer += setShortValue(freePointer, (short) value.getClusterId()); // rid
-        freePointer += setLongValue(freePointer, value.getClusterPosition());
+        freePointer += setShortValue(freePointer, (short) value.getCollectionId()); // rid
+        freePointer += setLongValue(freePointer, value.getCollectionPosition());
 
         freePointer -= itemSize;
         setIntValue(FREE_POINTER_OFFSET, freePointer);
       } else {
-        setShortValue(entryPosition + CLUSTER_ID_OFFSET, (short) value.getClusterId());
-        setLongValue(entryPosition + CLUSTER_POSITION_OFFSET, value.getClusterPosition());
+        setShortValue(entryPosition + COLLECTION_ID_OFFSET, (short) value.getCollectionId());
+        setLongValue(entryPosition + COLLECTION_POSITION_OFFSET, value.getCollectionPosition());
       }
 
       setByteValue(entryPosition + IntegerSerializer.INT_SIZE, (byte) (embeddedEntriesCount + 1));
@@ -848,7 +858,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       final int index, final List<RID> values, final int entriesCount) {
     assert isLeaf();
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(index * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET);
     final int embeddedEntriesCount = getByteValue(entryPosition + IntegerSerializer.INT_SIZE);
 
@@ -860,45 +870,45 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
               + (EMBEDDED_ITEMS_THRESHOLD - embeddedEntriesCount));
     }
 
-    int startIndex = 0;
+    var startIndex = 0;
     if (embeddedEntriesCount == 0) {
-      final RID rid = values.get(0);
+      final var rid = values.get(0);
 
       setShortValue(
           entryPosition + 2 * IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE,
-          (short) rid.getClusterId()); // rid
+          (short) rid.getCollectionId()); // rid
       setLongValue(
           entryPosition
               + 2 * IntegerSerializer.INT_SIZE
               + ByteSerializer.BYTE_SIZE
               + ShortSerializer.SHORT_SIZE,
-          rid.getClusterPosition());
+          rid.getCollectionPosition());
       startIndex = 1;
     }
 
     if (values.size() > startIndex) {
-      final int itemSize =
+      final var itemSize =
           IntegerSerializer.INT_SIZE
               + RID_SIZE * values.size()
               + ByteSerializer.BYTE_SIZE; // next item pointer + RIDs + size
 
-      int freePointer = getIntValue(FREE_POINTER_OFFSET);
+      var freePointer = getIntValue(FREE_POINTER_OFFSET);
 
       freePointer -= itemSize;
       setIntValue(FREE_POINTER_OFFSET, freePointer);
 
-      final int nextItem = getIntValue(entryPosition);
+      final var nextItem = getIntValue(entryPosition);
 
       setIntValue(entryPosition, freePointer); // update list header
 
       freePointer += setIntValue(freePointer, nextItem); // next item pointer
       freePointer += setByteValue(freePointer, (byte) values.size());
 
-      for (int i = startIndex; i < values.size(); i++) {
-        final RID rid = values.get(i);
+      for (var i = startIndex; i < values.size(); i++) {
+        final var rid = values.get(i);
 
-        freePointer += setShortValue(freePointer, (short) rid.getClusterId());
-        freePointer += setLongValue(freePointer, rid.getClusterPosition());
+        freePointer += setShortValue(freePointer, (short) rid.getCollectionId());
+        freePointer += setLongValue(freePointer, rid.getCollectionPosition());
       }
     }
 
@@ -914,7 +924,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       final int leftChild,
       final int rightChild,
       final boolean updateNeighbors) {
-    final int prevChild =
+    final var prevChild =
         doAddNonLeafEntry(index, serializedKey, leftChild, rightChild, updateNeighbors);
     return prevChild >= -1;
   }
@@ -923,10 +933,10 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       int index, byte[] serializedKey, int leftChild, int rightChild, boolean updateNeighbors) {
     assert !isLeaf();
 
-    final int entrySize = serializedKey.length + 2 * IntegerSerializer.INT_SIZE;
+    final var entrySize = serializedKey.length + 2 * IntegerSerializer.INT_SIZE;
 
-    int size = size();
-    int freePointer = getIntValue(FREE_POINTER_OFFSET);
+    var size = size();
+    var freePointer = getIntValue(FREE_POINTER_OFFSET);
     if (freePointer - entrySize
         < (size + 1) * IntegerSerializer.INT_SIZE + POSITIONS_ARRAY_OFFSET) {
       return -2;
@@ -952,17 +962,17 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
     size++;
 
-    int prevChild = -1;
+    var prevChild = -1;
     if (updateNeighbors && size > 1) {
       if (index < size - 1) {
-        final int nextEntryPosition =
+        final var nextEntryPosition =
             getIntValue(POSITIONS_ARRAY_OFFSET + (index + 1) * IntegerSerializer.INT_SIZE);
         prevChild = getIntValue(nextEntryPosition);
         setIntValue(nextEntryPosition, rightChild);
       }
 
       if (index > 0) {
-        final int prevEntryPosition =
+        final var prevEntryPosition =
             getIntValue(POSITIONS_ARRAY_OFFSET + (index - 1) * IntegerSerializer.INT_SIZE);
         prevChild = getIntValue(prevEntryPosition + IntegerSerializer.INT_SIZE);
         setIntValue(prevEntryPosition + IntegerSerializer.INT_SIZE, leftChild);
@@ -977,13 +987,13 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       throw new IllegalStateException("Remove is applied to non-leaf buckets only");
     }
 
-    final int entryPosition =
+    final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
-    final int entrySize = key.length + 2 * IntegerSerializer.INT_SIZE;
-    int size = getIntValue(SIZE_OFFSET);
+    final var entrySize = key.length + 2 * IntegerSerializer.INT_SIZE;
+    var size = getIntValue(SIZE_OFFSET);
 
-    final int leftChild = getIntValue(entryPosition);
-    final int rightChild = getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
+    final var leftChild = getIntValue(entryPosition);
+    final var rightChild = getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
 
     if (entryIndex < size - 1) {
       moveData(
@@ -995,17 +1005,17 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     size--;
     setIntValue(SIZE_OFFSET, size);
 
-    final int freePointer = getIntValue(FREE_POINTER_OFFSET);
+    final var freePointer = getIntValue(FREE_POINTER_OFFSET);
     if (size > 0 && entryPosition > freePointer) {
       moveData(freePointer, freePointer + entrySize, entryPosition - freePointer);
     }
 
     setIntValue(FREE_POINTER_OFFSET, freePointer + entrySize);
 
-    int currentPositionOffset = POSITIONS_ARRAY_OFFSET;
+    var currentPositionOffset = POSITIONS_ARRAY_OFFSET;
 
-    for (int i = 0; i < size; i++) {
-      final int currentEntryPosition = getIntValue(currentPositionOffset);
+    for (var i = 0; i < size; i++) {
+      final var currentEntryPosition = getIntValue(currentPositionOffset);
       if (currentEntryPosition < entryPosition) {
         setIntValue(currentPositionOffset, currentEntryPosition + entrySize);
       }
@@ -1014,13 +1024,13 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
     if (prevChild >= 0) {
       if (entryIndex > 0) {
-        final int prevEntryPosition =
+        final var prevEntryPosition =
             getIntValue(POSITIONS_ARRAY_OFFSET + (entryIndex - 1) * IntegerSerializer.INT_SIZE);
         setIntValue(prevEntryPosition + IntegerSerializer.INT_SIZE, prevChild);
       }
 
       if (entryIndex < size) {
-        final int nextEntryPosition =
+        final var nextEntryPosition =
             getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
         setIntValue(nextEntryPosition, prevChild);
       }

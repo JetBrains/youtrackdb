@@ -15,17 +15,18 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.Base64;
+import javax.annotation.Nullable;
 
 /**
  * Encode a string in various format (only base64 for now)
@@ -42,22 +43,24 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
-      CommandContext iContext) {
+      CommandContext context) {
 
-    final Object candidate = iParams[0];
-    final String format = iParams[1].toString();
+    final var candidate = iParams[0];
+    final var format = iParams[1].toString();
 
     byte[] data = null;
     if (candidate instanceof byte[]) {
       data = (byte[]) candidate;
     } else if (candidate instanceof RecordId) {
       try {
-        final RecordAbstract rec = ((RecordId) candidate).getRecord();
+        var transaction = context.getDatabaseSession().getActiveTransaction();
+        final RecordAbstract rec = transaction.load(((RecordId) candidate));
         if (rec instanceof Blob) {
           data = rec.toStream();
         }
@@ -75,7 +78,7 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     if (FORMAT_BASE64.equalsIgnoreCase(format)) {
       return Base64.getEncoder().encodeToString(data);
     } else {
-      throw new DatabaseException("unknowned format :" + format);
+      throw new DatabaseException(context.getDatabaseSession(), "unknowned format :" + format);
     }
   }
 

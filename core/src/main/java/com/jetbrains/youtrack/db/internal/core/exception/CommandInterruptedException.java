@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 
 /**
@@ -32,7 +33,11 @@ public class CommandInterruptedException extends NeedRetryException {
     super(exception);
   }
 
-  public CommandInterruptedException(String message) {
-    super(message);
+  public CommandInterruptedException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public CommandInterruptedException(DatabaseSession session, String message) {
+    super(session != null ? session.getDatabaseName() : null, message);
   }
 }

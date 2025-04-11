@@ -12,7 +12,7 @@ public class SecurityManagerTest {
   @Test
   public void shouldCheckPlainPasswordAgainstHash() throws Exception {
 
-    String hash = SecurityManager.createHash("password", SecurityManager.HASH_ALGORITHM, true);
+    var hash = SecurityManager.createHash("password", SecurityManager.HASH_ALGORITHM, true);
 
     assertThat(SecurityManager.checkPassword("password", hash)).isTrue();
 
@@ -24,7 +24,7 @@ public class SecurityManagerTest {
   @Test
   public void shouldCheckHashedPasswordAgainstHash() throws Exception {
 
-    String hash = SecurityManager.createHash("password", SecurityManager.HASH_ALGORITHM, true);
+    var hash = SecurityManager.createHash("password", SecurityManager.HASH_ALGORITHM, true);
     assertThat(SecurityManager.checkPassword(hash, hash)).isFalse();
 
     hash = SecurityManager.createHash("password", SecurityManager.PBKDF2_ALGORITHM, true);
@@ -35,7 +35,7 @@ public class SecurityManagerTest {
   @Test
   public void shouldCheckPlainPasswordAgainstHashWithSalt() throws Exception {
 
-    String hash = SecurityManager.createHashWithSalt("password");
+    var hash = SecurityManager.createHashWithSalt("password");
 
     assertThat(SecurityManager.checkPasswordWithSalt("password", hash)).isTrue();
   }
@@ -43,7 +43,7 @@ public class SecurityManagerTest {
   @Test
   public void shouldCheckHashedWithSalPasswordAgainstHashWithSalt() throws Exception {
 
-    String hash = SecurityManager.createHashWithSalt("password");
+    var hash = SecurityManager.createHashWithSalt("password");
     assertThat(SecurityManager.checkPasswordWithSalt(hash, hash)).isFalse();
   }
 }

@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -13,14 +11,14 @@ public class CreateSecurityPolicyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testPlain() {
-    db.begin();
-    ResultSet result = db.command("CREATE SECURITY POLICY foo");
+    session.begin();
+    var result = session.execute("CREATE SECURITY POLICY foo");
     result.close();
-    db.commit();
+    session.commit();
 
-    db.begin();
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNotNull(security.getSecurityPolicy(db, "foo"));
-    db.commit();
+    session.begin();
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNotNull(security.getSecurityPolicy(session, "foo"));
+    session.commit();
   }
 }

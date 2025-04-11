@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverter;
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverterFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -43,21 +44,25 @@ public class FloatSerializer implements BinarySerializer<Float> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final FloatSerializer INSTANCE = new FloatSerializer();
 
-  public int getObjectSize(Float object, Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, Float object,
+      Object... hints) {
     return FLOAT_SIZE;
   }
 
-  public void serialize(Float object, byte[] stream, int startPosition, Object... hints) {
-    IntegerSerializer.INSTANCE.serializeLiteral(
+  public void serialize(Float object, BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition, Object... hints) {
+    IntegerSerializer.serializeLiteral(
         Float.floatToIntBits(object), stream, startPosition);
   }
 
-  public Float deserialize(final byte[] stream, final int startPosition) {
+  public Float deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return Float.intBitsToFloat(
-        IntegerSerializer.INSTANCE.deserializeLiteral(stream, startPosition));
+        IntegerSerializer.deserializeLiteral(stream, startPosition));
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return FLOAT_SIZE;
   }
 
@@ -65,20 +70,23 @@ public class FloatSerializer implements BinarySerializer<Float> {
     return ID;
   }
 
-  public int getObjectSizeNative(byte[] stream, int startPosition) {
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     return FLOAT_SIZE;
   }
 
   @Override
   public void serializeNativeObject(
-      Float object, byte[] stream, int startPosition, Object... hints) {
+      Float object, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
+      Object... hints) {
     checkBoundaries(stream, startPosition);
 
     CONVERTER.putInt(stream, startPosition, Float.floatToIntBits(object), ByteOrder.nativeOrder());
   }
 
   @Override
-  public Float deserializeNativeObject(byte[] stream, int startPosition) {
+  public Float deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return Float.intBitsToFloat(CONVERTER.getInt(stream, startPosition, ByteOrder.nativeOrder()));
@@ -105,7 +113,8 @@ public class FloatSerializer implements BinarySerializer<Float> {
   }
 
   @Override
-  public Float preprocess(final Float value, final Object... hints) {
+  public Float preprocess(BinarySerializerFactory serializerFactory, final Float value,
+      final Object... hints) {
     return value;
   }
 
@@ -113,7 +122,8 @@ public class FloatSerializer implements BinarySerializer<Float> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Float object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, Float object,
+      ByteBuffer buffer, Object... hints) {
     buffer.putInt(Float.floatToIntBits(object));
   }
 
@@ -121,12 +131,14 @@ public class FloatSerializer implements BinarySerializer<Float> {
    * {@inheritDoc}
    */
   @Override
-  public Float deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Float deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return Float.intBitsToFloat(buffer.getInt());
   }
 
   @Override
-  public Float deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Float deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
     return Float.intBitsToFloat(buffer.getInt(offset));
   }
 
@@ -134,7 +146,8 @@ public class FloatSerializer implements BinarySerializer<Float> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return FLOAT_SIZE;
   }
 
@@ -143,7 +156,8 @@ public class FloatSerializer implements BinarySerializer<Float> {
    */
   @Override
   public Float deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return Float.intBitsToFloat(walChanges.getIntValue(buffer, offset));
   }
 
@@ -156,7 +170,8 @@ public class FloatSerializer implements BinarySerializer<Float> {
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return FLOAT_SIZE;
   }
 

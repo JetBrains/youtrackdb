@@ -22,13 +22,10 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -40,36 +37,32 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
   @Before
   public void beforeTest() throws Exception {
     super.beforeTest();
-    db.getMetadata()
+    session.getMetadata()
         .getSchema()
         .createClass("user")
-        .createProperty(db, "name", PropertyType.STRING)
-        .setCollate(db, "ci")
-        .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty("name", PropertyType.STRING)
+        .setCollate("ci")
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    db.begin();
-    Entity user = db.newEntity("user");
+    session.begin();
+    var user = session.newEntity("user");
     user.setProperty("name", "abc");
-    db.save(user);
-    user = db.newEntity("user");
+    user = session.newEntity("user");
     user.setProperty("name", "aby");
-    db.save(user);
-    user = db.newEntity("user");
+    user = session.newEntity("user");
     user.setProperty("name", "aby");
-    db.save(user);
-    user = db.newEntity("user");
+    user = session.newEntity("user");
     user.setProperty("name", "abz");
-    db.save(user);
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testSubstrings() {
-    db.begin();
+    session.begin();
 
-    db.command("update user set name='abd' where name='Aby'").close();
+    session.execute("update user set name='abd' where name='Aby'").close();
 
-    final ResultSet r = db.command("select * from user where name like '%B%' order by name");
+    final var r = session.execute("select * from user where name like '%B%' order by name");
     assertEquals("abc", r.next().getProperty("name"));
     assertEquals("abd", r.next().getProperty("name"));
     assertEquals("abd", r.next().getProperty("name"));
@@ -77,41 +70,42 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
     assertFalse(r.hasNext());
     r.close();
 
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testRange() {
-    db.begin();
+    session.begin();
 
-    db.command("update user set name='Abd' where name='Aby'").close();
+    session.execute("update user set name='Abd' where name='Aby'").close();
 
-    final ResultSet r = db.command("select * from user where name >= 'abd' order by name");
+    final var r = session.query("select * from user where name >= 'abd' order by name");
     assertEquals("Abd", r.next().getProperty("name"));
     assertEquals("Abd", r.next().getProperty("name"));
     assertEquals("abz", r.next().getProperty("name"));
     assertFalse(r.hasNext());
     r.close();
 
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testIn() {
-    db.begin();
+    session.begin();
 
-    db.command("update user set name='abd' where name='Aby'").close();
+    session.execute("update user set name='abd' where name='Aby'").close();
 
-    final List<EntityImpl> r =
-        db.query("select * from user where name in ['Abc', 'Abd', 'Abz'] order by name").stream()
-            .map(x -> ((EntityImpl) (x.toEntity())))
+    final var r =
+        session.query("select * from user where name in ['Abc', 'Abd', 'Abz'] order by name")
+            .stream()
+            .map(x -> ((EntityImpl) (x.asEntityOrNull())))
             .toList();
     assertEquals(4, r.size());
-    assertEquals("abc", r.get(0).field("name"));
-    assertEquals("abd", r.get(1).field("name"));
-    assertEquals("abd", r.get(2).field("name"));
-    assertEquals("abz", r.get(3).field("name"));
+    assertEquals("abc", r.get(0).getProperty("name"));
+    assertEquals("abd", r.get(1).getProperty("name"));
+    assertEquals("abd", r.get(2).getProperty("name"));
+    assertEquals("abz", r.get(3).getProperty("name"));
 
-    db.commit();
+    session.commit();
   }
 }

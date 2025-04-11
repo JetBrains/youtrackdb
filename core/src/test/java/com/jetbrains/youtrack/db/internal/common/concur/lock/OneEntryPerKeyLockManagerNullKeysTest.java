@@ -46,13 +46,13 @@ public class OneEntryPerKeyLockManagerNullKeysTest {
     keys.add("key");
     keys.add(null);
 
-    final Lock[] locks = manager.acquireExclusiveLocksInBatch(keys);
+    final var locks = manager.acquireExclusiveLocksInBatch(keys);
     assertEquals(keys.size(), locks.length);
     assertEquals(2, wrapper(locks[0]).getLockCount());
     assertEquals(2, wrapper(locks[1]).getLockCount());
     assertEquals(1, wrapper(locks[2]).getLockCount());
 
-    for (Lock lock : locks) {
+    for (var lock : locks) {
       lock.unlock();
     }
     assertEquals(0, wrapper(locks[0]).getLockCount());
@@ -62,15 +62,15 @@ public class OneEntryPerKeyLockManagerNullKeysTest {
 
   @Test
   public void testNullKeysInArrayBatch() {
-    final String[] keys = new String[]{null, "key", null};
+    final var keys = new String[]{null, "key", null};
 
-    final Lock[] locks = manager.acquireExclusiveLocksInBatch(keys);
+    final var locks = manager.acquireExclusiveLocksInBatch(keys);
     assertEquals(keys.length, locks.length);
     assertEquals(2, wrapper(locks[0]).getLockCount());
     assertEquals(2, wrapper(locks[1]).getLockCount());
     assertEquals(1, wrapper(locks[2]).getLockCount());
 
-    for (Lock lock : locks) {
+    for (var lock : locks) {
       lock.unlock();
     }
     assertEquals(0, wrapper(locks[0]).getLockCount());
@@ -81,7 +81,7 @@ public class OneEntryPerKeyLockManagerNullKeysTest {
   @Test
   public void testNullKeyExclusive() {
     manager.acquireExclusiveLock(null);
-    final Lock lock = manager.acquireExclusiveLock(null);
+    final var lock = manager.acquireExclusiveLock(null);
     assertEquals(2, wrapper(lock).getLockCount());
     lock.unlock();
     assertEquals(1, wrapper(lock).getLockCount());
@@ -92,7 +92,7 @@ public class OneEntryPerKeyLockManagerNullKeysTest {
   @Test
   public void testNullKeyShared() {
     manager.acquireSharedLock(null);
-    final Lock lock = manager.acquireSharedLock(null);
+    final var lock = manager.acquireSharedLock(null);
     assertEquals(2, wrapper(lock).getLockCount());
     lock.unlock();
     assertEquals(1, wrapper(lock).getLockCount());

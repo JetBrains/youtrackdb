@@ -1,12 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 
-/**
- *
- */
 public final class RidBagConverter extends AbstractCollectionConverter<RidBag> {
 
   public RidBagConverter(ConverterData converterData) {
@@ -14,19 +11,14 @@ public final class RidBagConverter extends AbstractCollectionConverter<RidBag> {
   }
 
   @Override
-  public RidBag convert(DatabaseSessionInternal db, RidBag value) {
-    final RidBag result = new RidBag(db);
-    boolean updated = false;
+  public RidBag convert(DatabaseSessionInternal session, RidBag value) {
+    final var result = new RidBag(session);
+    var updated = false;
     final ResultCallback callback =
-        new ResultCallback() {
-          @Override
-          public void add(Object item) {
-            result.add((Identifiable) item);
-          }
-        };
+        item -> result.add(((Identifiable) item).getIdentity());
 
     for (Identifiable identifiable : value) {
-      updated = convertSingleValue(db, identifiable, callback, updated);
+      updated = convertSingleValue(session, identifiable, callback, updated);
     }
 
     if (updated) {

@@ -28,8 +28,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
  */
 public abstract class NeedRetryException extends CoreException {
 
-  private static final long serialVersionUID = 1L;
-
   protected NeedRetryException(final NeedRetryException exception) {
     super(exception, null);
   }
@@ -38,11 +36,12 @@ public abstract class NeedRetryException extends CoreException {
     super(exception, errorCode);
   }
 
-  protected NeedRetryException(final String message, ErrorCode errorCode) {
-    super(message, null, errorCode);
+  protected NeedRetryException(String dbName, final String message,
+      ErrorCode errorCode) {
+    super(dbName, message, null, errorCode);
   }
 
-  protected NeedRetryException(final String message) {
-    super(message);
+  protected NeedRetryException(String dbName, final String message) {
+    super(dbName, message);
   }
 }

@@ -7,10 +7,9 @@ import com.jetbrains.youtrack.db.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.EmptyStep;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ScriptExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ScriptExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
 
@@ -35,14 +34,15 @@ public class WhileStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var db = ctx.getDatabase();
-    while (condition.evaluate(new ResultInternal(db), ctx)) {
+    var session = ctx.getDatabaseSession();
+    while (condition.evaluate(new ResultInternal(session), ctx)) {
       if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
-        throw new CommandInterruptedException("The command has been interrupted");
+        throw new CommandInterruptedException(session.getDatabaseName(),
+            "The command has been interrupted");
       }
 
-      ScriptExecutionPlan plan = initPlan(ctx);
-      ExecutionStepInternal result = plan.executeFull();
+      var plan = initPlan(ctx);
+      var result = plan.executeFull();
       if (result != null) {
         return result.start(ctx);
       }
@@ -51,10 +51,10 @@ public class WhileStep extends AbstractExecutionStep {
   }
 
   public ScriptExecutionPlan initPlan(CommandContext ctx) {
-    BasicCommandContext subCtx1 = new BasicCommandContext();
+    var subCtx1 = new BasicCommandContext();
     subCtx1.setParent(ctx);
-    ScriptExecutionPlan plan = new ScriptExecutionPlan(subCtx1);
-    for (SQLStatement stm : statements) {
+    var plan = new ScriptExecutionPlan(subCtx1);
+    for (var stm : statements) {
       if (stm.originalStatement == null) {
         stm.originalStatement = stm.toString();
       }
@@ -71,7 +71,7 @@ public class WhileStep extends AbstractExecutionStep {
   }
 
   public boolean containsReturn() {
-    for (SQLStatement stm : this.statements) {
+    for (var stm : this.statements) {
       if (stm instanceof SQLReturnStatement) {
         return true;
       }

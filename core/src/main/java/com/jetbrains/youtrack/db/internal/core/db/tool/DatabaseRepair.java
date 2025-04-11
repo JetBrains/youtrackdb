@@ -20,9 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
@@ -36,6 +35,10 @@ import java.util.List;
 public class DatabaseRepair extends DatabaseTool {
 
   private boolean removeBrokenLinks = true;
+
+  public DatabaseRepair(DatabaseSessionInternal session) {
+    setDatabaseSession(session);
+  }
 
   @Override
   protected void parseSetting(final String option, final List<String> items) {
@@ -60,23 +63,25 @@ public class DatabaseRepair extends DatabaseTool {
   }
 
   protected long removeBrokenLinks() {
-    long fixedLinks = 0L;
-    long modifiedEntities = 0L;
-    long errors = 0L;
+    var fixedLinks = 0L;
+    var modifiedEntities = 0L;
+    var errors = 0L;
 
     message("\n- Removing broken links...");
-    for (String clusterName : database.getClusterNames()) {
-      for (DBRecord rec : database.browseCluster(clusterName)) {
+    for (var collectionName : session.getCollectionNames()) {
+      var recIterator = session.browseCollection(collectionName);
+      while (recIterator.hasNext()) {
+        final var rec = recIterator.next();
         try {
           if (rec instanceof EntityImpl entity) {
-            boolean changed = false;
+            var changed = false;
 
-            for (String fieldName : entity.fieldNames()) {
-              final Object fieldValue = entity.rawField(fieldName);
+            for (var fieldName : entity.propertyNames()) {
+              final var fieldValue = entity.getProperty(fieldName);
 
               if (fieldValue instanceof Identifiable) {
                 if (fixLink(fieldValue)) {
-                  entity.field(fieldName, (Identifiable) null);
+                  entity.setProperty(fieldName, null);
                   fixedLinks++;
                   changed = true;
                   if (verbose) {
@@ -92,8 +97,8 @@ public class DatabaseRepair extends DatabaseTool {
                 }
               } else if (fieldValue instanceof Iterable<?>) {
                 final Iterator<Object> it = ((Iterable) fieldValue).iterator();
-                for (int i = 0; it.hasNext(); ++i) {
-                  final Object v = it.next();
+                for (var i = 0; it.hasNext(); ++i) {
+                  final var v = it.next();
                   if (fixLink(v)) {
                     it.remove();
                     fixedLinks++;
@@ -117,7 +122,6 @@ public class DatabaseRepair extends DatabaseTool {
 
             if (changed) {
               modifiedEntities++;
-              entity.save();
 
               if (verbose) {
                 message("\n-- updated entity " + entity.getIdentity());
@@ -142,16 +146,17 @@ public class DatabaseRepair extends DatabaseTool {
    */
   protected boolean fixLink(final Object fieldValue) {
     if (fieldValue instanceof Identifiable) {
-      final RID id = ((Identifiable) fieldValue).getIdentity();
+      final var id = ((Identifiable) fieldValue).getIdentity();
 
-      if (id.getClusterId() == 0 && id.getClusterPosition() == 0) {
+      if (id.getCollectionId() == 0 && id.getCollectionPosition() == 0) {
         return true;
       }
 
-      if (((RecordId) id).isValid()) {
+      if (((RecordId) id).isValidPosition()) {
         if (id.isPersistent()) {
           try {
-            ((Identifiable) fieldValue).getRecord();
+            var transaction = session.getActiveTransaction();
+            transaction.load(((Identifiable) fieldValue));
           } catch (RecordNotFoundException rnf) {
             return true;
           }

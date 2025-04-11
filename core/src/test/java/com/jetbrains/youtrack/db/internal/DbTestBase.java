@@ -2,9 +2,9 @@ package com.jetbrains.youtrack.db.internal;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
@@ -18,10 +18,11 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class DbTestBase {
+
   private static final AtomicLong counter = new AtomicLong();
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
-  protected DatabaseSessionInternal db;
+  protected DatabaseSessionInternal session;
   protected SessionPool pool;
   protected YouTrackDBImpl context;
 
@@ -39,7 +40,7 @@ public class DbTestBase {
   @Before
   public void beforeTest() throws Exception {
     context = createContext();
-    String dbName = name.getMethodName();
+    var dbName = name.getMethodName();
 
     dbName = dbName.replace('[', '_');
     dbName = dbName.replace(']', '_');
@@ -54,18 +55,24 @@ public class DbTestBase {
   }
 
   protected void createDatabase(DatabaseType dbType) {
-    if (db != null && !db.isClosed()) {
-      db.close();
+    if (session != null && !session.isClosed()) {
+      session.close();
     }
     if (pool != null && !pool.isClosed()) {
       pool.close();
     }
 
-    context.create(this.databaseName, dbType,
+    var config = createConfig();
+    context.create(this.databaseName, dbType, config,
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
-    pool = context.cachedPool(this.databaseName, adminUser, adminPassword);
+    pool = context.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
-    db = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd");
+    session = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd",
+        config);
+  }
+
+  protected YouTrackDBConfig createConfig() {
+    return YouTrackDBConfig.builder().build();
   }
 
   public static String embeddedDBUrl(Class<?> testClass) {
@@ -93,11 +100,11 @@ public class DbTestBase {
   }
 
   protected DatabaseType calculateDbType() {
-    final String testConfig =
+    final var testConfig =
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      return DatabaseType.PLOCAL;
+      return DatabaseType.DISK;
     }
 
     return DatabaseType.MEMORY;
@@ -110,10 +117,10 @@ public class DbTestBase {
       this.pool = context.cachedPool(this.databaseName, user, password);
     }
 
-    if (!db.isClosed()) {
-      db.activateOnCurrentThread();
-      db.close();
-      this.db = (DatabaseSessionInternal) context.open(this.databaseName, user, password);
+    if (!session.isClosed()) {
+      session.activateOnCurrentThread();
+      session.close();
+      this.session = (DatabaseSessionInternal) context.open(this.databaseName, user, password);
     }
   }
 
@@ -136,9 +143,9 @@ public class DbTestBase {
   }
 
   public void dropDatabase() {
-    if (!db.isClosed()) {
-      db.activateOnCurrentThread();
-      db.close();
+    if (!session.isClosed()) {
+      session.activateOnCurrentThread();
+      session.close();
     }
     if (!pool.isClosed()) {
       pool.close();
@@ -151,17 +158,17 @@ public class DbTestBase {
 
   public static void assertWithTimeout(DatabaseSession session, Runnable runnable)
       throws Exception {
-    for (int i = 0; i < 30 * 60 * 10; i++) {
+    for (var i = 0; i < 30 * 60 * 10; i++) {
+      var tx = session.begin();
       try {
-        session.begin();
         runnable.run();
-        session.commit();
+        tx.commit();
         return;
       } catch (AssertionError e) {
-        session.rollback();
+        tx.rollback();
         Thread.sleep(100);
       } catch (Exception e) {
-        session.rollback();
+        tx.rollback();
         throw e;
       }
     }

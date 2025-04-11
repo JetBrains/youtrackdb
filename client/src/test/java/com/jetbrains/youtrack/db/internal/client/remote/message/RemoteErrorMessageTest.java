@@ -17,15 +17,15 @@ public class RemoteErrorMessageTest extends DbTestBase {
 
   @Test
   public void testReadWriteErrorMessage() throws IOException {
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     Map<String, String> messages = new HashMap<>();
     messages.put("one", "two");
-    Error37Response response =
+    var response =
         new Error37Response(ErrorCode.GENERIC_ERROR, 10, messages, "some".getBytes());
     response.write(null, channel, 0, null);
     channel.close();
-    Error37Response readResponse = new Error37Response();
-    readResponse.read(db, channel, null);
+    var readResponse = new Error37Response();
+    readResponse.read(session, channel, null);
 
     assertEquals(readResponse.getCode(), ErrorCode.GENERIC_ERROR);
     assertEquals(readResponse.getErrorIdentifier(), 10);

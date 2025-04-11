@@ -55,7 +55,7 @@ public class ConcurrentDateFormat {
    * @return the formatted time string.
    */
   public String format(Date date) {
-    SimpleDateFormat dateFormat = dateFormats.poll();
+    var dateFormat = dateFormats.poll();
     if (dateFormat == null) {
       dateFormat = new SimpleDateFormat(pattern, locale);
       dateFormat.setTimeZone(timeZone);

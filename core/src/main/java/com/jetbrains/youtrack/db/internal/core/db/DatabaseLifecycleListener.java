@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import javax.annotation.Nonnull;
 
 /**
  * Listener Interface to receive callbacks on database usage.
@@ -38,29 +38,19 @@ public interface DatabaseLifecycleListener {
     return PRIORITY.LAST;
   }
 
-  void onCreate(DatabaseSessionInternal iDatabase);
+  void onCreate(@Nonnull DatabaseSessionInternal session);
 
-  void onOpen(DatabaseSessionInternal iDatabase);
+  void onOpen(@Nonnull DatabaseSessionInternal session);
 
-  void onClose(DatabaseSessionInternal iDatabase);
+  void onClose(@Nonnull DatabaseSessionInternal session);
 
-  void onDrop(DatabaseSessionInternal iDatabase);
+  void onDrop(@Nonnull DatabaseSessionInternal session);
 
   @Deprecated
-  default void onCreateClass(DatabaseSessionInternal iDatabase, SchemaClass iClass) {
+  default void onCreateClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
   }
 
   @Deprecated
-  default void onDropClass(DatabaseSessionInternal iDatabase, SchemaClass iClass) {
+  default void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
   }
-
-
-  /**
-   * Event called during the retrieving of distributed configuration, usually at startup and when
-   * the cluster shape changes. You can use this event to enrich the EntityImpl sent to the client
-   * with custom properties.
-   *
-   * @param iConfiguration
-   */
-  void onLocalNodeConfigurationRequest(EntityImpl iConfiguration);
 }

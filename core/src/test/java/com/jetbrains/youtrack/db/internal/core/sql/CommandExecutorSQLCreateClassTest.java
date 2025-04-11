@@ -18,10 +18,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import java.util.List;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,20 +30,20 @@ public class CommandExecutorSQLCreateClassTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSchema();
     schema.createClass("User", schema.getClass("V"));
   }
 
   @Test
   public void testCreateWithSuperclasses() throws Exception {
 
-    db.command("create class `UserVertex` extends `V` , `User`").close();
+    session.execute("create class `UserVertex` extends `V` , `User`").close();
 
-    SchemaClass userVertex = db.getMetadata().getSchema().getClass("UserVertex");
+    var userVertex = session.getMetadata().getSchema().getClass("UserVertex");
 
     Assert.assertNotNull(userVertex);
 
-    List<String> superClassesNames = userVertex.getSuperClassesNames();
+    var superClassesNames = userVertex.getSuperClassesNames();
 
     Assert.assertEquals(2, superClassesNames.size());
 

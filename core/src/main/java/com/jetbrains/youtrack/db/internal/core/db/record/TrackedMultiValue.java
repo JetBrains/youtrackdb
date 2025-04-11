@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
 import java.util.List;
 
@@ -33,21 +33,17 @@ import java.util.List;
  * @param <K> Value that indicates position of item inside collection.
  * @param <V> Value that is hold by collection.
  */
-public interface TrackedMultiValue<K, V> {
+public interface TrackedMultiValue<K, V> extends RecordElement {
 
   /**
    * Reverts all operations that were performed on collection and return original collection state.
    *
-   * @param session
+   * @param transaction
    * @param changeEvents List of operations that were performed on collection.
    * @return Original collection state.
    */
-  Object returnOriginalState(DatabaseSessionInternal session,
+  Object returnOriginalState(FrontendTransaction transaction,
       List<MultiValueChangeEvent<K, V>> changeEvents);
-
-  Class<?> getGenericClass();
-
-  void replace(MultiValueChangeEvent<Object, Object> event, Object newValue);
 
   void enableTracking(RecordElement parent);
 
@@ -57,39 +53,36 @@ public interface TrackedMultiValue<K, V> {
 
   boolean isTransactionModified();
 
-  MultiValueChangeTimeLine<Object, Object> getTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTimeLine();
+
+  boolean isEmbeddedContainer();
 
   static <X> void nestedEnabled(Iterator<X> iterator, RecordElement parent) {
     while (iterator.hasNext()) {
-      X x = iterator.next();
-      if (x instanceof TrackedMultiValue) {
-        ((TrackedMultiValue) x).enableTracking(parent);
+      var x = iterator.next();
+      if (x instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+        trackedMultiValue.enableTracking(parent);
       }
     }
   }
 
   static <X> void nestedDisable(Iterator<X> iterator, RecordElement parent) {
     while (iterator.hasNext()) {
-      X x = iterator.next();
-      if (x instanceof TrackedMultiValue) {
-        ((TrackedMultiValue) x).disableTracking(parent);
-      } else if (x instanceof EntityImpl) {
-        if (((EntityImpl) x).isEmbedded()) {
-          EntityInternalUtils.clearTrackData((EntityImpl) x);
-          RecordInternal.unsetDirty((EntityImpl) x);
-        }
+      var x = iterator.next();
+      if (x instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+        trackedMultiValue.disableTracking(parent);
       }
     }
   }
 
   static <X> void nestedTransactionClear(Iterator<X> iterator) {
     while (iterator.hasNext()) {
-      X x = iterator.next();
-      if (x instanceof TrackedMultiValue) {
-        ((TrackedMultiValue) x).transactionClear();
-      } else if (x instanceof EntityImpl) {
-        if (((EntityImpl) x).isEmbedded()) {
-          EntityInternalUtils.clearTransactionTrackData((EntityImpl) x);
+      var x = iterator.next();
+      if (x instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+        trackedMultiValue.transactionClear();
+      } else if (x instanceof EntityImpl EntityImpl) {
+        if (EntityImpl.isEmbedded()) {
+          ((EntityImpl) x).clearTransactionTrackData();
         }
       }
     }
@@ -97,7 +90,45 @@ public interface TrackedMultiValue<K, V> {
 
   void transactionClear();
 
-  boolean addInternal(final V e);
 
-  MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTransactionTimeLine();
+
+  default void addOwner(V e) {
+    if (isEmbeddedContainer()) {
+      if (e instanceof EntityImpl entity) {
+        var rid = entity.getIdentity();
+
+        if (!rid.isValidPosition() || rid.isNew()) {
+          ((EntityImpl) e).setOwner(this);
+        }
+      } else if (e instanceof RecordElement recordElement) {
+        if (!(recordElement instanceof Blob)) {
+          recordElement.setOwner(this);
+        }
+
+      }
+    }
+  }
+
+  default void removeOwner(V oldValue) {
+    if (oldValue instanceof RecordElement recordElement) {
+      recordElement.setOwner(null);
+    }
+  }
+
+  default boolean assertIfNotActive() {
+    var owner = getOwnerEntity();
+    assert owner == null
+        || !owner.isUnloaded() : "Data container is unloaded please acquire new one from entity";
+    DatabaseSessionInternal session = null;
+
+    if (owner != null) {
+      session = owner.getSession();
+    }
+    assert session == null
+        || session.assertIfNotActive() : "Data container is unloaded please acquire new one from entity";
+    ;
+
+    return true;
+  }
 }

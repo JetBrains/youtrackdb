@@ -18,40 +18,36 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
-public class LuceneInheritanceQueryTest extends BaseLuceneTest {
 
+public class LuceneInheritanceQueryTest extends BaseLuceneTest {
   public LuceneInheritanceQueryTest() {
   }
 
   @Test
   public void testQuery() {
-    createSchema(db);
-    EntityImpl doc = new EntityImpl("C2");
-    doc.field("name", "abc");
-    db.begin();
-    db.save(doc);
-    db.commit();
+    createSchema(session);
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("C2"));
+    doc.setProperty("name", "abc");
+    session.commit();
 
-    ResultSet vertices = db.query("select from C1 where name lucene \"abc\" ");
+    session.begin();
+    var vertices = session.query("select from C1 where name lucene \"abc\" ");
 
     Assert.assertEquals(1, vertices.stream().count());
+    session.commit();
   }
 
-  protected void createSchema(DatabaseSessionInternal db) {
-    final SchemaClass c1 = db.createVertexClass("C1");
-    c1.createProperty(db, "name", PropertyType.STRING);
-    c1.createIndex(db, "C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
+  protected static void createSchema(DatabaseSessionInternal db) {
+    final var c1 = db.createVertexClass("C1");
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
 
     db.createClass("C2", "C1");
   }

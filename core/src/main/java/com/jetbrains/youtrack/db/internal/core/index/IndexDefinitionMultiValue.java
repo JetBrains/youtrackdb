@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 
 /**
@@ -34,23 +34,23 @@ public interface IndexDefinitionMultiValue extends IndexDefinition {
   /**
    * Converts passed in value in the key of single index entry.
    *
-   * @param session Current database session.
-   * @param param   Value to convert.
+   * @param transaction Current database session.
+   * @param param       Value to convert.
    * @return Index key.
    */
-  Object createSingleValue(DatabaseSessionInternal session, final Object... param);
+  Object createSingleValue(FrontendTransaction transaction, final Object... param);
 
   /**
    * Process event that contains operation on collection and extract values that should be added
    * removed from index to reflect collection changes in the given index.
    *
-   * @param session
+   * @param transaction
    * @param changeEvent  Event that describes operation that was performed on collection.
    * @param keysToAdd    Values that should be added to related index.
    * @param keysToRemove Values that should be removed to related index.
    */
   void processChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove);

@@ -1,22 +1,22 @@
 package com.jetbrains.youtrack.db.api.query;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.NoSuchElementException;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCloseable {
 
   @Override
@@ -31,102 +31,274 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
 
   void close();
 
-  Optional<ExecutionPlan> getExecutionPlan();
+  @Nullable
+  ExecutionPlan getExecutionPlan();
 
-  Map<String, Long> getQueryStats();
-
-  default void reset() {
-    throw new UnsupportedOperationException("Implement RESET on " + getClass().getSimpleName());
-  }
-
-  default boolean tryAdvance(Consumer<? super Result> action) {
-    if (hasNext()) {
-      action.accept(next());
-      return true;
-    }
-    return false;
-  }
-
-  default void forEachRemaining(Consumer<? super Result> action) {
-    Spliterator.super.forEachRemaining(action);
-  }
-
-  default ResultSet trySplit() {
-    return null;
-  }
-
-  default long estimateSize() {
-    return Long.MAX_VALUE;
-  }
-
-  default int characteristics() {
-    return ORDERED;
-  }
+  @Nullable
+  DatabaseSession getBoundToSession();
 
   /**
    * Returns the result set as a stream. IMPORTANT: the stream consumes the result set!
-   *
-   * @return
    */
+  @Nonnull
   default Stream<Result> stream() {
     return StreamSupport.stream(this, false).onClose(this::close);
   }
 
+  @Nonnull
   default List<Result> toList() {
     return stream().toList();
   }
 
   @Nonnull
-  default Result findFirst() {
-    return stream().findFirst().orElse(null);
+  default <R> R findFirst(@Nonnull Function<Result, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Result findFirstOrThrow() {
-    return stream().findFirst().orElseThrow(() -> new IllegalStateException("No result found"));
+  default Result findFirst() {
+    try {
+      if (hasNext()) {
+        return next();
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nullable
+  default <R> R findFirstOrNull(@Nonnull Function<Result, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next());
+      } else {
+        return null;
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nullable
+  default Result findFirstOrNull() {
+    try {
+      if (hasNext()) {
+        return next();
+      } else {
+        return null;
+      }
+    } finally {
+      close();
+    }
   }
 
   default Entity findFirstEntity() {
-    return entityStream().findFirst().orElse(null);
+    try {
+      if (hasNext()) {
+        return next().asEntity();
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Entity findFirstEntityOrThrow() {
-    return entityStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No entity found"));
+  @Nonnull
+  default <R> R findFirstEntity(@Nonnull Function<Entity, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().asEntity());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nullable
+  default <R> R findFirstEntityOrNull(@Nonnull Function<Entity, R> function) {
+    try {
+      if (hasNext()) {
+        var entity = next().asEntityOrNull();
+
+        if (entity != null) {
+          return function.apply(entity);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nonnull
+  default <R> R findFirstVertex(@Nonnull Function<Vertex, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().asVertex());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
   default Vertex findFirstVertex() {
-    return vertexStream().findFirst().orElse(null);
+    try {
+      if (hasNext()) {
+        return next().asVertex();
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Vertex findFirstVertexOrThrow() {
-    return vertexStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No vertex found"));
+  @Nullable
+  default <R> R findFirstVertexOrNull(@Nonnull Function<Vertex, R> function) {
+    try {
+      if (hasNext()) {
+        var vertex = next().asVertexOrNull();
+        if (vertex != null) {
+          return function.apply(vertex);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
   }
 
   default Edge findFirstEdge() {
-    return edgeStream().findFirst().orElse(null);
+    try {
+      if (hasNext()) {
+        return next().asEdge();
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
   }
 
-  default Edge findFirstEdgeOrThrow() {
-    return edgeStream().findFirst()
-        .orElseThrow(() -> new IllegalStateException("No edge found"));
+  @Nonnull
+  default <R> R findFirstEdge(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().asEdge());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
+  }
+
+
+  @Nullable
+  default Edge findFirstEdgeOrNull() {
+    try {
+      if (hasNext()) {
+        return next().asEdgeOrNull();
+      } else {
+        return null;
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nullable
+  default <R> R findFirstEdgeOrNull(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        var edge = next().asEdgeOrNull();
+        if (edge != null) {
+          return function.apply(edge);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nonnull
+  default <R> R findFirstStateFullEdge(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        return function.apply(next().asStatefulEdge());
+      } else {
+        throw new NoSuchElementException();
+      }
+    } finally {
+      close();
+    }
+  }
+
+  @Nullable
+  default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
+    try {
+      if (hasNext()) {
+        var edge = next().asStatefulEdgeOrNull();
+        if (edge != null) {
+          return function.apply(edge);
+        }
+
+        return null;
+      } else {
+        throw null;
+      }
+    } finally {
+      close();
+    }
+  }
+
+
+  /**
+   * Detaches the result set from the underlying session and returns the results as a list.
+   */
+  @Nonnull
+  default List<Result> detach() {
+    return stream().map(Result::detach).toList();
   }
 
   /**
    * Returns the result set as a stream of elements (filters only the results that are elements -
    * where the isEntity() method returns true). IMPORTANT: the stream consumes the result set!
-   *
-   * @return
    */
+  @Nonnull
   default Stream<Entity> entityStream() {
     return StreamSupport.stream(
             new Spliterator<Entity>() {
               @Override
               public boolean tryAdvance(Consumer<? super Entity> action) {
                 while (hasNext()) {
-                  Result elem = next();
-                  if (elem.isEntity()) {
-                    action.accept(elem.getEntity().get());
+                  var elem = next();
+                  if (elem != null) {
+                    action.accept(elem.asEntity());
                     return true;
                   }
                 }
@@ -134,6 +306,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
               }
 
               @Override
+              @Nullable
               public Spliterator<Entity> trySplit() {
                 return null;
               }
@@ -152,6 +325,11 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
+
+  default void forEachEntity(@Nonnull Consumer<? super Entity> action) {
+    entityStream().forEach(action);
+  }
+
   default List<Entity> toEntityList() {
     return entityStream().toList();
   }
@@ -159,25 +337,27 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   /**
    * Returns the result set as a stream of vertices (filters only the results that are vertices -
    * where the isVertex() method returns true). IMPORTANT: the stream consumes the result set!
-   *
-   * @return
    */
+  @Nonnull
   default Stream<Vertex> vertexStream() {
     return StreamSupport.stream(
             new Spliterator<Vertex>() {
               @Override
               public boolean tryAdvance(Consumer<? super Vertex> action) {
                 while (hasNext()) {
-                  Result elem = next();
-                  if (elem.isVertex()) {
-                    action.accept(elem.getVertex().get());
+                  var elem = next();
+
+                  if (elem != null) {
+                    action.accept(elem.asVertex());
                     return true;
                   }
+
                 }
                 return false;
               }
 
               @Override
+              @Nullable
               public Spliterator<Vertex> trySplit() {
                 return null;
               }
@@ -196,31 +376,127 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
-  default List<Vertex> toVertexList() {
+  default void forEachVertex(@Nonnull Consumer<? super Vertex> action) {
+    vertexStream().forEach(action);
+  }
+
+  default List<Vertex> vertexList() {
     return vertexStream().toList();
+  }
+
+  @Nonnull
+  default Stream<RID> ridStream() {
+    return StreamSupport.stream(
+            new Spliterator<RID>() {
+              @Override
+              public boolean tryAdvance(Consumer<? super RID> action) {
+                while (hasNext()) {
+                  var elem = next();
+
+                  if (elem == null) {
+                    continue;
+                  }
+
+                  if (elem.isRecord()) {
+                    action.accept(elem.getIdentity());
+                    return true;
+                  } else {
+                    throw new IllegalStateException(elem + " is not a record");
+                  }
+                }
+
+                return false;
+              }
+
+              @Override
+              @Nullable
+              public Spliterator<RID> trySplit() {
+                return null;
+              }
+
+              @Override
+              public long estimateSize() {
+                return Long.MAX_VALUE;
+              }
+
+              @Override
+              public int characteristics() {
+                return ORDERED;
+              }
+            },
+            false)
+        .onClose(this::close);
+  }
+
+  @Nonnull
+  default List<RID> toRidList() {
+    return ridStream().toList();
   }
 
   /**
    * Returns the result set as a stream of vertices (filters only the results that are edges - where
    * the isEdge() method returns true). IMPORTANT: the stream consumes the result set!
-   *
-   * @return
    */
-  default Stream<Edge> edgeStream() {
+  @Nonnull
+  default Stream<StatefulEdge> statefulEdgeStream() {
     return StreamSupport.stream(
-            new Spliterator<Edge>() {
+            new Spliterator<StatefulEdge>() {
               @Override
-              public boolean tryAdvance(Consumer<? super Edge> action) {
+              public boolean tryAdvance(Consumer<? super StatefulEdge> action) {
                 while (hasNext()) {
-                  Result nextElem = next();
-                  if (nextElem != null && nextElem.isEdge()) {
-                    action.accept(nextElem.getEdge().get());
+                  var nextElem = next();
+                  if (nextElem != null) {
+                    action.accept(nextElem.asStatefulEdge());
                     return true;
                   }
                 }
                 return false;
               }
 
+              @Nullable
+              @Override
+              public Spliterator<StatefulEdge> trySplit() {
+                return null;
+              }
+
+              @Override
+              public long estimateSize() {
+                return Long.MAX_VALUE;
+              }
+
+              @Override
+              public int characteristics() {
+                return ORDERED;
+              }
+            },
+            false)
+        .onClose(this::close);
+  }
+
+  default void forEachStatefulEdge(@Nonnull Consumer<? super StatefulEdge> action) {
+    statefulEdgeStream().forEach(action);
+  }
+
+  default List<StatefulEdge> toStatefulEdgeList() {
+    return statefulEdgeStream().toList();
+  }
+
+  default Stream<Edge> edgeStream() {
+    return StreamSupport.stream(
+            new Spliterator<Edge>() {
+              @Override
+              public boolean tryAdvance(Consumer<? super Edge> action) {
+                while (hasNext()) {
+                  var nextElem = next();
+                  if (nextElem != null) {
+                    action.accept(nextElem.asStatefulEdge());
+                    return true;
+                  }
+                }
+                return false;
+              }
+
+              @Nullable
               @Override
               public Spliterator<Edge> trySplit() {
                 return null;
@@ -240,7 +516,57 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
         .onClose(this::close);
   }
 
+  default void forEachEdge(Consumer<? super Edge> action) {
+    edgeStream().forEach(action);
+  }
+
   default List<Edge> toEdgeList() {
     return edgeStream().toList();
   }
+
+
+  @Nonnull
+  default Stream<Result> detachedStream() {
+    return StreamSupport.stream(
+            new Spliterator<Result>() {
+              @Override
+              public boolean tryAdvance(Consumer<? super Result> action) {
+                while (hasNext()) {
+                  var nextElem = next();
+                  if (nextElem != null) {
+                    action.accept(nextElem.detach());
+                    return true;
+                  }
+                }
+                return false;
+              }
+
+              @Nullable
+              @Override
+              public Spliterator<Result> trySplit() {
+                return null;
+              }
+
+              @Override
+              public long estimateSize() {
+                return Long.MAX_VALUE;
+              }
+
+              @Override
+              public int characteristics() {
+                return ORDERED;
+              }
+            },
+            false)
+        .onClose(this::close);
+  }
+
+  @Nonnull
+  default List<Result> toDetachedList() {
+    return detachedStream().toList();
+  }
+
+  @Override
+  void forEachRemaining(@Nonnull Consumer<? super Result> action);
 }
+

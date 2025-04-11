@@ -81,7 +81,7 @@ public class MurmurHash3 {
   }
 
   public static long murmurHash3_x64_64(final byte[] key, final int seed) {
-    State state = new State();
+    var state = new State();
 
     state.h1 = 0x9368e53c2f6af274L ^ seed;
     state.h2 = 0x586dcd208f7cd3fdL ^ seed;
@@ -89,7 +89,7 @@ public class MurmurHash3 {
     state.c1 = 0x87c37b91114253d5L;
     state.c2 = 0x4cf5ad432745937fL;
 
-    for (int i = 0; i < key.length / 16; i++) {
+    for (var i = 0; i < key.length / 16; i++) {
       state.k1 = getblock(key, i * 2 * 8);
       state.k2 = getblock(key, (i * 2 + 1) * 8);
 
@@ -99,7 +99,7 @@ public class MurmurHash3 {
     state.k1 = 0;
     state.k2 = 0;
 
-    int tail = (key.length >>> 4) << 4;
+    var tail = (key.length >>> 4) << 4;
 
     switch (key.length & 15) {
       case 15:

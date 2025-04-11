@@ -41,7 +41,7 @@ public class SQLFromClause extends SimpleNode {
   }
 
   public SQLFromClause copy() {
-    SQLFromClause result = new SQLFromClause(-1);
+    var result = new SQLFromClause(-1);
     result.item = item.copy();
     return result;
   }
@@ -55,7 +55,7 @@ public class SQLFromClause extends SimpleNode {
       return false;
     }
 
-    SQLFromClause that = (SQLFromClause) o;
+    var that = (SQLFromClause) o;
 
     return Objects.equals(item, that.item);
   }
@@ -66,7 +66,7 @@ public class SQLFromClause extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("item", item.serialize(db));
     return result;
   }

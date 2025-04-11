@@ -12,7 +12,7 @@ public class IntegerKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final ByteBuffer bb = ByteBuffer.allocate(5);
+    final var bb = ByteBuffer.allocate(5);
     bb.order(ByteOrder.BIG_ENDIAN);
     bb.put((byte) 0);
     bb.putInt(((int) key) + Integer.MAX_VALUE + 1);

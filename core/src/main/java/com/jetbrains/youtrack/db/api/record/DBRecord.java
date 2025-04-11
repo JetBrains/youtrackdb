@@ -20,12 +20,14 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Generic record representation.
  */
-public interface DBRecord extends Identifiable {
+public interface DBRecord extends Identifiable, Element {
+
   /**
    * Returns true if the record is unloaded.
    *
@@ -35,22 +37,23 @@ public interface DBRecord extends Identifiable {
 
   /**
    * Returns <code>true</code> if record is bound to the passed in session.
+   * <p>
+   * Record is bound to the session only while the current transaction is running.
+   * Once the transaction has finished, it will be unbound from its session and unloaded,
+   * so all properties will be inaccessible and {@link #getBoundedToSession()} will
+   * return <code>null</code>.
    *
-   * @param session The session to check
+   * @param session The session to check.
+   *
    * @return <code>true</code> if record is bound to the passed in session.
-   * @see DatabaseSession#bindToSession(Identifiable)
+   * @see com.jetbrains.youtrack.db.api.transaction.Transaction#load(Identifiable)
    */
-  boolean isNotBound(DatabaseSession session);
+  boolean isNotBound(@Nonnull DatabaseSession session);
 
   /**
-   * All the fields are deleted but the record identity is maintained. Use this to remove all the
-   * document's fields.
+   * Returns the record identity.
    */
-  void clear();
-
-  /**
-   * Returns the record identity as &lt;cluster-id&gt;:&lt;cluster-position&gt;
-   */
+  @Nonnull
   RID getIdentity();
 
   /**
@@ -70,16 +73,6 @@ public interface DBRecord extends Identifiable {
   boolean isDirty();
 
   /**
-   * Saves in-memory changes to the database. Behavior depends by the current running transaction if
-   * any. If no transaction is running then changes apply immediately. If an Optimistic transaction
-   * is running then the record will be changed at commit time. The current transaction will
-   * continue to see the record as modified, while others not. If a Pessimistic transaction is
-   * running, then an exclusive lock is acquired against the record. Current transaction will
-   * continue to see the record as modified, while others cannot access to it since it's locked.
-   */
-  void save();
-
-  /**
    * Deletes the record from the database. Behavior depends by the current running transaction if
    * any. If no transaction is running then the record is deleted immediately. If an Optimistic
    * transaction is running then the record will be deleted at commit time. The current transaction
@@ -94,13 +87,14 @@ public interface DBRecord extends Identifiable {
    *
    * @param iJson Object content in JSON format
    */
-  void fromJSON(String iJson);
+  void updateFromJSON(@Nonnull String iJson);
 
   /**
    * Exports the record in JSON format.
    *
    * @return Object content in JSON format
    */
+  @Nonnull
   String toJSON();
 
   /**
@@ -111,19 +105,17 @@ public interface DBRecord extends Identifiable {
    *                  <li><b>rid</b>: exports the record's id as property "@rid"
    *                  <li><b>version</b>: exports the record's version as property "@version"
    *                  <li><b>class</b>: exports the record's class as property "@class"
-   *                  <li><b>attribSameRow</b>: exports all the record attributes in the same row
-   *                  <li><b>indent:&lt;level&gt;</b>: Indents the output if the &lt;level&gt; specified.
-   *                      Default is 0
    *                </ul>
-   *                Example: "rid,version,class,indent:6" exports record id, version and class properties along
-   *                with record properties using an indenting level equals of 6.
+   *                Example: "rid,version,class" exports record id, version and class properties along
+   *                with record properties.
    * @return Object content in JSON format
    */
-  String toJSON(String iFormat);
+  @Nonnull
+  String toJSON(@Nonnull String iFormat);
 
   /**
    * Checks if the record exists in the database. It adheres the same rules
-   * {@link DatabaseSession#exists(RID)}.
+   * {@link com.jetbrains.youtrack.db.api.transaction.Transaction#exists(RID)}.
    *
    * @return true if the record exists, otherwise false
    */
@@ -135,4 +127,36 @@ public interface DBRecord extends Identifiable {
    */
   @Nullable
   DatabaseSession getBoundedToSession();
+
+  boolean isBlob();
+
+  boolean isEntity();
+
+  boolean isStatefulEdge();
+
+  boolean isVertex();
+
+  @Nonnull
+  Entity asEntity();
+
+  @Nonnull
+  Blob asBlob();
+
+  @Nonnull
+  StatefulEdge asStatefulEdge();
+
+  @Nonnull
+  Vertex asVertex();
+
+  @Nullable
+  Entity asEntityOrNull();
+
+  @Nullable
+  Blob asBlobOrNull();
+
+  @Nullable
+  StatefulEdge asStatefulEdgeOrNull();
+
+  @Nullable
+  Vertex asVertexOrNull();
 }

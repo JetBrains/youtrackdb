@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.multivalue;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -12,7 +12,7 @@ public interface CellBTreeMultiValue<K> {
 
   void create(
       BinarySerializer<K> keySerializer,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       int keySize,
       AtomicOperation atomicOperation)
       throws IOException;
@@ -28,7 +28,7 @@ public interface CellBTreeMultiValue<K> {
   void load(
       String name,
       int keySize,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       BinarySerializer<K> keySerializer);
 
   long size();

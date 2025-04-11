@@ -28,5 +28,5 @@ public interface DataContainer<T> extends Iterable<T>, Sizeable {
 
   void add(T value);
 
-  void remove(T value);
+  boolean remove(T value);
 }

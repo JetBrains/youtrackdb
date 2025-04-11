@@ -16,10 +16,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.SQLMethod;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -51,10 +51,10 @@ public abstract class AbstractSQLMethod implements SQLMethod {
 
   @Override
   public String getSyntax() {
-    final StringBuilder sb = new StringBuilder("<field>.");
+    final var sb = new StringBuilder("<field>.");
     sb.append(name);
     sb.append('(');
-    for (int i = 0; i < minparams; i++) {
+    for (var i = 0; i < minparams; i++) {
       if (i != 0) {
         sb.append(", ");
       }
@@ -63,7 +63,7 @@ public abstract class AbstractSQLMethod implements SQLMethod {
     }
     if (minparams != maxparams) {
       sb.append('[');
-      for (int i = minparams; i < maxparams; i++) {
+      for (var i = minparams; i < maxparams; i++) {
         if (i != 0) {
           sb.append(", ");
         }
@@ -87,7 +87,9 @@ public abstract class AbstractSQLMethod implements SQLMethod {
     return maxparams;
   }
 
-  protected Object getParameterValue(final Identifiable iRecord, final String iValue) {
+  @Nullable
+  protected static Object getParameterValue(DatabaseSessionInternal db, final Result iRecord,
+      final String iValue) {
     if (iValue == null) {
       return null;
     }
@@ -100,12 +102,8 @@ public abstract class AbstractSQLMethod implements SQLMethod {
     if (iRecord == null) {
       return null;
     }
-    try {
-      // SEARCH FOR FIELD
-      return ((EntityImpl) iRecord.getRecord()).field(iValue);
-    } catch (RecordNotFoundException rnf) {
-      return null;
-    }
+
+    return iRecord.getProperty(iValue);
   }
 
   @Override

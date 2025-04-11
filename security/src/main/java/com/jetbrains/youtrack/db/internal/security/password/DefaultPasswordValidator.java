@@ -15,10 +15,10 @@ package com.jetbrains.youtrack.db.internal.security.password;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrack.db.internal.core.security.PasswordValidator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -42,31 +42,31 @@ public class DefaultPasswordValidator implements PasswordValidator {
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final EntityImpl jsonConfig,
+  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     try {
-      if (jsonConfig.containsField("enabled")) {
-        enabled = jsonConfig.field("enabled");
+      if (jsonConfig.containsKey("enabled")) {
+        enabled = (Boolean) jsonConfig.get("enabled");
       }
 
-      if (jsonConfig.containsField("ignoreUUID")) {
-        ignoreUUID = jsonConfig.field("ignoreUUID");
+      if (jsonConfig.containsKey("ignoreUUID")) {
+        ignoreUUID = (Boolean) jsonConfig.get("ignoreUUID");
       }
 
-      if (jsonConfig.containsField("minimumLength")) {
-        minLength = jsonConfig.field("minimumLength");
+      if (jsonConfig.containsKey("minimumLength")) {
+        minLength = (Integer) jsonConfig.get("minimumLength");
       }
 
-      if (jsonConfig.containsField("numberRegEx")) {
-        hasNumber = Pattern.compile(jsonConfig.field("numberRegEx"));
+      if (jsonConfig.containsKey("numberRegEx")) {
+        hasNumber = Pattern.compile(jsonConfig.get("numberRegEx").toString());
       }
 
-      if (jsonConfig.containsField("specialRegEx")) {
-        hasSpecial = Pattern.compile(jsonConfig.field("specialRegEx"));
+      if (jsonConfig.containsKey("specialRegEx")) {
+        hasSpecial = Pattern.compile(jsonConfig.get("specialRegEx").toString());
       }
 
-      if (jsonConfig.containsField("uppercaseRegEx")) {
-        hasUppercase = Pattern.compile(jsonConfig.field("uppercaseRegEx"));
+      if (jsonConfig.containsKey("uppercaseRegEx")) {
+        hasUppercase = Pattern.compile(jsonConfig.get("uppercaseRegEx").toString());
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "DefaultPasswordValidator.config()", ex);
@@ -140,7 +140,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
     }
   }
 
-  private boolean isValid(final Pattern pattern, final String password) {
+  private static boolean isValid(final Pattern pattern, final String password) {
     return pattern.matcher(password).find();
   }
 

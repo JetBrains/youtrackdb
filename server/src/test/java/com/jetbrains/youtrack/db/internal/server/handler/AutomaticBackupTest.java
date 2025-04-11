@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -40,7 +40,7 @@ public class AutomaticBackupTest {
   private static String URL;
   private static String URL2;
   private final String tempDirectory;
-  private DatabaseSession database;
+  private DatabaseSession db;
   private final YouTrackDBServer server;
 
   public AutomaticBackupTest() throws IllegalArgumentException, SecurityException {
@@ -53,7 +53,7 @@ public class AutomaticBackupTest {
         new YouTrackDBServer(false) {
           @Override
           public Map<String, String> getAvailableStorageNames() {
-            HashMap<String, String> result = new HashMap<String, String>();
+            var result = new HashMap<String, String>();
             result.put(DBNAME, URL);
             return result;
           }
@@ -62,12 +62,12 @@ public class AutomaticBackupTest {
 
   // @BeforeClass
   public static void beforeClass() throws Exception {
-    final String buildDirectory =
+    final var buildDirectory =
         new File(System.getProperty("buildDirectory", ".")).getAbsolutePath();
 
     BACKUPDIR = new File(buildDirectory, "backup").getAbsolutePath();
-    URL = "plocal:" + buildDirectory + File.separator + DBNAME;
-    URL2 = "plocal:" + buildDirectory + File.separator + DBNAME2;
+    URL = "disk:" + buildDirectory + File.separator + DBNAME;
+    URL2 = "disk:" + buildDirectory + File.separator + DBNAME2;
 
     FileUtils.deleteRecursively(new File(BACKUPDIR));
 
@@ -88,7 +88,7 @@ public class AutomaticBackupTest {
       SecurityException,
       InvocationTargetException,
       NoSuchMethodException {
-    final File f =
+    final var f =
         new File(
             SystemVariableResolver.resolveSystemVariables(
                 "${YOUTRACKDB_HOME}/config/automatic-backup.json"));
@@ -101,13 +101,14 @@ public class AutomaticBackupTest {
     }
     server
         .getContext()
-        .execute("create database ? plocal users (admin identified by 'admin' role admin)", DBNAME);
-    database = server.getDatabases().openNoAuthorization(DBNAME);
+        .execute("create database ? disk users (admin identified by 'admin' role admin)", DBNAME);
+    db = server.getDatabases().openNoAuthorization(DBNAME);
 
-    database.createClass("TestBackup");
-    database.begin();
-    new EntityImpl("TestBackup").field("name", DBNAME).save();
-    database.commit();
+    db.getSchema().createClass("TestBackup");
+    var tx = db.begin();
+    tx.newEntity("TestBackup").setProperty("name", DBNAME);
+
+    tx.commit();
   }
 
   // @After
@@ -116,7 +117,7 @@ public class AutomaticBackupTest {
 
     new File(tempDirectory + "/config/automatic-backup.json").delete();
 
-    server.dropDatabase(database.getName());
+    server.dropDatabase(db.getDatabaseName());
     server.shutdown();
   }
 
@@ -128,26 +129,26 @@ public class AutomaticBackupTest {
 
     Assert.assertFalse(new File(tempDirectory + "/config/automatic-backup.json").exists());
 
-    String jsonConfig =
+    var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
+    doc.updateFromJSON(jsonConfig);
 
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON(jsonConfig);
+    doc.setProperty("enabled", true);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("enabled", true);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("dbInclude", new String[]{"testautobackup"});
 
-    doc.field("dbInclude", new String[]{"testautobackup"});
-
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 5000)));
 
     IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config = new ServerParameterConfiguration[]{};
+    final var config = new ServerParameterConfiguration[]{};
 
     aBackup.config(server, config);
 
@@ -160,8 +161,8 @@ public class AutomaticBackupTest {
     server
         .getContext()
         .execute(
-            "create database ? plocal users (admin identified by 'admin' role admin)", DBNAME2);
-    DatabaseSessionInternal database2 = server.getDatabases().openNoAuthorization(DBNAME2);
+            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME2);
+    var database2 = server.getDatabases().openNoAuthorization(DBNAME2);
 
     // database2.restore(new FileInputStream(BACKUPDIR + "/testautobackup.zip"), null, null, null);
 
@@ -177,26 +178,27 @@ public class AutomaticBackupTest {
 
     Assert.assertFalse(new File(tempDirectory + "/config/automatic-backup.json").exists());
 
-    String jsonConfig =
+    var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON(jsonConfig);
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
+    doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", true);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("enabled", true);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("dbExclude", new String[]{"testautobackup"});
+    doc.setProperty("dbExclude", new String[]{"testautobackup"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
     IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config = new ServerParameterConfiguration[]{};
+    final var config = new ServerParameterConfiguration[]{};
 
     aBackup.config(server, config);
 
@@ -217,9 +219,9 @@ public class AutomaticBackupTest {
       new File(BACKUPDIR + "/fullBackup.zip").delete();
     }
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config =
+    final var config =
         new ServerParameterConfiguration[]{
             new ServerParameterConfiguration("enabled", "true"),
             new ServerParameterConfiguration(
@@ -260,26 +262,27 @@ public class AutomaticBackupTest {
       NotCompliantMBeanException,
       MBeanRegistrationException {
 
-    String jsonConfig =
+    var jsonConfig =
         IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON(jsonConfig);
+    var tx = db.begin();
+    var doc = ((EntityImpl) tx.newEntity());
+    doc.updateFromJSON(jsonConfig);
 
-    doc.field("enabled", false);
-    doc.field("targetFileName", "${DBNAME}.zip");
+    doc.setProperty("enabled", false);
+    doc.setProperty("targetFileName", "${DBNAME}.zip");
 
-    doc.field("dbExclude", new String[]{"testautobackup"});
+    doc.setProperty("dbExclude", new String[]{"testautobackup"});
 
-    doc.field(
+    doc.setPropertyInChain(
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
     IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config = new ServerParameterConfiguration[]{};
+    final var config = new ServerParameterConfiguration[]{};
 
     try {
       aBackup.config(server, config);
@@ -330,9 +333,9 @@ public class AutomaticBackupTest {
       new File(BACKUPDIR + "/fullExport.json.gz").delete();
     }
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config =
+    final var config =
         new ServerParameterConfiguration[]{
             new ServerParameterConfiguration("enabled", "true"),
             new ServerParameterConfiguration(
@@ -357,9 +360,9 @@ public class AutomaticBackupTest {
     server
         .getContext()
         .execute(
-            "create database ? plocal users (admin identified by 'admin' role admin)", DBNAME3);
+            "create database ? disk users (admin identified by 'admin' role admin)", DBNAME3);
 
-    DatabaseSessionInternal database2 = server.getDatabases().openNoAuthorization(DBNAME3);
+    var database2 = server.getDatabases().openNoAuthorization(DBNAME3);
 
     new DatabaseImport(database2, BACKUPDIR + "/fullExport.json.gz", null).importDatabase();
 
@@ -369,7 +372,7 @@ public class AutomaticBackupTest {
   }
 
   private void waitForFile(Path path) throws InterruptedException {
-    long startTs = System.currentTimeMillis();
+    var startTs = System.currentTimeMillis();
 
     while (!Files.exists(path)) {
       Thread.sleep(1000);

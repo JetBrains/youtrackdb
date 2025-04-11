@@ -32,15 +32,15 @@ public class ParallelExecStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    List<InternalExecutionPlan> stepsIter = subExecutionPlans;
+    var stepsIter = subExecutionPlans;
 
-    ExecutionStreamProducer res =
+    var res =
         new ExecutionStreamProducer() {
           private final Iterator<InternalExecutionPlan> iter = stepsIter.iterator();
 
           @Override
           public ExecutionStream next(CommandContext ctx) {
-            InternalExecutionPlan step = iter.next();
+            var step = iter.next();
             return step.start();
           }
 
@@ -59,20 +59,20 @@ public class ParallelExecStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    StringBuilder result = new StringBuilder();
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
 
-    int[] blockSizes = new int[subExecutionPlans.size()];
+    var blockSizes = new int[subExecutionPlans.size()];
 
-    for (int i = 0; i < subExecutionPlans.size(); i++) {
-      InternalExecutionPlan currentPlan = subExecutionPlans.get(subExecutionPlans.size() - 1 - i);
-      String partial = currentPlan.prettyPrint(0, indent);
+    for (var i = 0; i < subExecutionPlans.size(); i++) {
+      var currentPlan = subExecutionPlans.get(subExecutionPlans.size() - 1 - i);
+      var partial = currentPlan.prettyPrint(0, indent);
 
-      String[] partials = partial.split("\n");
+      var partials = partial.split("\n");
       blockSizes[subExecutionPlans.size() - 1 - i] = partials.length + 2;
       result.insert(0, "+-------------------------\n");
-      for (int j = 0; j < partials.length; j++) {
-        String p = partials[partials.length - 1 - j];
+      for (var j = 0; j < partials.length; j++) {
+        var p = partials[partials.length - 1 - j];
         if (!result.isEmpty()) {
           result.insert(0, appendPipe(p) + "\n");
         } else {
@@ -90,13 +90,13 @@ public class ParallelExecStep extends AbstractExecutionStep {
   }
 
   private String addArrows(String input, int[] blockSizes) {
-    StringBuilder result = new StringBuilder();
-    String[] rows = input.split("\n");
-    int rowNum = 0;
-    for (int block = 0; block < blockSizes.length; block++) {
-      int blockSize = blockSizes[block];
-      for (int subRow = 0; subRow < blockSize; subRow++) {
-        for (int col = 0; col < blockSizes.length * 3; col++) {
+    var result = new StringBuilder();
+    var rows = input.split("\n");
+    var rowNum = 0;
+    for (var block = 0; block < blockSizes.length; block++) {
+      var blockSize = blockSizes[block];
+      for (var subRow = 0; subRow < blockSize; subRow++) {
+        for (var col = 0; col < blockSizes.length * 3; col++) {
           if (isHorizontalRow(col, subRow, block, blockSize)) {
             result.append("-");
           } else if (isPlus(col, subRow, block, blockSize)) {
@@ -139,7 +139,7 @@ public class ParallelExecStep extends AbstractExecutionStep {
   }
 
   private String head(int depth, int indent) {
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
     return ind + "+ PARALLEL";
   }
 
@@ -158,7 +158,7 @@ public class ParallelExecStep extends AbstractExecutionStep {
 
   @Override
   public boolean canBeCached() {
-    for (InternalExecutionPlan plan : subExecutionPlans) {
+    for (var plan : subExecutionPlans) {
       if (!plan.canBeCached()) {
         return false;
       }

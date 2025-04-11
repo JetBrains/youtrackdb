@@ -4,16 +4,12 @@ import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import org.junit.After;
 import org.junit.Before;
@@ -22,14 +18,14 @@ import org.junit.Test;
 public class DBRecordLazyListTest {
 
   private YouTrackDB youTrackDb;
-  private DatabaseSessionInternal dbSession;
+  private DatabaseSessionInternal db;
 
   @Before
   public void init() throws Exception {
     youTrackDb =
         CreateDatabaseUtil.createDatabase(
             DBRecordLazyListTest.class.getSimpleName(), "memory:", CreateDatabaseUtil.TYPE_MEMORY);
-    dbSession =
+    db =
         (DatabaseSessionInternal) youTrackDb.open(
             DBRecordLazyListTest.class.getSimpleName(),
             "admin",
@@ -38,32 +34,34 @@ public class DBRecordLazyListTest {
 
   @Test
   public void test() {
-    Schema schema = dbSession.getMetadata().getSchema();
-    SchemaClass mainClass = schema.createClass("MainClass");
-    mainClass.createProperty(dbSession, "name", PropertyType.STRING);
-    SchemaProperty itemsProp = mainClass.createProperty(dbSession, "items", PropertyType.LINKLIST);
-    SchemaClass itemClass = schema.createClass("ItemClass");
-    itemClass.createProperty(dbSession, "name", PropertyType.STRING);
-    itemsProp.setLinkedClass(dbSession, itemClass);
+    var schema = db.getMetadata().getSchema();
+    var mainClass = schema.createClass("MainClass");
+    mainClass.createProperty("name", PropertyType.STRING);
+    var itemsProp = mainClass.createProperty("items", PropertyType.LINKLIST);
+    var itemClass = schema.createClass("ItemClass");
+    itemClass.createProperty("name", PropertyType.STRING);
+    itemsProp.setLinkedClass(itemClass);
 
-    dbSession.begin();
-    EntityImpl doc1 = new EntityImpl(itemClass).field("name", "Doc1");
-    doc1.save();
-    EntityImpl doc2 = new EntityImpl(itemClass).field("name", "Doc2");
-    doc2.save();
-    EntityImpl doc3 = new EntityImpl(itemClass).field("name", "Doc3");
-    doc3.save();
+    db.begin();
+    var doc1 = ((EntityImpl) db.newEntity(itemClass));
+    doc1.setProperty("name", "Doc1");
 
-    EntityImpl mainDoc = new EntityImpl(mainClass).field("name", "Main Doc");
-    mainDoc.field("items", Arrays.asList(doc1, doc2, doc3));
-    mainDoc.save();
-    dbSession.commit();
+    var doc2 = ((EntityImpl) db.newEntity(itemClass));
+    doc2.setProperty("name", "Doc2");
 
-    dbSession.begin();
+    var doc3 = ((EntityImpl) db.newEntity(itemClass));
+    doc3.setProperty("name", "Doc3");
 
-    mainDoc = dbSession.bindToSession(mainDoc);
-    Collection<EntityImpl> origItems = mainDoc.field("items");
-    Iterator<EntityImpl> it = origItems.iterator();
+    var mainDoc = ((EntityImpl) db.newEntity(mainClass));
+    mainDoc.setProperty("name", "Main Doc");
+    mainDoc.newLinkList("items").addAll(Arrays.asList(doc1, doc2, doc3));
+    db.commit();
+
+    db.begin();
+    var activeTx = db.getActiveTransaction();
+    mainDoc = activeTx.load(mainDoc);
+    Collection<EntityImpl> origItems = mainDoc.getProperty("items");
+    var it = origItems.iterator();
     assertNotNull(it.next());
     assertNotNull(it.next());
 
@@ -71,15 +69,15 @@ public class DBRecordLazyListTest {
     assertNotNull(items.get(0));
     assertNotNull(items.get(1));
     assertNotNull(items.get(2));
-    dbSession.rollback();
+    db.rollback();
   }
 
   @After
   public void close() {
-    if (dbSession != null) {
-      dbSession.close();
+    if (db != null) {
+      db.close();
     }
-    if (youTrackDb != null && dbSession != null) {
+    if (youTrackDb != null && db != null) {
       youTrackDb.drop(DBRecordLazyListTest.class.getSimpleName());
     }
   }

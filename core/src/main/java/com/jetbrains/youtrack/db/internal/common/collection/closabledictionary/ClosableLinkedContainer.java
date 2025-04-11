@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -14,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Container for the elements which may be in open/closed state. But only limited amount of elements
@@ -210,16 +210,16 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   public ClosableLinkedContainer(final int openLimit) {
     this.openLimit = openLimit;
 
-    AtomicLong[] rbwc = new AtomicLong[NUMBER_OF_READ_BUFFERS];
-    AtomicLong[] rbdawc = new AtomicLong[NUMBER_OF_READ_BUFFERS];
+    var rbwc = new AtomicLong[NUMBER_OF_READ_BUFFERS];
+    var rbdawc = new AtomicLong[NUMBER_OF_READ_BUFFERS];
     AtomicReference<ClosableEntry<K, V>>[][] rbs = new AtomicReference[NUMBER_OF_READ_BUFFERS][];
 
-    for (int i = 0; i < NUMBER_OF_READ_BUFFERS; i++) {
+    for (var i = 0; i < NUMBER_OF_READ_BUFFERS; i++) {
       rbwc[i] = new AtomicLong();
       rbdawc[i] = new AtomicLong();
 
       rbs[i] = new AtomicReference[READ_BUFFER_SIZE];
-      for (int n = 0; n < READ_BUFFER_SIZE; n++) {
+      for (var n = 0; n < READ_BUFFER_SIZE; n++) {
         rbs[i][n] = new AtomicReference<ClosableEntry<K, V>>();
       }
     }
@@ -242,8 +242,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
 
     checkOpenFilesLimit();
 
-    final ClosableEntry<K, V> closableEntry = new ClosableEntry<K, V>(item);
-    final ClosableEntry<K, V> oldEntry = data.putIfAbsent(key, closableEntry);
+    final var closableEntry = new ClosableEntry<K, V>(item);
+    final var oldEntry = data.putIfAbsent(key, closableEntry);
 
     if (oldEntry != null) {
       throw new IllegalStateException("Item with key " + key + " already exists");
@@ -258,11 +258,12 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with item to remove.
    * @return Removed item.
    */
+  @Nullable
   public V remove(K key) {
-    final ClosableEntry<K, V> removed = data.remove(key);
+    final var removed = data.remove(key);
 
     if (removed != null) {
-      long preStatus = removed.makeRetired();
+      var preStatus = removed.makeRetired();
 
       if (ClosableEntry.isOpen(preStatus)) {
         countClosedFiles();
@@ -289,14 +290,15 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return doAcquireEntry(key);
   }
 
+  @Nullable
   private ClosableEntry<K, V> doAcquireEntry(K key) {
-    final ClosableEntry<K, V> entry = data.get(key);
+    final var entry = data.get(key);
 
     if (entry == null) {
       return null;
     }
 
-    boolean logOpen = false;
+    var logOpen = false;
     entry.acquireStateLock();
     try {
       if (entry.isRetired() || entry.isDead()) {
@@ -323,8 +325,9 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return entry;
   }
 
+  @Nullable
   public ClosableEntry<K, V> tryAcquire(K key) throws InterruptedException {
-    final boolean ok = tryCheckOpenFilesLimit();
+    final var ok = tryCheckOpenFilesLimit();
     if (!ok) {
       return null;
     }
@@ -339,13 +342,13 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * buffers will be emptied and nubmer of open files will be inside limit.
    */
   private void checkOpenFilesLimit() throws InterruptedException {
-    CountDownLatch ol = openLatch.get();
+    var ol = openLatch.get();
     if (ol != null) {
       ol.await();
     }
 
     while (openFiles.get() > openLimit) {
-      final CountDownLatch latch = new CountDownLatch(1);
+      final var latch = new CountDownLatch(1);
 
       // make other threads to wait till we evict entries and close evicted open files
       if (openLatch.compareAndSet(null, latch)) {
@@ -366,19 +369,19 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   }
 
   private boolean tryCheckOpenFilesLimit() throws InterruptedException {
-    CountDownLatch ol = openLatch.get();
+    var ol = openLatch.get();
     if (ol != null) {
       ol.await();
     }
 
     while (openFiles.get() > openLimit) {
-      final CountDownLatch latch = new CountDownLatch(1);
+      final var latch = new CountDownLatch(1);
 
       // make other threads to wait till we evict entries and close evicted open files
       if (openLatch.compareAndSet(null, latch)) {
         emptyBuffers();
 
-        final boolean result = openFiles.get() <= openLimit;
+        final var result = openFiles.get() <= openLimit;
         latch.countDown();
         openLatch.set(null);
 
@@ -413,8 +416,9 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with required item.
    * @return Item associated with given key.
    */
+  @Nullable
   public V get(K key) {
-    final ClosableEntry<K, V> entry = data.get(key);
+    final var entry = data.get(key);
     if (entry != null) {
       return entry.get();
     }
@@ -431,9 +435,9 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       data.clear();
       openFiles.set(0);
 
-      for (int n = 0; n < NUMBER_OF_READ_BUFFERS; n++) {
-        final AtomicReference<ClosableEntry<K, V>>[] buffer = readBuffers[n];
-        for (int i = 0; i < READ_BUFFER_SIZE; i++) {
+      for (var n = 0; n < NUMBER_OF_READ_BUFFERS; n++) {
+        final var buffer = readBuffers[n];
+        for (var i = 0; i < READ_BUFFER_SIZE; i++) {
           buffer[i].set(null);
         }
 
@@ -460,7 +464,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   public boolean close(K key) {
     emptyBuffers();
 
-    final ClosableEntry<K, V> entry = data.get(key);
+    final var entry = data.get(key);
     if (entry == null) {
       return true;
     }
@@ -480,8 +484,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       emptyWriteBuffer();
       emptyReadBuffers();
 
-      for (ClosableEntry<K, V> entry : lruList) {
-        boolean result = data.containsValue(entry);
+      for (var entry : lruList) {
+        var result = data.containsValue(entry);
         if (!result) {
           return false;
         }
@@ -508,14 +512,14 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       emptyWriteBuffer();
       emptyReadBuffers();
 
-      for (ClosableEntry<K, V> entry : data.values()) {
-        boolean contains = false;
+      for (var entry : data.values()) {
+        var contains = false;
 
         if (!entry.get().isOpen()) {
           continue;
         }
 
-        for (ClosableEntry<K, V> lruEntry : lruList) {
+        for (var lruEntry : lruList) {
           if (lruEntry == entry) {
             contains = true;
             break;
@@ -539,14 +543,14 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       emptyWriteBuffer();
       emptyReadBuffers();
 
-      for (ClosableEntry<K, V> entry : data.values()) {
-        boolean contains = false;
+      for (var entry : data.values()) {
+        var contains = false;
 
         if (entry.get().isOpen()) {
           continue;
         }
 
-        for (ClosableEntry<K, V> lruEntry : lruList) {
+        for (var lruEntry : lruList) {
           if (lruEntry == entry) {
             contains = true;
             break;
@@ -569,7 +573,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * has to be wrapped by LRU lock.
    */
   private void emptyWriteBuffer() {
-    Runnable task = stateBuffer.poll();
+    var task = stateBuffer.poll();
     while (task != null) {
       task.run();
       task = stateBuffer.poll();
@@ -581,16 +585,16 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * statistic. Method has to be wrapped by LRU lock.
    */
   private void emptyReadBuffers() {
-    for (int n = 0; n < NUMBER_OF_READ_BUFFERS; n++) {
-      AtomicReference<ClosableEntry<K, V>>[] buffer = readBuffers[n];
+    for (var n = 0; n < NUMBER_OF_READ_BUFFERS; n++) {
+      var buffer = readBuffers[n];
 
-      long writeCount = readBufferDrainAtWriteCount[n].get();
-      long counter = readBufferReadCount[n];
+      var writeCount = readBufferDrainAtWriteCount[n].get();
+      var counter = readBufferReadCount[n];
 
       while (true) {
-        final int bufferIndex = (int) (counter & READ_BUFFER_INDEX_MASK);
-        final AtomicReference<ClosableEntry<K, V>> eref = buffer[bufferIndex];
-        final ClosableEntry<K, V> entry = eref.get();
+        final var bufferIndex = (int) (counter & READ_BUFFER_INDEX_MASK);
+        final var eref = buffer[bufferIndex];
+        final var entry = eref.get();
 
         if (entry == null) {
           break;
@@ -678,8 +682,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param entry Entry which was affected by operation.
    */
   private void afterRead(ClosableEntry<K, V> entry) {
-    final int bufferIndex = readBufferIndex();
-    final long writeCount = putEntryInReadBuffer(entry, bufferIndex);
+    final var bufferIndex = readBufferIndex();
+    final var writeCount = putEntryInReadBuffer(entry, bufferIndex);
     drainReadBuffersIfNeeded(bufferIndex, writeCount);
   }
 
@@ -693,15 +697,15 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    */
   private long putEntryInReadBuffer(ClosableEntry<K, V> entry, int bufferIndex) {
     // next index to write for this buffer
-    AtomicLong writeCounter = readBufferWriteCount[bufferIndex];
-    final long counter = writeCounter.get();
+    var writeCounter = readBufferWriteCount[bufferIndex];
+    final var counter = writeCounter.get();
 
     // we do not use CAS operations to limit contention between threads
     // it is normal that because of duplications of indexes some of items will be lost
     writeCounter.lazySet(counter + 1);
 
-    final AtomicReference<ClosableEntry<K, V>>[] buffer = readBuffers[bufferIndex];
-    AtomicReference<ClosableEntry<K, V>> bufferEntry =
+    final var buffer = readBuffers[bufferIndex];
+    var bufferEntry =
         buffer[(int) (counter & READ_BUFFER_INDEX_MASK)];
     bufferEntry.lazySet(entry);
 
@@ -714,8 +718,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    */
   private void drainReadBuffersIfNeeded(int bufferIndex, long writeCount) {
     // amount of writes to the buffer at the last time when buffer was flushed
-    final AtomicLong lastDrainWriteCount = readBufferDrainAtWriteCount[bufferIndex];
-    final boolean bufferOverflow = (writeCount - lastDrainWriteCount.get()) > READ_BUFFER_THRESHOLD;
+    final var lastDrainWriteCount = readBufferDrainAtWriteCount[bufferIndex];
+    final var bufferOverflow = (writeCount - lastDrainWriteCount.get()) > READ_BUFFER_THRESHOLD;
 
     if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
       tryToDrainBuffers();
@@ -744,23 +748,23 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   }
 
   private void drainReadBuffers() {
-    final long threadId = Thread.currentThread().getId();
-    for (long n = threadId; n < threadId + NUMBER_OF_READ_BUFFERS; n++) {
+    final var threadId = Thread.currentThread().getId();
+    for (var n = threadId; n < threadId + NUMBER_OF_READ_BUFFERS; n++) {
       drainReadBuffer((int) (n & READ_BUFFERS_MASK));
     }
   }
 
   private void drainReadBuffer(int bufferIndex) {
     // amount of writes to the buffer at the moment
-    final long bufferWriteCount = readBufferWriteCount[bufferIndex].get();
-    final AtomicReference<ClosableEntry<K, V>>[] buffer = readBuffers[bufferIndex];
+    final var bufferWriteCount = readBufferWriteCount[bufferIndex].get();
+    final var buffer = readBuffers[bufferIndex];
     // position of previous flush
-    long bufferCounter = readBufferReadCount[bufferIndex];
+    var bufferCounter = readBufferReadCount[bufferIndex];
 
-    for (int n = 0; n < READ_BUFFER_DRAIN_THRESHOLD; n++) {
-      final int entryIndex = (int) (bufferCounter & READ_BUFFER_INDEX_MASK);
-      final AtomicReference<ClosableEntry<K, V>> bufferEntry = buffer[entryIndex];
-      final ClosableEntry<K, V> entry = bufferEntry.get();
+    for (var n = 0; n < READ_BUFFER_DRAIN_THRESHOLD; n++) {
+      final var entryIndex = (int) (bufferCounter & READ_BUFFER_INDEX_MASK);
+      final var bufferEntry = buffer[entryIndex];
+      final var entry = bufferEntry.get();
       if (entry == null) {
         break;
       }
@@ -784,8 +788,8 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   }
 
   private void drainWriteBuffer() {
-    for (int i = 0; i < WRITE_BUFFER_DRAIN_THRESHOLD; i++) {
-      Runnable task = stateBuffer.poll();
+    for (var i = 0; i < WRITE_BUFFER_DRAIN_THRESHOLD; i++) {
+      var task = stateBuffer.poll();
       if (task == null) {
         break;
       }
@@ -811,7 +815,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @return The most significant power of 2.
    */
   private static int closestPowerOfTwo(int value) {
-    int n = value - 1;
+    var n = value - 1;
     n |= n >>> 1;
     n |= n >>> 2;
     n |= n >>> 4;
@@ -822,7 +826,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
 
   private static int readBufferIndex() {
     // partition buffers between threads
-    final long threadId = Thread.currentThread().getId();
+    final var threadId = Thread.currentThread().getId();
     return (int) (threadId & READ_BUFFERS_MASK);
   }
 
@@ -832,12 +836,12 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
 
     while (lruList.size() > openLimit) {
       // we may only close items in open state so we "peek" them first
-      Iterator<ClosableEntry<K, V>> iterator = lruList.iterator();
+      var iterator = lruList.iterator();
 
-      boolean entryClosed = false;
+      var entryClosed = false;
 
       while (iterator.hasNext()) {
-        ClosableEntry<K, V> entry = iterator.next();
+        var entry = iterator.next();
         if (entry.makeClosed()) {
           closedFiles++;
           iterator.remove();

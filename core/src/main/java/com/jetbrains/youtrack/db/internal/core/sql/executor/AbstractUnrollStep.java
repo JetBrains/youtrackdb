@@ -19,9 +19,10 @@ public abstract class AbstractUnrollStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new CommandExecutionException("Cannot expand without a target");
+      throw new CommandExecutionException(ctx.getDatabaseSession().getDatabaseName(),
+          "Cannot expand without a target");
     }
-    ExecutionStream resultSet = prev.start(ctx);
+    var resultSet = prev.start(ctx);
     return resultSet.flatMap(this::fetchNextResults);
   }
 

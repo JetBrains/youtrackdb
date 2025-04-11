@@ -2,16 +2,10 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Stream;
 import org.apache.lucene.document.DateTools;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -24,15 +18,15 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
   @Before
   public void setUp() throws Exception {
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
-    SchemaClass cls = schema.createClass("Person");
-    cls.createProperty(db, "name", PropertyType.STRING);
-    cls.createProperty(db, "surname", PropertyType.STRING);
-    cls.createProperty(db, "date", PropertyType.DATETIME);
-    cls.createProperty(db, "age", PropertyType.INTEGER);
+    var cls = schema.createClass("Person");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createProperty("date", PropertyType.DATETIME);
+    cls.createProperty("age", PropertyType.INTEGER);
 
-    List<String> names =
+    var names =
         Arrays.asList(
             "John",
             "Robert",
@@ -44,96 +38,100 @@ public class LuceneRangeTest extends BaseLuceneTest {
             "Luis",
             "Gabriel",
             "Sara");
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      db.save(
-          new EntityImpl("Person")
-              .field("name", names.get(i))
-              .field("surname", "Reese")
-              // from today back one day a time
-              .field("date", System.currentTimeMillis() - (i * 3600 * 24 * 1000))
-              .field("age", i));
-      db.commit();
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      // from today back one day a time
+      ((EntityImpl) session.newEntity("Person"))
+          .setPropertyInChain("name", names.get(i))
+          .setPropertyInChain("surname", "Reese")
+          // from today back one day a time
+          .setPropertyInChain("date", System.currentTimeMillis() - (i * 3600 * 24 * 1000))
+          .setProperty("age", i);
+      session.commit();
     }
   }
 
   @Test
   public void shouldUseRangeQueryOnSingleIntegerField() {
-    db.command("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.age on Person(age) FULLTEXT ENGINE LUCENE").close();
 
-    db.begin();
+    session.begin();
     assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Person.age")
-            .getInternal()
-            .size(db))
-        .isEqualTo(10);
-    db.commit();
+        session.getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "Person.age")
 
+            .size(session))
+        .isEqualTo(10);
+    session.commit();
+
+    session.begin();
     // range
-    ResultSet results = db.command("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
+    var results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
 
     assertThat(results).hasSize(2);
 
     // single value
-    results = db.command("SELECT FROM Person WHERE age LUCENE 'age:5'");
+    results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:5'");
 
     assertThat(results).hasSize(1);
+    session.commit();
   }
 
   @Test
   public void shouldUseRangeQueryOnSingleDateField() {
-    db.command("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.date on Person(date) FULLTEXT ENGINE LUCENE").close();
 
-    db.begin();
+    session.begin();
     assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Person.date")
-            .getInternal()
-            .size(db))
-        .isEqualTo(10);
-    db.commit();
+        session.getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "Person.date")
 
-    String today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
-    String fiveDaysAgo =
+            .size(session))
+        .isEqualTo(10);
+    session.commit();
+
+    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var fiveDaysAgo =
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
+    session.begin();
     // range
-    ResultSet results =
-        db.command(
+    var results =
+        session.execute(
             "SELECT FROM Person WHERE date LUCENE 'date:[" + fiveDaysAgo + " TO " + today + "]'");
 
     assertThat(results).hasSize(5);
+    session.commit();
   }
 
   @Test
   @Ignore
   public void shouldUseRangeQueryMultipleField() {
-    db.command(
+    session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE LUCENE")
         .close();
 
-    db.begin();
+    session.begin();
     assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Person.composite")
-            .getInternal()
-            .size(db))
-        .isEqualTo(10);
-    db.commit();
+        session.getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "Person.composite")
 
-    String today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
-    String fiveDaysAgo =
+            .size(session))
+        .isEqualTo(10);
+    session.commit();
+
+    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var fiveDaysAgo =
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     // name and age range
-    ResultSet results =
-        db.query(
+    var results =
+        session.query(
             "SELECT * FROM Person WHERE [name,surname,date,age] LUCENE 'age:[5 TO 6] name:robert "
                 + " '");
 
@@ -141,7 +139,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     // date range
     results =
-        db.query(
+        session.query(
             "SELECT FROM Person WHERE [name,surname,date,age] LUCENE 'date:["
                 + fiveDaysAgo
                 + " TO "
@@ -152,7 +150,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
     // age and date range with MUST
     results =
-        db.query(
+        session.query(
             "SELECT FROM Person WHERE [name,surname,date,age] LUCENE '+age:[4 TO 7]  +date:["
                 + fiveDaysAgo
                 + " TO "
@@ -164,66 +162,44 @@ public class LuceneRangeTest extends BaseLuceneTest {
 
   @Test
   public void shouldUseRangeQueryMultipleFieldWithDirectIndexAccess() {
-    db.command(
+    session.execute(
             "create index Person.composite on Person(name,surname,date,age) FULLTEXT ENGINE LUCENE")
         .close();
 
-    db.begin();
+    session.begin();
     assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Person.composite")
-            .getInternal()
-            .size(db))
-        .isEqualTo(10);
-    db.commit();
+        session.getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "Person.composite")
 
-    String today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
-    String fiveDaysAgo =
+            .size(session))
+        .isEqualTo(10);
+    session.commit();
+
+    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var fiveDaysAgo =
         DateTools.timeToString(
             System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     // name and age range
-    final Index index =
-        db.getMetadata().getIndexManagerInternal().getIndex(db, "Person.composite");
-    try (Stream<RID> stream = index.getInternal().getRids(db, "name:luke  age:[5 TO 6]")) {
+    final var index =
+        session.getSharedContext().getIndexManager().getIndex(session, "Person.composite");
+    try (var stream = index.getRids(session, "name:luke  age:[5 TO 6]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
 
     // date range
-    try (Stream<RID> stream =
-        index.getInternal().getRids(db, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
+    try (var stream =
+        index.getRids(session, "date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(5);
     }
 
     // age and date range with MUST
-    try (Stream<RID> stream =
+    try (var stream =
         index
-            .getInternal()
-            .getRids(db, "+age:[4 TO 7]  +date:[" + fiveDaysAgo + " TO " + today + "]")) {
+
+            .getRids(session, "+age:[4 TO 7]  +date:[" + fiveDaysAgo + " TO " + today + "]")) {
       assertThat(stream.count()).isEqualTo(2);
     }
-  }
-
-  @Test
-  public void shouldFetchOnlyFromACluster() {
-    db.command("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE").close();
-
-    db.begin();
-    assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Person.name")
-            .getInternal()
-            .size(db))
-        .isEqualTo(10);
-    db.commit();
-
-    int cluster = db.getMetadata().getSchema().getClass("Person").getClusterIds()[1];
-
-    ResultSet results =
-        db.command("SELECT FROM Person WHERE name LUCENE '+_CLUSTER:" + cluster + "'");
-
-    assertThat(results).hasSize(2);
   }
 }

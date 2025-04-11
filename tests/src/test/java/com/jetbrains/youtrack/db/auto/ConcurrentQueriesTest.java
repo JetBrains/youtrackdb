@@ -23,6 +23,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -37,20 +38,22 @@ public class ConcurrentQueriesTest extends BaseDBTest {
   private final AtomicLong totalRetries = new AtomicLong();
 
   @Parameters(value = "remote")
-  public ConcurrentQueriesTest(boolean remote) {
-    super(remote);
+  public ConcurrentQueriesTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   class CommandExecutor implements Callable<Void> {
 
     @Override
     public Void call() {
-      for (int i = 0; i < CYCLES; i++) {
+      for (var i = 0; i < CYCLES; i++) {
         DatabaseSession db = acquireSession();
         try {
-          for (int retry = 0; retry < MAX_RETRIES; ++retry) {
+          for (var retry = 0; retry < MAX_RETRIES; ++retry) {
             try {
-              db.command("select from Concurrent").close();
+              db.executeInTx(transaction -> {
+                transaction.execute("select from Concurrent").close();
+              });
 
               counter.incrementAndGet();
               totalRetries.addAndGet(retry);
@@ -73,16 +76,18 @@ public class ConcurrentQueriesTest extends BaseDBTest {
 
   @BeforeClass
   public void init() {
-    if (database.getMetadata().getSchema().existsClass("Concurrent")) {
-      database.getMetadata().getSchema().dropClass("Concurrent");
+    if (session.getMetadata().getSchema().existsClass("Concurrent")) {
+      session.getMetadata().getSchema().dropClass("Concurrent");
     }
 
-    database.getMetadata().getSchema().createClass("Concurrent");
+    session.getMetadata().getSchema().createClass("Concurrent");
 
-    for (int i = 0; i < 1000; ++i) {
-      database.begin();
-      database.<EntityImpl>newInstance("Concurrent").field("test", i).save();
-      database.commit();
+    for (var i = 0; i < 1000; ++i) {
+      session.begin();
+      EntityImpl entity = session.newInstance("Concurrent");
+      entity.setProperty("test", i);
+
+      session.commit();
     }
   }
 

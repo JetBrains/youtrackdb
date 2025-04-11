@@ -18,23 +18,30 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
 import org.apache.commons.lang.ArrayUtils;
 
 
 public class YouTrackDBImpl implements YouTrackDB {
 
+  private static final Pattern URI_PATTERN = Pattern.compile("[,;]");
   private final ConcurrentLinkedHashMap<DatabasePoolInternal, SessionPoolImpl> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal, SessionPoolImpl>()
           .maximumWeightedCapacity(100)
-          .build(); // cache for links to database pools. Avoid create database pool wrapper each
-  // time when it is requested
+          .build();
 
   public YouTrackDBInternal internal;
   public String serverUser;
@@ -86,15 +93,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    */
   public static YouTrackDB remote(
       String url, String serverUser, String serverPassword, YouTrackDBConfig config) {
-    var youTrackDB =
-        new YouTrackDBImpl(
-            YouTrackDBInternal.remote(url.substring(url.indexOf(':') + 1).split("[,;]"),
-                (YouTrackDBConfigImpl) config));
-
-    youTrackDB.serverUser = serverUser;
-    youTrackDB.serverPassword = serverPassword;
-
-    return youTrackDB;
+    return YourTracks.remote(url, serverUser, serverPassword, config);
   }
 
   /**
@@ -150,7 +149,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    * <pre>
    * <code>
    * YouTrackDB youTrackDB = new YouTrackDB("remote:localhost","root","root");
-   * youTrackDB.create("test",DatabaseType.PLOCAL);
+   * youTrackDB.create("test",DatabaseType.DISK);
    * ODatabaseDocument session = youTrackDB.open("test","admin","admin");
    * //...
    * session.close();
@@ -190,11 +189,11 @@ public class YouTrackDBImpl implements YouTrackDB {
     } else {
       what = url;
     }
-    if ("embedded".equals(what) || "memory".equals(what) || "plocal".equals(what)) {
+    if ("embedded".equals(what) || "memory".equals(what) || "disk".equals(what)) {
       internal = YouTrackDBInternal.embedded(url.substring(url.indexOf(':') + 1), configuration);
     } else if ("remote".equals(what)) {
       internal =
-          YouTrackDBInternal.remote(url.substring(url.indexOf(':') + 1).split("[,;]"),
+          YouTrackDBInternal.remote(URI_PATTERN.split(url.substring(url.indexOf(':') + 1)),
               (YouTrackDBConfigImpl) configuration);
     } else {
       throw new IllegalArgumentException("Wrong url:`" + url + "`");
@@ -240,11 +239,11 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users. In case if you want to create users during creation please
-   * use {@link #create(String, DatabaseType, String...)}
+   * use {@link YouTrackDB#create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
-   * @see #create(String, DatabaseType, String...)
+   * @param type     can be disk or memory
+   * @see YouTrackDB#create(String, DatabaseType, String...)
    */
   @Override
   public void create(String database, DatabaseType type) {
@@ -259,7 +258,7 @@ public class YouTrackDBImpl implements YouTrackDB {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.create("test", DatabaseType.PLOCAL, "user1", "password1", "admin",
+   * <p>{@code youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin",
    * "user2", "password2", "reader"); }
    *
    * <p>The predefined roles are:
@@ -271,23 +270,33 @@ public class YouTrackDBImpl implements YouTrackDB {
    * </ul>
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
   @Override
-  public void create(String database, DatabaseType type, String... userCredentials) {
-    StringBuilder queryString = new StringBuilder("create database ? " + type.name());
+  public void create(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials) {
+    var queryString = new StringBuilder("create database ? " + type.name());
     var params = addUsersToCreationScript(userCredentials, queryString);
+    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  @Override
+  public void create(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig youTrackDBConfig, String... userCredentials) {
+    var queryString = new StringBuilder("create database ? " + type.name());
+    var params = addUsersToCreationScript(userCredentials, queryString);
+    addConfigToCreationScript(queryString, youTrackDBConfig);
     execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
   }
 
   /**
    * Creates a new database without users. In case if you want to create users during creation
-   * please use {@link #create(String, DatabaseType, String...)}
+   * please use {@link YouTrackDB#create(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    */
   @Override
@@ -297,10 +306,11 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users if it does not exist. In case if you want to create users
-   * during creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
+   * during creation please use
+   * {@link YouTrackDB#createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @return true if the database has been created, false if already exists
    */
   @Override
@@ -325,20 +335,51 @@ public class YouTrackDBImpl implements YouTrackDB {
    *
    * <p>For example:
    *
-   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.PLOCAL, "user1", "password1",
+   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1",
    * "admin", "user2", "password2", "reader"); }
    *
    * @param database        database name
-   * @param type            can be plocal or memory
+   * @param type            can be disk or memory
    * @param userCredentials user names, passwords and roles provided as a sequence of triple
    *                        strings
    */
   @Override
-  public void createIfNotExists(String database, DatabaseType type, String... userCredentials) {
-    StringBuilder queryString =
+  public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      String... userCredentials) {
+    var queryString =
         new StringBuilder("create database ? " + type.name() + " if not exists");
     var params = addUsersToCreationScript(userCredentials, queryString);
     execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  @Override
+  public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+      @Nonnull YouTrackDBConfig config, String... userCredentials) {
+    var queryString =
+        new StringBuilder("create database ? " + type.name() + " if not exists");
+    var params = addUsersToCreationScript(userCredentials, queryString);
+    addConfigToCreationScript(queryString, config);
+    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  private static void addConfigToCreationScript(StringBuilder queryString,
+      YouTrackDBConfig config) {
+    var configInternal = (YouTrackDBConfigImpl) config;
+    var contextConfig = configInternal.getConfiguration();
+    var configMap = new HashMap<String, Object>();
+
+    for (var key : contextConfig.getContextKeys()) {
+      var value = contextConfig.getValue(key, null);
+      if (value != null) {
+        configMap.put(key, value);
+      }
+    }
+
+    var jsonMap = new HashMap<String, Object>();
+    jsonMap.put("config", configMap);
+
+    var json = JSONSerializerJackson.mapToJson(jsonMap);
+    queryString.append(" ").append(json);
   }
 
   private static String[] addUsersToCreationScript(
@@ -352,14 +393,14 @@ public class YouTrackDBImpl implements YouTrackDB {
       queryString.append(" users (");
 
       var result = new String[2 * userCredentials.length / 3];
-      for (int i = 0; i < userCredentials.length / 3; i++) {
+      for (var i = 0; i < userCredentials.length / 3; i++) {
         if (i > 0) {
           queryString.append(", ");
         }
         queryString.append("? identified by ? role ").append(userCredentials[i * 3 + 2]);
 
-        result[i * 2] = userCredentials[i * 3];
-        result[i * 2 + 1] = userCredentials[i * 3 + 1];
+        result[(i << 1)] = userCredentials[i * 3];
+        result[(i << 1) + 1] = userCredentials[i * 3 + 1];
       }
 
       queryString.append(")");
@@ -372,10 +413,10 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   /**
    * Create a new database without users if not exists. In case if you want to create users during
-   * creation please use {@link #createIfNotExists(String, DatabaseType, String...)}
+   * creation please use {@link YouTrackDB#createIfNotExists(String, DatabaseType, String...)}
    *
    * @param database database name
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    * @param config   custom configuration for current database
    * @return true if the database has been created, false if already exists
    */
@@ -445,7 +486,7 @@ public class YouTrackDBImpl implements YouTrackDB {
 
   @Override
   public SessionPool cachedPool(String database, String user, String password) {
-    return cachedPool(database, user, password, null);
+    return cachedPool(database, user, password, YouTrackDBConfig.defaultConfig());
   }
 
   /**
@@ -461,7 +502,7 @@ public class YouTrackDBImpl implements YouTrackDB {
   @Override
   public SessionPool cachedPool(
       String database, String user, String password, YouTrackDBConfig config) {
-    DatabasePoolInternal internalPool = internal.cachedPool(database, user, password, config);
+    var internalPool = internal.cachedPool(database, user, password, config);
 
     SessionPool pool = cachedPools.get(internalPool);
 
@@ -495,5 +536,42 @@ public class YouTrackDBImpl implements YouTrackDB {
   public ResultSet execute(String script, Object... params) {
     return internal.executeServerStatementPositionalParams(script, serverUser, serverPassword,
         params);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password,
+      YouTrackDBConfig config, String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    var pool = internal.openPool(databaseName, user, password, config);
+
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      var storage = session.getStorage();
+      return storage.live(pool, query, listener, args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
+      LiveQueryResultListener listener, Map<String, ?> args) {
+    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
+        args);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password,
+      YouTrackDBConfig config, String query, LiveQueryResultListener listener, Object... args) {
+    var pool = internal.openPool(databaseName, user, password, config);
+
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      var storage = session.getStorage();
+      return storage.live(pool, query, listener, args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
+      LiveQueryResultListener listener, Object... args) {
+    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
+        args);
   }
 }

@@ -19,20 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Filter the content by excluding only some fields. If the content is a entity, then creates a
@@ -84,18 +85,20 @@ public class SQLMethodExclude extends AbstractSQLMethod {
     return "Syntax error: exclude([<field-name>][,]*)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    var db = iContext.getDatabase();
+    var db = iContext.getDatabaseSession();
     if (iThis != null) {
       if (iThis instanceof RecordId) {
         try {
-          iThis = ((RecordId) iThis).getRecord();
+          var transaction = db.getActiveTransaction();
+          iThis = transaction.load(((RecordId) iThis));
         } catch (RecordNotFoundException rnf) {
           return null;
         }
@@ -115,10 +118,11 @@ public class SQLMethodExclude extends AbstractSQLMethod {
           if (MultiValue.isMultiValue(iThis)) {
             // ACT ON MULTIPLE DOCUMENTS
             final List<Object> result = new ArrayList<Object>(MultiValue.getSize(iThis));
-            for (Object o : MultiValue.getMultiValueIterable(iThis)) {
+            for (var o : MultiValue.getMultiValueIterable(iThis)) {
               if (o instanceof Identifiable) {
                 try {
-                  var rec = ((Identifiable) o).getRecord();
+                  var transaction = db.getActiveTransaction();
+                  var rec = transaction.load(((Identifiable) o));
                   result.add(copy(db, (EntityImpl) rec, iParams));
                 } catch (RecordNotFoundException rnf) {
                   // IGNORE IT
@@ -140,13 +144,13 @@ public class SQLMethodExclude extends AbstractSQLMethod {
     var result = new ResultInternal(db);
 
     var propertyNames = new HashSet<>(entity.getPropertyNames());
-    for (Object iFieldName : iFieldNames) {
+    for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {
-        final String fieldName = iFieldName.toString();
+        final var fieldName = iFieldName.toString();
         if (fieldName.endsWith("*")) {
-          final String fieldPart = fieldName.substring(0, fieldName.length() - 1);
+          final var fieldPart = fieldName.substring(0, fieldName.length() - 1);
 
-          for (String propertyName : entity.getPropertyNames()) {
+          for (var propertyName : entity.getPropertyNames()) {
             if (propertyName.startsWith(fieldPart)) {
               propertyNames.remove(propertyName);
             }
@@ -157,7 +161,7 @@ public class SQLMethodExclude extends AbstractSQLMethod {
       }
     }
 
-    for (String propertyName : propertyNames) {
+    for (var propertyName : propertyNames) {
       result.setProperty(propertyName, entity.getProperty(propertyName));
     }
 
@@ -170,13 +174,13 @@ public class SQLMethodExclude extends AbstractSQLMethod {
 
     var propertyNames = new HashSet<>(map.keySet());
 
-    for (Object iFieldName : iFieldNames) {
+    for (var iFieldName : iFieldNames) {
       if (iFieldName != null) {
-        final String fieldName = iFieldName.toString();
+        final var fieldName = iFieldName.toString();
         if (fieldName.endsWith("*")) {
-          final String fieldPart = fieldName.substring(0, fieldName.length() - 1);
+          final var fieldPart = fieldName.substring(0, fieldName.length() - 1);
 
-          for (String propertyName : map.keySet()) {
+          for (var propertyName : map.keySet()) {
             if (propertyName.startsWith(fieldPart)) {
               propertyNames.remove(propertyName);
             }
@@ -187,7 +191,7 @@ public class SQLMethodExclude extends AbstractSQLMethod {
       }
     }
 
-    for (String propertyName : propertyNames) {
+    for (var propertyName : propertyNames) {
       result.setProperty(propertyName, map.get(propertyName));
     }
 

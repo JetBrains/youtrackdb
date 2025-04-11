@@ -1,10 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -15,68 +12,74 @@ public class CheckIndexToolTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void test() {
-    db.command("create class Foo").close();
-    db.command("create property Foo.name STRING").close();
-    db.command("create index Foo.name on Foo (name) NOTUNIQUE").close();
+    session.execute("create class Foo").close();
+    session.execute("create property Foo.name STRING").close();
+    session.execute("create index Foo.name on Foo (name) NOTUNIQUE").close();
 
-    db.begin();
-    EntityImpl doc = db.newInstance("Foo");
-    doc.field("name", "a");
-    doc.save();
-    db.commit();
+    session.begin();
+    var doc = session.newInstance("Foo");
+    doc.setProperty("name", "a");
+
+    session.commit();
 
     RID rid = doc.getIdentity();
 
-    int N_RECORDS = 100000;
-    for (int i = 0; i < N_RECORDS; i++) {
-      db.begin();
-      doc = db.newInstance("Foo");
-      doc.field("name", "x" + i);
-      doc.save();
-      db.commit();
+    var N_RECORDS = 100000;
+    for (var i = 0; i < N_RECORDS; i++) {
+      session.begin();
+      doc = session.newInstance("Foo");
+      doc.setProperty("name", "x" + i);
+
+      session.commit();
     }
 
-    db.begin();
-    Index idx = db.getMetadata().getIndexManagerInternal().getIndex(db, "Foo.name");
-    Object key = idx.getDefinition().createValue(db, "a");
-    idx.remove(db, key, rid);
-    db.commit();
+    session.begin();
+    var idx = session.getSharedContext().getIndexManager().getIndex(session, "Foo.name");
+    var key = idx.getDefinition().createValue(session.getActiveTransaction(), "a");
+    idx.remove(session.getActiveTransaction(), key, rid);
+    session.commit();
 
-    db.begin();
-    ResultSet result = db.query("SELECT FROM Foo");
+    session.begin();
+    var result = session.query("SELECT FROM Foo");
     Assert.assertEquals(N_RECORDS + 1, result.stream().count());
 
-    CheckIndexTool tool = new CheckIndexTool();
-    tool.setDatabase(db);
+    var tool = new CheckIndexTool();
+    tool.setDatabaseSession(session);
     tool.setVerbose(true);
     tool.setOutputListener(System.out::println);
 
     tool.run();
-    db.commit();
+    session.commit();
 
     Assert.assertEquals(1, tool.getTotalErrors());
   }
 
   @Test
   public void testBugOnCollectionIndex() {
-    db.command("create class testclass");
-    db.command("create property testclass.name string");
-    db.command("create property testclass.tags linklist");
-    db.command("alter property testclass.tags default '[]'");
-    db.command("create index testclass_tags_idx on testclass (tags) NOTUNIQUE_HASH_INDEX");
+    session.execute("create class testclass");
+    session.execute("create property testclass.name string");
+    session.execute("create property testclass.tags linklist");
+    session.execute("alter property testclass.tags default '[]'");
+    session.execute("create index testclass_tags_idx on testclass (tags) NOTUNIQUE");
 
-    db.begin();
-    db.command("insert into testclass set name = 'a',tags = [#5:0] ");
-    db.command("insert into testclass set name = 'b'");
-    db.command("insert into testclass set name = 'c' ");
-    db.commit();
+    session.begin();
+    var entity = session.newEntity();
+    session.commit();
 
-    final CheckIndexTool tool = new CheckIndexTool();
+    session.begin();
+    session.execute("insert into testclass set name = 'a',tags = [" + entity.getIdentity() + " ] ");
+    session.execute("insert into testclass set name = 'b'");
+    session.execute("insert into testclass set name = 'c' ");
+    session.commit();
 
-    tool.setDatabase(db);
+    final var tool = new CheckIndexTool();
+
+    tool.setDatabaseSession(session);
     tool.setVerbose(true);
     tool.setOutputListener(System.out::println);
+    session.begin();
     tool.run();
+    session.commit();
     Assert.assertEquals(0, tool.getTotalErrors());
   }
 }

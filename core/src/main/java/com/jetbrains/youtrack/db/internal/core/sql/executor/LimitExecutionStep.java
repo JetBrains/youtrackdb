@@ -20,11 +20,11 @@ public class LimitExecutionStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    int limitVal = limit.getValue(ctx);
+    var limitVal = limit.getValue(ctx);
     if (limitVal == -1) {
       return prev.start(ctx);
     }
-    ExecutionStream result = prev.start(ctx);
+    var result = prev.start(ctx);
     return result.limit(limitVal);
   }
 

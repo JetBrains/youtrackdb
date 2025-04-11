@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.common.parser;
 
 import java.util.Arrays;
+import javax.annotation.Nullable;
 
 /**
  * Abstract generic command to parse.
@@ -81,13 +82,13 @@ public abstract class BaseParser {
       final StringBuilder ioBuffer) {
     ioBuffer.setLength(0);
 
-    char stringBeginChar = ' ';
+    var stringBeginChar = ' ';
     char c;
 
-    for (int i = iBeginIndex; i < iText.length(); ++i) {
+    for (var i = iBeginIndex; i < iText.length(); ++i) {
       c = iText.charAt(i);
-      boolean found = false;
-      for (int sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
+      var found = false;
+      for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
         if (iSeparatorChars.charAt(sepIndex) == c) {
           // SEPARATOR AT THE BEGINNING: JUMP IT
           found = true;
@@ -101,7 +102,7 @@ public abstract class BaseParser {
       iBeginIndex++;
     }
 
-    for (int i = iBeginIndex; i < iText.length(); ++i) {
+    for (var i = iBeginIndex; i < iText.length(); ++i) {
       c = iText.charAt(i);
 
       if (c == '\'' || c == '"' || c == '`') {
@@ -116,7 +117,7 @@ public abstract class BaseParser {
           stringBeginChar = c;
         }
       } else if (stringBeginChar == ' ') {
-        for (int sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
+        for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
           if (iSeparatorChars.charAt(sepIndex) == c && ioBuffer.length() > 0) {
             // SEPARATOR (OUTSIDE A STRING): PUSH
             return;
@@ -202,9 +203,10 @@ public abstract class BaseParser {
   /**
    * Throws a syntax error exception.
    *
-   * @param iText Text about the problem.
+   * @param dbName
+   * @param iText  Text about the problem.
    */
-  protected abstract void throwSyntaxErrorException(final String iText);
+  protected abstract void throwSyntaxErrorException(String dbName, final String iText);
 
   /**
    * Parses the next word. It returns the word parsed if any.
@@ -212,6 +214,7 @@ public abstract class BaseParser {
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed if any, otherwise null
    */
+  @Nullable
   protected String parserOptionalWord(final boolean iUpperCase) {
     parserPreviousPos = parserCurrentPos;
 
@@ -227,10 +230,13 @@ public abstract class BaseParser {
    * parameter. If the parsed word is not enlisted in it a SyntaxError exception is thrown. It
    * returns the word parsed if any.
    *
+   * @param dbName
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed if any, otherwise null
    */
-  protected String parseOptionalWord(final boolean iUpperCase, final String... iWords) {
+  @Nullable
+  protected String parseOptionalWord(String dbName, final boolean iUpperCase,
+      final String... iWords) {
     parserNextWord(iUpperCase);
 
     if (iWords.length > 0) {
@@ -238,8 +244,8 @@ public abstract class BaseParser {
         return null;
       }
 
-      boolean found = false;
-      for (String w : iWords) {
+      var found = false;
+      for (var w : iWords) {
         if (parserLastWord.toString().equals(w)) {
           found = true;
           break;
@@ -247,7 +253,7 @@ public abstract class BaseParser {
       }
 
       if (!found) {
-        throwSyntaxErrorException(
+        throwSyntaxErrorException(dbName,
             "Found unexpected keyword '"
                 + parserLastWord
                 + "' while it was expected '"
@@ -279,11 +285,12 @@ public abstract class BaseParser {
    * Parses the next word. If no word is found an SyntaxError exception is thrown It returns the
    * word parsed if any.
    *
+   * @param dbName
    * @param iUpperCase True if must return UPPERCASE, otherwise false
    * @return The word parsed
    */
-  protected String parserRequiredWord(final boolean iUpperCase) {
-    return parserRequiredWord(iUpperCase, "Syntax error", null);
+  protected String parserRequiredWord(String dbName, final boolean iUpperCase) {
+    return parserRequiredWord(iUpperCase, "Syntax error", null, dbName);
   }
 
   /**
@@ -292,10 +299,12 @@ public abstract class BaseParser {
    *
    * @param iUpperCase     True if must return UPPERCASE, otherwise false
    * @param iCustomMessage Custom message to include in case of SyntaxError exception
+   * @param dbName
    * @return The word parsed
    */
-  protected String parserRequiredWord(final boolean iUpperCase, final String iCustomMessage) {
-    return parserRequiredWord(iUpperCase, iCustomMessage, null);
+  protected String parserRequiredWord(final boolean iUpperCase, final String iCustomMessage,
+      String dbName) {
+    return parserRequiredWord(iUpperCase, iCustomMessage, null, dbName);
   }
 
   /**
@@ -306,17 +315,18 @@ public abstract class BaseParser {
    * @param iUpperCase     True if must return UPPERCASE, otherwise false
    * @param iCustomMessage Custom message to include in case of SyntaxError exception
    * @param iSeparators    Separator characters
+   * @param dbName
    * @return The word parsed
    */
   protected String parserRequiredWord(
-      final boolean iUpperCase, final String iCustomMessage, String iSeparators) {
+      final boolean iUpperCase, final String iCustomMessage, String iSeparators, String dbName) {
     if (iSeparators == null) {
       iSeparators = " ()=><,\r\n";
     }
 
     parserNextWord(iUpperCase, iSeparators);
     if (parserLastWord.length() == 0) {
-      throwSyntaxErrorException(iCustomMessage);
+      throwSyntaxErrorException(dbName, iCustomMessage);
     }
     if (parserLastWord.charAt(0) == '`'
         && parserLastWord.charAt(parserLastWord.length() - 1) == '`') {
@@ -329,16 +339,18 @@ public abstract class BaseParser {
    * Parses the next word. If no word is found or the parsed word is not present in the word array
    * received as parameter then a SyntaxError exception is thrown.
    *
+   * @param dbName
    * @param iWords Array of expected keywords
    */
-  protected void parserRequiredKeyword(final String... iWords) {
+  protected void parserRequiredKeyword(String dbName, final String... iWords) {
     parserNextWord(true, " \r\n,()");
     if (parserLastWord.length() == 0) {
-      throwSyntaxErrorException("Cannot find expected keyword '" + Arrays.toString(iWords) + "'");
+      throwSyntaxErrorException(dbName,
+          "Cannot find expected keyword '" + Arrays.toString(iWords) + "'");
     }
 
-    boolean found = false;
-    for (String w : iWords) {
+    var found = false;
+    for (var w : iWords) {
       if (parserLastWord.toString().equals(w)) {
         found = true;
         break;
@@ -346,7 +358,7 @@ public abstract class BaseParser {
     }
 
     if (!found) {
-      throwSyntaxErrorException(
+      throwSyntaxErrorException(dbName,
           "Found unexpected keyword '"
               + parserLastWord
               + "' while it was expected '"
@@ -362,35 +374,36 @@ public abstract class BaseParser {
    * true
    */
   protected int parserNextChars(
-      final boolean iUpperCase, final boolean iMandatory, final String... iCandidateWords) {
+      String dbName, final boolean iUpperCase, final boolean iMandatory,
+      final String... iCandidateWords) {
     parserPreviousPos = parserCurrentPos;
     parserSkipWhiteSpaces();
 
     parserEscapeSequenceCount = 0;
     parserLastWord.setLength(0);
 
-    final String[] processedWords = Arrays.copyOf(iCandidateWords, iCandidateWords.length);
+    final var processedWords = Arrays.copyOf(iCandidateWords, iCandidateWords.length);
 
     // PARSE THE CHARS
-    final String text2Use = iUpperCase ? parserTextUpperCase : parserText;
-    final int max = text2Use.length();
+    final var text2Use = iUpperCase ? parserTextUpperCase : parserText;
+    final var max = text2Use.length();
 
     parserCurrentPos = parserCurrentPos + parserTextUpperCase.length() - parserText.length();
     // PARSE TILL 1 CHAR AFTER THE END TO SIMULATE A SEPARATOR AS EOF
-    for (int i = 0; parserCurrentPos <= max; ++i) {
-      final char ch = parserCurrentPos < max ? text2Use.charAt(parserCurrentPos) : '\n';
-      final boolean separator = ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t' || ch == '(';
+    for (var i = 0; parserCurrentPos <= max; ++i) {
+      final var ch = parserCurrentPos < max ? text2Use.charAt(parserCurrentPos) : '\n';
+      final var separator = ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t' || ch == '(';
       if (!separator) {
         parserLastWord.append(ch);
       }
 
       // CLEAR CANDIDATES
-      int candidatesWordsCount = 0;
-      int candidatesWordsPos = -1;
-      for (int c = 0; c < processedWords.length; ++c) {
-        final String w = processedWords[c];
+      var candidatesWordsCount = 0;
+      var candidatesWordsPos = -1;
+      for (var c = 0; c < processedWords.length; ++c) {
+        final var w = processedWords[c];
         if (w != null) {
-          final int wordSize = w.length();
+          final var wordSize = w.length();
           if ((separator && wordSize > i)
               || (!separator && (i > wordSize - 1 || w.charAt(i) != ch)))
           // DISCARD IT
@@ -409,7 +422,7 @@ public abstract class BaseParser {
 
       if (candidatesWordsCount == 1) {
         // ONE RESULT, CHECKING IF FOUND
-        final String w = processedWords[candidatesWordsPos];
+        final var w = processedWords[candidatesWordsPos];
         if (w.length() == i + (separator ? 0 : 1) && !Character.isLetter(ch))
         // FOUND!
         {
@@ -425,7 +438,7 @@ public abstract class BaseParser {
     }
 
     if (iMandatory) {
-      throwSyntaxErrorException(
+      throwSyntaxErrorException(dbName,
           "Found unexpected keyword '"
               + parserLastWord
               + "' while it was expected '"
@@ -440,19 +453,20 @@ public abstract class BaseParser {
    * Parses optional keywords between the iWords. If a keyword is found but doesn't match with
    * iWords then a SyntaxError is raised.
    *
+   * @param dbName
    * @param iWords Optional words to match as keyword. If at least one is passed, then the check is
    *               made
    * @return true if a keyword was found, otherwise false
    */
-  protected boolean parserOptionalKeyword(final String... iWords) {
+  protected boolean parserOptionalKeyword(String dbName, final String... iWords) {
     parserNextWord(true, " \r\n,");
     if (parserLastWord.length() == 0) {
       return false;
     }
 
     // FOUND: CHECK IF IT'S IN RANGE
-    boolean found = iWords.length == 0;
-    for (String w : iWords) {
+    var found = iWords.length == 0;
+    for (var w : iWords) {
       if (parserLastWord.toString().equals(w)) {
         found = true;
         break;
@@ -460,7 +474,7 @@ public abstract class BaseParser {
     }
 
     if (!found) {
-      throwSyntaxErrorException(
+      throwSyntaxErrorException(dbName,
           "Found unexpected keyword '"
               + parserLastWord
               + "' while it was expected '"
@@ -540,6 +554,7 @@ public abstract class BaseParser {
     return parserNextWord(iForceUpperCase, iSeparatorChars, false);
   }
 
+  @Nullable
   protected String parserNextWord(
       final boolean iForceUpperCase, final String iSeparatorChars, boolean preserveEscapes) {
     parserPreviousPos = parserCurrentPos;
@@ -551,14 +566,14 @@ public abstract class BaseParser {
       return null;
     }
 
-    char stringBeginChar = ' ';
+    var stringBeginChar = ' ';
 
-    final String text2Use = iForceUpperCase ? parserTextUpperCase : parserText;
+    final var text2Use = iForceUpperCase ? parserTextUpperCase : parserText;
 
     while (parserCurrentPos < text2Use.length()) {
-      final char c = text2Use.charAt(parserCurrentPos);
-      boolean found = false;
-      for (int sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
+      final var c = text2Use.charAt(parserCurrentPos);
+      var found = false;
+      for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
         if (iSeparatorChars.charAt(sepIndex) == c) {
           // SEPARATOR AT THE BEGINNING: JUMP IT
           found = true;
@@ -573,20 +588,20 @@ public abstract class BaseParser {
     }
 
     try {
-      int openParenthesis = 0;
-      int openBracket = 0;
-      int openGraph = 0;
+      var openParenthesis = 0;
+      var openBracket = 0;
+      var openGraph = 0;
 
-      int escapePos = -1;
+      var escapePos = -1;
 
       for (; parserCurrentPos < text2Use.length(); parserCurrentPos++) {
-        final char c = text2Use.charAt(parserCurrentPos);
+        final var c = text2Use.charAt(parserCurrentPos);
 
         if (escapePos == -1 && c == '\\' && ((parserCurrentPos + 1) < text2Use.length())) {
           // ESCAPE CHARS
 
           if (openGraph == 0) {
-            final char nextChar = text2Use.charAt(parserCurrentPos + 1);
+            final var nextChar = text2Use.charAt(parserCurrentPos + 1);
             if (preserveEscapes) {
               parserLastWord.append(c);
               parserLastWord.append(nextChar);
@@ -715,7 +730,7 @@ public abstract class BaseParser {
    * @return
    */
   private boolean parserCheckSeparator(final char c, final String iSeparatorChars) {
-    for (int sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
+    for (var sepIndex = 0; sepIndex < iSeparatorChars.length(); ++sepIndex) {
       if (iSeparatorChars.charAt(sepIndex) == c) {
         parserLastSeparator = c;
         return true;

@@ -15,11 +15,11 @@
  */
 package com.jetbrains.youtrack.db.internal.enterprise.channel;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -91,13 +91,13 @@ public class SocketFactory {
           throw new ConfigurationException("Please provide a truststore password");
         }
 
-        SSLContext context = SSLContext.getInstance("TLS");
+        var context = SSLContext.getInstance("TLS");
 
-        KeyManagerFactory kmf =
+        var kmf =
             KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
 
-        KeyStore keyStore = KeyStore.getInstance(keyStoreType);
-        char[] keyStorePass = keyStorePassword.toCharArray();
+        var keyStore = KeyStore.getInstance(keyStoreType);
+        var keyStorePass = keyStorePassword.toCharArray();
         keyStore.load(getAsStream(keyStorePath), keyStorePass);
 
         kmf.init(keyStore, keyStorePass);
@@ -105,8 +105,8 @@ public class SocketFactory {
         TrustManagerFactory tmf = null;
         if (trustStorePath != null) {
           tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-          KeyStore trustStore = KeyStore.getInstance(trustStoreType);
-          char[] trustStorePass = trustStorePassword.toCharArray();
+          var trustStore = KeyStore.getInstance(trustStoreType);
+          var trustStorePass = trustStorePassword.toCharArray();
           trustStore.load(getAsStream(trustStorePath), trustStorePass);
           tmf.init(trustStore);
         }
@@ -119,7 +119,7 @@ public class SocketFactory {
       }
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new ConfigurationException("Failed to create ssl context"), e);
+          new ConfigurationException("Failed to create ssl context"), e, (String) null);
     }
   }
 
@@ -130,7 +130,7 @@ public class SocketFactory {
     path = SystemVariableResolver.resolveSystemVariables(path);
 
     try {
-      URL url = new URL(path);
+      var url = new URL(path);
       input = url.openStream();
     } catch (MalformedURLException ignore) {
       input = null;

@@ -16,10 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import java.text.Normalizer;
 
 /**
@@ -36,7 +36,7 @@ public class SQLMethodNormalize extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -49,7 +49,7 @@ public class SQLMethodNormalize extends AbstractSQLMethod {
         form = Normalizer.Form.NFD;
       }
 
-      String normalized = Normalizer.normalize(ioResult.toString(), form);
+      var normalized = Normalizer.normalize(ioResult.toString(), form);
       if (iParams != null && iParams.length > 1) {
         normalized = normalized.replaceAll(IOUtils.getStringContent(iParams[0].toString()), "");
       } else {

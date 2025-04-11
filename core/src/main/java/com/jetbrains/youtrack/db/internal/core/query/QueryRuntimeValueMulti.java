@@ -47,10 +47,10 @@ public class QueryRuntimeValueMulti {
       return "";
     }
 
-    StringBuilder buffer = new StringBuilder(128);
+    var buffer = new StringBuilder(128);
     buffer.append("[");
-    int i = 0;
-    for (Object v : getValues()) {
+    var i = 0;
+    for (var v : getValues()) {
       if (i++ > 0) {
         buffer.append(",");
       }

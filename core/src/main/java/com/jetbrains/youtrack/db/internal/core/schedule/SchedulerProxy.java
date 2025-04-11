@@ -60,7 +60,7 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
 
   @Override
   public void load() {
-    delegate.load(database);
+    delegate.load(session);
   }
 
   @Override
@@ -70,6 +70,6 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
 
   @Override
   public void create() {
-    SchedulerImpl.create(database);
+    SchedulerImpl.create(session);
   }
 }

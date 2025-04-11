@@ -9,14 +9,15 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLInstanceofCondition extends SQLBooleanExpression {
 
@@ -38,8 +39,10 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
     DBRecord record;
+    var session = ctx.getDatabaseSession();
     try {
-      record = currentRecord.getRecord();
+      var transaction = session.getActiveTransaction();
+      record = transaction.load(currentRecord);
     } catch (RecordNotFoundException rnf) {
       return false;
     }
@@ -47,7 +50,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }
-    SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass(entity);
+    SchemaImmutableClass result = null;
+    result = entity.getImmutableSchemaClass(session);
+    SchemaClass clazz = result;
     if (clazz == null) {
       return false;
     }
@@ -68,11 +73,18 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
 
-    DBRecord record = currentRecord.getEntity().get().getRecord();
+    var session = ctx.getDatabaseSession();
+    Identifiable identifiable = currentRecord.asEntity();
+    var transaction = session.getActiveTransaction();
+    var record = transaction.load(identifiable);
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }
-    SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass(entity);
+    SchemaImmutableClass result = null;
+    if (entity != null) {
+      result = entity.getImmutableSchemaClass(session);
+    }
+    SchemaClass clazz = result;
     if (clazz == null) {
       return false;
     }
@@ -84,6 +96,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Nullable
   private String decode(String rightString) {
     if (rightString == null) {
       return null;
@@ -139,7 +152,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
 
   @Override
   public SQLInstanceofCondition copy() {
-    SQLInstanceofCondition result = new SQLInstanceofCondition(-1);
+    var result = new SQLInstanceofCondition(-1);
     result.left = left.copy();
     result.right = right == null ? null : right.copy();
     result.rightString = rightString;
@@ -165,7 +178,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLInstanceofCondition that = (SQLInstanceofCondition) o;
+    var that = (SQLInstanceofCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -178,12 +191,13 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     result = 31 * result + (rightString != null ? rightString.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     return left == null ? null : left.getMatchPatternInvolvedAliases();

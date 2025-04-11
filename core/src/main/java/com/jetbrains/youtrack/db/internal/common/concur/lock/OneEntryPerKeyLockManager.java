@@ -20,12 +20,11 @@
 package com.jetbrains.youtrack.db.internal.common.concur.lock;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,12 +32,13 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /**
  * Original Lock Manager implementation that uses a concurrent linked hash map to store one entry
  * per key. This could be very expensive in case the number of locks are a lot. This implementation
- * works better than {@link PartitionedLockManager} when running distributed because there is no
- * way to
+ * works better than {@link PartitionedLockManager} when running distributed because there is no way
+ * to
  *
  * @param <T> Type of keys
  */
@@ -79,7 +79,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
       final int amountOfCachedInstances) {
 
     this.amountOfCachedInstances = amountOfCachedInstances;
-    final int cL = closestInteger(concurrencyLevel);
+    final var cL = closestInteger(concurrencyLevel);
 
     map =
         new ConcurrentLinkedHashMap.Builder<T, CountableLock>()
@@ -115,12 +115,13 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
     return acquireLock(iResourceId, iLockType, acquireTimeout);
   }
 
+  @Nullable
   public Lock acquireLock(final T iResourceId, final LOCK iLockType, long iTimeout) {
     if (!enabled) {
       return null;
     }
 
-    T immutableResource = getImmutableResourceId(iResourceId);
+    var immutableResource = getImmutableResourceId(iResourceId);
     if (immutableResource == null) {
       immutableResource = (T) NULL_KEY;
     }
@@ -130,7 +131,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
       lock = map.get(immutableResource);
 
       if (lock != null) {
-        final int oldLockCount = lock.countLocks.get();
+        final var oldLockCount = lock.countLocks.get();
 
         if (oldLockCount >= 0) {
           if (lock.countLocks.compareAndSet(oldLockCount, oldLockCount + 1)) {
@@ -146,13 +147,13 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
       while (true) {
         lock = new CountableLock();
 
-        CountableLock oldLock = map.putIfAbsent(immutableResource, lock);
+        var oldLock = map.putIfAbsent(immutableResource, lock);
         if (oldLock == null) {
           break;
         }
 
         lock = oldLock;
-        final int oldValue = lock.countLocks.get();
+        final var oldValue = lock.countLocks.get();
 
         if (oldValue >= 0) {
           if (lock.countLocks.compareAndSet(oldValue, oldValue + 1)) {
@@ -166,12 +167,12 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
     }
 
     if (map.size() > amountOfCachedInstances) {
-      final Iterator<T> keyToRemoveIterator = map.ascendingKeySetWithLimit(1).iterator();
+      final var keyToRemoveIterator = map.ascendingKeySetWithLimit(1).iterator();
       if (keyToRemoveIterator.hasNext()) {
-        final T keyToRemove = keyToRemoveIterator.next();
-        final CountableLock lockToRemove = map.get(keyToRemove);
+        final var keyToRemove = keyToRemoveIterator.next();
+        final var lockToRemove = map.get(keyToRemove);
         if (lockToRemove != null) {
-          final int counter = lockToRemove.countLocks.get();
+          final var counter = lockToRemove.countLocks.get();
           if (counter == 0 && lockToRemove.countLocks.compareAndSet(counter, -1)) {
             assert lockToRemove.countLocks.get() == -1;
             map.remove(keyToRemove, lockToRemove);
@@ -213,13 +214,13 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
           throw BaseException.wrapException(
               new LockException(
                   "Thread interrupted while waiting for resource '" + iResourceId + "'"),
-              e);
+              e, (String) null);
         }
       }
 
       return new CountableLockWrapper(lock, iLockType == LOCK.SHARED);
     } catch (RuntimeException e) {
-      final int usages = lock.countLocks.decrementAndGet();
+      final var usages = lock.countLocks.decrementAndGet();
       if (usages == 0) {
         map.remove(immutableResource);
       }
@@ -238,7 +239,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
       iResourceId = (T) NULL_KEY;
     }
 
-    final CountableLock lock = map.get(iResourceId);
+    final var lock = map.get(iResourceId);
     if (lock == null) {
       throw new LockException(
           "Error on releasing a non acquired lock by the requester '"
@@ -275,8 +276,8 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     final List<Comparable> comparables = new ArrayList<Comparable>();
 
-    int seenNulls = 0;
-    for (T value : values) {
+    var seenNulls = 0;
+    for (var value : values) {
       if (value instanceof Comparable) {
         comparables.add((Comparable) value);
       } else if (value == null) {
@@ -291,12 +292,12 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     Collections.sort(comparables);
 
-    final Lock[] locks = new Lock[comparables.size() + seenNulls];
-    int i = 0;
-    for (int j = 0; j < seenNulls; ++j) {
+    final var locks = new Lock[comparables.size() + seenNulls];
+    var i = 0;
+    for (var j = 0; j < seenNulls; ++j) {
       locks[i++] = acquireExclusiveLock((T) NULL_KEY);
     }
-    for (Comparable value : comparables) {
+    for (var value : comparables) {
       locks[i++] = acquireExclusiveLock((T) value);
     }
 
@@ -368,6 +369,7 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
     }
   }
 
+  @Nullable
   protected Lock[] acquireLockInBatch(T[] values, final boolean exclusiveMode) {
     if (values == null || values.length == 0) {
       return null;
@@ -375,8 +377,8 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     final List<Comparable> comparables = new ArrayList<Comparable>();
 
-    int seenNulls = 0;
-    for (T value : values) {
+    var seenNulls = 0;
+    for (var value : values) {
       if (value instanceof Comparable) {
         comparables.add((Comparable) value);
       } else if (value == null) {
@@ -391,13 +393,13 @@ public class OneEntryPerKeyLockManager<T> implements LockManager<T> {
 
     Collections.sort(comparables);
 
-    final Lock[] locks = new Lock[comparables.size() + seenNulls];
-    int i = 0;
-    for (int j = 0; j < seenNulls; ++j) {
+    final var locks = new Lock[comparables.size() + seenNulls];
+    var i = 0;
+    for (var j = 0; j < seenNulls; ++j) {
       locks[i++] =
           exclusiveMode ? acquireExclusiveLock((T) NULL_KEY) : acquireSharedLock((T) NULL_KEY);
     }
-    for (Comparable value : comparables) {
+    for (var value : comparables) {
       locks[i++] = exclusiveMode ? acquireExclusiveLock((T) value) : acquireSharedLock((T) value);
     }
 

@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -13,7 +13,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -29,7 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public class SQLWhereClause extends SimpleNode {
 
@@ -80,8 +79,8 @@ public class SQLWhereClause extends SimpleNode {
    * if and only if sure that no records are returned
    */
   public long estimate(SchemaClassInternal oClass, long threshold, CommandContext ctx) {
-    var database = ctx.getDatabase();
-    long count = oClass.count(database);
+    var session = ctx.getDatabaseSession();
+    var count = oClass.count(session);
     if (count > 1) {
       count = count / 2;
     }
@@ -89,36 +88,33 @@ public class SQLWhereClause extends SimpleNode {
       return count;
     }
 
-    long indexesCount = 0L;
-    List<SQLAndBlock> flattenedConditions = flatten();
-    Set<Index> indexes = oClass.getIndexesInternal(database);
-    for (SQLAndBlock condition : flattenedConditions) {
+    var indexesCount = 0L;
+    var flattenedConditions = flatten();
+    var indexes = oClass.getIndexesInternal();
+    for (var condition : flattenedConditions) {
 
-      List<SQLBinaryCondition> indexedFunctConditions =
-          condition.getIndexedFunctionConditions(oClass, ctx.getDatabase());
+      var indexedFunctConditions =
+          condition.getIndexedFunctionConditions(oClass, ctx.getDatabaseSession());
 
-      long conditionEstimation = Long.MAX_VALUE;
+      var conditionEstimation = Long.MAX_VALUE;
 
       if (indexedFunctConditions != null) {
-        for (SQLBinaryCondition cond : indexedFunctConditions) {
-          SQLFromClause from = new SQLFromClause(-1);
+        for (var cond : indexedFunctConditions) {
+          var from = new SQLFromClause(-1);
           from.item = new SQLFromItem(-1);
           from.item.setIdentifier(new SQLIdentifier(oClass.getName()));
-          long newCount = cond.estimateIndexed(from, ctx);
+          var newCount = cond.estimateIndexed(from, ctx);
           if (newCount < conditionEstimation) {
             conditionEstimation = newCount;
           }
         }
       } else {
-        Map<String, Object> conditions = getEqualityOperations(condition, ctx);
+        var conditions = getEqualityOperations(condition, ctx);
 
-        for (Index index : indexes) {
-          if (index.getType().equals(SchemaClass.INDEX_TYPE.FULLTEXT.name())) {
-            continue;
-          }
-          List<String> indexedFields = index.getDefinition().getFields();
-          int nMatchingKeys = 0;
-          for (String indexedField : indexedFields) {
+        for (var index : indexes) {
+          var indexedFields = index.getDefinition().getFields();
+          var nMatchingKeys = 0;
+          for (var indexedField : indexedFields) {
             if (conditions.containsKey(indexedField)) {
               nMatchingKeys++;
             } else {
@@ -126,7 +122,7 @@ public class SQLWhereClause extends SimpleNode {
             }
           }
           if (nMatchingKeys > 0) {
-            long newCount = estimateFromIndex(database, index, conditions, nMatchingKeys);
+            var newCount = estimateFromIndex(session, index, conditions, nMatchingKeys);
             if (newCount < conditionEstimation) {
               conditionEstimation = newCount;
             }
@@ -147,29 +143,29 @@ public class SQLWhereClause extends SimpleNode {
     if (nMatchingKeys < 1) {
       throw new IllegalArgumentException("Cannot estimate from an index with zero keys");
     }
-    IndexDefinition definition = index.getDefinition();
-    List<String> definitionFields = definition.getFields();
+    var definition = index.getDefinition();
+    var definitionFields = definition.getFields();
     Object key = null;
     if (definition instanceof PropertyIndexDefinition) {
       key = convert(session, conditions.get(definitionFields.get(0)), definition.getTypes()[0]);
     } else if (definition instanceof CompositeIndexDefinition) {
       key = new CompositeKey();
-      for (int i = 0; i < nMatchingKeys; i++) {
-        Object keyValue =
+      for (var i = 0; i < nMatchingKeys; i++) {
+        var keyValue =
             convert(session, conditions.get(definitionFields.get(i)), definition.getTypes()[i]);
         ((CompositeKey) key).addKey(keyValue);
       }
     }
     if (key != null) {
       if (conditions.size() == definitionFields.size()) {
-        try (Stream<RID> rids = index.getInternal().getRids(session, key)) {
+        try (var rids = index.getRids(session, key)) {
           return rids.count();
         }
       } else if (index.supportsOrderedIterations()) {
         final Spliterator<RawPair<Object, RID>> spliterator;
 
-        try (Stream<RawPair<Object, RID>> stream =
-            index.getInternal().streamEntriesBetween(session, key, true, key, true, true)) {
+        try (var stream =
+            index.streamEntriesBetween(session, key, true, key, true, true)) {
           spliterator = stream.spliterator();
           return spliterator.estimateSize();
         }
@@ -178,14 +174,15 @@ public class SQLWhereClause extends SimpleNode {
     return Long.MAX_VALUE;
   }
 
-  private static Object convert(DatabaseSessionInternal session, Object o, PropertyType oType) {
-    return PropertyType.convert(session, o, oType.getDefaultJavaType());
+  private static Object convert(DatabaseSessionInternal session, Object o,
+      PropertyTypeInternal oType) {
+    return PropertyTypeInternal.convert(session, o, oType.getDefaultJavaType());
   }
 
   private static Map<String, Object> getEqualityOperations(
       SQLAndBlock condition, CommandContext ctx) {
     Map<String, Object> result = new HashMap<>();
-    for (SQLBooleanExpression expression : condition.subBlocks) {
+    for (var expression : condition.subBlocks) {
       if (expression instanceof SQLBinaryCondition b) {
         if (b.operator instanceof SQLEqualsCompareOperator) {
           if (b.left.isBaseIdentifier() && b.right.isEarlyCalculated(ctx)) {
@@ -208,6 +205,7 @@ public class SQLWhereClause extends SimpleNode {
     return flattened;
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (baseExpression == null) {
@@ -225,13 +223,13 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   public SQLWhereClause copy() {
-    SQLWhereClause result = new SQLWhereClause(-1);
+    var result = new SQLWhereClause(-1);
     result.baseExpression = baseExpression.copy();
     result.flattened =
         Optional.ofNullable(flattened)
             .map(
                 oAndBlocks -> {
-                  try (Stream<SQLAndBlock> stream = oAndBlocks.stream()) {
+                  try (var stream = oAndBlocks.stream()) {
                     return stream.map(SQLAndBlock::copy).collect(Collectors.toList());
                   }
                 })
@@ -248,7 +246,7 @@ public class SQLWhereClause extends SimpleNode {
       return false;
     }
 
-    SQLWhereClause that = (SQLWhereClause) o;
+    var that = (SQLWhereClause) o;
 
     if (!Objects.equals(baseExpression, that.baseExpression)) {
       return false;
@@ -287,12 +285,12 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (baseExpression != null) {
       result.setProperty("baseExpression", baseExpression.serialize(db));
     }
     if (flattened != null) {
-      try (Stream<SQLAndBlock> stream = flattened.stream()) {
+      try (var stream = flattened.stream()) {
         result.setProperty(
             "flattened",
             stream.map(oAndBlock -> oAndBlock.serialize(db)).collect(Collectors.toList()));
@@ -309,8 +307,8 @@ public class SQLWhereClause extends SimpleNode {
     if (fromResult.getProperty("flattened") != null) {
       List<Result> ser = fromResult.getProperty("flattened");
       flattened = new ArrayList<>();
-      for (Result r : ser) {
-        SQLAndBlock block = new SQLAndBlock(-1);
+      for (var r : ser) {
+        var block = new SQLAndBlock(-1);
         block.deserialize(r);
         flattened.add(block);
       }

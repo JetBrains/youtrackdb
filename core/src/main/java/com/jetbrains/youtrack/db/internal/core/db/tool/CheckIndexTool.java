@@ -18,18 +18,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  *
@@ -41,13 +36,13 @@ public class CheckIndexTool extends DatabaseTool {
   //    RID    rid;
   //    String  indexName;
   //    boolean presentInIndex;
-  //    boolean presentOnCluster;
+  //    boolean presentOnCollection;
   //
-  //    Error(RID rid, String indexName, boolean presentInIndex, boolean presentOnCluster) {
+  //    Error(RID rid, String indexName, boolean presentInIndex, boolean presentOnCollection) {
   //      this.rid = rid;
   //      this.indexName = indexName;
   //      this.presentInIndex = presentInIndex;
-  //      this.presentOnCluster = presentOnCluster;
+  //      this.presentOnCollection = presentOnCollection;
   //    }
   //  }
   //
@@ -60,26 +55,26 @@ public class CheckIndexTool extends DatabaseTool {
 
   @Override
   public void run() {
-    for (Index index : database.getMetadata().getIndexManagerInternal().getIndexes(database)) {
+    for (var index : session.getSharedContext().getIndexManager().getIndexes(session)) {
       if (!canCheck(index)) {
         continue;
       }
-      checkIndex(database, index);
+      checkIndex(session, index);
     }
     message("Total errors found on indexes: " + totalErrors);
   }
 
-  private boolean canCheck(Index index) {
-    IndexDefinition indexDef = index.getDefinition();
-    String className = indexDef.getClassName();
+  private static boolean canCheck(Index index) {
+    var indexDef = index.getDefinition();
+    var className = indexDef.getClassName();
     if (className == null) {
       return false; // manual index, not supported yet
     }
-    List<String> fields = indexDef.getFields();
-    List<String> fieldDefs = indexDef.getFieldsToIndex();
+    var fields = indexDef.getFields();
+    var fieldDefs = indexDef.getFieldsToIndex();
 
     // check if there are fields defined on maps (by key/value). Not supported yet
-    for (int i = 0; i < fieldDefs.size(); i++) {
+    for (var i = 0; i < fieldDefs.size(); i++) {
       if (!fields.get(i).equals(fieldDefs.get(i))) {
         return false;
       }
@@ -88,45 +83,45 @@ public class CheckIndexTool extends DatabaseTool {
   }
 
   private void checkIndex(DatabaseSessionInternal session, Index index) {
-    List<String> fields = index.getDefinition().getFields();
-    String className = index.getDefinition().getClassName();
-    SchemaClass clazz = database.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-    int[] clusterIds = clazz.getPolymorphicClusterIds();
-    for (int clusterId : clusterIds) {
-      checkCluster(session, clusterId, index, fields);
+    var fields = index.getDefinition().getFields();
+    var className = index.getDefinition().getClassName();
+    var clazz = this.session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    var collectionIds = clazz.getPolymorphicCollectionIds();
+    for (var collectionId : collectionIds) {
+      checkCollection(session, collectionId, index, fields);
     }
   }
 
-  private void checkCluster(
-      DatabaseSessionInternal session, int clusterId, Index index, List<String> fields) {
-    long totRecordsForCluster = database.countClusterElements(clusterId);
-    String clusterName = database.getClusterNameById(clusterId);
+  private void checkCollection(
+      DatabaseSessionInternal session, int collectionId, Index index, List<String> fields) {
+    var totRecordsForCollection = this.session.countCollectionElements(collectionId);
+    var collectionName = this.session.getCollectionNameById(collectionId);
 
-    int totSteps = 5;
-    message("Checking cluster " + clusterName + "  for index " + index.getName() + "\n");
-    RecordIteratorCluster<DBRecord> iter = database.browseCluster(clusterName);
+    var totSteps = 5;
+    message("Checking collection " + collectionName + "  for index " + index.getName() + "\n");
+    var iter = this.session.browseCollection(collectionName);
     long count = 0;
     long step = -1;
     while (iter.hasNext()) {
-      long currentStep = count * totSteps / totRecordsForCluster;
+      var currentStep = count * totSteps / totRecordsForCollection;
       if (currentStep > step) {
-        printProgress(clusterName, clusterId, (int) currentStep, totSteps);
+        printProgress(collectionName, collectionId, (int) currentStep, totSteps);
         step = currentStep;
       }
-      DBRecord record = iter.next();
+      var record = iter.next();
       if (record instanceof EntityImpl entity) {
         checkThatRecordIsIndexed(session, entity, index, fields);
       }
       count++;
     }
-    printProgress(clusterName, clusterId, totSteps, totSteps);
+    printProgress(collectionName, collectionId, totSteps, totSteps);
     message("\n");
   }
 
-  void printProgress(String clusterName, int clusterId, int step, int totSteps) {
-    StringBuilder msg = new StringBuilder();
-    msg.append("\rcluster " + clusterName + " (" + clusterId + ") |");
-    for (int i = 0; i < totSteps; i++) {
+  void printProgress(String collectionName, int collectionId, int step, int totSteps) {
+    var msg = new StringBuilder();
+    msg.append("\rcollection " + collectionName + " (" + collectionId + ") |");
+    for (var i = 0; i < totSteps; i++) {
       if (i < step) {
         msg.append("*");
       } else {
@@ -141,13 +136,13 @@ public class CheckIndexTool extends DatabaseTool {
 
   private void checkThatRecordIsIndexed(
       DatabaseSessionInternal session, EntityImpl entity, Index index, List<String> fields) {
-    Object[] vals = new Object[fields.size()];
+    var vals = new Object[fields.size()];
     RID entityId = entity.getIdentity();
-    for (int i = 0; i < vals.length; i++) {
-      vals[i] = entity.field(fields.get(i));
+    for (var i = 0; i < vals.length; i++) {
+      vals[i] = entity.getProperty(fields.get(i));
     }
 
-    Object indexKey = index.getDefinition().createValue(session, vals);
+    var indexKey = index.getDefinition().createValue(session.getActiveTransaction(), vals);
     if (indexKey == null) {
       return;
     }
@@ -160,8 +155,8 @@ public class CheckIndexTool extends DatabaseTool {
       indexKeys = (Collection<Object>) indexKey;
     }
 
-    for (final Object key : indexKeys) {
-      try (final Stream<RID> stream = index.getInternal().getRids(session, key)) {
+    for (final var key : indexKeys) {
+      try (final var stream = index.getRids(session, key)) {
         if (stream.noneMatch((rid) -> rid.equals(entityId))) {
           totalErrors++;
           message(

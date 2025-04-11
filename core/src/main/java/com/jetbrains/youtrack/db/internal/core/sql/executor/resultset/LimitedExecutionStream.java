@@ -28,7 +28,7 @@ public class LimitedExecutionStream implements ExecutionStream {
     if (count >= limit) {
       throw new IllegalStateException();
     } else {
-      Result read = upstream.next(ctx);
+      var read = upstream.next(ctx);
       this.count += 1;
       return read;
     }

@@ -20,11 +20,10 @@
 
 package com.jetbrains.youtrack.db.internal.core.cache;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import java.util.function.BiConsumer;
+import javax.annotation.Nullable;
 
 /**
  * Cache implementation that uses Soft References.
@@ -35,13 +34,14 @@ public class RecordCacheWeakRefs extends
 
   private static final BiConsumer<RID, RecordAbstract> UNLOAD_RECORDS_CONSUMER =
       (rid, record) -> {
-        RecordInternal.unsetDirty(record);
+        final var rec = record;
+        rec.unsetDirty();
         record.unload();
       };
 
   private static final BiConsumer<RID, RecordAbstract> UNLOAD_NOT_MODIFIED_RECORDS_CONSUMER =
       (rid, record) -> {
-        if (!record.isDirtyNoLoading()) {
+        if (!record.isDirty()) {
           record.unload();
         }
       };
@@ -50,6 +50,7 @@ public class RecordCacheWeakRefs extends
     super(new RIDsWeakValuesHashMap<>());
   }
 
+  @Nullable
   @Override
   public RecordAbstract get(final RID rid) {
     if (!isEnabled()) {
@@ -59,6 +60,7 @@ public class RecordCacheWeakRefs extends
     return cache.get(rid);
   }
 
+  @Nullable
   @Override
   public RecordAbstract put(final RecordAbstract record) {
     if (!isEnabled()) {
@@ -67,6 +69,7 @@ public class RecordCacheWeakRefs extends
     return cache.put(record.getIdentity(), record);
   }
 
+  @Nullable
   @Override
   public RecordAbstract remove(final RID rid) {
     if (!isEnabled()) {
@@ -94,11 +97,5 @@ public class RecordCacheWeakRefs extends
   public void clear() {
     cache.clear();
     cache = new RIDsWeakValuesHashMap<>();
-  }
-
-  public void clearRecords() {
-    for (DBRecord rec : cache.values()) {
-      rec.clear();
-    }
   }
 }

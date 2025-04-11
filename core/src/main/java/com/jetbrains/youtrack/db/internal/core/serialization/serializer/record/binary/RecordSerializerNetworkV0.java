@@ -20,41 +20,37 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedList;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMap;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
-import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImplEmbedded;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.serialization.DocumentSerializable;
-import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
+import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
-import java.io.Serializable;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -66,11 +62,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   private static final String CHARSET_UTF_8 = "UTF-8";
-  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   private static final long MILLISEC_PER_DAY = 86400000;
 
   public RecordSerializerNetworkV0() {
@@ -78,37 +75,37 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   @Override
   public void deserializePartial(
-      DatabaseSessionInternal db, final EntityImpl entity, final BytesContainer bytes,
+      DatabaseSessionInternal session, final EntityImpl entity, final BytesContainer bytes,
       final String[] iFields) {
-    final String className = readString(bytes);
+    final var className = readString(bytes);
     if (className.length() != 0) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
     // TRANSFORMS FIELDS FOM STRINGS TO BYTE[]
-    final byte[][] fields = new byte[iFields.length][];
-    for (int i = 0; i < iFields.length; ++i) {
+    final var fields = new byte[iFields.length][];
+    for (var i = 0; i < iFields.length; ++i) {
       fields[i] = iFields[i].getBytes();
     }
 
     String fieldName = null;
     int valuePos;
-    PropertyType type;
-    int unmarshalledFields = 0;
+    PropertyTypeInternal type;
+    var unmarshalledFields = 0;
 
     while (true) {
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
 
       if (len == 0) {
         // SCAN COMPLETED
         break;
       } else if (len > 0) {
         // CHECK BY FIELD NAME SIZE: THIS AVOID EVEN THE UNMARSHALLING OF FIELD NAME
-        boolean match = false;
-        for (int i = 0; i < iFields.length; ++i) {
+        var match = false;
+        for (var i = 0; i < iFields.length; ++i) {
           if (iFields[i].length() == len) {
-            boolean matchField = true;
-            for (int j = 0; j < len; ++j) {
+            var matchField = true;
+            for (var j = 0; j < len; ++j) {
               if (bytes.bytes[bytes.offset + j] != fields[i][j]) {
                 matchField = false;
                 break;
@@ -132,17 +129,17 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         valuePos = readInteger(bytes);
         type = readOType(bytes);
       } else {
-        throw new StorageException("property id not supported in network serialization");
+        throw new DatabaseException(session, "property id not supported in network serialization");
       }
 
       if (valuePos != 0) {
-        int headerCursor = bytes.offset;
+        var headerCursor = bytes.offset;
         bytes.offset = valuePos;
-        final Object value = deserializeValue(db, bytes, type, entity);
+        final var value = deserializeValue(session, bytes, type, entity);
         bytes.offset = headerCursor;
-        entity.field(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.field(fieldName, null, (PropertyType[]) null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
 
       if (unmarshalledFields == iFields.length)
@@ -154,19 +151,19 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   @Override
-  public void deserialize(DatabaseSessionInternal db, final EntityImpl entity,
+  public void deserialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    final String className = readString(bytes);
+    final var className = readString(bytes);
     if (className.length() != 0) {
-      EntityInternalUtils.fillClassNameIfNeeded(entity, className);
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
 
-    int last = 0;
+    var last = 0;
     String fieldName;
     int valuePos;
-    PropertyType type;
+    PropertyTypeInternal type;
     while (true) {
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
       if (len == 0) {
         // SCAN COMPLETED
         break;
@@ -177,28 +174,29 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         valuePos = readInteger(bytes);
         type = readOType(bytes);
       } else {
-        throw new StorageException("property id not supported in network serialization");
+        throw new DatabaseException(session, "property id not supported in network serialization");
       }
 
-      if (EntityInternalUtils.rawContainsField(entity, fieldName)) {
+      if (entity.rawContainsProperty(fieldName)) {
         continue;
       }
 
       if (valuePos != 0) {
-        int headerCursor = bytes.offset;
+        var headerCursor = bytes.offset;
         bytes.offset = valuePos;
-        final Object value = deserializeValue(db, bytes, type, entity);
+        final var value = deserializeValue(session, bytes, type, entity);
         if (bytes.offset > last) {
           last = bytes.offset;
         }
         bytes.offset = headerCursor;
-        entity.field(fieldName, value, type);
+        entity.setDeserializedPropertyInternal(fieldName, value, type);
       } else {
-        entity.field(fieldName, null, (PropertyType[]) null);
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
       }
     }
 
-    RecordInternal.clearSource(entity);
+    final var rec = (RecordAbstract) entity;
+    rec.clearSource();
 
     if (last > bytes.offset) {
       bytes.offset = last;
@@ -209,21 +207,24 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   @Override
   public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    RecordInternal.checkForBinding(entity);
-    ImmutableSchema schema = EntityInternalUtils.getImmutableSchema(entity);
-    PropertyEncryption encryption = EntityInternalUtils.getPropertyEncryption(entity);
+    entity.checkForBinding();
+    ImmutableSchema schema = null;
+    if (entity != null) {
+      schema = entity.getImmutableSchema();
+    }
+    var encryption = entity.propertyEncryption;
 
-    serializeClass(entity, bytes);
+    serializeClass(session, entity, bytes);
 
-    final List<Entry<String, EntityEntry>> fields = EntityInternalUtils.filteredEntries(entity);
+    final var fields = entity.getFilteredEntries();
 
-    final int[] pos = new int[fields.size()];
+    final var pos = new int[fields.size()];
 
-    int i = 0;
+    var i = 0;
 
     final Entry<String, EntityEntry>[] values = new Entry[fields.size()];
-    for (Entry<String, EntityEntry> entry : fields) {
-      EntityEntry docEntry = entry.getValue();
+    for (var entry : fields) {
+      var docEntry = entry.getValue();
       if (!docEntry.exists()) {
         continue;
       }
@@ -233,15 +234,15 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       i++;
     }
     writeEmptyString(bytes);
-    int size = i;
+    var size = i;
 
     for (i = 0; i < size; i++) {
-      int pointer = 0;
-      final Object value = values[i].getValue().value;
+      var pointer = 0;
+      final var value = values[i].getValue().value;
       if (value != null) {
-        final PropertyType type = getFieldType(values[i].getValue());
+        final var type = getFieldType(session, values[i].getValue());
         if (type == null) {
-          throw new SerializationException(
+          throw new SerializationException(session,
               "Impossible serialize value of type "
                   + value.getClass()
                   + " with the EntityImpl binary serializer");
@@ -251,19 +252,20 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
                 bytes,
                 value,
                 type,
-                getLinkedType(entity, type, values[i].getKey()),
+                getLinkedType(session, entity, type, values[i].getKey()),
                 schema, encryption);
-        IntegerSerializer.INSTANCE.serializeLiteral(pointer, bytes.bytes, pos[i]);
+        IntegerSerializer.serializeLiteral(pointer, bytes.bytes, pos[i]);
         writeOType(bytes, (pos[i] + IntegerSerializer.INT_SIZE), type);
       }
     }
   }
 
   @Override
-  public String[] getFieldNames(EntityImpl reference, final BytesContainer bytes,
+  public String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
+      final BytesContainer bytes,
       boolean embedded) {
     // SKIP CLASS NAME
-    final int classNameLen = VarIntSerializer.readAsInteger(bytes);
+    final var classNameLen = VarIntSerializer.readAsInteger(bytes);
     bytes.skip(classNameLen);
 
     final List<String> result = new ArrayList<String>();
@@ -271,7 +273,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     String fieldName;
     while (true) {
       GlobalProperty prop = null;
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
       if (len == 0) {
         // SCAN COMPLETED
         break;
@@ -284,26 +286,31 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         bytes.skip(len + IntegerSerializer.INT_SIZE + 1);
       } else {
         // LOAD GLOBAL PROPERTY BY ID
-        final int id = (len * -1) - 1;
-        prop = EntityInternalUtils.getGlobalPropertyById(reference, id);
+        final var id = (len * -1) - 1;
+        prop = reference.getGlobalPropertyById(id);
         result.add(prop.getName());
 
         // SKIP THE REST
-        bytes.skip(IntegerSerializer.INT_SIZE + (prop.getType() != PropertyType.ANY ? 0 : 1));
+        bytes.skip(IntegerSerializer.INT_SIZE);
       }
     }
 
     return result.toArray(new String[result.size()]);
   }
 
-  protected SchemaClass serializeClass(final EntityImpl entity, final BytesContainer bytes) {
-    final SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass(entity);
+  protected void serializeClass(DatabaseSessionInternal session, final EntityImpl entity,
+      final BytesContainer bytes) {
+    SchemaImmutableClass result = null;
+    if (entity != null) {
+      result = entity.getImmutableSchemaClass(session);
+    }
+    final SchemaClass clazz = result;
     String name = null;
     if (clazz != null) {
       name = clazz.getName();
     }
     if (name == null) {
-      name = entity.getClassName();
+      name = entity.getSchemaClassName();
     }
 
     if (name != null) {
@@ -311,19 +318,28 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     } else {
       writeEmptyString(bytes);
     }
-    return clazz;
   }
 
-  protected PropertyType readOType(final BytesContainer bytes) {
-    return PropertyType.getById(readByte(bytes));
+  @Nullable
+  protected PropertyTypeInternal readOType(final BytesContainer bytes) {
+    var res = readByte(bytes);
+    if (res == -1) {
+      return null;
+    }
+
+    return PropertyTypeInternal.getById(res);
   }
 
-  private void writeOType(BytesContainer bytes, int pos, PropertyType type) {
-    bytes.bytes[pos] = (byte) type.getId();
+  private void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
+    if (type == null) {
+      bytes.bytes[pos] = (byte) -1;
+    } else {
+      bytes.bytes[pos] = (byte) type.getId();
+    }
   }
 
   public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
-      PropertyType type,
+      PropertyTypeInternal type,
       RecordElement owner) {
     Object value = null;
     switch (type) {
@@ -355,43 +371,43 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         value = new Date(VarIntSerializer.readAsLong(bytes));
         break;
       case DATE:
-        long savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
+        var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
         savedTime =
             convertDayToTimezone(
-                TimeZone.getTimeZone("GMT"), DateHelper.getDatabaseTimeZone(), savedTime);
+                TimeZone.getTimeZone("GMT"), DateHelper.getDatabaseTimeZone(session), savedTime);
         value = new Date(savedTime);
         break;
       case EMBEDDED:
-        value = new EntityImplEmbedded();
+        value = new EmbeddedEntityImpl(session);
         deserialize(session, (EntityImpl) value, bytes);
-        if (((EntityImpl) value).containsField(DocumentSerializable.CLASS_NAME)) {
-          String className = ((EntityImpl) value).field(DocumentSerializable.CLASS_NAME);
+        if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+          String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
           try {
-            Class<?> clazz = Class.forName(className);
-            DocumentSerializable newValue = (DocumentSerializable) clazz.newInstance();
+            var clazz = Class.forName(className);
+            var newValue = (EntitySerializable) clazz.newInstance();
             newValue.fromDocument((EntityImpl) value);
             value = newValue;
           } catch (Exception e) {
             throw new RuntimeException(e);
           }
         } else {
-          EntityInternalUtils.addOwner((EntityImpl) value, owner);
+          ((EntityImpl) value).setOwner(owner);
         }
 
         break;
       case EMBEDDEDSET:
-        TrackedSet<Object> set = new TrackedSet<Object>(owner);
+        var set = new EntityEmbeddedSetImpl<>(owner);
         value = readEmbeddedCollection(session, bytes, set, set);
         break;
       case EMBEDDEDLIST:
-        TrackedList<Object> list = new TrackedList<Object>(owner);
+        var list = new EntityEmbeddedListImpl<>(owner);
         value = readEmbeddedCollection(session, bytes, list, list);
         break;
       case LINKSET:
-        value = readLinkCollection(bytes, new LinkSet(owner));
+        value = readLinkCollection(bytes, new EntityLinkSetImpl(owner));
         break;
       case LINKLIST:
-        value = readLinkCollection(bytes, new LinkList(owner));
+        value = readLinkCollection(bytes, new EntityLinkListImpl(owner));
         break;
       case BINARY:
         value = readBinary(bytes);
@@ -406,58 +422,35 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         value = readEmbeddedMap(session, bytes, owner);
         break;
       case DECIMAL:
-        value = DecimalSerializer.INSTANCE.deserialize(bytes.bytes, bytes.offset);
-        bytes.skip(DecimalSerializer.INSTANCE.getObjectSize(bytes.bytes, bytes.offset));
+        value = DecimalSerializer.staticDeserialize(bytes.bytes, bytes.offset);
+        bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
-        RidBag bag = new RidBag(session);
-        bag.fromStream(bytes);
-        bag.setOwner(owner);
-        value = bag;
-        break;
-      case TRANSIENT:
-        break;
-      case CUSTOM:
-        try {
-          String className = readString(bytes);
-          Class<?> clazz = Class.forName(className);
-          SerializableStream stream = (SerializableStream) clazz.newInstance();
-          stream.fromStream(readBinary(bytes));
-          if (stream instanceof SerializableWrapper) {
-            value = ((SerializableWrapper) stream).getSerializable();
-          } else {
-            value = stream;
-          }
-        } catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-        break;
-      case ANY:
-        break;
+        throw new UnsupportedOperationException();
     }
     return value;
   }
 
   private byte[] readBinary(BytesContainer bytes) {
-    int n = VarIntSerializer.readAsInteger(bytes);
-    byte[] newValue = new byte[n];
+    var n = VarIntSerializer.readAsInteger(bytes);
+    var newValue = new byte[n];
     System.arraycopy(bytes.bytes, bytes.offset, newValue, 0, newValue.length);
     bytes.skip(n);
     return newValue;
   }
 
-  private Map<Object, Identifiable> readLinkMap(
+  private Map<String, Identifiable> readLinkMap(
       DatabaseSessionInternal db, final BytesContainer bytes, final RecordElement owner) {
-    int size = VarIntSerializer.readAsInteger(bytes);
-    LinkMap result = new LinkMap(owner);
+    var size = VarIntSerializer.readAsInteger(bytes);
+    var result = new EntityLinkMapIml(owner);
     while ((size--) > 0) {
-      PropertyType keyType = readOType(bytes);
-      Object key = deserializeValue(db, bytes, keyType, result);
-      RecordId value = readOptimizedLink(bytes);
+      var keyType = readOType(bytes);
+      var key = deserializeValue(db, bytes, keyType, result);
+      var value = readOptimizedLink(bytes);
       if (value.equals(NULL_RECORD_ID)) {
-        result.put(key, null);
+        result.put(key.toString(), null);
       } else {
-        result.put(key, value);
+        result.put(key.toString(), value);
       }
     }
     return result;
@@ -465,25 +458,25 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   private Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
       final RecordElement owner) {
-    int size = VarIntSerializer.readAsInteger(bytes);
-    final TrackedMap<Object> result = new TrackedMap<Object>(owner);
-    int last = 0;
+    var size = VarIntSerializer.readAsInteger(bytes);
+    final var result = new EntityEmbeddedMapImpl<Object>(owner);
+    var last = 0;
     while ((size--) > 0) {
-      PropertyType keyType = readOType(bytes);
-      Object key = deserializeValue(db, bytes, keyType, result);
-      final int valuePos = readInteger(bytes);
-      final PropertyType type = readOType(bytes);
+      var keyType = readOType(bytes);
+      var key = deserializeValue(db, bytes, keyType, result);
+      final var valuePos = readInteger(bytes);
+      final var type = readOType(bytes);
       if (valuePos != 0) {
-        int headerCursor = bytes.offset;
+        var headerCursor = bytes.offset;
         bytes.offset = valuePos;
-        Object value = deserializeValue(db, bytes, type, result);
+        var value = deserializeValue(db, bytes, type, result);
         if (bytes.offset > last) {
           last = bytes.offset;
         }
         bytes.offset = headerCursor;
-        result.put(key, value);
+        result.put(key.toString(), value);
       } else {
-        result.put(key, null);
+        result.put(key.toString(), null);
       }
     }
     if (last > bytes.offset) {
@@ -494,9 +487,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   private Collection<Identifiable> readLinkCollection(
       BytesContainer bytes, Collection<Identifiable> found) {
-    final int items = VarIntSerializer.readAsInteger(bytes);
-    for (int i = 0; i < items; i++) {
-      RecordId id = readOptimizedLink(bytes);
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    for (var i = 0; i < items; i++) {
+      var id = readOptimizedLink(bytes);
       if (id.equals(NULL_RECORD_ID)) {
         found.add(null);
       } else {
@@ -511,16 +504,17 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
   }
 
+  @Nullable
   private Collection<?> readEmbeddedCollection(
       DatabaseSessionInternal db, final BytesContainer bytes, final Collection<Object> found,
       final RecordElement owner) {
-    final int items = VarIntSerializer.readAsInteger(bytes);
-    PropertyType type = readOType(bytes);
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    var type = readOType(bytes);
 
-    if (type == PropertyType.ANY) {
-      for (int i = 0; i < items; i++) {
-        PropertyType itemType = readOType(bytes);
-        if (itemType == PropertyType.ANY) {
+    if (type != null) {
+      for (var i = 0; i < items; i++) {
+        var itemType = readOType(bytes);
+        if (itemType == null) {
           found.add(null);
         } else {
           found.add(deserializeValue(db, bytes, itemType, owner));
@@ -532,16 +526,22 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return null;
   }
 
-  private PropertyType getLinkedType(EntityImpl entity, PropertyType type, String key) {
-    if (type != PropertyType.EMBEDDEDLIST && type != PropertyType.EMBEDDEDSET
-        && type != PropertyType.EMBEDDEDMAP) {
+  @Nullable
+  private PropertyTypeInternal getLinkedType(DatabaseSessionInternal session, EntityImpl entity,
+      PropertyTypeInternal type, String key) {
+    if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
       return null;
     }
-    SchemaClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(entity);
+    SchemaImmutableClass result = null;
+    if (entity != null) {
+      result = entity.getImmutableSchemaClass(session);
+    }
+    SchemaClass immutableClass = result;
     if (immutableClass != null) {
-      SchemaProperty prop = immutableClass.getProperty(key);
+      var prop = immutableClass.getProperty(key);
       if (prop != null) {
-        return prop.getLinkedType();
+        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
       }
     }
     return null;
@@ -552,11 +552,11 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   public int serializeValue(
       DatabaseSessionInternal session, final BytesContainer bytes,
       Object value,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
-    int pointer = 0;
+    var pointer = 0;
     switch (type) {
       case INTEGER:
       case LONG:
@@ -567,14 +567,14 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         pointer = writeString(bytes, value.toString());
         break;
       case DOUBLE:
-        long dg = Double.doubleToLongBits((Double) value);
+        var dg = Double.doubleToLongBits((Double) value);
         pointer = bytes.alloc(LongSerializer.LONG_SIZE);
-        LongSerializer.INSTANCE.serializeLiteral(dg, bytes.bytes, pointer);
+        LongSerializer.serializeLiteral(dg, bytes.bytes, pointer);
         break;
       case FLOAT:
-        int fg = Float.floatToIntBits((Float) value);
+        var fg = Float.floatToIntBits((Float) value);
         pointer = bytes.alloc(IntegerSerializer.INT_SIZE);
-        IntegerSerializer.INSTANCE.serializeLiteral(fg, bytes.bytes, pointer);
+        IntegerSerializer.serializeLiteral(fg, bytes.bytes, pointer);
         break;
       case BYTE:
         pointer = bytes.alloc(1);
@@ -600,14 +600,14 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         }
         dateValue =
             convertDayToTimezone(
-                DateHelper.getDatabaseTimeZone(), TimeZone.getTimeZone("GMT"), dateValue);
+                DateHelper.getDatabaseTimeZone(session), TimeZone.getTimeZone("GMT"), dateValue);
         pointer = VarIntSerializer.write(bytes, dateValue / MILLISEC_PER_DAY);
         break;
       case EMBEDDED:
         pointer = bytes.offset;
-        if (value instanceof DocumentSerializable) {
-          EntityImpl cur = ((DocumentSerializable) value).toDocument();
-          cur.field(DocumentSerializable.CLASS_NAME, value.getClass().getName());
+        if (value instanceof EntitySerializable) {
+          var cur = ((EntitySerializable) value).toEntity(session);
+          cur.setProperty(EntitySerializable.CLASS_NAME, value.getClass().getName());
           serialize(session, cur, bytes);
         } else {
           serialize(session, (EntityImpl) value, bytes);
@@ -626,68 +626,54 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         }
         break;
       case DECIMAL:
-        BigDecimal decimalValue = (BigDecimal) value;
-        pointer = bytes.alloc(DecimalSerializer.INSTANCE.getObjectSize(decimalValue));
-        DecimalSerializer.INSTANCE.serialize(decimalValue, bytes.bytes, pointer);
+        var decimalValue = (BigDecimal) value;
+        pointer = bytes.alloc(DecimalSerializer.staticGetObjectSize(decimalValue));
+        DecimalSerializer.staticSerialize(decimalValue, bytes.bytes, pointer);
         break;
       case BINARY:
         pointer = writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
       case LINKLIST:
-        Collection<Identifiable> ridCollection = (Collection<Identifiable>) value;
-        pointer = writeLinkCollection(bytes, ridCollection);
+        var ridCollection = (Collection<Identifiable>) value;
+        pointer = writeLinkCollection(session, bytes, ridCollection);
         break;
       case LINK:
         if (!(value instanceof Identifiable)) {
-          throw new ValidationException("Value '" + value + "' is not a Identifiable");
+          throw new ValidationException(session, "Value '" + value + "' is not a Identifiable");
         }
 
-        pointer = writeOptimizedLink(bytes, (Identifiable) value);
+        pointer = writeOptimizedLink(session, bytes, (Identifiable) value);
         break;
       case LINKMAP:
-        pointer = writeLinkMap(bytes, (Map<Object, Identifiable>) value);
+        pointer = writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
         break;
       case EMBEDDEDMAP:
         pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
         break;
       case LINKBAG:
-        pointer = ((RidBag) value).toStream(bytes);
-        break;
-      case CUSTOM:
-        if (!(value instanceof SerializableStream)) {
-          value = new SerializableWrapper((Serializable) value);
-        }
-        pointer = writeString(bytes, value.getClass().getName());
-        writeBinary(bytes, ((SerializableStream) value).toStream());
-        break;
-      case TRANSIENT:
-        break;
-      case ANY:
-        break;
+        throw new UnsupportedOperationException();
     }
     return pointer;
   }
 
-  private int writeBinary(final BytesContainer bytes, final byte[] valueBytes) {
-    final int pointer = VarIntSerializer.write(bytes, valueBytes.length);
-    final int start = bytes.alloc(valueBytes.length);
-    System.arraycopy(valueBytes, 0, bytes.bytes, start, valueBytes.length);
-    return pointer;
+  private static int writeBinary(final BytesContainer bytes, final byte[] valueBytes) {
+    return HelperClasses.writeBinary(bytes, valueBytes);
   }
 
-  private int writeLinkMap(final BytesContainer bytes, final Map<Object, Identifiable> map) {
-    final int fullPos = VarIntSerializer.write(bytes, map.size());
-    for (Entry<Object, Identifiable> entry : map.entrySet()) {
+  private int writeLinkMap(DatabaseSessionInternal db, final BytesContainer bytes,
+      final Map<Object, Identifiable> map) {
+    final var fullPos = VarIntSerializer.write(bytes, map.size());
+    for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      final PropertyType type = PropertyType.STRING;
+      final var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
         writeNullLink(bytes);
       } else {
-        writeOptimizedLink(bytes, entry.getValue());
+        writeOptimizedLink(db, bytes, entry.getValue());
       }
     }
     return fullPos;
@@ -699,14 +685,14 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
       Map<Object, Object> map,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
-    final int[] pos = new int[map.size()];
-    int i = 0;
+    final var pos = new int[map.size()];
+    var i = 0;
     Entry<Object, Object>[] values = new Entry[map.size()];
-    final int fullPos = VarIntSerializer.write(bytes, map.size());
-    for (Entry<Object, Object> entry : map.entrySet()) {
+    final var fullPos = VarIntSerializer.write(bytes, map.size());
+    for (var entry : map.entrySet()) {
       // TODO:check skip of complex types
       // FIXME: changed to support only string key on map
-      PropertyType type = PropertyType.STRING;
+      var type = PropertyTypeInternal.STRING;
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       pos[i] = bytes.alloc(IntegerSerializer.INT_SIZE + 1);
@@ -715,18 +701,18 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     }
 
     for (i = 0; i < values.length; i++) {
-      int pointer = 0;
-      final Object value = values[i].getValue();
+      var pointer = 0;
+      final var value = values[i].getValue();
       if (value != null) {
-        final PropertyType type = getTypeFromValueEmbedded(value);
+        final var type = getTypeFromValueEmbedded(value);
         if (type == null) {
-          throw new SerializationException(
+          throw new SerializationException(session,
               "Impossible serialize value of type "
                   + value.getClass()
                   + " with the EntityImpl binary serializer");
         }
         pointer = serializeValue(session, bytes, value, type, null, schema, encryption);
-        IntegerSerializer.INSTANCE.serializeLiteral(pointer, bytes.bytes, pos[i]);
+        IntegerSerializer.serializeLiteral(pointer, bytes.bytes, pos[i]);
         writeOType(bytes, (pos[i] + IntegerSerializer.INT_SIZE), type);
       }
     }
@@ -734,34 +720,33 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   private int writeNullLink(final BytesContainer bytes) {
-    final int pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
     return pos;
   }
 
-  private static int writeOptimizedLink(final BytesContainer bytes, Identifiable link) {
-    if (!link.getIdentity().isPersistent()) {
-      try {
-        link = link.getRecord();
-      } catch (RecordNotFoundException rnf) {
-        // ignore it
-      }
+  private static int writeOptimizedLink(DatabaseSessionInternal session, final BytesContainer bytes,
+      Identifiable link) {
+    var rid = link.getIdentity();
+    if (!rid.isPersistent()) {
+      rid = session.refreshRid(rid);
     }
 
-    final int pos = VarIntSerializer.write(bytes, link.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, link.getIdentity().getClusterPosition());
+    final var pos = VarIntSerializer.write(bytes, rid.getCollectionId());
+    VarIntSerializer.write(bytes, rid.getCollectionPosition());
     return pos;
   }
 
   private int writeLinkCollection(
-      final BytesContainer bytes, final Collection<Identifiable> value) {
-    final int pos = VarIntSerializer.write(bytes, value.size());
-    for (Identifiable itemValue : value) {
+      DatabaseSessionInternal db, final BytesContainer bytes,
+      final Collection<Identifiable> value) {
+    final var pos = VarIntSerializer.write(bytes, value.size());
+    for (var itemValue : value) {
       // TODO: handle the null links
       if (itemValue == null) {
         writeNullLink(bytes);
       } else {
-        writeOptimizedLink(bytes, itemValue);
+        writeOptimizedLink(db, bytes, itemValue);
       }
     }
 
@@ -771,19 +756,20 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   private int writeEmbeddedCollection(
       DatabaseSessionInternal session, final BytesContainer bytes,
       final Collection<?> value,
-      final PropertyType linkedType,
+      final PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
-    final int pos = VarIntSerializer.write(bytes, value.size());
+    final var pos = VarIntSerializer.write(bytes, value.size());
     // TODO manage embedded type from schema and auto-determined.
-    writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
-    for (Object itemValue : value) {
+    writeOType(bytes, bytes.alloc(1),
+        linkedType != null ? linkedType : PropertyTypeInternal.EMBEDDED);
+    for (var itemValue : value) {
       // TODO:manage in a better way null entry
       if (itemValue == null) {
-        writeOType(bytes, bytes.alloc(1), PropertyType.ANY);
+        writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
-      PropertyType type;
+      PropertyTypeInternal type;
       if (linkedType == null) {
         type = getTypeFromValueEmbedded(itemValue);
       } else {
@@ -793,7 +779,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
         writeOType(bytes, bytes.alloc(1), type);
         serializeValue(session, bytes, itemValue, type, null, schema, encryption);
       } else {
-        throw new SerializationException(
+        throw new SerializationException(session,
             "Impossible serialize value of type "
                 + value.getClass()
                 + " with the EntityImpl binary serializer");
@@ -802,40 +788,41 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return pos;
   }
 
-  private PropertyType getFieldType(final EntityEntry entry) {
-    PropertyType type = entry.type;
+  private PropertyTypeInternal getFieldType(DatabaseSessionInternal session,
+      final EntityEntry entry) {
+    var type = entry.type;
     if (type == null) {
-      final SchemaProperty prop = entry.property;
+      final var prop = entry.property;
       if (prop != null) {
-        type = prop.getType();
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
       }
     }
-    if (type == null || PropertyType.ANY == type) {
-      type = PropertyType.getTypeByValue(entry.value);
+    if (type == null) {
+      type = PropertyTypeInternal.getTypeByValue(entry.value);
     }
     return type;
   }
 
-  private PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
-    PropertyType type = PropertyType.getTypeByValue(fieldValue);
-    if (type == PropertyType.LINK
+  private PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
+    var type = PropertyTypeInternal.getTypeByValue(fieldValue);
+    if (type == PropertyTypeInternal.LINK
         && fieldValue instanceof EntityImpl
-        && !((EntityImpl) fieldValue).getIdentity().isValid()) {
-      type = PropertyType.EMBEDDED;
+        && !((EntityImpl) fieldValue).getIdentity().isValidPosition()) {
+      type = PropertyTypeInternal.EMBEDDED;
     }
     return type;
   }
 
   protected String readString(final BytesContainer bytes) {
-    final int len = VarIntSerializer.readAsInteger(bytes);
-    final String res = stringFromBytes(bytes.bytes, bytes.offset, len);
+    final var len = VarIntSerializer.readAsInteger(bytes);
+    final var res = stringFromBytes(bytes.bytes, bytes.offset, len);
     bytes.skip(len);
     return res;
   }
 
-  protected int readInteger(final BytesContainer container) {
-    final int value =
-        IntegerSerializer.INSTANCE.deserializeLiteral(container.bytes, container.offset);
+  protected static int readInteger(final BytesContainer container) {
+    final var value =
+        IntegerSerializer.deserializeLiteral(container.bytes, container.offset);
     container.offset += IntegerSerializer.INT_SIZE;
     return value;
   }
@@ -844,9 +831,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
     return container.bytes[container.offset++];
   }
 
-  private long readLong(final BytesContainer container) {
-    final long value =
-        LongSerializer.INSTANCE.deserializeLiteral(container.bytes, container.offset);
+  private static long readLong(final BytesContainer container) {
+    final var value =
+        LongSerializer.deserializeLiteral(container.bytes, container.offset);
     container.offset += LongSerializer.LONG_SIZE;
     return value;
   }
@@ -856,9 +843,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   private int writeString(final BytesContainer bytes, final String toWrite) {
-    final byte[] nameBytes = bytesFromString(toWrite);
-    final int pointer = VarIntSerializer.write(bytes, nameBytes.length);
-    final int start = bytes.alloc(nameBytes.length);
+    final var nameBytes = bytesFromString(toWrite);
+    final var pointer = VarIntSerializer.write(bytes, nameBytes.length);
+    final var start = bytes.alloc(nameBytes.length);
     System.arraycopy(nameBytes, 0, bytes.bytes, start, nameBytes.length);
     return pointer;
   }
@@ -873,7 +860,7 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
 
   @Override
   public BinaryField deserializeField(
-      final BytesContainer bytes,
+      DatabaseSessionInternal db, final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
       boolean embedded,
@@ -890,9 +877,9 @@ public class RecordSerializerNetworkV0 implements EntitySerializer {
   }
 
   private long convertDayToTimezone(TimeZone from, TimeZone to, long time) {
-    Calendar fromCalendar = Calendar.getInstance(from);
+    var fromCalendar = Calendar.getInstance(from);
     fromCalendar.setTimeInMillis(time);
-    Calendar toCalendar = Calendar.getInstance(to);
+    var toCalendar = Calendar.getInstance(to);
     toCalendar.setTimeInMillis(0);
     toCalendar.set(Calendar.ERA, fromCalendar.get(Calendar.ERA));
     toCalendar.set(Calendar.YEAR, fromCalendar.get(Calendar.YEAR));

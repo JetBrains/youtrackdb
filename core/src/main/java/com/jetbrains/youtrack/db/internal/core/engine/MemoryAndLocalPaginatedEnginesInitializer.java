@@ -19,17 +19,17 @@
 
 package com.jetbrains.youtrack.db.internal.core.engine;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Memory;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import java.util.Locale;
 
 /**
- * Manages common initialization logic for memory and plocal engines. These engines are tight
+ * Manages common initialization logic for memory and disk engines. These engines are tight
  * together through dependency to {@link ByteBufferPool}, which is hard to reconfigure if
  * initialization logic is separate.
  */
@@ -44,7 +44,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
   private boolean initialized = false;
 
   /**
-   * Initializes common parts of memory and plocal engines if not initialized yet. Does nothing if
+   * Initializes common parts of memory and disk engines if not initialized yet. Does nothing if
    * engines already initialized.
    */
   public void initialize() {
@@ -70,7 +70,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
   }
 
   private void configureDefaultWalRestoreBatchSize() {
-    final long jvmMaxMemory = Runtime.getRuntime().maxMemory();
+    final var jvmMaxMemory = Runtime.getRuntime().maxMemory();
     if (jvmMaxMemory > 2L * FileUtils.GIGABYTE)
     // INCREASE WAL RESTORE BATCH SIZE TO 50K INSTEAD OF DEFAULT 1K
     {
@@ -83,7 +83,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
   }
 
   private void configureDefaultDiskCacheSize() {
-    final Native.MemoryLimitResult osMemory = Native.instance().getMemoryLimit(true);
+    final var osMemory = Native.instance().getMemoryLimit(true);
     if (osMemory == null) {
       LogManager.instance()
           .warn(
@@ -93,13 +93,13 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
       return;
     }
 
-    final long jvmMaxMemory = Memory.getCappedRuntimeMaxMemory(2L * 1024 * 1024 * 1024 /* 2GB */);
+    final var jvmMaxMemory = Memory.getCappedRuntimeMaxMemory(2L * 1024 * 1024 * 1024 /* 2GB */);
     LogManager.instance()
         .info(this, "JVM can use maximum %dMB of heap memory", jvmMaxMemory / (1024 * 1024));
 
     long diskCacheInMB;
     if (osMemory.insideContainer) {
-      final Object[] additionalArgs =
+      final var additionalArgs =
           new Object[]{
               GlobalConfiguration.MEMORY_LEFT_TO_CONTAINER.getValueAsString(),
               GlobalConfiguration.MEMORY_LEFT_TO_CONTAINER.getKey()
@@ -119,7 +119,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
               - jvmMaxMemory)
               / (1024 * 1024);
     } else {
-      final Object[] additionalArgs =
+      final var additionalArgs =
           new Object[]{
               GlobalConfiguration.MEMORY_LEFT_TO_OS.getValueAsString(),
               GlobalConfiguration.MEMORY_LEFT_TO_OS.getKey()
@@ -187,9 +187,9 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
       return memoryLimit;
     }
 
-    final char lastChar = memoryLeft.charAt(memoryLeft.length() - 1);
+    final var lastChar = memoryLeft.charAt(memoryLeft.length() - 1);
     if (lastChar == '%') {
-      final String percentValue = memoryLeft.substring(0, memoryLeft.length() - 1);
+      final var percentValue = memoryLeft.substring(0, memoryLeft.length() - 1);
 
       final int percent;
       try {
@@ -206,7 +206,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
 
       return (int) ((memoryLimit * (100.0 - percent)) / 100.0);
     } else if (lastChar == 'b') {
-      final String bytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
+      final var bytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
       final long bytes;
       try {
         bytes = Long.parseLong(bytesValue);
@@ -222,7 +222,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
 
       return memoryLimit - bytes;
     } else if (lastChar == 'k') {
-      final String kbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
+      final var kbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
       final long kbytes;
       try {
         kbytes = Long.parseLong(kbytesValue);
@@ -231,7 +231,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
         return memoryLimit;
       }
 
-      final long bytes = kbytes * 1024;
+      final var bytes = kbytes * 1024;
       if (bytes < 0) {
         warningInvalidMemoryLeftValue(parameter, memoryLeft);
         return memoryLimit;
@@ -239,7 +239,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
 
       return memoryLimit - bytes;
     } else if (lastChar == 'm') {
-      final String mbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
+      final var mbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
       final long mbytes;
       try {
         mbytes = Long.parseLong(mbytesValue);
@@ -248,7 +248,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
         return memoryLimit;
       }
 
-      final long bytes = mbytes * 1024 * 1024;
+      final var bytes = mbytes * 1024 * 1024;
       if (bytes < 0) {
         warningInvalidMemoryLeftValue(parameter, memoryLeft);
         return memoryLimit;
@@ -256,7 +256,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
 
       return memoryLimit - bytes;
     } else if (lastChar == 'g') {
-      final String gbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
+      final var gbytesValue = memoryLeft.substring(0, memoryLeft.length() - 1);
       final long gbytes;
       try {
         gbytes = Long.parseLong(gbytesValue);
@@ -265,7 +265,7 @@ public class MemoryAndLocalPaginatedEnginesInitializer {
         return memoryLimit;
       }
 
-      final long bytes = gbytes * 1024 * 1024 * 1024;
+      final var bytes = gbytes * 1024 * 1024 * 1024;
       if (bytes < 0) {
         warningInvalidMemoryLeftValue(parameter, memoryLeft);
         return memoryLimit;

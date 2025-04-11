@@ -2,12 +2,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.sequence;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Returns a sequence by name.
@@ -23,10 +22,10 @@ public class SQLFunctionSequence extends SQLFunctionConfigurableAbstract {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
-      CommandContext iContext) {
+      CommandContext context) {
     final String seqName;
     if (configuredParameters != null
         && configuredParameters.length > 0
@@ -35,23 +34,23 @@ public class SQLFunctionSequence extends SQLFunctionConfigurableAbstract {
       seqName =
           (String)
               ((SQLFilterItem) configuredParameters[0])
-                  .getValue(iCurrentRecord, iCurrentResult, iContext);
+                  .getValue(iCurrentRecord, iCurrentResult, context);
     } else {
       seqName = "" + iParams[0];
     }
 
-    DBSequence result =
-        DatabaseRecordThreadLocal.instance()
-            .get()
-            .getMetadata()
-            .getSequenceLibrary()
-            .getSequence(seqName);
+    var result = context.getDatabaseSession()
+        .getMetadata()
+        .getSequenceLibrary()
+        .getSequence(seqName);
     if (result == null) {
-      throw new CommandExecutionException("Sequence not found: " + seqName);
+      throw new CommandExecutionException(context.getDatabaseSession(),
+          "Sequence not found: " + seqName);
     }
     return result;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

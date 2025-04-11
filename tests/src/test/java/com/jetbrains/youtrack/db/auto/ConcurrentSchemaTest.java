@@ -20,12 +20,12 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.test.ConcurrentTestHelper;
 import com.jetbrains.youtrack.db.internal.test.TestFactory;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -46,17 +46,21 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     @Override
     public Void call() {
       this.id = createClassThreadCounter.getAndIncrement();
-      for (int i = 0; i < CYCLES; i++) {
+      for (var i = 0; i < CYCLES; i++) {
         DatabaseSession db = acquireSession();
         try {
-          final String clsName = "ConcurrentClassTest-" + id + "-" + i;
+          final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
-          SchemaClass cls = database.getMetadata().getSchema().createClass(clsName);
+          var cls = ConcurrentSchemaTest.this.session.getMetadata().getSchema()
+              .createClass(clsName);
 
           Assert.assertEquals(cls.getName(), clsName);
-          Assert.assertTrue(database.getMetadata().getSchema().existsClass(clsName));
+          Assert.assertTrue(
+              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
 
-          db.command("select from " + clsName).close();
+          db.executeInTx(transaction -> {
+            transaction.execute("select from " + clsName).close();
+          });
 
           counter.incrementAndGet();
         } finally {
@@ -77,14 +81,16 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     @Override
     public Void call() {
       this.id = dropClassThreadCounter.getAndIncrement();
-      for (int i = 0; i < CYCLES; i++) {
+      for (var i = 0; i < CYCLES; i++) {
         DatabaseSession db = acquireSession();
         try {
-          final String clsName = "ConcurrentClassTest-" + id + "-" + i;
+          final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
-          Assert.assertTrue(database.getMetadata().getSchema().existsClass(clsName));
-          database.getMetadata().getSchema().dropClass(clsName);
-          Assert.assertFalse(database.getMetadata().getSchema().existsClass(clsName));
+          Assert.assertTrue(
+              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
+          ConcurrentSchemaTest.this.session.getMetadata().getSchema().dropClass(clsName);
+          Assert.assertFalse(
+              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
 
           counter.decrementAndGet();
         } finally {
@@ -96,8 +102,8 @@ public class ConcurrentSchemaTest extends BaseDBTest {
   }
 
   @Parameters(value = "remote")
-  public ConcurrentSchemaTest(boolean remote) {
-    super(remote);
+  public ConcurrentSchemaTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
@@ -113,10 +119,10 @@ public class ConcurrentSchemaTest extends BaseDBTest {
 
     //    System.out.println("Create classes, checking...");
 
-    for (int id = 0; id < THREADS; ++id) {
-      for (int i = 0; i < CYCLES; ++i) {
-        final String clsName = "ConcurrentClassTest-" + id + "-" + i;
-        Assert.assertTrue(database.getMetadata().getSchema().existsClass(clsName));
+    for (var id = 0; id < THREADS; ++id) {
+      for (var i = 0; i < CYCLES; ++i) {
+        final var clsName = "ConcurrentClassTest-" + id + "-" + i;
+        Assert.assertTrue(session.getMetadata().getSchema().existsClass(clsName));
       }
     }
 

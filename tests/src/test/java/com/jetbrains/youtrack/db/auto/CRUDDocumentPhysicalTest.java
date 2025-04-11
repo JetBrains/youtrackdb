@@ -15,23 +15,17 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.testng.Assert.fail;
+
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -41,7 +35,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
@@ -64,30 +57,31 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     createProfileClass();
     createCompanyClass();
+    addBarackObamaAndFollowers();
   }
 
   @Test
   public void create() {
-    database.begin();
-    database.command("delete from Account").close();
-    database.commit();
+    session.executeInTx(transaction -> session.execute("delete from Account").close());
 
-    Assert.assertEquals(database.countClass("Account"), 0);
+    session.executeInTx(transaction ->
+        Assert.assertEquals(session.countClass("Account"), 0)
+    );
 
     fillInAccountData();
 
-    database.begin();
-    database.command("delete from Profile").close();
-    database.commit();
+    session.executeInTx(transaction -> session.execute("delete from Profile").close());
 
-    Assert.assertEquals(database.countClass("Profile"), 0);
+    session.executeInTx(transaction ->
+        Assert.assertEquals(session.countClass("Profile"), 0)
+    );
 
     generateCompanyData();
   }
 
   @Test(dependsOnMethods = "create")
   public void testCreate() {
-    Assert.assertEquals(database.countClass("Account", false), TOT_RECORDS_ACCOUNT);
+    Assert.assertEquals(session.countClass("Account", false), TOT_RECORDS_ACCOUNT);
   }
 
   @Test(dependsOnMethods = "testCreate")
@@ -96,245 +90,248 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     byte[] binary;
 
     Set<Integer> ids = new HashSet<>();
-    for (int i = 0; i < TOT_RECORDS_ACCOUNT; i++) {
+    for (var i = 0; i < TOT_RECORDS_ACCOUNT; i++) {
       ids.add(i);
     }
 
-    var it = database.browseClass("Account", false);
-    for (it.last(); it.hasPrevious(); ) {
-      EntityImpl rec = it.previous();
+    session.begin();
+    final var idsForward = new ArrayList<RecordId>();
+    final var idsBackward = new ArrayList<RecordId>();
+    session
+        .browseClass("Account", false, true)
+        .forEachRemaining(rec -> {
+          idsForward.add(rec.getIdentity());
+        });
 
-      if (rec != null) {
-        int id = ((Number) rec.field("id")).intValue();
-        Assert.assertTrue(ids.remove(id));
-        Assert.assertEquals(rec.field("name"), "Gipsy");
-        Assert.assertEquals(rec.field("location"), "Italy");
-        Assert.assertEquals(((Number) rec.field("testLong")).longValue(), 10000000000L);
-        Assert.assertEquals(((Number) rec.field("salary")).intValue(), id + 300);
-        Assert.assertNotNull(rec.field("extra"));
-        Assert.assertEquals(((Byte) rec.field("value", Byte.class)).byteValue(), (byte) 10);
+    var it = session.browseClass("Account", false, false);
+    while (it.hasNext()) {
+      var rec = it.next();
+      idsBackward.add(rec.getIdentity());
 
-        binary = rec.field("binary", PropertyType.BINARY);
+      var id = ((Number) rec.getProperty("id")).intValue();
+      Assert.assertTrue(ids.remove(id));
+      Assert.assertEquals(rec.getProperty("name"), "Gipsy");
+      Assert.assertEquals(rec.getProperty("location"), "Italy");
+      Assert.assertEquals(((Number) rec.getProperty("testLong")).longValue(), 10000000000L);
+      Assert.assertEquals(((Number) rec.getProperty("salary")).intValue(), id + 300);
+      Assert.assertNotNull(rec.getProperty("extra"));
+      Assert.assertEquals(rec.getByte("value"), (byte) 10);
 
-        for (int b = 0; b < binary.length; ++b) {
-          Assert.assertEquals(binary[b], (byte) b);
-        }
+      binary = rec.getBinary("binary");
+
+      for (var b = 0; b < binary.length; ++b) {
+        Assert.assertEquals(binary[b], (byte) b);
       }
     }
+    session.commit();
 
-    Assert.assertTrue(ids.isEmpty());
+    assertThat(ids).isEmpty();
+    assertThat(idsBackward).isEqualTo(idsForward.reversed());
   }
 
   @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
   public void update() {
-    int[] i = new int[1];
+    var i = new int[1];
 
-    var iterator = (Iterator<EntityImpl>) database.<EntityImpl>browseCluster("Account");
-    database.forEachInTx(iterator, (session, rec) -> {
-      if (i[0] % 2 == 0) {
-        rec.field("location", "Spain");
-      }
+    session.executeInTx(tx -> {
+      var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
+      session.forEachInTx(iterator, (session, rec) -> {
+        rec = session.load(rec);
+        if (i[0] % 2 == 0) {
+          rec.setProperty("location", "Spain");
+        }
 
-      rec.field("price", i[0] + 100);
+        rec.setProperty("price", i[0] + 100);
 
-      rec.save();
-
-      i[0]++;
+        i[0]++;
+      });
     });
   }
 
   @Test(dependsOnMethods = "update")
   public void testUpdate() {
-    for (EntityImpl rec : database.<EntityImpl>browseCluster("Account")) {
-      int price = ((Number) rec.field("price")).intValue();
+    session.begin();
+    var entityIterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
+    while (entityIterator.hasNext()) {
+      var rec = entityIterator.next();
+      var price = ((Number) rec.getProperty("price")).intValue();
       Assert.assertTrue(price - 100 >= 0);
 
       if ((price - 100) % 2 == 0) {
-        Assert.assertEquals(rec.field("location"), "Spain");
+        Assert.assertEquals(rec.getProperty("location"), "Spain");
       } else {
-        Assert.assertEquals(rec.field("location"), "Italy");
+        Assert.assertEquals(rec.getProperty("location"), "Italy");
       }
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testUpdate")
   public void testDoubleChanges() {
     checkEmbeddedDB();
 
-    final Set<Integer> profileClusterIds =
-        Arrays.stream(database.getMetadata().getSchema().getClass("Profile").getClusterIds())
+    final Set<Integer> profileCollectionIds =
+        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getCollectionIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
 
-    database.begin();
-    EntityImpl vDoc = database.newInstance();
-    vDoc.setClassName("Profile");
-    vDoc.field("nick", "JayM1").field("name", "Jay").field("surname", "Miner");
-    vDoc.save();
+    session.begin();
+    EntityImpl vDoc = session.newInstance("Profile");
+    vDoc.setPropertyInChain("nick", "JayM1").setPropertyInChain("name", "Jay")
+        .setProperty("surname", "Miner");
 
-    Assert.assertTrue(profileClusterIds.contains(vDoc.getIdentity().getClusterId()));
+    Assert.assertTrue(profileCollectionIds.contains(vDoc.getIdentity().getCollectionId()));
 
-    vDoc = database.load(vDoc.getIdentity());
-    vDoc.field("nick", "JayM2");
-    vDoc.field("nick", "JayM3");
-    vDoc.save();
-    database.commit();
+    vDoc = session.load(vDoc.getIdentity());
+    vDoc.setProperty("nick", "JayM2");
+    vDoc.setProperty("nick", "JayM3");
 
-    Collection<Index> indexes =
-        database.getMetadata().getSchemaInternal().getClassInternal("Profile")
+    session.commit();
+
+    var indexes =
+        session.getMetadata().getSchemaInternal().getClassInternal("Profile")
             .getPropertyInternal("nick")
-            .getAllIndexesInternal(database);
+            .getAllIndexesInternal();
 
     Assert.assertEquals(indexes.size(), 1);
 
-    Index indexDefinition = indexes.iterator().next();
-    try (final Stream<RID> stream = indexDefinition.getInternal().getRids(database, "JayM1")) {
+    var indexDefinition = indexes.iterator().next();
+    try (final var stream = indexDefinition.getRids(session, "JayM1")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
-    try (final Stream<RID> stream = indexDefinition.getInternal().getRids(database, "JayM2")) {
+    try (final var stream = indexDefinition.getRids(session, "JayM2")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
 
-    try (Stream<RID> stream = indexDefinition.getInternal().getRids(database, "JayM3")) {
+    try (var stream = indexDefinition.getRids(session, "JayM3")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
 
   @Test(dependsOnMethods = "testDoubleChanges")
   public void testMultiValues() {
-    database.begin();
-    EntityImpl vDoc = database.newInstance();
-    vDoc.setClassName("Profile");
-    vDoc.field("nick", "Jacky").field("name", "Jack").field("surname", "Tramiel");
-    vDoc.save();
+    session.begin();
+    EntityImpl vDoc = session.newInstance("Profile");
+    vDoc.setPropertyInChain("nick", "Jacky").setPropertyInChain("name", "Jack")
+        .setProperty("surname", "Tramiel");
 
     // add a new record with the same name "nameA".
-    vDoc = database.newInstance();
-    vDoc.setClassName("Profile");
-    vDoc.field("nick", "Jack").field("name", "Jack").field("surname", "Bauer");
-    vDoc.save();
-    database.commit();
+    vDoc = session.newInstance("Profile");
+    vDoc.setPropertyInChain("nick", "Jack").setPropertyInChain("name", "Jack")
+        .setProperty("surname", "Bauer");
 
-    Collection<Index> indexes =
-        database.getMetadata().getSchemaInternal().getClassInternal("Profile")
+    session.commit();
+
+    var indexes =
+        session.getMetadata().getSchemaInternal().getClassInternal("Profile")
             .getPropertyInternal("name")
-            .getAllIndexesInternal(database);
+            .getAllIndexesInternal();
     Assert.assertEquals(indexes.size(), 1);
 
-    Index indexName = indexes.iterator().next();
+    var indexName = indexes.iterator().next();
     // We must get 2 records for "nameA".
-    try (Stream<RID> stream = indexName.getInternal().getRids(database, "Jack")) {
+    try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 2);
     }
 
-    database.begin();
+    session.begin();
     // Remove this last record.
-    database.delete(database.bindToSession(vDoc));
-    database.commit();
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<EntityImpl>load(vDoc));
+    session.commit();
 
     // We must get 1 record for "nameA".
-    try (Stream<RID> stream = indexName.getInternal().getRids(database, "Jack")) {
+    try (var stream = indexName.getRids(session, "Jack")) {
       Assert.assertEquals(stream.count(), 1);
     }
   }
 
   @Test(dependsOnMethods = "testMultiValues")
   public void testUnderscoreField() {
-    database.begin();
-    EntityImpl vDoc = database.newInstance();
-    vDoc.setClassName("Profile");
-    vDoc.field("nick", "MostFamousJack")
-        .field("name", "Kiefer")
-        .field("surname", "Sutherland")
-        .field("tag_list", new String[]{"actor", "myth"});
-    vDoc.save();
-    database.commit();
+    session.begin();
+    EntityImpl vDoc = session.newInstance("Profile");
+    vDoc.setPropertyInChain("nick", "MostFamousJack")
+        .setPropertyInChain("name", "Kiefer")
+        .setPropertyInChain("surname", "Sutherland")
+        .getOrCreateEmbeddedList("tag_list").addAll(List.of(
+            "actor", "myth"
+        ));
 
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from Profile where name = 'Kiefer' and tag_list.size() > 0 "))
-            .execute(database);
+    session.commit();
+
+    final var result =
+        session
+            .query("select from Profile where name = 'Kiefer' and tag_list.size() > 0 ")
+            .toList();
 
     Assert.assertEquals(result.size(), 1);
   }
 
   public void testLazyLoadingByLink() {
-    database.begin();
-    EntityImpl coreDoc = new EntityImpl();
-    EntityImpl linkDoc = new EntityImpl();
+    session.begin();
+    var coreDoc = ((EntityImpl) session.newEntity());
+    var linkDoc = ((EntityImpl) session.newEntity());
 
-    linkDoc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    coreDoc.field("link", linkDoc);
-    coreDoc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    coreDoc.setProperty("link", linkDoc);
 
-    EntityImpl coreDocCopy = database.load(coreDoc.getIdentity());
+    session.commit();
+
+    session.begin();
+    EntityImpl coreDocCopy = session.load(coreDoc.getIdentity());
     Assert.assertNotSame(coreDocCopy, coreDoc);
 
     coreDocCopy.setLazyLoad(false);
-    Assert.assertTrue(coreDocCopy.field("link") instanceof RecordId);
+    Assert.assertTrue(coreDocCopy.getProperty("link") instanceof RecordId);
     coreDocCopy.setLazyLoad(true);
-    Assert.assertTrue(coreDocCopy.field("link") instanceof EntityImpl);
+    Assert.assertTrue(coreDocCopy.getProperty("link") instanceof EntityImpl);
+    session.commit();
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testDbCacheUpdated() {
-    database.createClassIfNotExist("Profile");
-    database.begin();
-    EntityImpl vDoc = database.newInstance();
-    vDoc.setClassName("Profile");
+    session.createClassIfNotExist("Profile");
+    session.begin();
 
-    Set<String> tags = new HashSet<>();
+    final var vDoc = session.newInstance("Profile");
+    final var tags = session.newEmbeddedSet();
     tags.add("test");
     tags.add("yeah");
 
-    vDoc.field("nick", "Dexter")
-        .field("name", "Michael")
-        .field("surname", "Hall")
-        .field("tag_list", tags);
-    vDoc.save();
-    database.commit();
+    vDoc.setPropertyInChain("nick", "Dexter")
+        .setPropertyInChain("name", "Michael")
+        .setPropertyInChain("surname", "Hall")
+        .setProperty("tag_list", tags);
 
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from Profile where name = 'Michael'"))
-            .execute(database);
+    session.executeInTx(transaction -> {
 
-    Assert.assertEquals(result.size(), 1);
-    EntityImpl dexter = result.get(0);
+      final var result =
+          session.query("select from Profile where name = 'Michael'").entityStream().toList();
 
-    database.begin();
-    dexter = database.bindToSession(dexter);
-    ((Collection<String>) dexter.field("tag_list")).add("actor");
+      Assert.assertEquals(result.size(), 1);
+      var dexter = result.getFirst();
 
-    dexter.setDirty();
-    dexter.save();
-    database.commit();
+      session.begin();
+      var activeTx = session.getActiveTransaction();
+      dexter = activeTx.load(dexter);
+      ((Collection<String>) dexter.getProperty("tag_list")).add("actor");
+    });
 
-    //noinspection deprecation
-    result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from Profile where tag_list contains 'actor' and tag_list contains"
-                        + " 'test'"))
-            .execute(database);
-    Assert.assertEquals(result.size(), 1);
+    session.executeInTx(transaction -> {
+      final var result = session
+          .query("select from Profile where tag_list contains 'actor' and tag_list contains 'test'")
+          .toList();
+      Assert.assertEquals(result.size(), 1);
+    });
   }
 
   @Test(dependsOnMethods = "testUnderscoreField")
   public void testUpdateLazyDirtyPropagation() {
-    var iterator = (Iterator<EntityImpl>) database.<EntityImpl>browseCluster("Profile");
-    database.forEachInTx(iterator, (session, rec) -> {
+    var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Profile");
+    session.forEachInTx(iterator, (transaction, rec) -> {
       Assert.assertFalse(rec.isDirty());
-      Collection<?> followers = rec.field("followers");
+      Collection<?> followers = rec.getProperty("followers");
       if (followers != null && !followers.isEmpty()) {
         followers.remove(followers.iterator().next());
         Assert.assertTrue(rec.isDirty());
@@ -347,47 +344,49 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   @SuppressWarnings("unchecked")
   @Test
   public void testNestedEmbeddedMap() {
-    database.begin();
-    EntityImpl newDoc = new EntityImpl();
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
 
-    final Map<String, HashMap<?, ?>> map1 = new HashMap<>();
-    newDoc.field("map1", map1, PropertyType.EMBEDDEDMAP);
+    final Map<String, Map<String, ?>> map1 = session.newEmbeddedMap();
+    newDoc.setProperty("map1", map1, PropertyType.EMBEDDEDMAP);
 
-    final Map<String, HashMap<?, ?>> map2 = new HashMap<>();
-    map1.put("map2", (HashMap<?, ?>) map2);
+    final Map<String, Map<String, ?>> map2 = session.newEmbeddedMap();
+    map1.put("map2", map2);
 
-    final Map<String, HashMap<?, ?>> map3 = new HashMap<>();
-    map2.put("map3", (HashMap<?, ?>) map3);
-    newDoc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    final RecordId rid = newDoc.getIdentity();
-    database.commit();
+    final Map<String, ?> map3 = session.newEmbeddedMap();
+    map2.put("map3", map3);
 
-    newDoc = database.bindToSession(newDoc);
-    final EntityImpl loadedDoc = database.load(rid);
+    final var rid = newDoc.getIdentity();
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    newDoc = activeTx.load(newDoc);
+    final EntityImpl loadedDoc = session.load(rid);
     Assert.assertTrue(newDoc.hasSameContentOf(loadedDoc));
 
-    Assert.assertTrue(loadedDoc.containsField("map1"));
-    Assert.assertTrue(loadedDoc.field("map1") instanceof Map<?, ?>);
-    final Map<String, EntityImpl> loadedMap1 = loadedDoc.field("map1");
+    Assert.assertTrue(loadedDoc.hasProperty("map1"));
+    Assert.assertTrue(loadedDoc.getProperty("map1") instanceof Map<?, ?>);
+    final Map<String, EntityImpl> loadedMap1 = loadedDoc.getProperty("map1");
     Assert.assertEquals(loadedMap1.size(), 1);
 
     Assert.assertTrue(loadedMap1.containsKey("map2"));
     Assert.assertTrue(loadedMap1.get("map2") instanceof Map<?, ?>);
-    final Map<String, EntityImpl> loadedMap2 = (Map<String, EntityImpl>) loadedMap1.get("map2");
+    final var loadedMap2 = (Map<String, EntityImpl>) loadedMap1.get("map2");
     Assert.assertEquals(loadedMap2.size(), 1);
 
     Assert.assertTrue(loadedMap2.containsKey("map3"));
     Assert.assertTrue(loadedMap2.get("map3") instanceof Map<?, ?>);
-    final Map<String, EntityImpl> loadedMap3 = (Map<String, EntityImpl>) loadedMap2.get("map3");
+    final var loadedMap3 = (Map<String, EntityImpl>) loadedMap2.get("map3");
     Assert.assertEquals(loadedMap3.size(), 0);
+    session.commit();
   }
 
   @Test
   public void commandWithPositionalParameters() {
-    final SQLSynchQuery<EntityImpl> query =
-        new SQLSynchQuery<>("select from Profile where name = ? and surname = ?");
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = database.command(query).execute(database, "Barack", "Obama");
+    final var result = session
+        .query("select from Profile where name = ? and surname = ?", "Barack", "Obama")
+        .toList();
 
     Assert.assertFalse(result.isEmpty());
   }
@@ -396,48 +395,47 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   public void queryWithPositionalParameters() {
     addBarackObamaAndFollowers();
 
-    final SQLSynchQuery<EntityImpl> query =
-        new SQLSynchQuery<>("select from Profile where name = ? and surname = ?");
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = database.query(query, "Barack", "Obama");
+    final var result =
+        session
+            .query("select from Profile where name = ? and surname = ?", "Barack", "Obama")
+            .toList();
 
     Assert.assertFalse(result.isEmpty());
   }
 
   @Test
   public void commandWithNamedParameters() {
-    final SQLSynchQuery<EntityImpl> query =
-        new SQLSynchQuery<>("select from Profile where name = :name and surname = :surname");
+    final var query = "select from Profile where name = :name and surname = :surname";
 
-    HashMap<String, String> params = new HashMap<>();
+    var params = new HashMap<String, String>();
     params.put("name", "Barack");
     params.put("surname", "Obama");
 
     addBarackObamaAndFollowers();
 
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = database.command(query).execute(database, params);
+    final var result = session.query(query, params).toList();
     Assert.assertFalse(result.isEmpty());
   }
 
   @Test
   public void commandWrongParameterNames() {
-    EntityImpl doc = database.newInstance();
-    database.executeInTx(
-        () -> {
+    session.executeInTx(
+        transaction -> {
           try {
-            doc.field("a:b", 10);
-            Assert.fail();
+            EntityImpl doc = session.newInstance();
+            doc.setProperty("a:b", 10);
+            fail();
           } catch (IllegalArgumentException e) {
             Assert.assertTrue(true);
           }
         });
 
-    database.executeInTx(
-        () -> {
+    session.executeInTx(
+        transaction -> {
           try {
-            doc.field("a,b", 10);
-            Assert.fail();
+            EntityImpl doc = session.newInstance();
+            doc.setProperty("a,b", 10);
+            fail();
           } catch (IllegalArgumentException e) {
             Assert.assertTrue(true);
           }
@@ -448,102 +446,145 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   public void queryWithNamedParameters() {
     addBarackObamaAndFollowers();
 
-    final SQLSynchQuery<EntityImpl> query =
-        new SQLSynchQuery<>("select from Profile where name = :name and surname = :surname");
+    final var query = "select from Profile where name = :name and surname = :surname";
 
-    HashMap<String, String> params = new HashMap<>();
+    var params = new HashMap<String, String>();
     params.put("name", "Barack");
     params.put("surname", "Obama");
 
-    @SuppressWarnings("deprecation")
-    List<EntityImpl> result = database.query(query, params);
+    final var result = session.query(query, params).toList();
 
     Assert.assertFalse(result.isEmpty());
   }
 
+  public void testJSONMap() {
+    session.createClassIfNotExist("JsonMapTest");
+    session.executeInTx(tx -> {
+
+      var emptyMapDoc = tx.newEntity("JsonMapTest");
+      emptyMapDoc.updateFromJSON(
+          """
+              {
+                 "emptyMap": {},
+                 "nonEmptyMap": {"a": "b"}
+              }
+              """
+      );
+    });
+
+    session.executeInTx(tx -> {
+      final var object = tx.query("SELECT FROM JsonMapTest").toList().getFirst();
+
+      assertThat(object.getEmbeddedMap("emptyMap")).isEqualTo(Map.of());
+      assertThat(object.getEmbeddedMap("nonEmptyMap")).isEqualTo(Map.of("a", "b"));
+    });
+  }
+
   public void testJSONLinkd() {
-    database.createClassIfNotExist("PersonTest");
-    database.begin();
-    EntityImpl jaimeDoc = new EntityImpl("PersonTest");
-    jaimeDoc.field("name", "jaime");
-    jaimeDoc.save();
+    session.createClassIfNotExist("PersonTest");
+    session.begin();
+    var jaimeDoc = ((EntityImpl) session.newEntity("PersonTest"));
+    jaimeDoc.setProperty("name", "jaime");
 
-    EntityImpl cerseiDoc = new EntityImpl("PersonTest");
-    cerseiDoc.fromJSON(
-        "{\"@type\":\"d\",\"name\":\"cersei\",\"valonqar\":" + jaimeDoc.toJSON() + "}");
-    cerseiDoc.save();
-    database.commit();
+    var cerseiDoc = ((EntityImpl) session.newEntity("PersonTest"));
+    cerseiDoc.updateFromJSON(
+        """
+            {
+              "@type":"d",
+              "name":"cersei",
+              "valonqar":""" + jaimeDoc.toJSON("") + """
+            }""");
 
-    database.begin();
-    jaimeDoc = database.bindToSession(jaimeDoc);
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    jaimeDoc = activeTx.load(jaimeDoc);
     // The link between jamie and tyrion is not saved properly
-    EntityImpl tyrionDoc = new EntityImpl("PersonTest");
-    tyrionDoc.fromJSON(
-        "{\"@type\":\"d\",\"name\":\"tyrion\",\"emergency_contact\":{\"relationship\":\"brother\",\"contact\":"
-            + jaimeDoc.toJSON()
-            + "}}");
-    tyrionDoc.save();
-    database.commit();
+    var tyrionDoc = ((EntityImpl) session.newEntity("PersonTest"));
 
-    for (EntityImpl o : database.browseClass("PersonTest")) {
-      for (Identifiable id : database.query("traverse * from " + o.getIdentity().toString())
-          .stream().map(
-              r -> r.getIdentity().orElseThrow()).toList()) {
-        database.load(id.getIdentity()).toJSON();
+    tyrionDoc.updateFromJSON(
+        """
+            {
+                "@type":"d",
+                "name":"tyrion",
+                "emergency_contact":{
+                  "contact":""" + jaimeDoc.toJSON() + """
+                }
+            }"""
+    );
+
+    session.commit();
+
+    session.executeInTx(tx -> {
+      var entityIterator = session.browseClass("PersonTest");
+      while (entityIterator.hasNext()) {
+        var o = entityIterator.next();
+        for (Identifiable id :
+            tx.query("match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
+                    o.getIdentity())
+                .stream().map(result -> result.getLink("record")).toList()) {
+          tx.load(id.getIdentity()).toJSON();
+        }
       }
-    }
+    });
   }
 
   @Test
   public void testDirtyChild() {
-    EntityImpl parent = new EntityImpl();
+    session.executeInTx(transaction -> {
+      var parent = ((EntityImpl) session.newEntity());
 
-    EntityImpl child1 = new EntityImpl();
-    EntityInternalUtils.addOwner(child1, parent);
-    parent.field("child1", child1);
+      var child1 = ((EntityImpl) session.newEmbeddedEntity());
+      parent.setProperty("child1", child1);
 
-    Assert.assertTrue(child1.hasOwners());
+      Assert.assertTrue(child1.hasOwners());
 
-    EntityImpl child2 = new EntityImpl();
-    EntityInternalUtils.addOwner(child2, child1);
-    child1.field("child2", child2);
+      var child2 = ((EntityImpl) session.newEmbeddedEntity());
+      child1.setProperty("child2", child2);
 
-    Assert.assertTrue(child2.hasOwners());
+      Assert.assertTrue(child2.hasOwners());
 
-    // BEFORE FIRST TOSTREAM
-    Assert.assertTrue(parent.isDirty());
-    parent.toStream();
-    // AFTER TOSTREAM
-    Assert.assertTrue(parent.isDirty());
-    // CHANGE FIELDS VALUE (Automaticaly set dirty this child)
-    child1.field("child2", new EntityImpl());
-    Assert.assertTrue(parent.isDirty());
+      // BEFORE FIRST TOSTREAM
+      Assert.assertTrue(parent.isDirty());
+      parent.toStream();
+      // AFTER TOSTREAM
+      Assert.assertTrue(parent.isDirty());
+      // CHANGE FIELDS VALUE (Automaticaly set dirty this child)
+      child1.setPropertyInChain("child2", session.newEmbeddedEntity());
+      Assert.assertTrue(parent.isDirty());
+    });
   }
 
   public void testEncoding() {
-    String s = " \r\n\t:;,.|+*/\\=!?[]()'\"";
+    var s = " \r\n\t:;,.|+*/\\=!?[]()'\"";
 
-    database.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.field("test", s);
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("test", s);
 
-    doc = database.bindToSession(doc);
-    Assert.assertEquals(doc.field("test"), s);
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    Assert.assertEquals(doc.getProperty("test"), s);
+    session.commit();
   }
 
   @Test(dependsOnMethods = "create")
   public void polymorphicQuery() {
-    database.begin();
-    final RecordAbstract newAccount =
-        new EntityImpl("Account").field("name", "testInheritanceName");
-    newAccount.save();
-    database.commit();
+    session.begin();
+    final RecordAbstract newAccount = ((EntityImpl) session
+        .newEntity("Account"))
+        .setPropertyInChain("name", "testInheritanceName");
 
-    List<EntityImpl> superClassResult = executeQuery("select from Account");
+    session.commit();
 
-    List<EntityImpl> subClassResult = executeQuery("select from Company");
+    session.begin();
+    var superClassResult = executeQuery("select from Account");
+
+    var subClassResult = executeQuery("select from Company");
 
     Assert.assertFalse(superClassResult.isEmpty());
     Assert.assertFalse(subClassResult.isEmpty());
@@ -551,33 +592,40 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     // VERIFY ALL THE SUBCLASS RESULT ARE ALSO CONTAINED IN SUPERCLASS
     // RESULT
-    for (EntityImpl d : subClassResult) {
-      Assert.assertTrue(superClassResult.contains(d));
+    for (var result : subClassResult) {
+      Assert.assertTrue(superClassResult.contains(result));
     }
+    session.commit();
 
-    HashSet<EntityImpl> browsed = new HashSet<>();
-    for (EntityImpl d : database.browseClass("Account")) {
+    session.begin();
+    var browsed = new HashSet<EntityImpl>();
+    var entityIterator = session.browseClass("Account");
+    while (entityIterator.hasNext()) {
+      var d = entityIterator.next();
       Assert.assertFalse(browsed.contains(d));
       browsed.add(d);
     }
+    session.commit();
 
-    database.begin();
-    database.bindToSession(newAccount).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<RecordAbstract>load(newAccount).delete();
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testCreate")
   public void testBrowseClassHasNextTwice() {
+    session.begin();
     EntityImpl doc1 = null;
     //noinspection LoopStatementThatDoesntLoop
-    for (Iterator<EntityImpl> itDoc = database.browseClass("Account"); itDoc.hasNext(); ) {
+    for (Iterator<EntityImpl> itDoc = session.browseClass("Account"); itDoc.hasNext(); ) {
       doc1 = itDoc.next();
       break;
     }
 
     EntityImpl doc2 = null;
     //noinspection LoopStatementThatDoesntLoop
-    for (Iterator<EntityImpl> itDoc = database.browseClass("Account"); itDoc.hasNext(); ) {
+    for (Iterator<EntityImpl> itDoc = session.browseClass("Account"); itDoc.hasNext(); ) {
       //noinspection ResultOfMethodCallIgnored
       itDoc.hasNext();
       doc2 = itDoc.next();
@@ -585,20 +633,23 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     }
 
     Assert.assertEquals(doc1, doc2);
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testCreate")
   public void nonPolymorphicQuery() {
-    database.begin();
+    session.begin();
     final RecordAbstract newAccount =
-        new EntityImpl("Account").field("name", "testInheritanceName");
-    newAccount.save();
-    database.commit();
+        ((EntityImpl) session.newEntity("Account")).setPropertyInChain("name",
+            "testInheritanceName");
 
-    List<EntityImpl> allResult = executeQuery("select from Account");
-    List<EntityImpl> superClassResult = executeQuery(
+    session.commit();
+
+    session.begin();
+    var allResult = executeQuery("select from Account");
+    var superClassResult = executeQuery(
         "select from Account where @class = 'Account'");
-    List<EntityImpl> subClassResult = executeQuery(
+    var subClassResult = executeQuery(
         "select from Company where @class = 'Company'");
 
     Assert.assertFalse(allResult.isEmpty());
@@ -606,282 +657,154 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     Assert.assertFalse(subClassResult.isEmpty());
 
     // VERIFY ALL THE SUBCLASS RESULT ARE NOT CONTAINED IN SUPERCLASS RESULT
-    for (EntityImpl d : subClassResult) {
-      Assert.assertFalse(superClassResult.contains(d));
+    for (var r : subClassResult) {
+      Assert.assertFalse(superClassResult.contains(r));
     }
+    session.commit();
 
-    HashSet<EntityImpl> browsed = new HashSet<>();
-    for (EntityImpl d : database.browseClass("Account")) {
+    session.begin();
+    var browsed = new HashSet<EntityImpl>();
+    var entityIterator = session.browseClass("Account");
+    while (entityIterator.hasNext()) {
+      var d = entityIterator.next();
       Assert.assertFalse(browsed.contains(d));
       browsed.add(d);
     }
+    session.commit();
 
-    database.begin();
-    database.bindToSession(newAccount).delete();
-    database.commit();
-  }
-
-  @Test(dependsOnMethods = "testCreate")
-  public void testEmbeddeDocumentInTx() {
-    EntityImpl bank = database.newInstance("Account");
-    database.begin();
-
-    bank.field("Name", "MyBank");
-
-    EntityImpl bank2 = database.newInstance("Account");
-    bank.field("embedded", bank2, PropertyType.EMBEDDED);
-    bank.save();
-
-    database.commit();
-
-    database.close();
-
-    database = acquireSession();
-
-    database.begin();
-    bank = database.bindToSession(bank);
-    Assert.assertTrue(((EntityImpl) bank.field("embedded")).isEmbedded());
-    Assert.assertFalse(((EntityImpl) bank.field("embedded")).getIdentity().isPersistent());
-    database.rollback();
-
-    database.begin();
-    database.bindToSession(bank).delete();
-    database.commit();
-  }
-
-  @Test(dependsOnMethods = "testCreate")
-  public void testUpdateInChain() {
-    database.begin();
-    EntityImpl bank = database.newInstance("Account");
-    bank.field("name", "MyBankChained");
-
-    // EMBEDDED
-    EntityImpl embedded = database.<EntityImpl>newInstance("Account")
-        .field("name", "embedded1");
-    bank.field("embedded", embedded, PropertyType.EMBEDDED);
-
-    EntityImpl[] embeddeds =
-        new EntityImpl[]{
-            database.<EntityImpl>newInstance("Account").field("name", "embedded2"),
-            database.<EntityImpl>newInstance("Account").field("name", "embedded3")
-        };
-    bank.field("embeddeds", embeddeds, PropertyType.EMBEDDEDLIST);
-
-    // LINKED
-    EntityImpl linked = database.<EntityImpl>newInstance("Account").field("name", "linked1");
-    bank.field("linked", linked);
-
-    EntityImpl[] linkeds =
-        new EntityImpl[]{
-            database.<EntityImpl>newInstance("Account").field("name", "linked2"),
-            database.<EntityImpl>newInstance("Account").field("name", "linked3")
-        };
-    bank.field("linkeds", linkeds, PropertyType.LINKLIST);
-
-    bank.save();
-    database.commit();
-
-    database.close();
-    database = acquireSession();
-
-    database.begin();
-    bank = database.bindToSession(bank);
-    EntityImpl changedDoc1 = bank.field("embedded.total", 100);
-    // MUST CHANGE THE PARENT DOC BECAUSE IT'S EMBEDDED
-    Assert.assertEquals(changedDoc1.field("name"), "MyBankChained");
-    Assert.assertEquals(changedDoc1.<Object>field("embedded.total"), 100);
-
-    EntityImpl changedDoc2 = bank.field("embeddeds.total", 200);
-    // MUST CHANGE THE PARENT DOC BECAUSE IT'S EMBEDDED
-    Assert.assertEquals(changedDoc2.field("name"), "MyBankChained");
-
-    Collection<Integer> intEmbeddeds = changedDoc2.field("embeddeds.total");
-    for (Integer e : intEmbeddeds) {
-      Assert.assertEquals(e.intValue(), 200);
-    }
-
-    EntityImpl changedDoc3 = bank.field("linked.total", 300);
-    // MUST CHANGE THE LINKED DOCUMENT
-    Assert.assertEquals(changedDoc3.field("name"), "linked1");
-    Assert.assertEquals(changedDoc3.<Object>field("total"), 300);
-    database.commit();
-
-    database.begin();
-    bank = database.bindToSession(bank);
-    ((EntityImpl) bank.field("linked")).delete();
-    //noinspection unchecked
-    for (Identifiable l : (Collection<Identifiable>) bank.field("linkeds")) {
-      l.getRecord().delete();
-    }
-    bank.delete();
-    database.commit();
-  }
-
-  public void testSerialization() {
-    RecordSerializer current = DatabaseSessionAbstract.getDefaultSerializer();
-    DatabaseSessionAbstract.setDefaultSerializer(RecordSerializerSchemaAware2CSV.INSTANCE);
-    RecordSerializer dbser = database.getSerializer();
-    database.setSerializer(RecordSerializerSchemaAware2CSV.INSTANCE);
-    final byte[] streamOrigin =
-        "Account@html:{\"path\":\"html/layout\"},config:{\"title\":\"Github Admin\",\"modules\":(githubDisplay:\"github_display\")},complex:(simple1:\"string1\",one_level1:(simple2:\"string2\"),two_levels:(simple3:\"string3\",one_level2:(simple4:\"string4\")))"
-            .getBytes();
-    EntityImpl doc =
-        (EntityImpl)
-            RecordSerializerSchemaAware2CSV.INSTANCE.fromStream(database,
-                streamOrigin, new EntityImpl(), null);
-    doc.field("out");
-    final byte[] streamDest = RecordSerializerSchemaAware2CSV.INSTANCE.toStream(database, doc);
-    Assert.assertEquals(streamOrigin, streamDest);
-    DatabaseSessionAbstract.setDefaultSerializer(current);
-    database.setSerializer(dbser);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<RecordAbstract>load(newAccount).delete();
+    session.commit();
   }
 
   @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
   public void testUpdateNoVersionCheck() {
-    List<EntityImpl> result = executeQuery("select from Account");
+    session.begin();
+    var resultSet = executeQuery("select from Account");
 
-    database.begin();
-    EntityImpl doc = database.bindToSession(result.get(0));
-    doc.field("name", "modified");
-    int oldVersion = doc.getVersion();
+    var doc = (EntityImpl) resultSet.getFirst().asEntityOrNull();
+    doc.setProperty("name", "modified");
+    var oldVersion = doc.getVersion();
 
-    RecordInternal.setVersion(doc, -2);
+    final var rec = (RecordAbstract) doc;
+    rec.setVersion(-2);
 
-    doc.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    doc = database.bindToSession(doc);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
     Assert.assertEquals(doc.getVersion(), oldVersion);
-    Assert.assertEquals(doc.field("name"), "modified");
-    database.commit();
+    Assert.assertEquals(doc.getProperty("name"), "modified");
+    session.commit();
   }
 
+  @Test
   public void testCreateEmbddedClassDocument() {
-    final Schema schema = database.getMetadata().getSchema();
-    final String SUFFIX = "TESTCLUSTER1";
+    final Schema schema = session.getMetadata().getSchema();
 
-    SchemaClass testClass1 = schema.createClass("testCreateEmbddedClass1");
-    SchemaClass testClass2 = schema.createClass("testCreateEmbddedClass2");
-    testClass2.createProperty(database, "testClass1Property", PropertyType.EMBEDDED, testClass1);
-
-    int clusterId = database.addCluster("testCreateEmbddedClass2" + SUFFIX);
-    schema.getClass("testCreateEmbddedClass2").addClusterId(database, clusterId);
+    var testClass1 = schema.createAbstractClass("testCreateEmbddedClass1");
+    var testClass2 = schema.createClass("testCreateEmbddedClass2");
+    testClass2.createProperty("testClass1Property", PropertyType.EMBEDDED, testClass1);
 
     testClass1 = schema.getClass("testCreateEmbddedClass1");
     testClass2 = schema.getClass("testCreateEmbddedClass2");
 
-    database.begin();
-    EntityImpl testClass2Document = new EntityImpl(testClass2);
-    testClass2Document.field("testClass1Property", new EntityImpl(testClass1));
-    testClass2Document.save("testCreateEmbddedClass2" + SUFFIX);
-    database.commit();
+    session.begin();
+    var testClass2Document = ((EntityImpl) session.newEntity(testClass2));
+    testClass2Document.setPropertyInChain("testClass1Property",
+        session.newEmbeddedEntity(testClass1));
 
-    testClass2Document = database.load(testClass2Document.getIdentity());
+    session.commit();
+
+    session.begin();
+    testClass2Document = session.load(testClass2Document.getIdentity());
     Assert.assertNotNull(testClass2Document);
 
     Assert.assertEquals(testClass2Document.getSchemaClass(), testClass2);
 
-    EntityImpl embeddedDoc = testClass2Document.field("testClass1Property");
+    EntityImpl embeddedDoc = testClass2Document.getProperty("testClass1Property");
     Assert.assertEquals(embeddedDoc.getSchemaClass(), testClass1);
+    session.commit();
   }
 
   public void testRemoveAllLinkList() {
-    EntityImpl doc = new EntityImpl();
+    var doc = session.computeInTx(transaction -> session.newEntity());
 
-    final List<EntityImpl> allDocs = new ArrayList<>();
-
-    database.begin();
-    for (int i = 0; i < 10; i++) {
-      final EntityImpl linkDoc = new EntityImpl();
-      linkDoc.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var allDocs = session.newLinkList();
+    for (var i = 0; i < 10; i++) {
+      final var linkDoc = ((EntityImpl) session.newEntity());
 
       allDocs.add(linkDoc);
     }
-    doc.field("linkList", allDocs);
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    var activeTx3 = session.getActiveTransaction();
+    doc = activeTx3.load(doc);
+    doc.setProperty("linkList", allDocs);
+    session.commit();
 
-    database.begin();
-    final List<EntityImpl> docsToRemove = new ArrayList<>(allDocs.size() / 2);
-    for (int i = 0; i < 5; i++) {
+    session.begin();
+    final List<Identifiable> docsToRemove = new ArrayList<>(allDocs.size() / 2);
+    for (var i = 0; i < 5; i++) {
       docsToRemove.add(allDocs.get(i));
     }
 
-    doc = database.bindToSession(doc);
-    List<Identifiable> linkList = doc.field("linkList");
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
+    List<Identifiable> linkList = doc.getProperty("linkList");
     linkList.removeAll(docsToRemove);
 
     Assert.assertEquals(linkList.size(), 5);
 
-    for (int i = 5; i < 10; i++) {
+    for (var i = 5; i < 10; i++) {
       Assert.assertEquals(linkList.get(i - 5), allDocs.get(i));
     }
-    doc.save();
-    database.commit();
 
-    database.begin();
-    database.bindToSession(doc).save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    doc = database.bindToSession(doc);
-    linkList = doc.field("linkList");
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    activeTx1.load(doc);
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    linkList = doc.getProperty("linkList");
     Assert.assertEquals(linkList.size(), 5);
 
-    for (int i = 5; i < 10; i++) {
+    for (var i = 5; i < 10; i++) {
       Assert.assertEquals(linkList.get(i - 5), allDocs.get(i));
     }
-    database.commit();
+    session.commit();
   }
 
   public void testRemoveAndReload() {
     EntityImpl doc1;
 
-    database.begin();
+    session.begin();
     {
-      doc1 = new EntityImpl();
-      doc1.save(database.getClusterNameById(database.getDefaultClusterId()));
+      doc1 = ((EntityImpl) session.newEntity());
+
     }
-    database.commit();
+    session.commit();
 
-    database.begin();
-    doc1 = database.bindToSession(doc1);
-    database.delete(doc1);
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc1 = activeTx.load(doc1);
+    session.delete(doc1);
+    session.commit();
 
-    database.begin();
+    session.begin();
     try {
-      database.load(doc1.getIdentity());
-      Assert.fail();
+      session.load(doc1.getIdentity());
+      fail();
     } catch (RecordNotFoundException rnf) {
       // ignore
     }
 
-    database.commit();
-  }
-
-  @Test
-  public void testAny() {
-    database.command("create class TestExport").close();
-    database.command("create property TestExport.anything ANY").close();
-
-    database.begin();
-    database.command("insert into TestExport set anything = 3").close();
-    database.command("insert into TestExport set anything = 'Jay'").close();
-    database.command("insert into TestExport set anything = 2.3").close();
-    database.commit();
-
-    ResultSet result = database.command("select count(*) from TestExport where anything = 3");
-    Assert.assertNotNull(result);
-    Assert.assertEquals(result.stream().count(), 1);
-
-    result = database.command("select count(*) from TestExport where anything = 'Jay'");
-    Assert.assertNotNull(result);
-    Assert.assertEquals(result.stream().count(), 1);
-
-    result = database.command("select count(*) from TestExport where anything = 2.3");
-    Assert.assertNotNull(result);
-    Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
   }
 }

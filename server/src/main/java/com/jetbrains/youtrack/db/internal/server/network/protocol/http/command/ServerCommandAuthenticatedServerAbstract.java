@@ -19,13 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpSession;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
-import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Server based authenticated commands. Authenticates against the YouTrackDB server users found in
@@ -45,14 +44,14 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
   }
 
   @Override
-  public boolean beforeExecute(final OHttpRequest iRequest, final HttpResponse iResponse)
+  public boolean beforeExecute(final HttpRequest iRequest, final HttpResponse iResponse)
       throws IOException {
     super.beforeExecute(iRequest, iResponse);
     return authenticate(iRequest, iResponse, true);
   }
 
   protected boolean authenticate(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final boolean iAskForAuthentication,
       String resource)
@@ -73,7 +72,7 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
 
     if (iRequest.getAuthorization() != null) {
       // GET CREDENTIALS
-      final String[] authParts = iRequest.getAuthorization().split(":");
+      final var authParts = iRequest.getAuthorization().split(":");
       if (authParts.length != 2) {
         // NO USER : PASSWD
         sendAuthorizationRequest(iRequest, iResponse);
@@ -95,7 +94,7 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
   }
 
   protected boolean authenticate(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final boolean iAskForAuthentication)
       throws IOException {
@@ -107,22 +106,22 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
   }
 
   protected void sendNotAuthorizedResponse(
-      final OHttpRequest iRequest, final HttpResponse iResponse) throws IOException {
+      final HttpRequest iRequest, final HttpResponse iResponse) throws IOException {
     sendAuthorizationRequest(iRequest, iResponse);
   }
 
   protected void sendAuthorizationRequest(
-      final OHttpRequest iRequest, final HttpResponse iResponse) throws IOException {
+      final HttpRequest iRequest, final HttpResponse iResponse) throws IOException {
     // UNAUTHORIZED
     iRequest.setSessionId(SESSIONID_UNAUTHORIZED);
 
     String header = null;
-    String xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
+    var xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
     if (xRequestedWithHeader == null || !xRequestedWithHeader.equals("XMLHttpRequest")) {
       // Defaults to "WWW-Authenticate: Basic" if not an AJAX Request.
       header = server.getSecurity().getAuthenticationHeader(null);
 
-      Map<String, String> headers = server.getSecurity().getAuthenticationHeaders(null);
+      var headers = server.getSecurity().getAuthenticationHeaders(null);
       headers.entrySet().forEach(s -> iResponse.addHeader(s.getKey(), s.getValue()));
     }
 
@@ -131,7 +130,6 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
           iResponse,
           HttpUtils.STATUS_AUTH_CODE,
           HttpUtils.STATUS_AUTH_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "401 Unauthorized.",
           header);
     } else {
@@ -144,14 +142,15 @@ public abstract class ServerCommandAuthenticatedServerAbstract extends ServerCom
     }
   }
 
-  public String getUser(final OHttpRequest iRequest) {
-    HttpSession session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
+  @Nullable
+  public String getUser(final HttpRequest iRequest) {
+    var session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
     if (session != null) {
       return session.getUserName();
     }
     if (iRequest.getAuthorization() != null) {
       // GET CREDENTIALS
-      final String[] authParts = iRequest.getAuthorization().split(":");
+      final var authParts = iRequest.getAuthorization().split(":");
       if (authParts.length == 2) {
         return authParts[0];
       }

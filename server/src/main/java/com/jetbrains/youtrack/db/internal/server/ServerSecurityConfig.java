@@ -4,8 +4,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
 import com.jetbrains.youtrack.db.internal.core.security.Syslog;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfigurationManager;
-import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginInfo;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
 
 public class ServerSecurityConfig implements SecurityConfig {
 
@@ -23,7 +22,7 @@ public class ServerSecurityConfig implements SecurityConfig {
   public Syslog getSyslog() {
     if (sysLog == null && server != null) {
       if (server.getPluginManager() != null) {
-        ServerPluginInfo syslogPlugin = server.getPluginManager().getPluginByName("syslog");
+        var syslogPlugin = server.getPluginManager().getPluginByName("syslog");
         if (syslogPlugin != null) {
           sysLog = (Syslog) syslogPlugin.getInstance();
         }
@@ -35,10 +34,10 @@ public class ServerSecurityConfig implements SecurityConfig {
   @Override
   public String getConfigurationFile() {
     // Default
-    String configFile =
+    var configFile =
         SystemVariableResolver.resolveSystemVariables("${YOUTRACKDB_HOME}/config/security.json");
 
-    String ssf =
+    var ssf =
         server
             .getContextConfiguration()
             .getValueAsString(GlobalConfiguration.SERVER_SECURITY_FILE);

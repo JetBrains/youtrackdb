@@ -16,15 +16,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -37,10 +37,11 @@ public class SQLMethodValues extends AbstractSQLMethod {
     super(NAME);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -51,7 +52,7 @@ public class SQLMethodValues extends AbstractSQLMethod {
       var propertyNames = entity.getPropertyNames();
       var result = new ArrayList<>(propertyNames.size());
 
-      for (String propertyName : propertyNames) {
+      for (var propertyName : propertyNames) {
         result.add(entity.getProperty(propertyName));
       }
 
@@ -64,7 +65,7 @@ public class SQLMethodValues extends AbstractSQLMethod {
     }
     if (ioResult instanceof Collection) {
       List result = new ArrayList();
-      for (Object o : (Collection) ioResult) {
+      for (var o : (Collection) ioResult) {
         result.addAll((Collection) execute(iThis, iCurrentRecord, iContext, o, iParams));
       }
       return result;

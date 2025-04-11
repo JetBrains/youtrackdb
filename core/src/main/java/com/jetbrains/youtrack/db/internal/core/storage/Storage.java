@@ -19,27 +19,28 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.Backupable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
-import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
@@ -52,8 +53,6 @@ import javax.annotation.Nullable;
  * @see DirectMemoryStorage
  */
 public interface Storage extends Backupable, StorageInfo {
-
-  String CLUSTER_DEFAULT_NAME = "default";
 
   enum STATUS {
     CLOSED,
@@ -84,98 +83,89 @@ public interface Storage extends Backupable, StorageInfo {
 
   // CRUD OPERATIONS
   @Nonnull
-  RawBuffer readRecord(
-      DatabaseSessionInternal session, RecordId iRid,
-      boolean iIgnoreCache,
-      boolean prefetchRecords,
-      RecordCallback<RawBuffer> iCallback);
+  ReadRecordResult readRecord(
+      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+      boolean fetchNextRid);
 
   boolean recordExists(DatabaseSessionInternal session, RID rid);
 
   RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid);
 
-  boolean cleanOutRecord(
-      DatabaseSessionInternal session, RecordId recordId, int recordVersion, int iMode,
-      RecordCallback<Boolean> callback);
-
   // TX OPERATIONS
-  List<RecordOperation> commit(TransactionOptimistic iTx);
+  void commit(FrontendTransactionImpl iTx);
 
-  Set<String> getClusterNames();
+  Set<String> getCollectionNames();
 
-  Collection<? extends StorageCluster> getClusterInstances();
+  Collection<? extends StorageCollection> getCollectionInstances();
 
   /**
-   * Add a new cluster into the storage.
+   * Add a new collection into the storage.
    *
-   * @param database
-   * @param iClusterName name of the cluster
+   * @param iCollectionName name of the collection
    */
-  int addCluster(DatabaseSessionInternal database, String iClusterName, Object... iParameters);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName,
+      Object... iParameters);
+
+  int getAbsoluteLinkBagCounter(RID ownerId, String fieldName,  RID key);
 
   /**
-   * Add a new cluster into the storage.
+   * Add a new collection into the storage.
    *
-   * @param database
-   * @param iClusterName name of the cluster
-   * @param iRequestedId requested id of the cluster
+   * @param iCollectionName name of the collection
+   * @param iRequestedId    requested id of the collection
    */
-  int addCluster(DatabaseSessionInternal database, String iClusterName, int iRequestedId);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
 
-  boolean dropCluster(DatabaseSessionInternal session, String iClusterName);
+  boolean dropCollection(DatabaseSessionInternal session, String iCollectionName);
 
-  String getClusterName(DatabaseSessionInternal database, final int clusterId);
+  String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
-  boolean setClusterAttribute(final int id, StorageCluster.ATTRIBUTES attribute, Object value);
+  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute,
+      Object value);
 
   /**
-   * Drops a cluster.
+   * Drops a collection.
    *
    * @param database
-   * @param iId      id of the cluster to delete
+   * @param iId      id of the collection to delete
    * @return true if has been removed, otherwise false
    */
-  boolean dropCluster(DatabaseSessionInternal database, int iId);
+  boolean dropCollection(DatabaseSessionInternal database, int iId);
 
-  String getClusterNameById(final int clusterId);
+  String getCollectionNameById(final int collectionId);
 
-  long getClusterRecordsSizeById(final int clusterId);
+  long getCollectionRecordsSizeById(final int collectionId);
 
-  long getClusterRecordsSizeByName(final String clusterName);
+  long getCollectionRecordsSizeByName(final String collectionName);
 
-  String getClusterRecordConflictStrategy(final int clusterId);
+  String getCollectionRecordConflictStrategy(final int collectionId);
 
-  boolean isSystemCluster(final int clusterId);
+  boolean isSystemCollection(final int collectionId);
 
-  long getLastClusterPosition(final int clusterId);
+  long count(DatabaseSessionInternal session, int iCollectionId);
 
-  long getClusterNextPosition(final int clusterId);
+  long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones);
 
-  PaginatedCluster.RECORD_STATUS getRecordStatus(final RID rid);
+  long count(DatabaseSessionInternal session, int[] iCollectionIds);
 
-  long count(DatabaseSessionInternal session, int iClusterId);
-
-  long count(DatabaseSessionInternal session, int iClusterId, boolean countTombstones);
-
-  long count(DatabaseSessionInternal session, int[] iClusterIds);
-
-  long count(DatabaseSessionInternal session, int[] iClusterIds, boolean countTombstones);
+  long count(DatabaseSessionInternal session, int[] iCollectionIds, boolean countTombstones);
 
   /**
    * Returns the size of the database.
    */
   long getSize(DatabaseSessionInternal session);
 
+  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid);
+
   /**
    * Returns the total number of records.
    */
   long countRecords(DatabaseSessionInternal session);
 
-  void setDefaultClusterId(final int defaultClusterId);
+  int getCollectionIdByName(String iCollectionName);
 
-  int getClusterIdByName(String iClusterName);
-
-  String getPhysicalClusterNameById(int iClusterId);
+  String getPhysicalCollectionNameById(int iCollectionId);
 
   boolean checkForRecordValidity(PhysicalPosition ppos);
 
@@ -190,31 +180,17 @@ public interface Storage extends Backupable, StorageInfo {
 
   void synch();
 
-  /**
-   * Execute the command request and return the result back.
-   */
-  Object command(DatabaseSessionInternal database, CommandRequestText iCommand);
+  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+      PhysicalPosition physicalPosition, int limit);
 
-  /**
-   * Returns a pair of long values telling the begin and end positions of data in the requested
-   * cluster. Useful to know the range of the records.
-   *
-   * @param session
-   * @param currentClusterId Cluster id
-   */
-  long[] getClusterDataRange(DatabaseSessionInternal session, int currentClusterId);
+  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+      PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] higherPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+      PhysicalPosition physicalPosition, int limit);
 
-  PhysicalPosition[] lowerPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
-
-  PhysicalPosition[] ceilingPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
-
-  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int clusterId,
-      PhysicalPosition physicalPosition);
+  PhysicalPosition[] floorPhysicalPositions(DatabaseSessionInternal session, int collectionId,
+      PhysicalPosition physicalPosition, int limit);
 
   /**
    * Returns the current storage's status
@@ -230,12 +206,9 @@ public interface Storage extends Backupable, StorageInfo {
 
   boolean isRemote();
 
-  @Deprecated
-  boolean isDistributed();
+  boolean isAssigningCollectionIds();
 
-  boolean isAssigningClusterIds();
-
-  SBTreeCollectionManager getSBtreeCollectionManager();
+  BTreeCollectionManager getSBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
@@ -250,8 +223,6 @@ public interface Storage extends Backupable, StorageInfo {
       CallableFunction<Void, Void> started)
       throws UnsupportedOperationException;
 
-  boolean supportIncremental();
-
   void fullIncrementalBackup(OutputStream stream) throws UnsupportedOperationException;
 
   void restoreFromIncrementalBackup(DatabaseSessionInternal session, String filePath);
@@ -260,9 +231,9 @@ public interface Storage extends Backupable, StorageInfo {
       throws UnsupportedOperationException;
 
   /**
-   * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the storages it means
-   * that storage will be merely closed, but sometimes additional operations are need to be taken in
-   * account.
+   * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the
+   * storages it means that storage will be merely closed, but sometimes additional operations are
+   * need to be taken in account.
    */
   void shutdown();
 
@@ -282,9 +253,9 @@ public interface Storage extends Backupable, StorageInfo {
 
   void setLocaleCountry(String localeCountry);
 
-  void setClusterSelection(String clusterSelection);
+  void setCollectionSelection(String collectionSelection);
 
-  void setMinimumClusters(int minimumClusters);
+  void setMinimumCollections(int minimumCollections);
 
   void setValidation(boolean validation);
 
@@ -296,11 +267,19 @@ public interface Storage extends Backupable, StorageInfo {
 
   void clearProperties();
 
-  int[] getClustersIds(Set<String> filterClusters);
+  int[] getCollectionsIds(Set<String> filterCollections);
 
   default boolean isIcrementalBackupRunning() {
     return false;
   }
 
   YouTrackDBInternal getContext();
+
+  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener,
+      Map<String, ?> args);
+
+  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener,
+      Object... args);
 }

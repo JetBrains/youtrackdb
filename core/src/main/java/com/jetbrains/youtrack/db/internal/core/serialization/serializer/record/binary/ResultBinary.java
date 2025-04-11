@@ -15,11 +15,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -27,9 +30,9 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import java.util.List;
+import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -44,10 +47,10 @@ public class ResultBinary implements Result {
   private final int offset;
   private final int fieldLength;
   private final ImmutableSchema schema;
-  private final DatabaseSessionInternal db;
+  private final DatabaseSessionInternal session;
 
   public ResultBinary(
-      DatabaseSessionInternal db,
+      DatabaseSessionInternal session,
       ImmutableSchema schema,
       byte[] bytes,
       int offset,
@@ -59,24 +62,24 @@ public class ResultBinary implements Result {
     this.serializer = serializer;
     this.offset = offset;
     this.fieldLength = fieldLength;
-    this.db = db;
+    this.session = session;
 
   }
 
   public ResultBinary(
-      DatabaseSessionInternal db,
+      DatabaseSessionInternal session,
       byte[] bytes,
       int offset,
       int fieldLength,
       EntitySerializer serializer,
       @Nullable RecordId id) {
-    schema = db.getMetadata().getImmutableSchemaSnapshot();
+    schema = session.getMetadata().getImmutableSchemaSnapshot();
     this.id = id;
     this.bytes = bytes;
     this.serializer = serializer;
     this.offset = offset;
     this.fieldLength = fieldLength;
-    this.db = db;
+    this.session = session;
   }
 
   public int getFieldLength() {
@@ -92,121 +95,210 @@ public class ResultBinary implements Result {
   }
 
   @Override
-  public <T> T getProperty(String name) {
-    BytesContainer bytes = new BytesContainer(this.bytes);
+  public <T> T getProperty(@Nonnull String name) {
+    assert session != null && session.assertIfNotActive();
+
+    var bytes = new BytesContainer(this.bytes);
     bytes.skip(offset);
-    return serializer.deserializeFieldTyped(db, bytes, name, id == null, schema, null);
+    return serializer.deserializeFieldTyped(session, bytes, name, id == null, schema, null);
   }
 
   @Override
-  public Entity getEntityProperty(String name) {
+  public @Nonnull Result detach() {
     throw new UnsupportedOperationException(
-        "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
+        "Not supported yet.");
   }
 
+  @Nonnull
   @Override
-  public Vertex getVertexProperty(String name) {
+  public Identifiable asIdentifiable() {
     throw new UnsupportedOperationException(
-        "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
-  }
-
-  @Override
-  public Edge getEdgeProperty(String name) {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
-
-  @Override
-  public Blob getBlobProperty(String name) {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
-
-  @Override
-  public Set<String> getPropertyNames() {
-    final BytesContainer container = new BytesContainer(bytes);
-    container.skip(offset);
-    // TODO: use something more correct that new EntityImpl
-    String[] fields = serializer.getFieldNames(new EntityImpl(), container, id == null);
-    return new HashSet<>(Arrays.asList(fields));
-  }
-
-  @Override
-  public Optional<RID> getIdentity() {
-    return Optional.ofNullable(id);
+        "Not supported yet.");
   }
 
   @Nullable
   @Override
-  public RID getRecordId() {
-    return id;
+  public Identifiable asIdentifiableOrNull() {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
   }
 
   @Override
+  public Entity getEntity(@Nonnull String name) {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
+  @Nullable
+  @Override
+  public Result getResult(@Nonnull String name) {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
+  @Override
+  public Vertex getVertex(@Nonnull String name) {
+    throw new UnsupportedOperationException(
+        "Not supported yet.");
+  }
+
+  @Override
+  public Edge getEdge(@Nonnull String name) {
+    throw new UnsupportedOperationException("Not supported yet.");
+  }
+
+  @Override
+  public Blob getBlob(@Nonnull String name) {
+    throw new UnsupportedOperationException("Not supported yet.");
+  }
+
+  @Nullable
+  @Override
+  public RID getLink(@Nonnull String name) {
+    throw new UnsupportedOperationException("Not supported yet.");
+  }
+
+  @Override
+  public @Nonnull List<String> getPropertyNames() {
+    assert session != null && session.assertIfNotActive();
+
+    final var container = new BytesContainer(bytes);
+    container.skip(offset);
+    // TODO: use something more correct that new EntityImpl
+    var fields = serializer.getFieldNames(session, new EntityImpl(session), container, id == null);
+    return Arrays.asList(fields);
+  }
+
+  @Override
+  public RID getIdentity() {
+    assert session != null && session.assertIfNotActive();
+    return id;
+  }
+
+
+  @Override
   public boolean isEntity() {
+    assert session != null && session.assertIfNotActive();
     return true;
   }
 
   @Override
   public boolean isRecord() {
+    assert session != null && session.assertIfNotActive();
     return true;
   }
 
-  @Override
-  public Optional<Entity> getEntity() {
-    return Optional.of(toDocument());
-  }
-
+  @Nonnull
   @Override
   public Entity asEntity() {
-    return toDocument();
+    assert session != null && session.assertIfNotActive();
+    return toEntityImpl();
+  }
+
+  @Nullable
+  @Override
+  public Entity asEntityOrNull() {
+    assert session != null && session.assertIfNotActive();
+    return toEntityImpl();
   }
 
   @Override
-  public Entity toEntity() {
-    return toDocument();
-  }
-
-  @Override
-  public boolean isBlob() {
+  public boolean isVertex() {
     return false;
   }
 
+
   @Override
-  public Optional<Blob> getBlob() {
-    return Optional.empty();
+  public boolean isBlob() {
+    assert session != null && session.assertIfNotActive();
+    return false;
+  }
+
+  @Nonnull
+  @Override
+  public Map<String, Object> toMap() {
+    assert session != null && session.assertIfNotActive();
+    return toEntityImpl().toMap();
   }
 
   @Override
-  public Optional<DBRecord> getRecord() {
-    return Optional.of(toDocument());
+  public @Nonnull String toJSON() {
+    assert session != null && session.assertIfNotActive();
+    return toEntityImpl().toJSON();
+  }
+
+  @Nonnull
+  @Override
+  public Blob asBlob() {
+    throw new IllegalStateException("Not a blob");
+  }
+
+  @Nullable
+  @Override
+  public Blob asBlobOrNull() {
+    return null;
+  }
+
+  @Nonnull
+  @Override
+  public DBRecord asRecord() {
+    assert session != null && session.assertIfNotActive();
+    return toEntityImpl();
+  }
+
+  @Nullable
+  @Override
+  public DBRecord asRecordOrNull() {
+    return toEntityImpl();
   }
 
   @Override
   public boolean isProjection() {
+    assert session != null && session.assertIfNotActive();
     return false;
   }
 
   @Override
-  public Object getMetadata(String key) {
+  public boolean isEdge() {
+    assert session != null && session.assertIfNotActive();
+    return false;
+  }
+
+  @Nonnull
+  @Override
+  public Edge asEdge() {
+    throw new DatabaseException("Not an edge");
+  }
+
+  @Nullable
+  @Override
+  public Edge asEdgeOrNull() {
     return null;
   }
 
   @Override
-  public Set<String> getMetadataKeys() {
-    return null;
+  public boolean isStatefulEdge() {
+    return false;
   }
 
   @Override
-  public boolean hasProperty(String varName) {
+  public boolean hasProperty(@Nonnull String varName) {
     throw new UnsupportedOperationException(
         "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
   }
 
-  private EntityImpl toDocument() {
-    EntityImpl entity = new EntityImpl();
-    BytesContainer bytes = new BytesContainer(this.bytes);
+  @Nullable
+  @Override
+  public DatabaseSession getBoundedToSession() {
+    return session;
+  }
+
+  private EntityImpl toEntityImpl() {
+    var entity = new EntityImpl(session);
+    var bytes = new BytesContainer(this.bytes);
     bytes.skip(offset);
 
-    serializer.deserialize(db, entity, bytes);
+    serializer.deserialize(session, entity, bytes);
     return entity;
   }
 }

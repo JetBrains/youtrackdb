@@ -2,10 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
@@ -31,25 +29,27 @@ public class CreateLightWeightEdgesSQLTest {
 
   @Test
   public void test() {
-    DatabaseSession session =
+    var session =
         youTrackDB.open(
             CreateLightWeightEdgesSQLTest.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.createLightweightEdgeClass("lightweight");
+    session.getSchema().createLightweightEdgeClass("lightweight");
 
-    session.begin();
-    session.command("create vertex v set name='a' ");
-    session.command("create vertex v set name='b' ");
-    session.command(
+    var tx = session.begin();
+    tx.command("create vertex v set name='a' ");
+    tx.command("create vertex v set name='b' ");
+    tx.command(
         "create edge lightweight from (select from v where name='a') to (select from v where name='a') ");
-    session.commit();
+    tx.commit();
 
-    try (ResultSet res = session.query(
+    tx = session.begin();
+    try (var res = tx.query(
         "select expand(out('lightweight')) from v where name='a' ")) {
       assertEquals(1, res.stream().count());
     }
+    tx.commit();
     session.close();
   }
 
@@ -62,52 +62,51 @@ public class CreateLightWeightEdgesSQLTest {
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    DatabaseSession session = pool.acquire();
+    var session = pool.acquire();
 
-    session.begin();
-    session.command("create vertex v set id = 1 ");
-    session.command("create vertex v set id = 2 ");
-    session.commit();
+    var tx = session.begin();
+    tx.command("create vertex v set id = 1 ");
+    tx.command("create vertex v set id = 2 ");
+    tx.commit();
 
     session.close();
 
-    CountDownLatch latch = new CountDownLatch(10);
+    var latch = new CountDownLatch(10);
 
     IntStream.range(0, 10)
         .forEach(
-            (i) -> {
-              new Thread(
-                  () -> {
-                    try (DatabaseSession session1 = pool.acquire()) {
-                      for (int j = 0; j < 100; j++) {
+            (i) -> new Thread(
+                () -> {
+                  try (var session1 = pool.acquire()) {
+                    for (var j = 0; j < 100; j++) {
 
-                        try {
-                          session1.begin();
-                          session1.command(
-                              "create edge lightweight from (select from v where id=1) to (select from v"
-                                  + " where id=2) ");
-                          session1.commit();
-                        } catch (ConcurrentModificationException e) {
-                          // ignore
-                        }
+                      try {
+                        var tx1 = session1.begin();
+                        tx1.command(
+                            "create edge lightweight from (select from v where id=1) to (select from v"
+                                + " where id=2) ");
+                        tx1.commit();
+                      } catch (ConcurrentModificationException e) {
+                        // ignore
                       }
-                    } finally {
-                      latch.countDown();
                     }
-                  })
-                  .start();
-            });
+                  } finally {
+                    latch.countDown();
+                  }
+                })
+                .start());
 
     latch.await();
 
     session = pool.acquire();
-    try (ResultSet res = session.query(
+    tx = session.begin();
+    try (var res = tx.query(
         "select sum(out('lightweight').size()) as size from V where id = 1");
-        ResultSet res1 = session.query(
+        var res1 = tx.query(
             "select sum(in('lightweight').size()) as size from V where id = 2")) {
 
-      Integer s1 = res.findFirst().getProperty("size");
-      Integer s2 = res1.findFirst().getProperty("size");
+      var s1 = res.findFirst(r -> r.getInt("size"));
+      var s2 = res1.findFirst(r -> r.getInt("size"));
       assertEquals(s1, s2);
 
     } finally {

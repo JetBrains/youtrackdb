@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLArrayNumberSelector extends SimpleNode {
 
@@ -47,7 +48,8 @@ public class SQLArrayNumberSelector extends SimpleNode {
     }
   }
 
-  public Integer getValue(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
+  @Nullable
+  public Integer getValue(Identifiable iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());
@@ -66,7 +68,8 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return null;
   }
 
-  public Integer getValue(Result iCurrentRecord, Object iResult, CommandContext ctx) {
+  @Nullable
+  public Integer getValue(Result iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());
@@ -93,7 +96,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
   }
 
   public SQLArrayNumberSelector copy() {
-    SQLArrayNumberSelector result = new SQLArrayNumberSelector(-1);
+    var result = new SQLArrayNumberSelector(-1);
     result.inputValue = inputValue == null ? null : inputValue.copy();
     result.expressionValue = expressionValue == null ? null : expressionValue.copy();
     result.integer = integer;
@@ -109,7 +112,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
       return false;
     }
 
-    SQLArrayNumberSelector that = (SQLArrayNumberSelector) o;
+    var that = (SQLArrayNumberSelector) o;
 
     if (!Objects.equals(inputValue, that.inputValue)) {
       return false;
@@ -122,7 +125,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = inputValue != null ? inputValue.hashCode() : 0;
+    var result = inputValue != null ? inputValue.hashCode() : 0;
     result = 31 * result + (expressionValue != null ? expressionValue.hashCode() : 0);
     result = 31 * result + (integer != null ? integer.hashCode() : 0);
     return result;
@@ -139,7 +142,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (inputValue != null) {
       result.setProperty("inputValue", inputValue.serialize(db));
     }

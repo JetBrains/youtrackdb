@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionMathAbstract;
@@ -81,7 +80,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       final Vertex node, final Vertex parent, final Vertex target, CommandContext iContext);
 
   protected LinkedList<Vertex> getPath() {
-    final LinkedList<Vertex> path = new LinkedList<Vertex>(route);
+    final var path = new LinkedList<Vertex>(route);
     return path;
   }
 
@@ -90,8 +89,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
 
     final Set<Vertex> neighbors = new HashSet<Vertex>();
     if (node != null) {
-      for (Vertex v : node.getVertices(paramDirection, paramEdgeTypeNames)) {
-        final Vertex ov = v;
+      for (var v : node.getVertices(paramDirection, paramEdgeTypeNames)) {
+        final var ov = v;
         if (ov != null) {
           neighbors.add(ov);
         }
@@ -102,48 +101,48 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getSimpleHeuristicCost(double x, double g, double dFactor) {
-    double dx = Math.abs(x - g);
+    var dx = Math.abs(x - g);
     return dFactor * (dx);
   }
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getManhatanHeuristicCost(
       double x, double y, double gx, double gy, double dFactor) {
-    double dx = Math.abs(x - gx);
-    double dy = Math.abs(y - gy);
+    var dx = Math.abs(x - gx);
+    var dy = Math.abs(y - gy);
     return dFactor * (dx + dy);
   }
 
   protected double getMaxAxisHeuristicCost(
       double x, double y, double gx, double gy, double dFactor) {
-    double dx = Math.abs(x - gx);
-    double dy = Math.abs(y - gy);
+    var dx = Math.abs(x - gx);
+    var dy = Math.abs(y - gy);
     return dFactor * Math.max(dx, dy);
   }
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getDiagonalHeuristicCost(
       double x, double y, double gx, double gy, double dFactor) {
-    double dx = Math.abs(x - gx);
-    double dy = Math.abs(y - gy);
-    double hDiagonal = Math.min(dx, dy);
-    double hStraight = dx + dy;
+    var dx = Math.abs(x - gx);
+    var dy = Math.abs(y - gy);
+    var hDiagonal = Math.min(dx, dy);
+    var hStraight = dx + dy;
     return (dFactor * 2) * hDiagonal + dFactor * (hStraight - 2 * hDiagonal);
   }
 
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getEuclideanHeuristicCost(
       double x, double y, double gx, double gy, double dFactor) {
-    double dx = Math.abs(x - gx);
-    double dy = Math.abs(y - gy);
+    var dx = Math.abs(x - gx);
+    var dy = Math.abs(y - gy);
 
     return (dFactor * Math.sqrt(Math.pow(dx, 2) + Math.pow(dy, 2)));
   }
 
   protected double getEuclideanNoSQRHeuristicCost(
       double x, double y, double gx, double gy, double dFactor) {
-    double dx = Math.abs(x - gx);
-    double dy = Math.abs(y - gy);
+    var dx = Math.abs(x - gx);
+    var dy = Math.abs(y - gy);
 
     return (dFactor * (Math.pow(dx, 2) + Math.pow(dy, 2)));
   }
@@ -159,10 +158,11 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       double dFactor,
       CommandContext ctx) {
 
-    double heuristic = 0.0;
+    var heuristic = 0.0;
 
-    Function func = ctx.getDatabase().getMetadata().getFunctionLibrary().getFunction(functionName);
-    Object fValue =
+    var session = ctx.getDatabaseSession();
+    var func = session.getMetadata().getFunctionLibrary().getFunction(session, functionName);
+    var fValue =
         func.executeInContext(
             context, vertextAxisNames, start, goal, current, parent, depth, dFactor);
     if (fValue != null && fValue instanceof Number) {
@@ -174,22 +174,22 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
   // obtains from http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html
   protected double getTieBreakingHeuristicCost(
       double x, double y, double sx, double sy, double gx, double gy, double heuristic) {
-    double dx1 = x - gx;
-    double dy1 = y - gy;
-    double dx2 = sx - gx;
-    double dy2 = sy - gy;
-    double cross = Math.abs(dx1 * dy2 - dx2 * dy1);
+    var dx1 = x - gx;
+    var dy1 = y - gy;
+    var dx2 = sx - gx;
+    var dy2 = sy - gy;
+    var cross = Math.abs(dx1 * dy2 - dx2 * dy1);
     heuristic += (cross * 0.0001);
     return heuristic;
   }
 
   protected double getTieBreakingRandomHeuristicCost(
       double x, double y, double sx, double sy, double gx, double gy, double heuristic) {
-    double dx1 = x - gx;
-    double dy1 = y - gy;
-    double dx2 = sx - gx;
-    double dy2 = sy - gy;
-    double cross = Math.abs(dx1 * dy2 - dx2 * dy1) + rnd.nextFloat();
+    var dx1 = x - gx;
+    var dy1 = y - gy;
+    var dx2 = sx - gx;
+    var dy2 = sy - gy;
+    var cross = Math.abs(dx1 * dy2 - dx2 * dy1) + rnd.nextFloat();
     heuristic += (cross * heuristic);
     return heuristic;
   }
@@ -203,8 +203,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double dFactor) {
     Double heuristic = 0.0;
-    double res = 0.0;
-    for (String str : axisNames) {
+    var res = 0.0;
+    for (var str : axisNames) {
       res +=
           Math.abs(
               (clist.get(str) != null ? clist.get(str) : 0.0)
@@ -223,8 +223,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double dFactor) {
     Double heuristic = 0.0;
-    double res = 0.0;
-    for (String str : axisNames) {
+    var res = 0.0;
+    for (var str : axisNames) {
       res =
           Math.max(
               Math.abs(
@@ -246,9 +246,9 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       double dFactor) {
 
     Double heuristic = 0.0;
-    double hDiagonal = 0.0;
-    double hStraight = 0.0;
-    for (String str : axisNames) {
+    var hDiagonal = 0.0;
+    var hStraight = 0.0;
+    for (var str : axisNames) {
       hDiagonal =
           Math.min(
               Math.abs(
@@ -273,8 +273,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double dFactor) {
     Double heuristic = 0.0;
-    double res = 0.0;
-    for (String str : axisNames) {
+    var res = 0.0;
+    for (var str : axisNames) {
       res +=
           Math.pow(
               Math.abs(
@@ -295,8 +295,8 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double dFactor) {
     Double heuristic = 0.0;
-    double res = 0.0;
-    for (String str : axisNames) {
+    var res = 0.0;
+    for (var str : axisNames) {
       res +=
           Math.pow(
               Math.abs(
@@ -317,14 +317,14 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       long depth,
       double heuristic) {
 
-    double res = 0.0;
-    for (String str : axisNames) {
+    var res = 0.0;
+    for (var str : axisNames) {
       res +=
           Math.abs(
               (clist.get(str) != null ? clist.get(str) : 0.0)
                   - (glist.get(str) != null ? glist.get(str) : 0.0));
     }
-    double cross = res;
+    var cross = res;
     heuristic += (cross * 0.0001);
     return heuristic;
   }
@@ -334,7 +334,7 @@ public abstract class SQLFunctionHeuristicPathFinderAbstract extends SQLFunction
       return new String[]{};
     }
     if (fromObject instanceof String) {
-      String[] arr = fromObject.toString().replace("},{", " ,").split(",");
+      var arr = fromObject.toString().replace("},{", " ,").split(",");
       return (arr);
     }
     if (fromObject instanceof Object) {

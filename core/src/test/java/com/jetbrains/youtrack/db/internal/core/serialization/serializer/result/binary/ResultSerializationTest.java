@@ -3,14 +3,14 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Date;
@@ -44,7 +44,7 @@ public class ResultSerializationTest extends DbTestBase {
     try (var youTrackDB = new YouTrackDBImpl("memory", YouTrackDBConfig.defaultConfig())) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var db = (DatabaseSessionInternal) youTrackDB.open("test", "admin", "admin")) {
-        ResultInternal document = new ResultInternal(db);
+        var document = new ResultInternal(db);
 
         document.setProperty("name", "name");
         document.setProperty("age", 20);
@@ -53,12 +53,11 @@ public class ResultSerializationTest extends DbTestBase {
         document.setProperty("heigth", 12.5f);
         document.setProperty("bitHeigth", 12.5d);
         document.setProperty("class", (byte) 'C');
-        document.setProperty("character", 'C');
         document.setProperty("alive", true);
         document.setProperty("date", new Date());
         document.setProperty("recordId", new RecordId(10, 10));
 
-        ResultInternal extr = serializeDeserialize(db, document);
+        var extr = serializeDeserialize(db, document);
 
         assertEquals(extr.getPropertyNames(), document.getPropertyNames());
         assertEquals(extr.<String>getProperty("name"), document.getProperty("name"));
@@ -70,14 +69,15 @@ public class ResultSerializationTest extends DbTestBase {
         assertEquals(extr.<String>getProperty("class"), document.getProperty("class"));
         assertEquals(extr.<String>getProperty("alive"), document.getProperty("alive"));
         assertEquals(extr.<String>getProperty("date"), document.getProperty("date"));
+        assertEquals(extr.getLink("recordId"), document.getLink("recordId"));
       }
     }
   }
 
   private ResultInternal serializeDeserialize(DatabaseSessionInternal db,
       ResultInternal document) {
-    BytesContainer bytes = new BytesContainer();
-    serializer.serialize(document, bytes);
+    var bytes = new BytesContainer();
+    serializer.serialize(db, document, bytes);
     bytes.offset = 0;
     return serializer.deserialize(db, bytes);
   }
@@ -86,7 +86,7 @@ public class ResultSerializationTest extends DbTestBase {
   @Test
   public void testSimpleLiteralList() {
 
-    ResultInternal document = new ResultInternal(db);
+    var document = new ResultInternal(session);
     List<String> strings = new ArrayList<>();
     strings.add("a");
     strings.add("b");
@@ -161,7 +161,7 @@ public class ResultSerializationTest extends DbTestBase {
     listMixed.add(null);
     document.setProperty("listMixed", listMixed);
 
-    Result extr = serializeDeserialize(db, document);
+    Result extr = serializeDeserialize(session, document);
 
     assertEquals(extr.getPropertyNames(), document.getPropertyNames());
     assertEquals(extr.<String>getProperty("listStrings"), document.getProperty("listStrings"));
@@ -175,7 +175,7 @@ public class ResultSerializationTest extends DbTestBase {
 
   @Test
   public void testSimpleMapStringLiteral() {
-    ResultInternal document = new ResultInternal(db);
+    var document = new ResultInternal(session);
 
     Map<String, String> mapString = new HashMap<String, String>();
     mapString.put("key", "value");
@@ -217,7 +217,7 @@ public class ResultSerializationTest extends DbTestBase {
     bytesMap.put("key1", (byte) 11);
     document.setProperty("bytesMap", bytesMap);
 
-    Result extr = serializeDeserialize(db, document);
+    Result extr = serializeDeserialize(session, document);
 
     assertEquals(extr.getPropertyNames(), document.getPropertyNames());
     assertEquals(extr.<String>getProperty("mapString"), document.getProperty("mapString"));
@@ -230,49 +230,49 @@ public class ResultSerializationTest extends DbTestBase {
 
   @Test
   public void testSimpleEmbeddedDoc() {
-    ResultInternal document = new ResultInternal(db);
-    ResultInternal embedded = new ResultInternal(db);
+    var document = new ResultInternal(session);
+    var embedded = new ResultInternal(session);
     embedded.setProperty("name", "test");
     embedded.setProperty("surname", "something");
     document.setProperty("embed", embedded);
 
-    Result extr = serializeDeserialize(db, document);
+    Result extr = serializeDeserialize(session, document);
 
     assertEquals(document.getPropertyNames(), extr.getPropertyNames());
-    Result emb = extr.getProperty("embed");
+    Result emb = extr.getResult("embed");
     assertNotNull(emb);
-    assertEquals(emb.<String>getProperty("name"), embedded.getProperty("name"));
-    assertEquals(emb.<String>getProperty("surname"), embedded.getProperty("surname"));
+    assertEquals(emb.getString("name"), embedded.getProperty("name"));
+    assertEquals(emb.getString("surname"), embedded.getProperty("surname"));
   }
 
   @Test
   public void testMapOfEmbeddedDocument() {
 
-    ResultInternal document = new ResultInternal(db);
+    var document = new ResultInternal(session);
 
-    ResultInternal embeddedInMap = new ResultInternal(db);
+    var embeddedInMap = new ResultInternal(session);
     embeddedInMap.setProperty("name", "test");
     embeddedInMap.setProperty("surname", "something");
     Map<String, Result> map = new HashMap<String, Result>();
     map.put("embedded", embeddedInMap);
     document.setProperty("map", map);
 
-    Result extr = serializeDeserialize(db, document);
+    Result extr = serializeDeserialize(session, document);
 
     Map<String, Result> mapS = extr.getProperty("map");
     assertEquals(1, mapS.size());
-    Result emb = mapS.get("embedded");
+    var emb = mapS.get("embedded");
     assertNotNull(emb);
-    assertEquals(emb.<String>getProperty("name"), embeddedInMap.getProperty("name"));
-    assertEquals(emb.<String>getProperty("surname"), embeddedInMap.getProperty("surname"));
+    assertEquals(emb.getString("name"), embeddedInMap.getProperty("name"));
+    assertEquals(emb.getString("surname"), embeddedInMap.getProperty("surname"));
   }
 
   @Test
   public void testCollectionOfEmbeddedDocument() {
 
-    ResultInternal document = new ResultInternal(db);
+    var document = new ResultInternal(session);
 
-    ResultInternal embeddedInList = new ResultInternal(db);
+    var embeddedInList = new ResultInternal(session);
     embeddedInList.setProperty("name", "test");
     embeddedInList.setProperty("surname", "something");
 
@@ -280,7 +280,7 @@ public class ResultSerializationTest extends DbTestBase {
     embeddedList.add(embeddedInList);
     document.setProperty("embeddedList", embeddedList);
 
-    ResultInternal embeddedInSet = new ResultInternal(db);
+    var embeddedInSet = new ResultInternal(session);
     embeddedInSet.setProperty("name", "test1");
     embeddedInSet.setProperty("surname", "something2");
 
@@ -288,26 +288,26 @@ public class ResultSerializationTest extends DbTestBase {
     embeddedSet.add(embeddedInSet);
     document.setProperty("embeddedSet", embeddedSet);
 
-    Result extr = serializeDeserialize(db, document);
+    Result extr = serializeDeserialize(session, document);
 
-    List<Result> ser = extr.getProperty("embeddedList");
+    var ser = extr.<Result>getEmbeddedList("embeddedList");
     assertEquals(1, ser.size());
-    Result inList = ser.get(0);
+    var inList = ser.getFirst();
     assertNotNull(inList);
-    assertEquals(inList.<String>getProperty("name"), embeddedInList.getProperty("name"));
-    assertEquals(inList.<String>getProperty("surname"), embeddedInList.getProperty("surname"));
+    assertEquals(inList.getString("name"), embeddedInList.getProperty("name"));
+    assertEquals(inList.getString("surname"), embeddedInList.getProperty("surname"));
 
-    Set<Result> setEmb = extr.getProperty("embeddedSet");
+    var setEmb = extr.<Result>getEmbeddedSet("embeddedSet");
     assertEquals(1, setEmb.size());
-    Result inSet = setEmb.iterator().next();
+    var inSet = setEmb.iterator().next();
     assertNotNull(inSet);
-    assertEquals(inSet.<String>getProperty("name"), embeddedInSet.getProperty("name"));
-    assertEquals(inSet.<String>getProperty("surname"), embeddedInSet.getProperty("surname"));
+    assertEquals(inSet.getString("name"), embeddedInSet.getProperty("name"));
+    assertEquals(inSet.getString("surname"), embeddedInSet.getProperty("surname"));
   }
 
   @Test
   public void testMetadataSerialization() {
-    ResultInternal document = new ResultInternal(db);
+    var document = new ResultInternal(session);
 
     document.setProperty("name", "foo");
 
@@ -321,7 +321,7 @@ public class ResultSerializationTest extends DbTestBase {
     document.setMetadata("alive", true);
     document.setMetadata("date", new Date());
 
-    ResultInternal extr = serializeDeserialize(db, document);
+    var extr = serializeDeserialize(session, document);
 
     assertEquals(extr.getPropertyNames(), document.getPropertyNames());
     assertEquals(extr.<String>getProperty("foo"), document.getProperty("foo"));

@@ -25,7 +25,7 @@ public class HighLevelTransactionChangeRecord extends OperationUnitRecord {
 
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
-    int size = buffer.getInt();
+    var size = buffer.getInt();
     data = new byte[size];
     buffer.get(data, 0, size);
   }

@@ -30,7 +30,7 @@ public final class PageKey {
       return false;
     }
 
-    final PageKey pageKey = (PageKey) o;
+    final var pageKey = (PageKey) o;
 
     if (fileId != pageKey.fileId) {
       return false;
@@ -49,7 +49,7 @@ public final class PageKey {
   }
 
   public static int hashCode(final long fileId, final int pageIndex) {
-    int result = (int) (fileId ^ (fileId >>> 32));
+    var result = (int) (fileId ^ (fileId >>> 32));
     result = 31 * result + pageIndex;
     return result;
   }

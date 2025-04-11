@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 final class WaitingList {
 
@@ -8,10 +9,10 @@ final class WaitingList {
   private final AtomicReference<WaitingListNode> tail = new AtomicReference<>();
 
   public void addThreadInWaitingList(final Thread thread) {
-    final WaitingListNode node = new WaitingListNode(thread);
+    final var node = new WaitingListNode(thread);
 
     while (true) {
-      final WaitingListNode last = tail.get();
+      final var last = tail.get();
 
       if (tail.compareAndSet(last, node)) {
         if (last == null) {
@@ -26,10 +27,11 @@ final class WaitingList {
     }
   }
 
+  @Nullable
   public WaitingListNode cutWaitingList() {
     while (true) {
-      final WaitingListNode tail = this.tail.get();
-      final WaitingListNode head = this.head.get();
+      final var tail = this.tail.get();
+      final var head = this.head.get();
 
       if (tail == null) {
         return null;
@@ -47,7 +49,7 @@ final class WaitingList {
       }
 
       if (this.head.compareAndSet(head, tail)) {
-        WaitingListNode node = head;
+        var node = head;
 
         node.waitTillAllLinksWillBeCreated();
 

@@ -51,28 +51,28 @@ public class FetchPlan {
 
     if (iFetchPlan != null && !iFetchPlan.isEmpty()) {
       // CHECK IF THERE IS SOME FETCH-DEPTH
-      final List<String> planParts = StringSerializerHelper.split(iFetchPlan, ' ');
+      final var planParts = StringSerializerHelper.split(iFetchPlan, ' ');
       if (!planParts.isEmpty()) {
-        for (String planPart : planParts) {
-          final List<String> parts = StringSerializerHelper.split(planPart, ':');
+        for (var planPart : planParts) {
+          final var parts = StringSerializerHelper.split(planPart, ':');
           if (parts.size() != 2) {
             throw new IllegalArgumentException("Wrong fetch plan: " + planPart);
           }
 
-          String key = parts.get(0);
-          final int level = Integer.parseInt(parts.get(1));
+          var key = parts.get(0);
+          final var level = Integer.parseInt(parts.get(1));
 
           final FetchPlanLevel fp;
 
           if (key.startsWith("[")) {
             // EXTRACT DEPTH LEVEL
-            final int endLevel = key.indexOf(']');
+            final var endLevel = key.indexOf(']');
             if (endLevel == -1) {
               throw new IllegalArgumentException(
                   "Missing closing square bracket on depth level in fetch plan: " + key);
             }
 
-            final String range = key.substring(1, endLevel);
+            final var range = key.substring(1, endLevel);
             key = key.substring(endLevel + 1);
 
             if (key.indexOf('.') > -1) {
@@ -82,14 +82,14 @@ public class FetchPlan {
                       + key);
             }
 
-            final List<String> indexRanges = StringSerializerHelper.smartSplit(range, '-', ' ');
+            final var indexRanges = StringSerializerHelper.smartSplit(range, '-', ' ');
             if (indexRanges.size() > 1) {
               // MULTI VALUES RANGE
-              String from = indexRanges.get(0);
-              String to = indexRanges.get(1);
+              var from = indexRanges.get(0);
+              var to = indexRanges.get(1);
 
-              final int rangeFrom = from != null && !from.isEmpty() ? Integer.parseInt(from) : 0;
-              final int rangeTo = to != null && !to.isEmpty() ? Integer.parseInt(to) : -1;
+              final var rangeFrom = from != null && !from.isEmpty() ? Integer.parseInt(from) : 0;
+              final var rangeTo = to != null && !to.isEmpty() ? Integer.parseInt(to) : -1;
 
               fp = new FetchPlanLevel(rangeFrom, rangeTo, level);
             } else if (range.equals("*"))
@@ -98,7 +98,7 @@ public class FetchPlan {
               fp = new FetchPlanLevel(0, -1, level);
             } else {
               // CREATE FETCH PLAN WITH ONE LEVEL ONLY OF DEPTH
-              final int v = Integer.parseInt(range);
+              final var v = Integer.parseInt(range);
               fp = new FetchPlanLevel(v, v, level);
             }
           } else {
@@ -124,14 +124,14 @@ public class FetchPlan {
   }
 
   public int getDepthLevel(final String iFieldPath, final int iCurrentLevel) {
-    final FetchPlanLevel value = fetchPlan.get(ANY_WILDCARD);
+    final var value = fetchPlan.get(ANY_WILDCARD);
     final Integer defDepthLevel = value.level;
 
-    final String[] fpParts = iFieldPath.split("\\.");
+    final var fpParts = iFieldPath.split("\\.");
 
-    for (Map.Entry<String, FetchPlanLevel> fpLevel : fetchPlan.entrySet()) {
-      final String fpLevelKey = fpLevel.getKey();
-      final FetchPlanLevel fpLevelValue = fpLevel.getValue();
+    for (var fpLevel : fetchPlan.entrySet()) {
+      final var fpLevelKey = fpLevel.getKey();
+      final var fpLevelValue = fpLevel.getValue();
 
       if (iCurrentLevel >= fpLevelValue.depthLevelFrom
           && (fpLevelValue.depthLevelTo == -1 || iCurrentLevel <= fpLevelValue.depthLevelTo)) {
@@ -146,7 +146,7 @@ public class FetchPlan {
           return 1;
         }
 
-        for (int i = 0; i < fpParts.length; ++i) {
+        for (var i = 0; i < fpParts.length; ++i) {
           if (i >= fpLevelValue.depthLevelFrom
               && (fpLevelValue.depthLevelTo == -1 || i <= fpLevelValue.depthLevelTo)) {
             // IT'S IN RANGE
@@ -171,14 +171,14 @@ public class FetchPlan {
     }
 
     if (!fetchPlanStartsWith.isEmpty()) {
-      for (Map.Entry<String, FetchPlanLevel> fpLevel : fetchPlanStartsWith.entrySet()) {
-        final String fpLevelKey = fpLevel.getKey();
-        final FetchPlanLevel fpLevelValue = fpLevel.getValue();
+      for (var fpLevel : fetchPlanStartsWith.entrySet()) {
+        final var fpLevelKey = fpLevel.getKey();
+        final var fpLevelValue = fpLevel.getValue();
 
         if (iCurrentLevel >= fpLevelValue.depthLevelFrom
             && (fpLevelValue.depthLevelTo == -1 || iCurrentLevel <= fpLevelValue.depthLevelTo)) {
           // IT'S IN RANGE
-          for (int i = 0; i < fpParts.length; ++i) {
+          for (var i = 0; i < fpParts.length; ++i) {
             if (fpParts[i].startsWith(fpLevelKey)) {
               return fpLevelValue.level;
             }
@@ -191,11 +191,11 @@ public class FetchPlan {
   }
 
   public boolean has(final String iFieldPath, final int iCurrentLevel) {
-    final String[] fpParts = iFieldPath.split("\\.");
+    final var fpParts = iFieldPath.split("\\.");
 
-    for (Map.Entry<String, FetchPlanLevel> fpLevel : fetchPlan.entrySet()) {
-      final String fpLevelKey = fpLevel.getKey();
-      final FetchPlanLevel fpLevelValue = fpLevel.getValue();
+    for (var fpLevel : fetchPlan.entrySet()) {
+      final var fpLevelKey = fpLevel.getKey();
+      final var fpLevelValue = fpLevel.getValue();
 
       if (iCurrentLevel >= fpLevelValue.depthLevelFrom
           && (fpLevelValue.depthLevelTo == -1 || iCurrentLevel <= fpLevelValue.depthLevelTo)) {
@@ -209,7 +209,7 @@ public class FetchPlan {
           return true;
         }
 
-        for (int i = 0; i < fpParts.length; ++i) {
+        for (var i = 0; i < fpParts.length; ++i) {
           if (i >= fpLevelValue.depthLevelFrom
               && (fpLevelValue.depthLevelTo == -1 || i <= fpLevelValue.depthLevelTo)) {
             // IT'S IN RANGE
@@ -234,14 +234,14 @@ public class FetchPlan {
     }
 
     if (!fetchPlanStartsWith.isEmpty()) {
-      for (Map.Entry<String, FetchPlanLevel> fpLevel : fetchPlanStartsWith.entrySet()) {
-        final String fpLevelKey = fpLevel.getKey();
-        final FetchPlanLevel fpLevelValue = fpLevel.getValue();
+      for (var fpLevel : fetchPlanStartsWith.entrySet()) {
+        final var fpLevelKey = fpLevel.getKey();
+        final var fpLevelValue = fpLevel.getValue();
 
         if (iCurrentLevel >= fpLevelValue.depthLevelFrom
             && (fpLevelValue.depthLevelTo == -1 || iCurrentLevel <= fpLevelValue.depthLevelTo)) {
           // IT'S IN RANGE
-          for (int i = 0; i < fpParts.length; ++i) {
+          for (var i = 0; i < fpParts.length; ++i) {
             if (fpParts[i].startsWith(fpLevelKey)) {
               return true;
             }

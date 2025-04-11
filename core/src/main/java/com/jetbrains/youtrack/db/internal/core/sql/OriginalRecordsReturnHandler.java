@@ -34,7 +34,7 @@ public class OriginalRecordsReturnHandler extends RecordsReturnHandler {
 
   @Override
   protected EntityImpl preprocess(EntityImpl result) {
-    return result.copy();
+    return result;
   }
 
   @Override

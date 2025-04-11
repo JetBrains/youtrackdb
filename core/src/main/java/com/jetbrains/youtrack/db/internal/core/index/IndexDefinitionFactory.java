@@ -21,9 +21,8 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -45,44 +44,41 @@ public class IndexDefinitionFactory {
    *                   key|value]', use 'by key' or 'by value' to describe how to index maps. By
    *                   default maps indexed by key
    * @param types      types of indexed properties
-   * @param collates
-   * @param indexKind
-   * @param algorithm
    * @return index definition instance
    */
   public static IndexDefinition createIndexDefinition(
       final SchemaClass oClass,
       final List<String> fieldNames,
-      final List<PropertyType> types,
+      final List<PropertyTypeInternal> types,
       List<Collate> collates,
-      String indexKind,
-      String algorithm) {
+      String indexKind) {
     checkTypes(oClass, fieldNames, types);
 
     if (fieldNames.size() == 1) {
       Collate collate = null;
-      PropertyType linkedType = null;
-      PropertyType type = types.get(0);
-      String field = fieldNames.get(0);
-      final String fieldName =
-          SchemaClassImpl.decodeClassName(adjustFieldName(oClass, extractFieldName(field)));
+      PropertyTypeInternal linkedType = null;
+      var type = types.getFirst();
+      var field = fieldNames.getFirst();
+      final var fieldName =
+          SchemaClassImpl.decodeClassName(
+              adjustFieldName(oClass, extractFieldName(field)));
       if (collates != null) {
-        collate = collates.get(0);
+        collate = collates.getFirst();
       }
-      SchemaProperty property = oClass.getProperty(fieldName);
+      var property = oClass.getProperty(fieldName);
       if (property != null) {
         if (collate == null) {
           collate = property.getCollate();
         }
-        linkedType = property.getLinkedType();
+        linkedType = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
       }
 
-      final PropertyMapIndexDefinition.INDEX_BY indexBy = extractMapIndexSpecifier(field);
+      final var indexBy = extractMapIndexSpecifier(field);
       return createSingleFieldIndexDefinition(
           oClass.getName(), fieldName, type, linkedType, collate, indexKind, indexBy);
     } else {
       return createMultipleFieldIndexDefinition(
-          oClass, fieldNames, types, collates, indexKind, algorithm);
+          oClass, fieldNames, types, collates, indexKind);
     }
   }
 
@@ -93,7 +89,7 @@ public class IndexDefinitionFactory {
    * @return extracted property name
    */
   public static String extractFieldName(final String fieldDefinition) {
-    String[] fieldNameParts = FILED_NAME_PATTERN.split(fieldDefinition);
+    var fieldNameParts = FILED_NAME_PATTERN.split(fieldDefinition);
     if (fieldNameParts.length == 0) {
       throw new IllegalArgumentException(
           "Illegal field name format, should be '<property> [by key|value]' but was '"
@@ -108,9 +104,9 @@ public class IndexDefinitionFactory {
       return fieldDefinition;
     }
 
-    StringBuilder result = new StringBuilder();
+    var result = new StringBuilder();
     result.append(fieldNameParts[0]);
-    for (int i = 1; i < fieldNameParts.length; i++) {
+    for (var i = 1; i < fieldNameParts.length; i++) {
       result.append(" ");
       result.append(fieldNameParts[i]);
     }
@@ -120,42 +116,44 @@ public class IndexDefinitionFactory {
   private static IndexDefinition createMultipleFieldIndexDefinition(
       final SchemaClass oClass,
       final List<String> fieldsToIndex,
-      final List<PropertyType> types,
+      final List<PropertyTypeInternal> types,
       List<Collate> collates,
-      String indexKind,
-      String algorithm) {
-    final IndexFactory factory = Indexes.getFactory(indexKind, algorithm);
-    final String className = oClass.getName();
-    final CompositeIndexDefinition compositeIndex = new CompositeIndexDefinition(className);
+      String indexKind) {
+    final var className = oClass.getName();
+    final var compositeIndex = new CompositeIndexDefinition(className);
 
     for (int i = 0, fieldsToIndexSize = fieldsToIndex.size(); i < fieldsToIndexSize; i++) {
       Collate collate = null;
-      PropertyType linkedType = null;
-      PropertyType type = types.get(i);
+      PropertyTypeInternal linkedType = null;
+      var type = types.get(i);
       if (collates != null) {
         collate = collates.get(i);
       }
-      String field = fieldsToIndex.get(i);
-      final String fieldName =
-          SchemaClassImpl.decodeClassName(adjustFieldName(oClass, extractFieldName(field)));
-      SchemaProperty property = oClass.getProperty(fieldName);
+
+      var field = fieldsToIndex.get(i);
+      final var fieldName =
+          SchemaClassImpl.decodeClassName(
+              adjustFieldName(oClass, extractFieldName(field)));
+      var property = oClass.getProperty(fieldName);
       if (property != null) {
         if (collate == null) {
           collate = property.getCollate();
         }
-        linkedType = property.getLinkedType();
+        linkedType = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
       }
-      final PropertyMapIndexDefinition.INDEX_BY indexBy = extractMapIndexSpecifier(field);
+      final var indexBy = extractMapIndexSpecifier(field);
 
       compositeIndex.addIndex(
           createSingleFieldIndexDefinition(
               className, fieldName, type, linkedType, collate, indexKind, indexBy));
     }
+
     return compositeIndex;
   }
 
-  private static void checkTypes(SchemaClass oClass, List<String> fieldNames,
-      List<PropertyType> types) {
+  private static void checkTypes(SchemaClass oClass,
+      List<String> fieldNames,
+      List<PropertyTypeInternal> types) {
     if (fieldNames.size() != types.size()) {
       throw new IllegalArgumentException(
           "Count of field names doesn't match count of field types. It was "
@@ -166,11 +164,12 @@ public class IndexDefinitionFactory {
     }
 
     for (int i = 0, fieldNamesSize = fieldNames.size(); i < fieldNamesSize; i++) {
-      final String fieldName = fieldNames.get(i);
-      final PropertyType type = types.get(i);
+      final var fieldName = fieldNames.get(i);
+      final var type = types.get(i);
 
-      final SchemaProperty property = oClass.getProperty(fieldName);
-      if (property != null && !type.equals(property.getType())) {
+      final var property = oClass.getProperty(fieldName);
+      if (property != null && type != PropertyTypeInternal.convertFromPublicType(
+          property.getType())) {
         throw new IllegalArgumentException("Property type list not match with real property types");
       }
     }
@@ -179,13 +178,13 @@ public class IndexDefinitionFactory {
   public static IndexDefinition createSingleFieldIndexDefinition(
       final String className,
       final String fieldName,
-      final PropertyType type,
-      final PropertyType linkedType,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
       Collate collate,
       final String indexKind,
       final PropertyMapIndexDefinition.INDEX_BY indexBy) {
     // TODO: let index implementations name their preferences_
-    if (type.equals(PropertyType.EMBEDDED)) {
+    if (type.equals(PropertyTypeInternal.EMBEDDED)) {
       if (indexKind.equals("FULLTEXT")) {
         throw new UnsupportedOperationException(
             "Fulltext index does not support embedded types: " + type);
@@ -194,8 +193,8 @@ public class IndexDefinitionFactory {
 
     final IndexDefinition indexDefinition;
 
-    final PropertyType indexType;
-    if (type == PropertyType.EMBEDDEDMAP || type == PropertyType.LINKMAP) {
+    final PropertyTypeInternal indexType;
+    if (type == PropertyTypeInternal.EMBEDDEDMAP || type == PropertyTypeInternal.LINKMAP) {
 
       if (indexBy == null) {
         throw new IllegalArgumentException(
@@ -204,10 +203,10 @@ public class IndexDefinitionFactory {
                 + '\'');
       }
       if (indexBy.equals(PropertyMapIndexDefinition.INDEX_BY.KEY)) {
-        indexType = PropertyType.STRING;
+        indexType = PropertyTypeInternal.STRING;
       } else {
-        if (type == PropertyType.LINKMAP) {
-          indexType = PropertyType.LINK;
+        if (type == PropertyTypeInternal.LINKMAP) {
+          indexType = PropertyTypeInternal.LINK;
         } else {
           indexType = linkedType;
           if (indexType == null) {
@@ -218,14 +217,14 @@ public class IndexDefinitionFactory {
         }
       }
       indexDefinition = new PropertyMapIndexDefinition(className, fieldName, indexType, indexBy);
-    } else if (type.equals(PropertyType.EMBEDDEDLIST)
-        || type.equals(PropertyType.EMBEDDEDSET)
-        || type.equals(PropertyType.LINKLIST)
-        || type.equals(PropertyType.LINKSET)) {
-      if (type.equals(PropertyType.LINKSET)) {
-        indexType = PropertyType.LINK;
-      } else if (type.equals(PropertyType.LINKLIST)) {
-        indexType = PropertyType.LINK;
+    } else if (type.equals(PropertyTypeInternal.EMBEDDEDLIST)
+        || type.equals(PropertyTypeInternal.EMBEDDEDSET)
+        || type.equals(PropertyTypeInternal.LINKLIST)
+        || type.equals(PropertyTypeInternal.LINKSET)) {
+      if (type.equals(PropertyTypeInternal.LINKSET)) {
+        indexType = PropertyTypeInternal.LINK;
+      } else if (type.equals(PropertyTypeInternal.LINKLIST)) {
+        indexType = PropertyTypeInternal.LINK;
       } else {
         indexType = linkedType;
         if (indexType == null) {
@@ -235,7 +234,7 @@ public class IndexDefinitionFactory {
         }
       }
       indexDefinition = new PropertyListIndexDefinition(className, fieldName, indexType);
-    } else if (type.equals(PropertyType.LINKBAG)) {
+    } else if (type.equals(PropertyTypeInternal.LINKBAG)) {
       indexDefinition = new PropertyRidBagIndexDefinition(className, fieldName);
     } else {
       indexDefinition = new PropertyIndexDefinition(className, fieldName, type);
@@ -248,7 +247,7 @@ public class IndexDefinitionFactory {
 
   private static PropertyMapIndexDefinition.INDEX_BY extractMapIndexSpecifier(
       final String fieldName) {
-    final String[] fieldNameParts = FILED_NAME_PATTERN.split(fieldName);
+    final var fieldNameParts = FILED_NAME_PATTERN.split(fieldName);
     if (fieldNameParts.length == 1) {
       return PropertyMapIndexDefinition.INDEX_BY.KEY;
     }
@@ -272,8 +271,9 @@ public class IndexDefinitionFactory {
             + '\'');
   }
 
-  private static String adjustFieldName(final SchemaClass clazz, final String fieldName) {
-    final SchemaProperty property = clazz.getProperty(fieldName);
+  private static String adjustFieldName(final SchemaClass clazz,
+      final String fieldName) {
+    final var property = clazz.getProperty(fieldName);
     if (property != null) {
       return property.getName();
     } else {

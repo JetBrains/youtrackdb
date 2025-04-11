@@ -1,13 +1,13 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
-import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 
 /**
  *
@@ -31,11 +31,11 @@ public class RemoteConnectionPool
     try {
       LogManager.instance().debug(this, "Trying to connect to the remote host %s...", serverURL);
 
-      int sepPos = serverURL.indexOf(':');
-      final String remoteHost = serverURL.substring(0, sepPos);
-      final int remotePort = Integer.parseInt(serverURL.substring(sepPos + 1));
+      var sepPos = serverURL.indexOf(':');
+      final var remoteHost = serverURL.substring(0, sepPos);
+      final var remotePort = Integer.parseInt(serverURL.substring(sepPos + 1));
 
-      final SocketChannelBinaryAsynchClient ch =
+      final var ch =
           new SocketChannelBinaryAsynchClient(
               remoteHost,
               remotePort,
@@ -50,7 +50,7 @@ public class RemoteConnectionPool
     } catch (Exception e) {
       LogManager.instance().debug(this, "Error on connecting to %s", e, serverURL);
       throw BaseException.wrapException(new YTIOException("Error on connecting to " + serverURL),
-          e);
+          e, (String) null);
     }
   }
 
@@ -64,7 +64,7 @@ public class RemoteConnectionPool
   public boolean reuseResource(
       final String iKey, final Object[] iAdditionalArgs,
       final SocketChannelBinaryAsynchClient iValue) {
-    final boolean canReuse = iValue.isConnected();
+    final var canReuse = iValue.isConnected();
     if (!canReuse)
     // CANNOT REUSE: CLOSE IT PROPERLY
     {
@@ -90,7 +90,7 @@ public class RemoteConnectionPool
   }
 
   public void checkIdle(long timeout) {
-    for (SocketChannelBinaryAsynchClient resource : pool.getResources()) {
+    for (var resource : pool.getResources()) {
       if (!resource.isInUse() && resource.getLastUse() + timeout < System.currentTimeMillis()) {
         resource.close();
       }

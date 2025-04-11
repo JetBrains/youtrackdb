@@ -13,14 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
-import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
@@ -44,18 +44,17 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   public void initClazz(DatabaseSessionInternal db) {
 
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass polygon = schema.createAbstractClass(getName(), superClass(db));
-    polygon.createProperty(db, "coordinates", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
+    var polygon = schema.createAbstractClass(getName(), superClass(db));
+    polygon.createProperty("coordinates", PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDLIST);
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-    validate(document);
-    List<List<List<List<Number>>>> coordinates = document.field("coordinates");
+  public JtsGeometry fromResult(Result document) {
+    List<List<List<List<Number>>>> coordinates = document.getProperty("coordinates");
 
-    Polygon[] polygons = new Polygon[coordinates.size()];
-    int i = 0;
-    for (List<List<List<Number>>> coordinate : coordinates) {
+    var polygons = new Polygon[coordinates.size()];
+    var i = 0;
+    for (var coordinate : coordinates) {
       polygons[i] = createPolygon(coordinate);
       i++;
     }
@@ -63,19 +62,20 @@ public class MultiPolygonShapeBuilder extends PolygonShapeBuilder {
   }
 
   @Override
-  public EntityImpl toDoc(JtsGeometry shape) {
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
 
-    EntityImpl doc = new EntityImpl(getName());
-    MultiPolygon multiPolygon = (MultiPolygon) shape.getGeom();
+    var entity = session.newEmbeddedEntity(getName());
+
+    var multiPolygon = (MultiPolygon) shape.getGeom();
     List<List<List<List<Double>>>> polyCoordinates = new ArrayList<List<List<List<Double>>>>();
-    int n = multiPolygon.getNumGeometries();
+    var n = multiPolygon.getNumGeometries();
 
-    for (int i = 0; i < n; i++) {
-      Geometry geom = multiPolygon.getGeometryN(i);
+    for (var i = 0; i < n; i++) {
+      var geom = multiPolygon.getGeometryN(i);
       polyCoordinates.add(coordinatesFromPolygon((Polygon) geom));
     }
 
-    doc.field(COORDINATES, polyCoordinates);
-    return doc;
+    entity.newEmbeddedList(COORDINATES, polyCoordinates);
+    return entity;
   }
 }

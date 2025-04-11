@@ -93,7 +93,7 @@ check_errs $? "Impossible to find zip command check if is correctly installed"
 ENGINE=`echo $DB | awk -F ':' '{print $1}'`
 DB_NAME=` echo $DB | awk -F '/' '{print $NF}'`
 echo $YOUTRACKDB_HOME
-if [ "$ENGINE" = "plocal" ]
+if [ "$ENGINE" = "disk" ]
 then
 	DB_PATH=`echo $DB | awk -F ':' '{print $2}'`
 	FREEZE=false

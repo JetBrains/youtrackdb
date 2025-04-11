@@ -58,7 +58,7 @@ public class SBTreeValue<V> {
       return false;
     }
 
-    SBTreeValue that = (SBTreeValue) o;
+    var that = (SBTreeValue) o;
 
     if (isLink != that.isLink) {
       return false;
@@ -71,7 +71,7 @@ public class SBTreeValue<V> {
 
   @Override
   public int hashCode() {
-    int result = (isLink ? 1 : 0);
+    var result = (isLink ? 1 : 0);
     result = 31 * result + (int) (link ^ (link >>> 32));
     result = 31 * result + (value != null ? value.hashCode() : 0);
     return result;

@@ -25,18 +25,15 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchListener;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LiveResultListener;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.ClientSessions;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -44,9 +41,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.Nonnull;
 
 /**
  * Asynchronous command result manager. As soon as a record is returned by the command is sent over
@@ -72,8 +69,8 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
   }
 
   @Override
-  public boolean result(DatabaseSessionInternal querySession, final Object iRecord) {
-    final NetworkProtocolBinary protocol = ((NetworkProtocolBinary) connection.getProtocol());
+  public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
+    final var protocol = ((NetworkProtocolBinary) connection.getProtocol());
     if (empty.compareAndSet(true, false)) {
       try {
         protocol.channel.writeByte(ChannelBinaryProtocol.RESPONSE_STATUS_OK);
@@ -85,17 +82,17 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
             && protocol.requestType != ChannelBinaryProtocol.REQUEST_CONNECT
             && protocol.requestType != ChannelBinaryProtocol.REQUEST_DB_OPEN) {
           // TODO: Check if the token is expiring and if it is send a new token
-          byte[] renewedToken =
+          var renewedToken =
               protocol.getServer().getTokenHandler().renewIfNeeded(connection.getToken());
           protocol.channel.writeBytes(renewedToken);
         }
       } catch (IOException ignored) {
       }
     }
+
     try {
-      fetchRecord(
-          iRecord,
-          new RemoteFetchListener() {
+      fetchRecord(session,
+          iRecord, new RemoteFetchListener() {
             @Override
             protected void sendRecord(RecordAbstract iLinked) {
               if (!alreadySent.contains(iLinked.getIdentity())) {
@@ -111,8 +108,9 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
           });
       alreadySent.add(((Identifiable) iRecord).getIdentity());
       protocol.channel.writeByte((byte) 1); // ONE MORE RECORD
+      var transaction = session.getActiveTransaction();
       NetworkProtocolBinary.writeIdentifiable(
-          protocol.channel, connection, ((Identifiable) iRecord).getRecord());
+          protocol.channel, connection, transaction.load(((Identifiable) iRecord)));
       protocol.channel.flush();
     } catch (IOException e) {
       return false;
@@ -124,13 +122,14 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
     return empty.get();
   }
 
-  public void onLiveResult(int iToken, RecordOperation iOp) throws BaseException {
-    boolean sendFail = true;
+  public void onLiveResult(DatabaseSessionInternal db, int iToken, RecordOperation iOp)
+      throws BaseException {
+    var sendFail = true;
     do {
-      List<ClientConnection> connections = session.getConnections();
+      var connections = session.getConnections();
       if (connections.size() == 0) {
         try {
-          DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().get();
+
           LogManager.instance()
               .warn(this, "Unsubscribing live query for connection " + connection);
           LiveQueryHook.unsubscribe(iToken, db);
@@ -140,21 +139,21 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         }
         break;
       }
-      ClientConnection curConnection = connections.get(0);
-      NetworkProtocolBinary protocol = (NetworkProtocolBinary) curConnection.getProtocol();
+      var curConnection = connections.get(0);
+      var protocol = (NetworkProtocolBinary) curConnection.getProtocol();
 
-      SocketChannelBinary channel = protocol.getChannel();
+      var channel = protocol.getChannel();
       try {
         channel.acquireWriteLock();
         try {
 
-          ByteArrayOutputStream content = new ByteArrayOutputStream();
+          var content = new ByteArrayOutputStream();
 
-          DataOutputStream out = new DataOutputStream(content);
+          var out = new DataOutputStream(content);
           out.writeByte('r');
           out.writeByte(iOp.type);
           out.writeInt(iToken);
-          out.writeByte(RecordInternal.getRecordType(iOp.record));
+          out.writeByte(iOp.record.getRecordType());
           writeVersion(out, iOp.record.getVersion());
           writeRID(out, iOp.record.getIdentity());
           writeBytes(out, NetworkProtocolBinary.getRecordBytes(connection, iOp.record));
@@ -172,7 +171,6 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         session.removeConnection(curConnection);
         connections = session.getConnections();
         if (connections.isEmpty()) {
-          DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().get();
           LiveQueryHook.unsubscribe(iToken, db);
           break;
         }
@@ -180,11 +178,11 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         LogManager.instance()
             .warn(
                 this,
-                "Cannot push cluster configuration to the client %s",
+                "Cannot push collection configuration to the client %s",
                 e,
                 protocol.getRemoteAddress());
         protocol.getServer().getClientConnectionManager().disconnect(connection);
-        LiveQueryHook.unsubscribe(iToken, connection.getDatabase());
+        LiveQueryHook.unsubscribe(iToken, connection.getDatabaseSession());
         break;
       }
 
@@ -197,22 +195,22 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
 
   @Override
   public void onUnsubscribe(int iLiveToken) {
-    boolean sendFail = true;
+    var sendFail = true;
     do {
-      List<ClientConnection> connections = session.getConnections();
+      var connections = session.getConnections();
       if (connections.size() == 0) {
         break;
       }
-      NetworkProtocolBinary protocol = (NetworkProtocolBinary) connections.get(0).getProtocol();
+      var protocol = (NetworkProtocolBinary) connections.get(0).getProtocol();
 
-      SocketChannelBinary channel = protocol.getChannel();
+      var channel = protocol.getChannel();
       try {
         channel.acquireWriteLock();
         try {
 
-          ByteArrayOutputStream content = new ByteArrayOutputStream();
+          var content = new ByteArrayOutputStream();
 
-          DataOutputStream out = new DataOutputStream(content);
+          var out = new DataOutputStream(content);
           out.writeByte('u');
           out.writeInt(iLiveToken);
           channel.writeByte(ChannelBinaryProtocol.PUSH_DATA);
@@ -234,7 +232,7 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
         LogManager.instance()
             .warn(
                 this,
-                "Cannot push cluster configuration to the client %s",
+                "Cannot push collection configuration to the client %s",
                 e,
                 protocol.getRemoteAddress());
         protocol.getServer().getClientConnectionManager().disconnect(connection);
@@ -249,8 +247,8 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
   }
 
   private void writeRID(DataOutputStream out, RecordId record) throws IOException {
-    out.writeShort((short) record.getClusterId());
-    out.writeLong(record.getClusterPosition());
+    out.writeShort((short) record.getCollectionId());
+    out.writeLong(record.getCollectionPosition());
   }
 
   public void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {
@@ -259,6 +257,6 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
   }
 
   @Override
-  public void linkdedBySimpleValue(EntityImpl entity) {
+  public void linkdedBySimpleValue(DatabaseSessionInternal db, EntityImpl entity) {
   }
 }

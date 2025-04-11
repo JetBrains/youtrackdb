@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.query;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
@@ -35,14 +34,11 @@ import java.util.NoSuchElementException;
  * ResultSet class that implements List interface for retro compatibility.
  *
  * @param <T>
- * @see SQLAsynchQuery
  */
 public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
 
   protected List<T> underlying;
   protected transient int limit = -1;
-  // Reference to temporary record for avoid garbace collection
-  private List<DBRecord> temporaryRecordCache;
 
   public BasicLegacyResultSet() {
     underlying = Collections.synchronizedList(new ArrayList<T>());
@@ -72,7 +68,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
 
   @Override
   public boolean isEmpty() {
-    boolean empty = underlying.isEmpty();
+    var empty = underlying.isEmpty();
     if (empty) {
       empty = underlying.isEmpty();
     }
@@ -130,7 +126,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
       return false;
     }
 
-    final boolean result = underlying.add(t);
+    final var result = underlying.add(t);
     return result;
   }
 
@@ -236,7 +232,7 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
   }
 
   public BasicLegacyResultSet<T> copy() {
-    final BasicLegacyResultSet<T> newValue = new BasicLegacyResultSet<T>();
+    final var newValue = new BasicLegacyResultSet<T>();
     newValue.underlying.addAll(underlying);
     return newValue;
   }
@@ -246,7 +242,4 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
     return underlying.isEmpty();
   }
 
-  public void setTemporaryRecordCache(List<DBRecord> temporaryRecordCache) {
-    this.temporaryRecordCache = temporaryRecordCache;
-  }
 }

@@ -31,11 +31,11 @@ public class LogManagerHelper {
    */
   public static Level getLevelProperty(LogManager manager, String name, Level defaultValue) {
 
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     if (val == null) {
       return defaultValue;
     }
-    Level l = LevelHelper.findLevel(val.trim());
+    var l = LevelHelper.findLevel(val.trim());
     return l != null ? l : defaultValue;
   }
 
@@ -48,7 +48,7 @@ public class LogManagerHelper {
    * <p>If the property is not defined or has problems we return the defaultValue.
    */
   public static Filter getFilterProperty(LogManager manager, String name, Filter defaultValue) {
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     try {
       if (val != null) {
         Class clz = ClassLoader.getSystemClassLoader().loadClass(val);
@@ -74,7 +74,7 @@ public class LogManagerHelper {
    */
   public static Formatter getFormatterProperty(
       LogManager manager, String name, Formatter defaultValue) {
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     try {
       if (val != null) {
         Class clz = ClassLoader.getSystemClassLoader().loadClass(val);
@@ -95,7 +95,7 @@ public class LogManagerHelper {
    * <p>If the property is not defined we return the given default value.
    */
   public static String getStringProperty(LogManager manager, String name, String defaultValue) {
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     if (val == null) {
       return defaultValue;
     }
@@ -110,7 +110,7 @@ public class LogManagerHelper {
    * <p>If the property is not defined or cannot be parsed we return the given default value.
    */
   public static int getIntProperty(LogManager manager, String name, int defaultValue) {
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     if (val == null) {
       return defaultValue;
     }
@@ -129,7 +129,7 @@ public class LogManagerHelper {
    * <p>If the property is not defined or cannot be parsed we return the given default value.
    */
   public static boolean getBooleanProperty(LogManager manager, String name, boolean defaultValue) {
-    String val = manager.getProperty(name);
+    var val = manager.getProperty(name);
     if (val == null) {
       return defaultValue;
     }

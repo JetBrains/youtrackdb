@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.command;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
 /**
@@ -37,5 +37,5 @@ public interface CommandPredicate {
    * @return The result of predicate
    */
   Object evaluate(
-      final Identifiable iRecord, EntityImpl iCurrentResult, final CommandContext iContext);
+      final Result iRecord, EntityImpl iCurrentResult, final CommandContext iContext);
 }

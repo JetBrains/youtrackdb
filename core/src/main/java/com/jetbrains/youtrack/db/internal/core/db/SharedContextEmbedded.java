@@ -3,10 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerShared;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -14,25 +12,20 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2.LiveQueryOps;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import java.util.HashMap;
-import java.util.Map;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  *
  */
-public class SharedContextEmbedded extends SharedContext {
+public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
 
   private final ReentrantLock lock = new ReentrantLock();
-  protected Map<String, DistributedQueryContext> activeDistributedQueries;
 
   public SharedContextEmbedded(Storage storage, YouTrackDBEmbedded youtrackDB) {
     this.youtrackDB = youtrackDB;
@@ -49,7 +42,7 @@ public class SharedContextEmbedded extends SharedContext {
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
     schema = new SchemaEmbedded();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
-    indexManager = new IndexManagerShared(storage);
+    indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
     sequenceLibrary = new SequenceLibraryImpl();
@@ -71,11 +64,10 @@ public class SharedContextEmbedded extends SharedContext {
     this.registerListener(executionPlanCache);
 
     queryStats = new QueryStats();
-    activeDistributedQueries = new HashMap<>();
-    ((AbstractPaginatedStorage) storage)
+    ((AbstractStorage) storage)
         .setStorageConfigurationUpdateListener(
             update -> {
-              for (MetadataUpdateListener listener : browseListeners()) {
+              for (var listener : browseListeners()) {
                 listener.onStorageConfigurationUpdate(storage.getName(), update);
               }
             });
@@ -88,18 +80,19 @@ public class SharedContextEmbedded extends SharedContext {
 
     lock.lock();
     try {
-      schema.load(database);
-      schema.forceSnapshot(database);
-      indexManager.load(database);
-      // The Immutable snapshot should be after index and schema that require and before
-      // everything else that use it
-      schema.forceSnapshot(database);
-      security.load(database);
-      functionLibrary.load(database);
-      scheduler.load(database);
-      sequenceLibrary.load(database);
-      schema.onPostIndexManagement(database);
-      loaded = true;
+      database.executeInTx(transaction -> {
+        schema.load(database);
+        schema.forceSnapshot();
+        indexManager.load(database);
+        // The Immutable snapshot should be after index and schema that require and before
+        // everything else that use it
+        schema.forceSnapshot();
+        security.load(database);
+        functionLibrary.load(database);
+        scheduler.load(database);
+        sequenceLibrary.load(database);
+        loaded = true;
+      });
     } finally {
       lock.unlock();
     }
@@ -120,12 +113,13 @@ public class SharedContextEmbedded extends SharedContext {
       executionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
-      activeDistributedQueries.values().forEach(DistributedQueryContext::close);
       loaded = false;
     } finally {
       lock.unlock();
     }
   }
+
+
 
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
@@ -134,7 +128,7 @@ public class SharedContextEmbedded extends SharedContext {
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       functionLibrary.load(database);
       sequenceLibrary.load(database);
@@ -144,29 +138,37 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public void create(DatabaseSessionInternal database) {
+  public void create(DatabaseSessionInternal session) {
     lock.lock();
     try {
-      schema.create(database);
-      indexManager.create(database);
-      security.create(database);
-      functionLibrary.create(database);
-      SequenceLibraryImpl.create(database);
-      security.createClassTrigger(database);
-      SchedulerImpl.create(database);
-      schema.forceSnapshot(database);
+      schema.create(session);
+      indexManager.create(session);
+      security.create(session);
+      FunctionLibraryImpl.create(session);
+      SequenceLibraryImpl.create(session);
+      SchedulerImpl.create(session);
+      schema.forceSnapshot();
 
       // CREATE BASE VERTEX AND EDGE CLASSES
-      schema.createClass(database, Entity.DEFAULT_CLASS_NAME);
-      schema.createClass(database, "V");
-      schema.createClass(database, "E");
+      schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
+      schema.createClass(session, "V");
+      schema.createClass(session, "E");
+
+      var config = storage.getConfiguration();
+      var blobCollectionsCount = config.getContextConfiguration()
+          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
+
+      for (var i = 0; i < blobCollectionsCount; i++) {
+        var blobCollectionId = session.addCollection("$blob" + i);
+        schema.addBlobCollection(session, blobCollectionId);
+      }
 
       // create geospatial classes
       try {
-        IndexFactory factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
+        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
         if (factory instanceof DatabaseLifecycleListener) {
-          ((DatabaseLifecycleListener) factory).onCreate(database);
+          ((DatabaseLifecycleListener) factory).onCreate(session);
         }
       } catch (IndexException x) {
         // the index does not exist
@@ -178,11 +180,7 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public Map<String, DistributedQueryContext> getActiveDistributedQueries() {
-    return activeDistributedQueries;
-  }
-
-  public void reInit(AbstractPaginatedStorage storage2, DatabaseSessionInternal database) {
+  public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
     lock.lock();
     try {
       this.close();
@@ -195,32 +193,4 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public Map<String, Object> loadConfig(
-      DatabaseSessionInternal session, String name) {
-    lock.lock();
-    try {
-      //noinspection unchecked
-      return (Map<String, Object>)
-          ScenarioThreadLocal.executeAsDistributed(
-              () -> {
-                assert !session.getTransaction().isActive();
-                String propertyName = "__config__" + name;
-                String id = storage.getConfiguration().getProperty(propertyName);
-                if (id != null) {
-                  RecordId recordId = new RecordId(id);
-                  EntityImpl config = session.load(recordId);
-                  RecordInternal.setIdentity(config, new RecordId(-1, -1));
-                  return config.toMap();
-                } else {
-                  return null;
-                }
-              });
-    } finally {
-      lock.unlock();
-    }
-  }
-
-  public Map<String, Object> loadDistributedConfig(DatabaseSessionInternal session) {
-    return loadConfig(session, "ditributedConfig");
-  }
 }

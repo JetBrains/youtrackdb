@@ -13,11 +13,11 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -26,10 +26,8 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.spatial4j.context.jts.JtsSpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
@@ -96,11 +94,11 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     hole.add(new Coordinate(100.8, 0.2));
     hole.add(new Coordinate(100.8, 0.8));
     hole.add(new Coordinate(100.2, 0.8));
-    LinearRing linearRing =
+    var linearRing =
         JtsSpatialContext.GEO
             .getGeometryFactory()
             .createLinearRing(outerRing.toArray(new Coordinate[outerRing.size()]));
-    LinearRing holeRing =
+    var holeRing =
         JtsSpatialContext.GEO
             .getGeometryFactory()
             .createLinearRing(hole.toArray(new Coordinate[hole.size()]));
@@ -136,40 +134,36 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     };
   }
 
-  protected EntityImpl loadMultiPolygon() {
+  protected EmbeddedEntity loadMultiPolygon() throws IOException {
+    var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-    try {
-      InputStream systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
-      EntityImpl doc = new EntityImpl().fromJSON(systemResourceAsStream);
+    Map geometry = (Map) map.get("geometry");
 
-      Map geometry = doc.field("geometry");
+    var type = (String) geometry.get("type");
+    var location = session.newEmbeddedEntity("O" + type);
+    location.newEmbeddedList("coordinates", (List<Object>) geometry.get("coordinates"));
+    return location;
 
-      String type = (String) geometry.get("type");
-      EntityImpl location = new EntityImpl("O" + type);
-      location.field("coordinates", geometry.get("coordinates"));
-      return location;
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
+
   }
 
   protected GeometryCollection createGeometryCollection() {
 
-    Point point = geometryFactory.createPoint(new Coordinate(4, 6));
+    var point = geometryFactory.createPoint(new Coordinate(4, 6));
 
-    LineString lineString =
+    var lineString =
         geometryFactory.createLineString(
             new Coordinate[]{new Coordinate(4, 6), new Coordinate(7, 10)});
 
     return geometryFactory.createGeometryCollection(new Geometry[]{point, lineString});
   }
 
-  protected EntityImpl geometryCollection() {
+  protected EmbeddedEntity geometryCollection() {
 
-    final EntityImpl point = new EntityImpl("OPoint");
-    point.field(
+    final var point = session.newEmbeddedEntity("OPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -178,8 +172,8 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
           }
         });
 
-    final EntityImpl lineString = new EntityImpl("OLineString");
-    lineString.field(
+    final var lineString = session.newEmbeddedEntity("OLineString");
+    lineString.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -188,11 +182,11 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
           }
         });
 
-    EntityImpl geometryCollection = new EntityImpl("OGeometryCollection");
+    var geometryCollection = session.newEmbeddedEntity("OGeometryCollection");
 
-    geometryCollection.field(
+    geometryCollection.newEmbeddedList(
         "geometries",
-        new ArrayList<EntityImpl>() {
+        new ArrayList<EmbeddedEntity>() {
           {
             add(point);
             add(lineString);
@@ -201,9 +195,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return geometryCollection;
   }
 
-  protected EntityImpl lineStringDoc() {
-    EntityImpl point = new EntityImpl("OLineString");
-    point.field(
+  protected EmbeddedEntity lineStringDoc() {
+    var point = session.newEmbeddedEntity("OLineString");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -216,19 +210,24 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
   }
 
   protected MultiPolygon createMultiPolygon() throws IOException {
+    return session.computeInTx(transaction -> {
+      try {
+        var document = loadMultiPolygon();
 
-    EntityImpl document = loadMultiPolygon();
+        var builder = new MultiPolygonShapeBuilder();
 
-    MultiPolygonShapeBuilder builder = new MultiPolygonShapeBuilder();
+        Shape geometry = builder.fromResult(document);
 
-    Shape geometry = builder.fromDoc(document);
-
-    return (MultiPolygon) ((JtsGeometry) geometry).getGeom();
+        return (MultiPolygon) ((JtsGeometry) geometry).getGeom();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
   }
 
-  protected EntityImpl point() {
-    EntityImpl point = new EntityImpl("OPoint");
-    point.field(
+  protected EmbeddedEntity point() {
+    var point = session.newEmbeddedEntity("OPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<Double>() {
           {
@@ -239,9 +238,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl multiLineString() {
-    EntityImpl point = new EntityImpl("OMultiLineString");
-    point.field(
+  protected EmbeddedEntity multiLineString() {
+    var point = session.newEmbeddedEntity("OMultiLineString");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -258,9 +257,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl multiPoint() {
-    EntityImpl point = new EntityImpl("OMultiPoint");
-    point.field(
+  protected EmbeddedEntity multiPoint() {
+    var point = session.newEmbeddedEntity("OMultiPoint");
+    point.newEmbeddedList(
         "coordinates",
         new ArrayList<List<Double>>() {
           {
@@ -272,9 +271,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return point;
   }
 
-  protected EntityImpl rectangle() {
-    EntityImpl polygon = new EntityImpl("OPolygon");
-    polygon.field(
+  protected EmbeddedEntity rectangle() {
+    var polygon = session.newEmbeddedEntity("OPolygon");
+    polygon.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {
@@ -293,9 +292,9 @@ public abstract class BaseSpatialLuceneTest extends BaseLuceneTest {
     return polygon;
   }
 
-  protected EntityImpl polygon() {
-    EntityImpl polygon = new EntityImpl("OPolygon");
-    polygon.field(
+  protected EmbeddedEntity polygon() {
+    var polygon = session.newEmbeddedEntity("OPolygon");
+    polygon.newEmbeddedList(
         "coordinates",
         new ArrayList<List<List<Double>>>() {
           {

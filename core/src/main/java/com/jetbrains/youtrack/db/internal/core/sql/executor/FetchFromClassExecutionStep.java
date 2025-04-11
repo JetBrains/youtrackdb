@@ -1,16 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,6 +18,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -35,24 +36,24 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   public FetchFromClassExecutionStep(
       String className,
-      Set<String> clusters,
+      Set<String> collections,
       CommandContext ctx,
       Boolean ridOrder,
       boolean profilingEnabled) {
-    this(className, clusters, null, ctx, ridOrder, profilingEnabled);
+    this(className, collections, null, ctx, ridOrder, profilingEnabled);
   }
 
   /**
    * iterates over a class and its subclasses
    *
    * @param className the class name
-   * @param clusters  if present (it can be null), filter by only these clusters
+   * @param collections  if present (it can be null), filter by only these collections
    * @param ctx       the query context
    * @param ridOrder  true to sort by RID asc, false to sort by RID desc, null for no sort.
    */
   public FetchFromClassExecutionStep(
       String className,
-      Set<String> clusters,
+      Set<String> collections,
       QueryPlanningInfo planningInfo,
       CommandContext ctx,
       Boolean ridOrder,
@@ -66,66 +67,68 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     } else if (Boolean.FALSE.equals(ridOrder)) {
       orderByRidDesc = true;
     }
-    SchemaClass clazz = loadClassFromSchema(className, ctx);
-    int[] classClusters = clazz.getPolymorphicClusterIds();
-    IntArrayList filteredClassClusters = new IntArrayList();
 
-    for (int clusterId : classClusters) {
-      String clusterName = ctx.getDatabase().getClusterNameById(clusterId);
-      if (clusters == null || clusters.contains(clusterName)) {
-        filteredClassClusters.add(clusterId);
+    var clazz = loadClassFromSchema(className, ctx);
+    var classCollections = clazz.getPolymorphicCollectionIds();
+    var filteredClassCollections = new IntArrayList();
+
+    for (var collectionId : classCollections) {
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      if (collections == null || collections.contains(collectionName)) {
+        filteredClassCollections.add(collectionId);
       }
     }
-    int[] clusterIds = new int[filteredClassClusters.size() + 1];
-    for (int i = 0; i < filteredClassClusters.size(); i++) {
-      clusterIds[i] = filteredClassClusters.getInt(i);
+    var collectionIds = new int[filteredClassCollections.size() + 1];
+    for (var i = 0; i < filteredClassCollections.size(); i++) {
+      collectionIds[i] = filteredClassCollections.getInt(i);
     }
-    clusterIds[clusterIds.length - 1] = -1; // temporary cluster, data in tx
+    collectionIds[collectionIds.length - 1] = -1; // temporary collection, data in tx
 
-    sortClusers(clusterIds);
-    for (int clusterId : clusterIds) {
-      if (clusterId > 0) {
-        FetchFromClusterExecutionStep step =
-            new FetchFromClusterExecutionStep(clusterId, planningInfo, ctx, profilingEnabled);
+    sortClusers(collectionIds);
+    for (var collectionId : collectionIds) {
+      if (collectionId > 0) {
+        var step =
+            new FetchFromCollectionExecutionStep(collectionId, planningInfo, ctx, profilingEnabled);
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
         }
         subSteps.add(step);
       } else {
         // current tx
-        FetchTemporaryFromTxStep step =
+        var step =
             new FetchTemporaryFromTxStep(ctx, className, profilingEnabled);
         if (orderByRidAsc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_ASC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_ASC);
         } else if (orderByRidDesc) {
-          step.setOrder(FetchFromClusterExecutionStep.ORDER_DESC);
+          step.setOrder(FetchFromCollectionExecutionStep.ORDER_DESC);
         }
         subSteps.add(step);
       }
     }
   }
 
-  protected SchemaClass loadClassFromSchema(String className, CommandContext ctx) {
-    SchemaClass clazz = ctx.getDatabase().getMetadata().getImmutableSchemaSnapshot()
+  protected static SchemaClass loadClassFromSchema(String className, CommandContext ctx) {
+    var clazz = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
         .getClass(className);
     if (clazz == null) {
-      throw new CommandExecutionException("Class " + className + " not found");
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Class " + className + " not found");
     }
     return clazz;
   }
 
-  private void sortClusers(int[] clusterIds) {
+  private void sortClusers(int[] collectionIds) {
     if (orderByRidAsc) {
-      Arrays.sort(clusterIds);
+      Arrays.sort(collectionIds);
     } else if (orderByRidDesc) {
-      Arrays.sort(clusterIds);
+      Arrays.sort(collectionIds);
       // revert order
-      for (int i = 0; i < clusterIds.length / 2; i++) {
-        int old = clusterIds[i];
-        clusterIds[i] = clusterIds[clusterIds.length - 1 - i];
-        clusterIds[clusterIds.length - 1 - i] = old;
+      for (var i = 0; i < collectionIds.length / 2; i++) {
+        var old = collectionIds[i];
+        collectionIds[i] = collectionIds[collectionIds.length - 1 - i];
+        collectionIds[collectionIds.length - 1 - i] = old;
       }
     }
   }
@@ -136,15 +139,15 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    List<ExecutionStep> stepsIter = subSteps;
+    var stepsIter = subSteps;
 
-    ExecutionStreamProducer res =
+    var res =
         new ExecutionStreamProducer() {
           private final Iterator<ExecutionStep> iter = stepsIter.iterator();
 
           @Override
           public ExecutionStream next(CommandContext ctx) {
-            ExecutionStep step = iter.next();
+            var step = iter.next();
             return ((AbstractExecutionStep) step).start(ctx);
           }
 
@@ -168,7 +171,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   @Override
   public void sendTimeout() {
-    for (ExecutionStep step : subSteps) {
+    for (var step : subSteps) {
       ((AbstractExecutionStep) step).sendTimeout();
     }
     if (prev != null) {
@@ -178,7 +181,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   @Override
   public void close() {
-    for (ExecutionStep step : subSteps) {
+    for (var step : subSteps) {
       ((AbstractExecutionStep) step).close();
     }
     if (prev != null) {
@@ -188,16 +191,16 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    StringBuilder builder = new StringBuilder();
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
+    var builder = new StringBuilder();
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
     builder.append(ind);
     builder.append("+ FETCH FROM CLASS ").append(className);
     if (profilingEnabled) {
       builder.append(" (").append(getCostFormatted()).append(")");
     }
     builder.append("\n");
-    for (int i = 0; i < subSteps.size(); i++) {
-      ExecutionStepInternal step = (ExecutionStepInternal) subSteps.get(i);
+    for (var i = 0; i < subSteps.size(); i++) {
+      var step = (ExecutionStepInternal) subSteps.get(i);
       builder.append(step.prettyPrint(depth + 1, indent));
       if (i < subSteps.size() - 1) {
         builder.append("\n");
@@ -207,8 +210,8 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
+  public Result serialize(DatabaseSessionInternal session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("className", className);
     result.setProperty("orderByRidAsc", orderByRidAsc);
     result.setProperty("orderByRidDesc", orderByRidDesc);
@@ -216,17 +219,18 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       this.className = fromResult.getProperty("className");
       this.orderByRidAsc = fromResult.getProperty("orderByRidAsc");
       this.orderByRidDesc = fromResult.getProperty("orderByRidDesc");
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 
+  @Nonnull
   @Override
   public List<ExecutionStep> getSubSteps() {
     return subSteps;
@@ -239,7 +243,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    FetchFromClassExecutionStep result = new FetchFromClassExecutionStep(ctx, profilingEnabled);
+    var result = new FetchFromClassExecutionStep(ctx, profilingEnabled);
     result.className = this.className;
     result.orderByRidAsc = this.orderByRidAsc;
     result.orderByRidDesc = this.orderByRidDesc;

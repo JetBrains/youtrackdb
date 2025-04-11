@@ -1,17 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtreebonsai.local.BonsaiBucketPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeRidBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.ChangeSerializationHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 
 public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37 {
 
@@ -19,56 +13,88 @@ public class RecordSerializerNetworkV37Client extends RecordSerializerNetworkV37
       new RecordSerializerNetworkV37Client();
   public static final String NAME = "onet_ser_v37_client";
 
-  protected RidBag readRidBag(DatabaseSessionInternal db, BytesContainer bytes) {
-    UUID uuid = UUIDSerializer.INSTANCE.deserialize(bytes.bytes, bytes.offset);
-    bytes.skip(UUIDSerializer.UUID_SIZE);
-    if (uuid.getMostSignificantBits() == -1 && uuid.getLeastSignificantBits() == -1) {
-      uuid = null;
+  @Override
+  public void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes, RidBag bag) {
+    if (!bag.isToSerializeEmbedded()) {
+      throw new IllegalStateException("TreeLinkBag serialization can be done only by "
+          + EntitySerializerDelta.class.getSimpleName());
     }
-    byte b = bytes.bytes[bytes.offset];
+
+    super.writeLinkBag(session, bytes, bag);
+  }
+
+  @Override
+  public void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
+      EntityLinkSetImpl set) {
+    if (!set.isToSerializeEmbedded()) {
+      throw new IllegalStateException("TreeLinkSet serialization can be done only by "
+          + EntitySerializerDelta.class.getSimpleName());
+    }
+
+    super.writeLinkSet(session, bytes, set);
+  }
+
+  @Override
+  public RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+    var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      RidBag bag = new RidBag(db, uuid);
-      int size = VarIntSerializer.readAsInteger(bytes);
+      var bag = new RidBag(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
 
-      if (size > 0) {
-        for (int i = 0; i < size; i++) {
-          Identifiable id = readOptimizedLink(bytes);
-          if (id.equals(NULL_RECORD_ID)) {
-            bag.add(null);
-          } else {
-            bag.add(id);
-          }
-        }
-        // The bag will mark the elements we just added as new events
-        // and marking the entire bag as a dirty transaction {@link
-        // EmbeddedRidBag#transactionDirty}
-        // although we just deserialized it so there are no changes and the transaction isn't dirty
-        bag.enableTracking(null);
-        bag.transactionClear();
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
+
+      bag.disableTracking(null);
+      bag.transactionClear();
       return bag;
     } else {
-      long fileId = VarIntSerializer.readAsLong(bytes);
-      long pageIndex = VarIntSerializer.readAsLong(bytes);
-      int pageOffset = VarIntSerializer.readAsInteger(bytes);
-      int bagSize = VarIntSerializer.readAsInteger(bytes);
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkBag pointer is invalid");
+      }
+      return new RidBag(session,
+          new RemoteTreeLinkBag(session, pointer, Integer.MAX_VALUE, linkBagSize));
+    }
+  }
 
-      Map<Identifiable, Change> changes = new HashMap<>();
-      int size = VarIntSerializer.readAsInteger(bytes);
-      while (size-- > 0) {
-        Identifiable link = readOptimizedLink(bytes);
-        byte type = bytes.bytes[bytes.offset];
-        bytes.skip(1);
-        int change = VarIntSerializer.readAsInteger(bytes);
-        changes.put(link, ChangeSerializationHelper.createChangeInstance(type, change));
+  @Override
+  public EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+      BytesContainer bytes) {
+    var b = bytes.bytes[bytes.offset];
+    bytes.skip(1);
+    if (b == 1) {
+      var bag = new EntityLinkSetImpl(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
+
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
       }
-      BonsaiCollectionPointer pointer = null;
-      if (fileId != -1) {
-        pointer =
-            new BonsaiCollectionPointer(fileId, new BonsaiBucketPointer(pageIndex, pageOffset));
+
+      bag.disableTracking(null);
+      bag.transactionClear();
+      return bag;
+    } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
       }
-      return new RidBag(db, new RemoteTreeRidBag(pointer));
+      return new EntityLinkSetImpl(session,
+          new RemoteTreeLinkBag(session, pointer, linkBagSize, 1));
     }
   }
 }

@@ -13,7 +13,7 @@ import org.junit.rules.TestName;
 
 public class BaseServerMemoryDatabase {
 
-  protected DatabaseSessionInternal db;
+  protected DatabaseSessionInternal session;
   protected YouTrackDB context;
   @Rule
   public TestName name = new TestName();
@@ -37,15 +37,15 @@ public class BaseServerMemoryDatabase {
                 + name.getMethodName()
                 + " memory users(admin identified by 'adminpwd' role admin) ")
         .close();
-    db = (DatabaseSessionInternal) context.open(name.getMethodName(), "admin", "adminpwd");
+    session = (DatabaseSessionInternal) context.open(name.getMethodName(), "admin", "adminpwd");
   }
 
   @After
   public void afterTest() {
-    db.close();
+    session.close();
     context.drop(name.getMethodName());
     context.close();
-    String directory = server.getDatabaseDirectory();
+    var directory = server.getDatabaseDirectory();
     server.shutdown();
     FileUtils.deleteRecursively(new File(directory));
   }

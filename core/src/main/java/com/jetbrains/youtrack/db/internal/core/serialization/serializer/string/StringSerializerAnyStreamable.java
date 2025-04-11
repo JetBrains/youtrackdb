@@ -25,7 +25,9 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
+import java.io.StringWriter;
 import java.util.Base64;
+import javax.annotation.Nullable;
 
 public class StringSerializerAnyStreamable implements StringSerializer {
 
@@ -37,7 +39,8 @@ public class StringSerializerAnyStreamable implements StringSerializer {
    * Re-Create any object if the class has a public constructor that accepts a String as unique
    * parameter.
    */
-  public Object fromStream(DatabaseSessionInternal db, final String iStream) {
+  @Nullable
+  public Object fromStream(DatabaseSessionInternal session, final String iStream) {
     if (iStream == null || iStream.length() == 0)
     // NULL VALUE
     {
@@ -46,20 +49,20 @@ public class StringSerializerAnyStreamable implements StringSerializer {
 
     SerializableStream instance = null;
 
-    int propertyPos = iStream.indexOf(':');
-    int pos = iStream.indexOf(StringSerializerEmbedded.SEPARATOR);
+    var propertyPos = iStream.indexOf(':');
+    var pos = iStream.indexOf(StringSerializerEmbedded.SEPARATOR);
     if (pos < 0 || propertyPos > -1 && pos > propertyPos) {
-      instance = new EntityImpl();
+      instance = new EntityImpl(session);
       pos = -1;
     } else {
-      final String className = iStream.substring(0, pos);
+      final var className = iStream.substring(0, pos);
       try {
-        final Class<?> clazz = Class.forName(className);
+        final var clazz = Class.forName(className);
         instance = (SerializableStream) clazz.newInstance();
       } catch (Exception e) {
-        final String message = "Error on unmarshalling content. Class: " + className;
+        final var message = "Error on unmarshalling content. Class: " + className;
         LogManager.instance().error(this, message, e);
-        throw BaseException.wrapException(new SerializationException(message), e);
+        throw BaseException.wrapException(new SerializationException(session, message), e, session);
       }
     }
 
@@ -70,12 +73,14 @@ public class StringSerializerAnyStreamable implements StringSerializer {
   /**
    * Serialize the class name size + class name + object content
    *
+   * @param session
    * @param iValue
    */
-  public StringBuilder toStream(final StringBuilder iOutput, Object iValue) {
+  public StringWriter toStream(DatabaseSessionInternal session, final StringWriter iOutput,
+      Object iValue) {
     if (iValue != null) {
       if (!(iValue instanceof SerializableStream stream)) {
-        throw new SerializationException(
+        throw new SerializationException(session,
             "Cannot serialize the object since it's not implements the SerializableStream"
                 + " interface");
       }

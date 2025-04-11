@@ -18,12 +18,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,46 +27,46 @@ public class SQLUpdateEdgeTest extends DbTestBase {
   @Test
   public void testUpdateEdge() {
 
-    db.command("create class V1 extends V").close();
+    session.execute("create class V1 extends V").close();
 
-    db.command("create class E1 extends E").close();
+    session.execute("create class E1 extends E").close();
 
     // VERTEXES
-    db.begin();
-    Entity v1 = db.command("create vertex").next().getEntity().get();
-    assertEquals(v1.getSchemaType().get().getName(), "V");
+    session.begin();
+    var v1 = session.execute("create vertex").next().asEntity();
+    assertEquals("V", v1.getSchemaClass().getName());
 
-    Entity v2 = db.command("create vertex V1").next().getEntity().get();
-    assertEquals(v2.getSchemaType().get().getName(), "V1");
+    var v2 = session.execute("create vertex V1").next().asEntity();
+    assertEquals("V1", v2.getSchemaClass().getName());
 
-    Entity v3 =
-        db.command("create vertex set vid = 'v3', brand = 'fiat'").next().getEntity().get();
+    var v3 =
+        session.execute("create vertex set vid = 'v3', brand = 'fiat'").next().asEntity();
 
-    assertEquals(v3.getSchemaType().get().getName(), "V");
-    assertEquals(v3.getProperty("brand"), "fiat");
+    assertEquals("V", v3.getSchemaClass().getName());
+    assertEquals("fiat", v3.getProperty("brand"));
 
-    Entity v4 =
-        db.command("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")
+    var v4 =
+        session.execute("create vertex V1 set vid = 'v4',  brand = 'fiat',name = 'wow'")
             .next()
-            .getEntity()
-            .get();
-    db.commit();
+            .asEntity();
+    session.commit();
 
-    v4 = db.bindToSession(v4);
-    assertEquals(v4.getSchemaType().get().getName(), "V1");
-    assertEquals(v4.getProperty("brand"), "fiat");
-    assertEquals(v4.getProperty("name"), "wow");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    v4 = activeTx.load(v4);
+    assertEquals("V1", v4.getSchemaClassName());
+    assertEquals("fiat", v4.getProperty("brand"));
+    assertEquals("wow", v4.getProperty("name"));
 
-    db.begin();
-    ResultSet edges =
-        db.command("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
-    Edge edge = edges.next().getEdge().get();
+    var edges =
+        session.execute("create edge E1 from " + v1.getIdentity() + " to " + v2.getIdentity());
+    var edge = edges.next().asStatefulEdge();
     assertFalse(edges.hasNext());
-    assertEquals(edge.getSchemaType().get().getName(), "E1");
-    db.commit();
+    assertEquals("E1", edge.getSchemaClassName());
+    session.commit();
 
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "update edge E1 set out = "
                 + v3.getIdentity()
                 + ", in = "
@@ -79,47 +74,51 @@ public class SQLUpdateEdgeTest extends DbTestBase {
                 + " where @rid = "
                 + edge.getIdentity())
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet result = db.query("select expand(out('E1')) from " + v3.getIdentity());
-    Result vertex4 = result.next();
-    Assert.assertEquals(vertex4.getProperty("vid"), "v4");
+    session.begin();
+    var result = session.query("select expand(out('E1')) from " + v3.getIdentity());
+    var vertex4 = result.next();
+    Assert.assertEquals("v4", vertex4.getProperty("vid"));
 
-    result = db.query("select expand(in('E1')) from " + v4.getIdentity());
-    Result vertex3 = result.next();
-    Assert.assertEquals(vertex3.getProperty("vid"), "v3");
+    result = session.query("select expand(in('E1')) from " + v4.getIdentity());
+    var vertex3 = result.next();
+    Assert.assertEquals("v3", vertex3.getProperty("vid"));
 
-    result = db.query("select expand(out('E1')) from " + v1.getIdentity());
-    Assert.assertEquals(result.stream().count(), 0);
+    result = session.query("select expand(out('E1')) from " + v1.getIdentity());
+    Assert.assertEquals(0, result.stream().count());
 
-    result = db.query("select expand(in('E1')) from " + v2.getIdentity());
-    Assert.assertEquals(result.stream().count(), 0);
+    result = session.query("select expand(in('E1')) from " + v2.getIdentity());
+    Assert.assertEquals(0, result.stream().count());
+    session.commit();
   }
 
   @Test
   public void testUpdateEdgeOfTypeE() {
     // issue #6378
-    db.begin();
-    Vertex v1 = db.command("create vertex").next().toVertex();
-    Vertex v2 = db.command("create vertex").next().toVertex();
-    Vertex v3 = db.command("create vertex").next().toVertex();
-    db.commit();
+    session.begin();
+    var v1 = session.execute("create vertex").next().asVertex();
+    var v2 = session.execute("create vertex").next().asVertex();
+    var v3 = session.execute("create vertex").next().asVertex();
+    session.commit();
 
-    db.begin();
-    ResultSet edges =
-        db.command("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
-    Edge edge = edges.next().toEdge();
+    session.begin();
+    var edges =
+        session.execute("create edge E from " + v1.getIdentity() + " to " + v2.getIdentity());
+    var edge = edges.next().asStatefulEdge();
 
-    db.command("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
-    db.commit();
+    session.execute("UPDATE EDGE " + edge.getIdentity() + " SET in = " + v3.getIdentity());
+    session.commit();
 
-    ResultSet result = db.query("select expand(out()) from " + v1.getIdentity());
-    Assert.assertEquals(result.next().getIdentity().get(), v3.getIdentity());
+    session.begin();
+    var result = session.query("select expand(out()) from " + v1.getIdentity());
+    Assert.assertEquals(result.next().getIdentity(), v3.getIdentity());
 
-    result = db.query("select expand(in()) from " + v3.getIdentity());
-    Assert.assertEquals(result.next().getIdentity().get(), v1.getIdentity());
+    result = session.query("select expand(in()) from " + v3.getIdentity());
+    Assert.assertEquals(result.next().getIdentity(), v1.getIdentity());
 
-    result = db.command("select expand(in()) from " + v2.getIdentity());
+    result = session.execute("select expand(in()) from " + v2.getIdentity());
     Assert.assertFalse(result.hasNext());
+    session.commit();
   }
 }

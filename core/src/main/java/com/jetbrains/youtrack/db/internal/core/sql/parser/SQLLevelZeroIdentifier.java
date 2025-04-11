@@ -2,16 +2,17 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLLevelZeroIdentifier extends SimpleNode {
 
@@ -106,6 +107,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -220,10 +222,10 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
 
   public SimpleNode splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SQLLevelZeroIdentifier result = new SQLLevelZeroIdentifier(-1);
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var result = new SQLLevelZeroIdentifier(-1);
       if (functionCall != null) {
-        SimpleNode node = functionCall.splitForAggregation(aggregateProj, ctx);
+        var node = functionCall.splitForAggregation(aggregateProj, ctx);
         if (node instanceof SQLFunctionCall) {
           result.functionCall = (SQLFunctionCall) node;
         } else {
@@ -242,16 +244,16 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
   }
 
   public AggregationContext getAggregationContext(CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
+    if (isAggregate(ctx.getDatabaseSession())) {
       if (functionCall != null) {
         return functionCall.getAggregationContext(ctx);
       }
     }
-    throw new CommandExecutionException("cannot aggregate on " + this);
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot aggregate on " + this);
   }
 
   public SQLLevelZeroIdentifier copy() {
-    SQLLevelZeroIdentifier result = new SQLLevelZeroIdentifier(-1);
+    var result = new SQLLevelZeroIdentifier(-1);
     result.functionCall = functionCall == null ? null : functionCall.copy();
     result.self = self;
     result.collection = collection == null ? null : collection.copy();
@@ -267,7 +269,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLLevelZeroIdentifier that = (SQLLevelZeroIdentifier) o;
+    var that = (SQLLevelZeroIdentifier) o;
 
     if (!Objects.equals(functionCall, that.functionCall)) {
       return false;
@@ -280,7 +282,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = functionCall != null ? functionCall.hashCode() : 0;
+    var result = functionCall != null ? functionCall.hashCode() : 0;
     result = 31 * result + (self != null ? self.hashCode() : 0);
     result = 31 * result + (collection != null ? collection.hashCode() : 0);
     return result;
@@ -310,7 +312,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (functionCall != null) {
       result.setProperty("functionCall", functionCall.serialize(db));
     }

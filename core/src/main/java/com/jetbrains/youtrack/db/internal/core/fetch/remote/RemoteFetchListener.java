@@ -17,12 +17,14 @@
 package com.jetbrains.youtrack.db.internal.core.fetch.remote;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.FetchException;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import javax.annotation.Nullable;
 
 /**
  * Fetch listener for {@class ONetworkBinaryProtocol} class
@@ -41,18 +43,18 @@ public abstract class RemoteFetchListener implements FetchListener {
   protected abstract void sendRecord(RecordAbstract iLinked);
 
   public void processStandardField(
-      EntityImpl iRecord,
+      DatabaseSessionInternal db, EntityImpl iRecord,
       Object iFieldValue,
       String iFieldName,
       FetchContext iContext,
       final Object iusObject,
       final String iFormat,
-      PropertyType filedType)
+      PropertyTypeInternal filedType)
       throws FetchException {
   }
 
   public void parseLinked(
-      EntityImpl iRootRecord,
+      DatabaseSessionInternal db, EntityImpl iRootRecord,
       Identifiable iLinked,
       Object iUserObject,
       String iFieldName,
@@ -61,7 +63,7 @@ public abstract class RemoteFetchListener implements FetchListener {
   }
 
   public void parseLinkedCollectionValue(
-      EntityImpl iRootRecord,
+      DatabaseSessionInternal db, EntityImpl iRootRecord,
       Identifiable iLinked,
       Object iUserObject,
       String iFieldName,
@@ -69,6 +71,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       throws FetchException {
   }
 
+  @Nullable
   public Object fetchLinkedMapEntry(
       EntityImpl iRoot,
       Object iUserObject,
@@ -77,13 +80,14 @@ public abstract class RemoteFetchListener implements FetchListener {
       EntityImpl iLinked,
       FetchContext iContext)
       throws FetchException {
-    if (iLinked.getIdentity().isValid()) {
+    if (iLinked.getIdentity().isValidPosition()) {
       sendRecord(iLinked);
       return true;
     }
     return null;
   }
 
+  @Nullable
   public Object fetchLinkedCollectionValue(
       EntityImpl iRoot,
       Object iUserObject,
@@ -91,7 +95,7 @@ public abstract class RemoteFetchListener implements FetchListener {
       EntityImpl iLinked,
       FetchContext iContext)
       throws FetchException {
-    if (iLinked.getIdentity().isValid()) {
+    if (iLinked.getIdentity().isValidPosition()) {
       sendRecord(iLinked);
       return true;
     }

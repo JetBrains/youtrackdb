@@ -82,10 +82,10 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
 
   public void reset() {
     while (!poolStore.isEmpty()) {
-      final Iterator<PartitionedDatabasePool> poolIterator = poolStore.values().iterator();
+      final var poolIterator = poolStore.values().iterator();
 
       while (poolIterator.hasNext()) {
-        final PartitionedDatabasePool pool = poolIterator.next();
+        final var pool = poolIterator.next();
 
         try {
           pool.close();
@@ -97,7 +97,7 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
       }
     }
 
-    for (PartitionedDatabasePool pool : poolStore.values()) {
+    for (var pool : poolStore.values()) {
       pool.close();
     }
 
@@ -108,9 +108,9 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
       final String url, final String userName, final String userPassword) {
     checkForClose();
 
-    final PoolIdentity poolIdentity = new PoolIdentity(url, userName, userPassword);
+    final var poolIdentity = new PoolIdentity(url, userName, userPassword);
 
-    PartitionedDatabasePool pool = poolStore.get(poolIdentity);
+    var pool = poolStore.get(poolIdentity);
     if (pool != null && !pool.isClosed()) {
       return pool;
     }
@@ -122,7 +122,7 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
     while (true) {
       pool = new PartitionedDatabasePool(url, userName, userPassword, 8, maxPoolSize);
 
-      final PartitionedDatabasePool oldPool = poolStore.putIfAbsent(poolIdentity, pool);
+      final var oldPool = poolStore.putIfAbsent(poolIdentity, pool);
 
       if (oldPool != null) {
         if (!oldPool.isClosed()) {
@@ -187,7 +187,7 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
         return false;
       }
 
-      final PoolIdentity that = (PoolIdentity) o;
+      final var that = (PoolIdentity) o;
 
       if (!url.equals(that.url)) {
         return false;
@@ -200,7 +200,7 @@ public class PartitionedDatabasePoolFactory extends YouTrackDBListenerAbstract {
 
     @Override
     public int hashCode() {
-      int result = url.hashCode();
+      var result = url.hashCode();
       result = 31 * result + userName.hashCode();
       result = 31 * result + userPassword.hashCode();
       return result;

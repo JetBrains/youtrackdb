@@ -8,9 +8,8 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
-import com.jetbrains.youtrack.db.internal.lucene.analyzer.LucenePerFieldAnalyzerWrapper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
@@ -25,7 +24,7 @@ import org.mockito.Mockito;
 /**
  *
  */
-public class LuceneAnalyzerFactoryTest {
+public class LuceneAnalyzerFactoryTest extends LuceneBaseTest {
 
   private LuceneAnalyzerFactory analyzerFactory;
   private Map<String, ?> metadata;
@@ -38,11 +37,9 @@ public class LuceneAnalyzerFactoryTest {
     // default analyzer for indexing is keyword
     // default analyzer for query is standard
 
-    String metajson =
+    var metajson =
         IOUtils.readFileAsString(new File("./src/test/resources/index_metadata_new.json"));
-    var metadataDocument = new EntityImpl();
-    metadataDocument.fromJSON(metajson);
-    metadata = metadataDocument.toMap();
+    metadata = JSONSerializerJackson.mapFromJson(metajson);
 
     indexDef = Mockito.mock(IndexDefinition.class);
     when(indexDef.getFields())
@@ -67,7 +64,7 @@ public class LuceneAnalyzerFactoryTest {
 
   @Test
   public void shouldAssignStandardAnalyzerForIndexingUndefined() throws Exception {
-    LucenePerFieldAnalyzerWrapper analyzer =
+    var analyzer =
         (LucenePerFieldAnalyzerWrapper) analyzerFactory.createAnalyzer(indexDef, INDEX, metadata);
     // default analyzer for indexing
     assertThat(analyzer.getWrappedAnalyzer("undefined")).isInstanceOf(StandardAnalyzer.class);
@@ -75,7 +72,7 @@ public class LuceneAnalyzerFactoryTest {
 
   @Test
   public void shouldAssignKeywordAnalyzerForIndexing() throws Exception {
-    LucenePerFieldAnalyzerWrapper analyzer =
+    var analyzer =
         (LucenePerFieldAnalyzerWrapper) analyzerFactory.createAnalyzer(indexDef, INDEX, metadata);
     // default analyzer for indexing
     assertThat(analyzer.getWrappedAnalyzer("genre")).isInstanceOf(KeywordAnalyzer.class);
@@ -84,7 +81,7 @@ public class LuceneAnalyzerFactoryTest {
 
   @Test
   public void shouldAssignConfiguredAnalyzerForIndexing() throws Exception {
-    LucenePerFieldAnalyzerWrapper analyzer =
+    var analyzer =
         (LucenePerFieldAnalyzerWrapper) analyzerFactory.createAnalyzer(indexDef, INDEX, metadata);
     assertThat(analyzer.getWrappedAnalyzer("title")).isInstanceOf(EnglishAnalyzer.class);
     assertThat(analyzer.getWrappedAnalyzer("Song.title")).isInstanceOf(EnglishAnalyzer.class);
@@ -99,7 +96,7 @@ public class LuceneAnalyzerFactoryTest {
     assertThat(analyzer.getWrappedAnalyzer("Song.description"))
         .isInstanceOf(StandardAnalyzer.class);
 
-    StopwordAnalyzerBase description =
+    var description =
         (StopwordAnalyzerBase) analyzer.getWrappedAnalyzer("description");
 
     assertThat(description.getStopwordSet()).isNotEmpty();
@@ -110,7 +107,7 @@ public class LuceneAnalyzerFactoryTest {
 
   @Test
   public void shouldAssignConfiguredAnalyzerForQuery() throws Exception {
-    LucenePerFieldAnalyzerWrapper analyzer =
+    var analyzer =
         (LucenePerFieldAnalyzerWrapper) analyzerFactory.createAnalyzer(indexDef, QUERY, metadata);
     assertThat(analyzer.getWrappedAnalyzer("title")).isInstanceOf(EnglishAnalyzer.class);
     assertThat(analyzer.getWrappedAnalyzer("Song.title")).isInstanceOf(EnglishAnalyzer.class);
@@ -124,7 +121,7 @@ public class LuceneAnalyzerFactoryTest {
 
   @Test
   public void shouldUseClassNameToPrefixFieldName() {
-    final LucenePerFieldAnalyzerWrapper analyzer =
+    final var analyzer =
         (LucenePerFieldAnalyzerWrapper) analyzerFactory.createAnalyzer(indexDef, QUERY, metadata);
     assertThat(analyzer.getWrappedAnalyzer("Song.title")).isInstanceOf(EnglishAnalyzer.class);
     assertThat(analyzer.getWrappedAnalyzer("Song.author")).isInstanceOf(KeywordAnalyzer.class);

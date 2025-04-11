@@ -1,10 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import static org.junit.Assert.assertNull;
-
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import org.junit.Test;
 
 public class RemoteConnectWrongUrlTest {
@@ -16,6 +13,5 @@ public class RemoteConnectWrongUrlTest {
         // do nothing
       }
     }
-    assertNull(DatabaseRecordThreadLocal.instance().getIfDefined());
   }
 }

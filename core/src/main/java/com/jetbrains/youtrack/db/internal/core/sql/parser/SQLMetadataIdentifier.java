@@ -35,7 +35,7 @@ public class SQLMetadataIdentifier extends SimpleNode {
   }
 
   public SQLMetadataIdentifier copy() {
-    SQLMetadataIdentifier result = new SQLMetadataIdentifier(-1);
+    var result = new SQLMetadataIdentifier(-1);
     result.name = name;
     return result;
   }
@@ -49,7 +49,7 @@ public class SQLMetadataIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLMetadataIdentifier that = (SQLMetadataIdentifier) o;
+    var that = (SQLMetadataIdentifier) o;
 
     return Objects.equals(name, that.name);
   }
@@ -60,7 +60,7 @@ public class SQLMetadataIdentifier extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("name", name);
     return result;
   }

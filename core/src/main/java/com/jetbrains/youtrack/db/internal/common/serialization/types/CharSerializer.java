@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverter;
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverterFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -40,12 +41,14 @@ public class CharSerializer implements BinarySerializer<Character> {
   private static final BinaryConverter BINARY_CONVERTER = BinaryConverterFactory.getConverter();
   public static final CharSerializer INSTANCE = new CharSerializer();
 
-  public int getObjectSize(final Character object, Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final Character object,
+      Object... hints) {
     return CHAR_SIZE;
   }
 
   public void serialize(
-      final Character object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Character object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     serializeLiteral(object, stream, startPosition);
   }
 
@@ -54,7 +57,8 @@ public class CharSerializer implements BinarySerializer<Character> {
     stream[startPosition + 1] = (byte) (value);
   }
 
-  public Character deserialize(final byte[] stream, final int startPosition) {
+  public Character deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return deserializeLiteral(stream, startPosition);
   }
 
@@ -62,7 +66,8 @@ public class CharSerializer implements BinarySerializer<Character> {
     return (char) (((stream[startPosition] & 0xFF) << 8) + (stream[startPosition + 1] & 0xFF));
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return CHAR_SIZE;
   }
 
@@ -70,20 +75,23 @@ public class CharSerializer implements BinarySerializer<Character> {
     return ID;
   }
 
-  public int getObjectSizeNative(byte[] stream, int startPosition) {
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     return CHAR_SIZE;
   }
 
   @Override
   public void serializeNativeObject(
-      Character object, byte[] stream, int startPosition, Object... hints) {
+      Character object, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
+      Object... hints) {
     checkBoundaries(stream, startPosition);
 
     BINARY_CONVERTER.putChar(stream, startPosition, object, ByteOrder.nativeOrder());
   }
 
   @Override
-  public Character deserializeNativeObject(final byte[] stream, final int startPosition) {
+  public Character deserializeNativeObject(BinarySerializerFactory serializerFactory,
+      final byte[] stream, final int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return BINARY_CONVERTER.getChar(stream, startPosition, ByteOrder.nativeOrder());
@@ -110,7 +118,8 @@ public class CharSerializer implements BinarySerializer<Character> {
   }
 
   @Override
-  public Character preprocess(final Character value, final Object... hints) {
+  public Character preprocess(BinarySerializerFactory serializerFactory, final Character value,
+      final Object... hints) {
     return value;
   }
 
@@ -118,7 +127,8 @@ public class CharSerializer implements BinarySerializer<Character> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Character object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory,
+      Character object, ByteBuffer buffer, Object... hints) {
     buffer.putChar(object);
   }
 
@@ -126,12 +136,14 @@ public class CharSerializer implements BinarySerializer<Character> {
    * {@inheritDoc}
    */
   @Override
-  public Character deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Character deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return buffer.getChar();
   }
 
   @Override
-  public Character deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Character deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
     return buffer.getChar(offset);
   }
 
@@ -139,12 +151,14 @@ public class CharSerializer implements BinarySerializer<Character> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return CHAR_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return CHAR_SIZE;
   }
 
@@ -153,7 +167,8 @@ public class CharSerializer implements BinarySerializer<Character> {
    */
   @Override
   public Character deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return (char) walChanges.getShortValue(buffer, offset);
   }
 

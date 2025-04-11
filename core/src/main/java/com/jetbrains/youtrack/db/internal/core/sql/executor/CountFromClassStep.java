@@ -1,11 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
@@ -42,24 +40,24 @@ public class CountFromClassStep extends AbstractExecutionStep {
   }
 
   private Result produce(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    ImmutableSchema schema = db.getMetadata().getImmutableSchemaSnapshot();
+    var session = ctx.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var clazz = schema.getClassInternal(target.getStringValue());
 
     if (clazz == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Class " + target.getStringValue() + " does not exist in the database schema");
     }
-    long size = clazz.count(db);
-    ResultInternal result = new ResultInternal(db);
+    var size = clazz.count(session);
+    var result = new ResultInternal(session);
     result.setProperty(alias, size);
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ CALCULATE CLASS SIZE: " + target;
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ CALCULATE CLASS SIZE: " + target;
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

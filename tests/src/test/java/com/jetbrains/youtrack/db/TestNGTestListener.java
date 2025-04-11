@@ -43,14 +43,14 @@ public class TestNGTestListener implements ISuiteListener {
   public void onFinish(ISuite suite) {
 
     if (LogManager.instance().isShutdown()) {
-      final String msg = "LogManager was switched off before shutdown";
+      final var msg = "LogManager was switched off before shutdown";
 
       System.err.println(msg);
       Assert.fail(msg);
     }
     if (!isFailed(suite)) {
       System.out.println("Shutting down engine and checking for direct memory leaks...");
-      final YouTrackDBEnginesManager youTrack = YouTrackDBEnginesManager.instance();
+      final var youTrack = YouTrackDBEnginesManager.instance();
       if (youTrack != null) {
         // state is verified during shutdown
         youTrack.shutdown();
@@ -65,7 +65,7 @@ public class TestNGTestListener implements ISuiteListener {
       return true;
     }
 
-    for (ISuiteResult result : suite.getResults().values()) {
+    for (var result : suite.getResults().values()) {
       if (result.getTestContext().getFailedTests().size() != 0) {
         return true;
       }

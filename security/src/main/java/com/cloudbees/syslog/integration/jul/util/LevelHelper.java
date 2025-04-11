@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -47,7 +48,7 @@ public class LevelHelper {
   static {
     Map<String, Level> levelsByNameMap = new HashMap<String, Level>();
     Map<Integer, Level> levelsByValueMap = new HashMap<Integer, Level>();
-    for (Level level : levels) {
+    for (var level : levels) {
       levelsByNameMap.put(level.getName(), level);
       levelsByValueMap.put(level.intValue(), level);
     }
@@ -76,6 +77,7 @@ public class LevelHelper {
    * @param name {@code null} or empty returns {@code null}
    * @return
    */
+  @Nullable
   public static Level findLevel(String name) {
     if (name == null || name.isEmpty()) {
       return null;

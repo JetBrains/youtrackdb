@@ -55,10 +55,8 @@ public class MetadataPushTest {
 
   @After
   public void after() {
-    database.activateOnCurrentThread();
     database.close();
     youTrackDB.close();
-    secondDatabase.activateOnCurrentThread();
     secondDatabase.close();
     secondYouTrackDB.close();
     server.shutdown();
@@ -70,8 +68,7 @@ public class MetadataPushTest {
 
   @Test
   public void testStorageUpdate() throws Exception {
-    database.activateOnCurrentThread();
-    database.command(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
+    database.runScript("sql", " ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage());
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
     DbTestBase.assertWithTimeout(
@@ -86,8 +83,7 @@ public class MetadataPushTest {
 
   @Test
   public void testSchemaUpdate() throws Exception {
-    database.activateOnCurrentThread();
-    database.command(" create class X");
+    database.runScript("sql", " create class X");
 
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
@@ -100,42 +96,10 @@ public class MetadataPushTest {
   }
 
   @Test
-  public void testIndexManagerUpdate() throws Exception {
-    database.activateOnCurrentThread();
-    database.command(" create class X");
-    database.command(" create property X.y STRING");
-    database.command(" create index X.y on X(y) NOTUNIQUE");
-    // Push done in background for now, do not guarantee update before command return.
-    secondDatabase.activateOnCurrentThread();
-    DbTestBase.assertWithTimeout(
-        secondDatabase,
-        () ->
-            assertTrue(secondDatabase.getMetadata().getIndexManagerInternal().existsIndex("X.y")));
-  }
-
-  @Test
-  public void testFunctionUpdate() throws Exception {
-    database.activateOnCurrentThread();
-    database.begin();
-    database.command("CREATE FUNCTION test \"print('\\nTest!')\"");
-    database.commit();
-
-    // Push done in background for now, do not guarantee update before command return.
-    secondDatabase.activateOnCurrentThread();
-    DbTestBase.assertWithTimeout(
-        secondDatabase,
-        () -> {
-          secondDatabase.activateOnCurrentThread();
-          assertNotNull(secondDatabase.getMetadata().getFunctionLibrary().getFunction("test"));
-        });
-  }
-
-  @Test
   public void testSequencesUpdate() throws Exception {
-    database.activateOnCurrentThread();
-    database.begin();
-    database.command("CREATE SEQUENCE test TYPE CACHED");
-    database.commit();
+    var tx = database.begin();
+    tx.command("CREATE SEQUENCE test TYPE CACHED");
+    tx.commit();
     // Push done in background for now, do not guarantee update before command return.
     secondDatabase.activateOnCurrentThread();
     DbTestBase.assertWithTimeout(

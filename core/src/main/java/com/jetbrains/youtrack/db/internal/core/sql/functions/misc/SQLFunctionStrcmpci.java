@@ -15,9 +15,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 
 /**
@@ -34,7 +34,7 @@ public class SQLFunctionStrcmpci extends SQLFunctionAbstract {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -61,7 +61,7 @@ public class SQLFunctionStrcmpci extends SQLFunctionAbstract {
       return 1;
     }
 
-    int res = s1.compareToIgnoreCase(s2);
+    var res = s1.compareToIgnoreCase(s2);
     if (res != 0) {
       // normalize res to -1, 0, 1
       res = res / Math.abs(res);

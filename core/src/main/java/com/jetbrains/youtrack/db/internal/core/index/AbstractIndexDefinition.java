@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
+import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  * Abstract index definition implementation.
@@ -66,7 +66,7 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
       return false;
     }
 
-    AbstractIndexDefinition that = (AbstractIndexDefinition) o;
+    var that = (AbstractIndexDefinition) o;
 
     if (!collate.equals(that.collate)) {
       return false;
@@ -77,7 +77,7 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
 
   @Override
   public int hashCode() {
-    int result = collate.hashCode();
+    var result = collate.hashCode();
     result = 31 * result + (nullValuesIgnored ? 1 : 0);
     return result;
   }
@@ -92,23 +92,17 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
     nullValuesIgnored = value;
   }
 
-  protected void serializeToStream(EntityImpl entity) {
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
   }
 
-  protected void serializeFromStream(EntityImpl entity) {
+
+  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
   }
 
   protected static <T> T refreshRid(DatabaseSessionInternal session, T value) {
     if (value instanceof RID rid) {
-      if (rid.isNew()) {
-        try {
-          var record = session.load(rid);
-          //noinspection unchecked
-          value = (T) record.getIdentity();
-        } catch (RecordNotFoundException rnf) {
-          return value;
-        }
-      }
+      //noinspection unchecked
+      return (T) session.refreshRid(rid);
     }
     return value;
   }

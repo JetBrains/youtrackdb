@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.util;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import java.io.IOException;
@@ -38,6 +39,7 @@ public interface Backupable {
    * Executes a backup of the database. During the backup the database will be frozen in read-only
    * mode.
    *
+   * @param db
    * @param out              OutputStream used to write the backup content. Use a FileOutputStream
    *                         to make the backup persistent on disk
    * @param options          Backup options as Map<String, Object> object
@@ -52,7 +54,7 @@ public interface Backupable {
    * @see DatabaseExport
    */
   List<String> backup(
-      OutputStream out,
+      DatabaseSessionInternal db, OutputStream out,
       Map<String, Object> options,
       Callable<Object> callable,
       CommandOutputListener iListener,

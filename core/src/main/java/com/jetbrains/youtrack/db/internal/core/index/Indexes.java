@@ -17,17 +17,19 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import static com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader;
 
+import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
-import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.index.hashindex.local.HashIndexFactory;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Utility class to create indexes. New IndexFactory can be registered
@@ -69,7 +71,7 @@ public final class Indexes {
   private static synchronized Set<IndexFactory> getFactories() {
     if (FACTORIES == null) {
 
-      final Iterator<IndexFactory> ite =
+      final var ite =
           lookupProviderWithYouTrackDBClassLoader(IndexFactory.class, youTrackDbClassLoader);
 
       final Set<IndexFactory> factories = new HashSet<>();
@@ -96,25 +98,11 @@ public final class Indexes {
    */
   private static Set<String> getIndexTypes() {
     final Set<String> types = new HashSet<>();
-    final Iterator<IndexFactory> ite = getAllFactories();
+    final var ite = getAllFactories();
     while (ite.hasNext()) {
       types.addAll(ite.next().getTypes());
     }
     return types;
-  }
-
-  /**
-   * Iterates on all factories and append all index engines.
-   *
-   * @return Set of all index engines.
-   */
-  public static Set<String> getIndexEngines() {
-    final Set<String> engines = new HashSet<>();
-    final Iterator<IndexFactory> ite = getAllFactories();
-    while (ite.hasNext()) {
-      engines.addAll(ite.next().getAlgorithms());
-    }
-    return engines;
   }
 
   public static IndexFactory getFactory(String indexType, String algorithm) {
@@ -124,10 +112,10 @@ public final class Indexes {
 
     if (algorithm != null) {
       algorithm = algorithm.toUpperCase(Locale.ENGLISH);
-      final Iterator<IndexFactory> ite = getAllFactories();
+      final var ite = getAllFactories();
 
       while (ite.hasNext()) {
-        final IndexFactory factory = ite.next();
+        final var factory = ite.next();
         if (factory.getTypes().contains(indexType) && factory.getAlgorithms().contains(algorithm)) {
           return factory;
         }
@@ -138,24 +126,24 @@ public final class Indexes {
         "Index with type " + indexType + " and algorithm " + algorithm + " does not exist.");
   }
 
-  /**
-   * @param storage   TODO
-   * @param indexType index type
-   * @return IndexInternal
-   * @throws ConfigurationException if index creation failed
-   * @throws IndexException         if index type does not exist
-   */
-  public static IndexInternal createIndex(Storage storage, IndexMetadata metadata)
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage)
       throws ConfigurationException, IndexException {
-    String indexType = metadata.getType();
-    String algorithm = metadata.getAlgorithm();
 
-    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(storage, metadata);
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
+  }
+
+  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+      @Nonnull Storage storage, @Nonnull FrontendTransaction transaction, @Nonnull RID identity)
+      throws ConfigurationException, IndexException {
+
+    return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, identity,
+        transaction, storage);
   }
 
   private static IndexFactory findFactoryByAlgorithmAndType(String algorithm, String indexType) {
 
-    for (IndexFactory factory : getFactories()) {
+    for (var factory : getFactories()) {
       if (indexType == null
           || indexType.isEmpty()
           || (factory.getTypes().contains(indexType))
@@ -163,6 +151,7 @@ public final class Indexes {
         return factory;
       }
     }
+
     throw new IndexException(
         "Index type "
             + indexType
@@ -175,54 +164,19 @@ public final class Indexes {
   public static BaseIndexEngine createIndexEngine(
       final Storage storage, final IndexEngineData metadata) {
 
-    final IndexFactory factory =
+    final var factory =
         findFactoryByAlgorithmAndType(metadata.getAlgorithm(), metadata.getIndexType());
-
     return factory.createIndexEngine(storage, metadata);
   }
 
   public static String chooseDefaultIndexAlgorithm(String type) {
     String algorithm = null;
-
-    if (SchemaClass.INDEX_TYPE.DICTIONARY.name().equalsIgnoreCase(type)
-        || SchemaClass.INDEX_TYPE.FULLTEXT.name().equalsIgnoreCase(type)
-        || SchemaClass.INDEX_TYPE.NOTUNIQUE.name().equalsIgnoreCase(type)
+    if (SchemaClass.INDEX_TYPE.NOTUNIQUE.name().equalsIgnoreCase(type)
         || SchemaClass.INDEX_TYPE.UNIQUE.name().equalsIgnoreCase(type)) {
-      algorithm = DefaultIndexFactory.CELL_BTREE_ALGORITHM;
-    } else if (SchemaClass.INDEX_TYPE.DICTIONARY_HASH_INDEX.name().equalsIgnoreCase(type)
-        || SchemaClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.name().equalsIgnoreCase(type)
-        || SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX.name().equalsIgnoreCase(type)) {
-      algorithm = HashIndexFactory.HASH_INDEX_ALGORITHM;
+      algorithm = DefaultIndexFactory.BTREE_ALGORITHM;
     }
+
     return algorithm;
   }
 
-  /**
-   * Scans for factory plug-ins on the application class path. This method is needed because the
-   * application class path can theoretically change, or additional plug-ins may become available.
-   * Rather than re-scanning the classpath on every invocation of the API, the class path is scanned
-   * automatically only on the first invocation. Clients can call this method to prompt a re-scan.
-   * Thus this method need only be invoked by sophisticated applications which dynamically make new
-   * plug-ins available at runtime.
-   */
-  private static synchronized void scanForPlugins() {
-    // clear cache, will cause a rescan on next getFactories call
-    FACTORIES = null;
-  }
-
-  /**
-   * Register at runtime custom factories
-   */
-  public static void registerFactory(IndexFactory factory) {
-    DYNAMIC_FACTORIES.add(factory);
-    scanForPlugins();
-  }
-
-  /**
-   * Unregister custom factories
-   */
-  public static void unregisterFactory(IndexFactory factory) {
-    DYNAMIC_FACTORIES.remove(factory);
-    scanForPlugins();
-  }
 }

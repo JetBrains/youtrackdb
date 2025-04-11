@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nonnull;
 
 public interface SecurityPolicy {
@@ -19,31 +19,30 @@ public interface SecurityPolicy {
 
   RID getIdentity();
 
-  String getName(@Nonnull DatabaseSessionInternal db);
+  String getName();
 
-  boolean isActive(@Nonnull DatabaseSessionInternal db);
+  boolean isActive();
 
-  String getCreateRule(@Nonnull DatabaseSessionInternal db);
+  String getCreateRule();
 
-  String getReadRule(@Nonnull DatabaseSessionInternal db);
+  String getReadRule();
 
-  String getBeforeUpdateRule(@Nonnull DatabaseSessionInternal db);
+  String getBeforeUpdateRule();
 
-  String getAfterUpdateRule(@Nonnull DatabaseSessionInternal db);
+  String getAfterUpdateRule();
 
-  String getDeleteRule(@Nonnull DatabaseSessionInternal db);
+  String getDeleteRule();
 
-  String getExecuteRule(@Nonnull DatabaseSessionInternal db);
+  String getExecuteRule();
 
-  default String get(Scope scope, @Nonnull DatabaseSessionInternal db) {
+  default String get(Scope scope, @Nonnull DatabaseSessionInternal session) {
     return switch (scope) {
-      case CREATE -> getCreateRule(db);
-      case READ -> getReadRule(db);
-      case BEFORE_UPDATE -> getBeforeUpdateRule(db);
-      case AFTER_UPDATE -> getAfterUpdateRule(db);
-      case DELETE -> getDeleteRule(db);
-      case EXECUTE -> getExecuteRule(db);
-      default -> throw new IllegalArgumentException();
+      case CREATE -> getCreateRule();
+      case READ -> getReadRule();
+      case BEFORE_UPDATE -> getBeforeUpdateRule();
+      case AFTER_UPDATE -> getAfterUpdateRule();
+      case DELETE -> getDeleteRule();
+      case EXECUTE -> getExecuteRule();
     };
   }
 }

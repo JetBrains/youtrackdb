@@ -19,11 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface IndexFactory {
 
@@ -41,12 +45,16 @@ public interface IndexFactory {
 
   /**
    * Creates an index.
-   *
-   * @param im TODO
-   * @return IndexInternal
-   * @throws ConfigurationException if index creation failed
    */
-  IndexInternal createIndex(Storage storage, IndexMetadata im) throws ConfigurationException;
+  Index createIndex(String indexType, @Nonnull Storage storage) throws ConfigurationException;
+
+  /**
+   * Creates an index.
+   */
+  Index createIndex(String indexType, @Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage)
+      throws ConfigurationException;
 
   BaseIndexEngine createIndexEngine(Storage storage, IndexEngineData data);
 }

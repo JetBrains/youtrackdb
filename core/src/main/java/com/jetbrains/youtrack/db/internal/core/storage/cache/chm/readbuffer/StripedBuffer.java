@@ -157,10 +157,10 @@ abstract class StripedBuffer implements Buffer {
   @Override
   public int offer(final CacheEntry e) {
     final int mask;
-    int result = 0;
+    var result = 0;
     final Buffer buffer;
-    boolean uncontended = true;
-    final Buffer[] buffers = table;
+    var uncontended = true;
+    final var buffers = table;
 
     if ((buffers == null)
         || (mask = buffers.length - 1) < 0
@@ -173,11 +173,11 @@ abstract class StripedBuffer implements Buffer {
 
   @Override
   public void drainTo(final WTinyLFUPolicy consumer) {
-    final Buffer[] buffers = table;
+    final var buffers = table;
     if (buffers == null) {
       return;
     }
-    for (final Buffer buffer : buffers) {
+    for (final var buffer : buffers) {
       if (buffer != null) {
         buffer.drainTo(consumer);
       }
@@ -186,12 +186,12 @@ abstract class StripedBuffer implements Buffer {
 
   @Override
   public int reads() {
-    final Buffer[] buffers = table;
+    final var buffers = table;
     if (buffers == null) {
       return 0;
     }
-    int reads = 0;
-    for (final Buffer buffer : buffers) {
+    var reads = 0;
+    for (final var buffer : buffers) {
       if (buffer != null) {
         reads += buffer.reads();
       }
@@ -201,12 +201,12 @@ abstract class StripedBuffer implements Buffer {
 
   @Override
   public int writes() {
-    final Buffer[] buffers = table;
+    final var buffers = table;
     if (buffers == null) {
       return 0;
     }
-    int writes = 0;
-    for (final Buffer buffer : buffers) {
+    var writes = 0;
+    for (final var buffer : buffers) {
       if (buffer != null) {
         writes += buffer.writes();
       }
@@ -231,8 +231,8 @@ abstract class StripedBuffer implements Buffer {
       h = getProbe();
       wasUncontended = true;
     }
-    boolean collide = false; // True if last slot nonempty
-    for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
+    var collide = false; // True if last slot nonempty
+    for (var attempt = 0; attempt < ATTEMPTS; attempt++) {
       final Buffer[] buffers;
       final Buffer buffer;
       final int n;
@@ -240,7 +240,7 @@ abstract class StripedBuffer implements Buffer {
         if ((buffer = buffers[(n - 1) & h]) == null) {
           if ((!tableBusy.get())
               && tableBusy.compareAndSet(false, true)) { // Try to attach new Buffer
-            boolean created = false;
+            var created = false;
             try { // Recheck under lock
               final Buffer[] rs;
               final int mask;
@@ -281,10 +281,10 @@ abstract class StripedBuffer implements Buffer {
         }
         h = advanceProbe(h);
       } else if (!tableBusy.get() && (table == buffers) && tableBusy.compareAndSet(false, true)) {
-        boolean init = false;
+        var init = false;
         try { // Initialize table
           if (table == buffers) {
-            @SuppressWarnings({"unchecked"}) final Buffer[] rs = new Buffer[1];
+            @SuppressWarnings({"unchecked"}) final var rs = new Buffer[1];
             rs[0] = create(e);
             table = rs;
             init = true;
@@ -300,8 +300,8 @@ abstract class StripedBuffer implements Buffer {
   }
 
   private void initProbe() {
-    final int p = probeGenerator.addAndGet(PROBE_INCREMENT);
-    final int probe = (p == 0) ? 1 : p;
+    final var p = probeGenerator.addAndGet(PROBE_INCREMENT);
+    final var probe = (p == 0) ? 1 : p;
     this.probe.get().set(probe);
   }
 }

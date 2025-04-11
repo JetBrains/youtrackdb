@@ -2,10 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -24,7 +23,7 @@ public class DeleteStatementTest extends DbTestBase {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -43,45 +42,46 @@ public class DeleteStatementTest extends DbTestBase {
   @Test
   public void deleteFromSubqueryWithWhereTest() {
 
-    db.command("create class Foo").close();
-    db.command("create class Bar").close();
+    session.execute("create class Foo").close();
+    session.execute("create class Bar").close();
 
-    db.begin();
-    final EntityImpl doc1 = new EntityImpl("Foo").field("k", "key1");
-    final EntityImpl doc2 = new EntityImpl("Foo").field("k", "key2");
-    final EntityImpl doc3 = new EntityImpl("Foo").field("k", "key3");
+    session.begin();
+    final var doc1 = ((EntityImpl) session.newEntity("Foo"));
+    doc1.setProperty("k", "key1");
+    final var doc2 = ((EntityImpl) session.newEntity("Foo"));
+    doc2.setProperty("k", "key2");
+    final var doc3 = ((EntityImpl) session.newEntity("Foo"));
+    doc3.setProperty("k", "key3");
 
-    doc1.save();
-    doc2.save();
-    doc3.save();
-
-    List<EntityImpl> list = new ArrayList<EntityImpl>();
+    List<Identifiable> list = new ArrayList<>();
     list.add(doc1);
     list.add(doc2);
     list.add(doc3);
-    final EntityImpl bar = new EntityImpl("Bar").field("arr", list);
-    bar.save();
-    db.commit();
+    session.newEntity("Bar").newLinkList("arr", list);
 
-    db.begin();
-    db.command("delete from (select expand(arr) from Bar) where k = 'key2'").close();
-    db.commit();
+    session.commit();
 
-    try (ResultSet result = db.query("select from Foo")) {
+    session.begin();
+    session.execute("delete from (select expand(arr) from Bar) where k = 'key2'").close();
+    session.commit();
+
+    session.begin();
+    try (var result = session.query("select from Foo")) {
       Assert.assertNotNull(result);
-      int count = 0;
+      var count = 0;
       while (result.hasNext()) {
-        Result doc = result.next();
+        var doc = result.next();
         Assert.assertNotEquals(doc.getProperty("k"), "key2");
         count += 1;
       }
       Assert.assertEquals(count, 2);
     }
+    session.commit();
   }
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

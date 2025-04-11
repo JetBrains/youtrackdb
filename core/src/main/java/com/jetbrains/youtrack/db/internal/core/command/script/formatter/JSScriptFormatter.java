@@ -29,13 +29,13 @@ public class JSScriptFormatter implements ScriptFormatter {
 
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
 
-    final StringBuilder fCode = new StringBuilder(1024);
+    final var fCode = new StringBuilder(1024);
     fCode.append("function ");
-    fCode.append(f.getName(session));
+    fCode.append(f.getName());
     fCode.append('(');
-    int i = 0;
-    if (f.getParameters(session) != null) {
-      for (String p : f.getParameters(session)) {
+    var i = 0;
+    if (f.getParameters() != null) {
+      for (var p : f.getParameters()) {
         if (i++ > 0) {
           fCode.append(',');
         }
@@ -43,7 +43,7 @@ public class JSScriptFormatter implements ScriptFormatter {
       }
     }
     fCode.append(") {\n");
-    fCode.append(f.getCode(session));
+    fCode.append(f.getCode());
     fCode.append("\n}\n");
 
     return fCode.toString();
@@ -52,13 +52,13 @@ public class JSScriptFormatter implements ScriptFormatter {
   @Override
   public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
       final Object[] iArgs) {
-    final StringBuilder code = new StringBuilder(1024);
+    final var code = new StringBuilder(1024);
 
-    code.append(iFunction.getName(session));
+    code.append(iFunction.getName());
     code.append('(');
     if (iArgs != null) {
-      int i = 0;
-      for (Object a : iArgs) {
+      var i = 0;
+      for (var a : iArgs) {
         if (i++ > 0) {
           code.append(',');
         }

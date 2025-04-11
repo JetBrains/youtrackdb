@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import javax.annotation.Nullable;
 
 public class CacheEntryImpl implements CacheEntry {
 
@@ -137,11 +138,13 @@ public class CacheEntryImpl implements CacheEntry {
     USAGES_COUNT_UPDATER.decrementAndGet(this);
   }
 
+  @Nullable
   @Override
   public WALChanges getChanges() {
     return null;
   }
 
+  @Nullable
   @Override
   public LogSequenceNumber getInitialLSN() {
     return null;
@@ -163,7 +166,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public boolean acquireEntry() {
-    int state = STATE_UPDATER.get(this);
+    var state = STATE_UPDATER.get(this);
 
     while (state >= 0) {
       if (STATE_UPDATER.compareAndSet(this, state, state + 1)) {
@@ -178,7 +181,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public void releaseEntry() {
-    int state = STATE_UPDATER.get(this);
+    var state = STATE_UPDATER.get(this);
 
     while (true) {
       if (state <= 0) {
@@ -206,7 +209,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public boolean freeze() {
-    int state = STATE_UPDATER.get(this);
+    var state = STATE_UPDATER.get(this);
     while (state == 0) {
       if (STATE_UPDATER.compareAndSet(this, state, FROZEN)) {
         return true;
@@ -225,7 +228,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public void makeDead() {
-    int state = STATE_UPDATER.get(this);
+    var state = STATE_UPDATER.get(this);
 
     while (state == FROZEN) {
       if (STATE_UPDATER.compareAndSet(this, state, DEAD)) {
@@ -288,7 +291,7 @@ public class CacheEntryImpl implements CacheEntry {
       return false;
     }
 
-    CacheEntryImpl that = (CacheEntryImpl) o;
+    var that = (CacheEntryImpl) o;
     return this.pageKey.equals(that.pageKey);
   }
 

@@ -46,7 +46,7 @@ public final class PairIntegerObject<V> implements Comparable<PairIntegerObject<
     if (getClass() != obj.getClass()) {
       return false;
     }
-    PairIntegerObject<?> other = (PairIntegerObject<?>) obj;
+    var other = (PairIntegerObject<?>) obj;
     return key == other.key;
   }
 }

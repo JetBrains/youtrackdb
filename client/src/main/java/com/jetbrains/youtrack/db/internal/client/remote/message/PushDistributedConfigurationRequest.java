@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -35,14 +36,14 @@ public class PushDistributedConfigurationRequest
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
       throws IOException {
     channel.writeInt(hosts.size());
-    for (String host : hosts) {
+    for (var host : hosts) {
       channel.writeString(host);
     }
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network) throws IOException {
-    int size = network.readInt();
+  public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+    var size = network.readInt();
     hosts = new ArrayList<>(size);
     while (size-- > 0) {
       hosts.add(network.readString());
@@ -53,6 +54,7 @@ public class PushDistributedConfigurationRequest
     return remote.executeUpdateDistributedConfig(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

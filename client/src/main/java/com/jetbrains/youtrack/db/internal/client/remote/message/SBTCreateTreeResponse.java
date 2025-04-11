@@ -19,21 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSerializer;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 
 public class SBTCreateTreeResponse implements BinaryResponse {
 
-  private BonsaiCollectionPointer collenctionPointer;
+  private LinkBagPointer collenctionPointer;
 
-  public SBTCreateTreeResponse(BonsaiCollectionPointer collenctionPointer) {
+  public SBTCreateTreeResponse(LinkBagPointer collenctionPointer) {
     this.collenctionPointer = collenctionPointer;
   }
 
@@ -43,16 +43,16 @@ public class SBTCreateTreeResponse implements BinaryResponse {
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    collenctionPointer = CollectionNetworkSerializer.INSTANCE.readCollectionPointer(network);
+    collenctionPointer = CollectionNetworkSerializer.readCollectionPointer(network);
   }
 
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(channel, collenctionPointer);
+    CollectionNetworkSerializer.writeCollectionPointer(channel, collenctionPointer);
   }
 
-  public BonsaiCollectionPointer getCollenctionPointer() {
+  public LinkBagPointer getCollenctionPointer() {
     return collenctionPointer;
   }
 }

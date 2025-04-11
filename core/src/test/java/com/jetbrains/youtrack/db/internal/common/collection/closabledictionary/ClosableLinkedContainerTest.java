@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,12 +18,12 @@ public class ClosableLinkedContainerTest {
   @Test
   public void testSingleItemAddRemove() throws Exception {
     final ClosableItem closableItem = new CItem(10);
-    final ClosableLinkedContainer<Long, ClosableItem> dictionary =
+    final var dictionary =
         new ClosableLinkedContainer<Long, ClosableItem>(10);
 
     dictionary.add(1L, closableItem);
 
-    ClosableEntry<Long, ClosableItem> entry = dictionary.acquire(0L);
+    var entry = dictionary.acquire(0L);
     Assert.assertNull(entry);
 
     entry = dictionary.acquire(1L);
@@ -37,18 +36,18 @@ public class ClosableLinkedContainerTest {
 
   @Test
   public void testCloseHalfOfTheItems() throws Exception {
-    final ClosableLinkedContainer<Long, ClosableItem> dictionary =
+    final var dictionary =
         new ClosableLinkedContainer<Long, ClosableItem>(10);
 
-    for (int i = 0; i < 10; i++) {
+    for (var i = 0; i < 10; i++) {
       final ClosableItem closableItem = new CItem(i);
       dictionary.add((long) i, closableItem);
     }
 
-    ClosableEntry<Long, ClosableItem> entry = dictionary.acquire(10L);
+    var entry = dictionary.acquire(10L);
     Assert.assertNull(entry);
 
-    for (int i = 0; i < 5; i++) {
+    for (var i = 0; i < 5; i++) {
       entry = dictionary.acquire((long) i);
       dictionary.release(entry);
     }
@@ -58,19 +57,19 @@ public class ClosableLinkedContainerTest {
     Assert.assertTrue(dictionary.checkAllLRUListItemsInMap());
     Assert.assertTrue(dictionary.checkAllOpenItemsInLRUList());
 
-    for (int i = 0; i < 5; i++) {
+    for (var i = 0; i < 5; i++) {
       dictionary.add(10L + i, new CItem(10 + i));
     }
 
-    for (int i = 0; i < 5; i++) {
+    for (var i = 0; i < 5; i++) {
       Assert.assertTrue(dictionary.get((long) i).isOpen());
     }
 
-    for (int i = 5; i < 10; i++) {
+    for (var i = 5; i < 10; i++) {
       Assert.assertFalse(dictionary.get((long) i).isOpen());
     }
 
-    for (int i = 10; i < 15; i++) {
+    for (var i = 10; i < 15; i++) {
       Assert.assertTrue(dictionary.get((long) i).isOpen());
     }
 
@@ -84,20 +83,20 @@ public class ClosableLinkedContainerTest {
     CItem.openFiles.set(0);
     CItem.maxDeltaLimit.set(0);
 
-    ExecutorService executor = Executors.newCachedThreadPool();
+    var executor = Executors.newCachedThreadPool();
     List<Future<Void>> futures = new ArrayList<Future<Void>>();
-    CountDownLatch latch = new CountDownLatch(1);
+    var latch = new CountDownLatch(1);
 
-    int limit = 60000;
+    var limit = 60000;
 
-    ClosableLinkedContainer<Long, CItem> dictionary =
+    var dictionary =
         new ClosableLinkedContainer<Long, CItem>(16);
     futures.add(executor.submit(new Adder(dictionary, latch, 0, limit / 3)));
     futures.add(executor.submit(new Adder(dictionary, latch, limit / 3, 2 * limit / 3)));
 
-    AtomicBoolean stop = new AtomicBoolean();
+    var stop = new AtomicBoolean();
 
-    for (int i = 0; i < 16; i++) {
+    for (var i = 0; i < 16; i++) {
       futures.add(executor.submit(new Acquier(dictionary, latch, limit, stop)));
     }
 
@@ -110,7 +109,7 @@ public class ClosableLinkedContainerTest {
     Thread.sleep(15 * 60000);
 
     stop.set(true);
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -146,7 +145,7 @@ public class ClosableLinkedContainerTest {
       latch.await();
 
       try {
-        for (int i = from; i < to; i++) {
+        for (var i = from; i < to; i++) {
           dictionary.add((long) i, new CItem(i));
         }
       } catch (Exception e) {
@@ -183,14 +182,14 @@ public class ClosableLinkedContainerTest {
       latch.await();
 
       long counter = 0;
-      long start = System.nanoTime();
+      var start = System.nanoTime();
 
       try {
-        Random random = new Random();
+        var random = new Random();
 
         while (!stop.get()) {
-          int index = random.nextInt(limit);
-          final ClosableEntry<Long, CItem> entry = dictionary.acquire((long) index);
+          var index = random.nextInt(limit);
+          final var entry = dictionary.acquire((long) index);
           if (entry != null) {
             Assert.assertTrue(entry.get().isOpen());
             counter++;
@@ -203,7 +202,7 @@ public class ClosableLinkedContainerTest {
         throw e;
       }
 
-      long end = System.nanoTime();
+      var end = System.nanoTime();
 
       System.out.println(
           "Files processed " + counter + " nanos per item " + (end - start) / counter);
@@ -235,11 +234,11 @@ public class ClosableLinkedContainerTest {
     public void close() {
       open = false;
 
-      int count = openFiles.decrementAndGet();
+      var count = openFiles.decrementAndGet();
 
       if (count - openLimit > 0) {
         while (true) {
-          int max = maxDeltaLimit.get();
+          var max = maxDeltaLimit.get();
           if (count - openLimit > max) {
             if (maxDeltaLimit.compareAndSet(max, count - openLimit)) {
               break;
@@ -258,10 +257,10 @@ public class ClosableLinkedContainerTest {
     }
 
     private void countOpenFiles() {
-      int count = openFiles.incrementAndGet();
+      var count = openFiles.incrementAndGet();
       if (count - openLimit > 0) {
         while (true) {
-          int max = maxDeltaLimit.get();
+          var max = maxDeltaLimit.get();
           if (count - openLimit > max) {
             if (maxDeltaLimit.compareAndSet(max, count - openLimit)) {
               break;

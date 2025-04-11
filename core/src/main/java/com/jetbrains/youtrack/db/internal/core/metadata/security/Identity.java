@@ -1,28 +1,22 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.type.EntityWrapper;
+import com.jetbrains.youtrack.db.internal.core.type.IdentityWrapper;
 
 /**
  *
  */
-public abstract class Identity extends EntityWrapper {
+public abstract class Identity extends IdentityWrapper {
 
   public static final String CLASS_NAME = "OIdentity";
 
-  public Identity() {
+  public Identity(DatabaseSessionInternal session, String iClassName) {
+    super(session, iClassName);
   }
 
-  public Identity(RID iRID) {
-    super(iRID.getRecord());
-  }
-
-  public Identity(String iClassName) {
-    super(iClassName);
-  }
-
-  public Identity(EntityImpl entity) {
+  public Identity(DatabaseSessionInternal db,
+      EntityImpl entity) {
     super(entity);
   }
 }

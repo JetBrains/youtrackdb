@@ -38,7 +38,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
   }
 
   public SQLUpdateIncrementItem copy() {
-    SQLUpdateIncrementItem result = new SQLUpdateIncrementItem(-1);
+    var result = new SQLUpdateIncrementItem(-1);
     result.left = left == null ? null : left.copy();
     result.leftModifier = leftModifier == null ? null : leftModifier.copy();
     result.right = right == null ? null : right.copy();
@@ -54,7 +54,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
       return false;
     }
 
-    SQLUpdateIncrementItem that = (SQLUpdateIncrementItem) o;
+    var that = (SQLUpdateIncrementItem) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -67,7 +67,7 @@ public class SQLUpdateIncrementItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (leftModifier != null ? leftModifier.hashCode() : 0);
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;

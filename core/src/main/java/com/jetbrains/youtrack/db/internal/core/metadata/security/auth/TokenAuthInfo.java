@@ -13,7 +13,7 @@ public class TokenAuthInfo implements AuthenticationInfo {
 
   @Override
   public Optional<String> getDatabase() {
-    return Optional.ofNullable(token.getToken().getDatabase());
+    return Optional.ofNullable(token.getToken().getDatabaseName());
   }
 
   public ParsedToken getToken() {

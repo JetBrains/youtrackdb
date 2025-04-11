@@ -32,7 +32,7 @@ public class ContainsValueOperatorTest {
 
   @Test
   public void test() {
-    SQLContainsValueOperator op = new SQLContainsValueOperator(-1);
+    var op = new SQLContainsValueOperator(-1);
 
     Assert.assertFalse(op.execute(null, null));
     Assert.assertFalse(op.execute(null, "foo"));

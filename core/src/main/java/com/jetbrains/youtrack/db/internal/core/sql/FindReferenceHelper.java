@@ -19,16 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkMap;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -36,10 +32,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
 /**
@@ -48,56 +42,56 @@ import java.util.Set;
 public class FindReferenceHelper {
 
   public static List<EntityImpl> findReferences(final Set<RID> iRecordIds,
-      final String classList) {
-    final var db = DatabaseRecordThreadLocal.instance().get();
-
+      final String classList, DatabaseSessionInternal session) {
     final Map<RID, Set<RID>> map = new HashMap<RID, Set<RID>>();
-    for (RID rid : iRecordIds) {
+    for (var rid : iRecordIds) {
       map.put(rid, new HashSet<>());
     }
 
     if (classList == null || classList.isEmpty()) {
-      for (String clusterName : db.getClusterNames()) {
-        browseCluster(db, iRecordIds, map, clusterName);
+      for (var collectionName : session.getCollectionNames()) {
+        browseCollection(session, iRecordIds, map, collectionName);
       }
     } else {
-      final List<String> classes = StringSerializerHelper.smartSplit(classList, ',');
-      for (String clazz : classes) {
-        if (clazz.startsWith("CLUSTER:")) {
-          browseCluster(
-              db,
+      final var classes = StringSerializerHelper.smartSplit(classList, ',');
+      for (var clazz : classes) {
+        if (clazz.startsWith("COLLECTION:")) {
+          browseCollection(
+              session,
               iRecordIds,
               map,
-              clazz.substring(clazz.indexOf("CLUSTER:") + "CLUSTER:".length()));
+              clazz.substring(clazz.indexOf("COLLECTION:") + "COLLECTION:".length()));
         } else {
-          browseClass(db, iRecordIds, map, clazz);
+          browseClass(session, iRecordIds, map, clazz);
         }
       }
     }
 
     final List<EntityImpl> result = new ArrayList<EntityImpl>();
-    for (Entry<RID, Set<RID>> entry : map.entrySet()) {
-      final EntityImpl entity = new EntityImpl();
+    for (var entry : map.entrySet()) {
+      final var entity = new EntityImpl(session);
       result.add(entity);
 
-      entity.field("rid", entry.getKey());
-      entity.field("referredBy", entry.getValue());
+      entity.setProperty("rid", entry.getKey());
+      entity.setProperty("referredBy", entry.getValue());
     }
 
     return result;
   }
 
-  private static void browseCluster(
-      final DatabaseSession iDatabase,
+  private static void browseCollection(
+      final DatabaseSessionInternal db,
       final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
-      final String iClusterName) {
-    for (DBRecord record : ((DatabaseSessionInternal) iDatabase).browseCluster(iClusterName)) {
+      final String iCollectionName) {
+    var recordIterator = db.browseCollection(iCollectionName);
+    while (recordIterator.hasNext()) {
+      var record = recordIterator.next();
       if (record instanceof EntityImpl) {
         try {
-          for (String fieldName : ((EntityImpl) record).fieldNames()) {
-            Object value = ((EntityImpl) record).field(fieldName);
-            checkObject(iSourceRIDs, map, value, record);
+          for (var fieldName : ((EntityImpl) record).propertyNames()) {
+            var value = ((EntityImpl) record).getProperty(fieldName);
+            checkObject(db, iSourceRIDs, map, value, record);
           }
         } catch (Exception e) {
           LogManager.instance()
@@ -108,75 +102,74 @@ public class FindReferenceHelper {
   }
 
   private static void browseClass(
-      final DatabaseSessionInternal db,
+      final DatabaseSessionInternal session,
       Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final String iClassName) {
-    final SchemaClass clazz = db.getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+    final var clazz = session.getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
     if (clazz == null) {
-      throw new CommandExecutionException("Class '" + iClassName + "' was not found");
+      throw new CommandExecutionException(session, "Class '" + iClassName + "' was not found");
     }
 
-    for (int i : clazz.getClusterIds()) {
-      browseCluster(db, iSourceRIDs, map, db.getClusterNameById(i));
+    for (var i : clazz.getCollectionIds()) {
+      browseCollection(session, iSourceRIDs, map, session.getCollectionNameById(i));
     }
   }
 
   private static void checkObject(
-      final Set<RID> iSourceRIDs,
+      DatabaseSessionInternal db, final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final Object value,
       final DBRecord iRootObject) {
     if (value instanceof Identifiable) {
-      checkRecord(iSourceRIDs, map, (Identifiable) value, iRootObject);
+      checkRecord(db, iSourceRIDs, map, (Identifiable) value, iRootObject);
     } else if (value instanceof Collection<?>) {
-      checkCollection(iSourceRIDs, map, (Collection<?>) value, iRootObject);
+      checkCollection(db, iSourceRIDs, map, (Collection<?>) value, iRootObject);
     } else if (value instanceof Map<?, ?>) {
-      checkMap(iSourceRIDs, map, (Map<?, ?>) value, iRootObject);
+      checkMap(db, iSourceRIDs, map, (Map<?, ?>) value, iRootObject);
     }
   }
 
   private static void checkCollection(
-      final Set<RID> iSourceRIDs,
+      DatabaseSessionInternal db, final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final Collection<?> values,
       final DBRecord iRootObject) {
-    for (Object value : values) {
-      checkObject(iSourceRIDs, map, value, iRootObject);
+    for (var value : values) {
+      checkObject(db, iSourceRIDs, map, value, iRootObject);
     }
   }
 
   private static void checkMap(
-      final Set<RID> iSourceRIDs,
+      DatabaseSessionInternal db, final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final Map<?, ?> values,
       final DBRecord iRootObject) {
-    final Iterator<?> it;
-    if (values instanceof LinkMap) {
-      it = ((LinkMap) values).rawIterator();
-    } else {
-      it = values.values().iterator();
-    }
-    while (it.hasNext()) {
-      checkObject(iSourceRIDs, map, it.next(), iRootObject);
+    for (var o : values.values()) {
+      checkObject(db, iSourceRIDs, map, o, iRootObject);
     }
   }
 
   private static void checkRecord(
-      final Set<RID> iSourceRIDs,
+      DatabaseSessionInternal db, final Set<RID> iSourceRIDs,
       final Map<RID, Set<RID>> map,
       final Identifiable value,
       final DBRecord iRootObject) {
     if (iSourceRIDs.contains(value.getIdentity())) {
       map.get(value.getIdentity()).add(iRootObject.getIdentity());
-    } else if (!((RecordId) value.getIdentity()).isValid()
-        && value.getRecord() instanceof EntityImpl) {
-      // embedded entity
-      EntityImpl entity = value.getRecord();
-      for (String fieldName : entity.fieldNames()) {
-        Object fieldValue = entity.field(fieldName);
-        checkObject(iSourceRIDs, map, fieldValue, iRootObject);
+    } else {
+      if (!((RecordId) value.getIdentity()).isValidPosition()) {
+        var transaction1 = db.getActiveTransaction();
+        if (transaction1.load(value) instanceof EntityImpl) {
+          // embedded entity
+          var transaction = db.getActiveTransaction();
+          EntityImpl entity = transaction.load(value);
+          for (var fieldName : entity.propertyNames()) {
+            var fieldValue = entity.getProperty(fieldName);
+            checkObject(db, iSourceRIDs, map, fieldValue, iRootObject);
+          }
+        }
       }
     }
   }

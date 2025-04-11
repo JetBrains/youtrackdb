@@ -4,11 +4,9 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -19,14 +17,14 @@ import org.junit.Test;
 public class SecurityEngineTest {
 
   static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
   private static final String DB_NAME = "test";
 
   @BeforeClass
   public static void beforeClass() {
     youTrackDB =
         new YouTrackDBImpl(
-            "plocal:./target/securityEngineTest",
+            "disk:./target/securityEngineTest",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -47,248 +45,265 @@ public class SecurityEngineTest {
             + " users ( admin identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
-    this.db =
+    this.session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     youTrackDB.drop(DB_NAME);
-    this.db = null;
+    this.session = null;
   }
 
   @Test
   public void testAllClasses() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    db.createClass("Person");
+    var security = session.getSharedContext().getSecurity();
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'admin'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.*", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'admin'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.*",
+        policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'admin'", pred.toString());
+    Assert.assertEquals("name = \"admin\"", pred.toString());
   }
 
   @Test
   public void testSingleClass() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'foo'", pred.toString());
+    Assert.assertEquals("name = \"foo\"", pred.toString());
   }
 
   @Test
   public void testSuperclass() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
-    db.createClass("Employee", "Person");
+    session.createClass("Person");
+    session.createClass("Employee", "Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Employee", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Employee",
+            SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'foo'", pred.toString());
+    Assert.assertEquals("name = \"foo\"", pred.toString());
   }
 
   @Test
   public void testSuperclass2() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
-    db.createClass("Employee", "Person");
+    session.createClass("Person");
+    session.createClass("Employee", "Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
 
-    policy = security.createSecurityPolicy(db, "policy2");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'bar'");
-    security.saveSecurityPolicy(db, policy);
+    policy = security.createSecurityPolicy(session, "policy2");
+    policy.setActive(true);
+    policy.setReadRule("name = 'bar'");
+    security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(
-        db, security.getRole(db, "admin"), "database.class.Employee", policy);
-    db.commit();
+        session, security.getRole(session, "admin"), "database.class.Employee", policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Employee", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Employee",
+            SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'bar'", pred.toString());
+    Assert.assertEquals("name = \"bar\"", pred.toString());
   }
 
   @Test
   public void testSuperclass3() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
-    db.createClass("Employee", "Person");
+    session.createClass("Person");
+    session.createClass("Employee", "Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'admin'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'admin'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
 
-    policy = security.createSecurityPolicy(db, "policy2");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'bar' OR name = 'admin'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.*", policy);
-    db.commit();
+    policy = security.createSecurityPolicy(session, "policy2");
+    policy.setActive(true);
+    policy.setReadRule("name = 'bar' OR name = 'admin'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.*",
+        policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Employee", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Employee",
+            SecurityPolicy.Scope.READ);
 
-    Assert.assertEquals("name = 'admin'", pred.toString());
+    Assert.assertEquals("name = \"admin\"", pred.toString());
   }
 
   @Test
   public void testTwoSuperclasses() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
-    db.createClass("Foo");
-    db.createClass("Employee", "Person", "Foo");
+    session.createClass("Person");
+    session.createClass("Foo");
+    session.createClass("Employee", "Person", "Foo");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
 
-    policy = security.createSecurityPolicy(db, "policy2");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "surname = 'bar'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Foo", policy);
-    db.commit();
+    policy = security.createSecurityPolicy(session, "policy2");
+    policy.setActive(true);
+    policy.setReadRule("surname = 'bar'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Foo",
+        policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Employee", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Employee",
+            SecurityPolicy.Scope.READ);
 
     Assert.assertTrue(
-        "name = 'foo' AND surname = 'bar'".equals(pred.toString())
-            || "surname = 'bar' AND name = 'foo'".equals(pred.toString()));
+        "name = \"foo\" AND surname = \"bar\"".equals(pred.toString())
+            || "surname = \"bar\" AND name = \"foo\"".equals(pred.toString()));
   }
 
   @Test
   public void testTwoRoles() {
 
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
         "Update OUser set roles = roles || (select from orole where name = 'reader') where name ="
             + " 'admin'");
-    db.commit();
-    db.close();
-    db =
+    session.commit();
+    session.close();
+    session =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
 
-    policy = security.createSecurityPolicy(db, "policy2");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "surname = 'bar'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    policy = security.createSecurityPolicy(session, "policy2");
+    policy.setActive(true);
+    policy.setReadRule("surname = 'bar'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
-    SQLBooleanExpression pred =
+    var pred =
         SecurityEngine.getPredicateForSecurityResource(
-            db, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
+            session, (SecurityShared) security, "database.class.Person", SecurityPolicy.Scope.READ);
 
     Assert.assertTrue(
-        "name = 'foo' OR surname = 'bar'".equals(pred.toString())
-            || "surname = 'bar' OR name = 'foo'".equals(pred.toString()));
+        "name = \"foo\" OR surname = \"bar\"".equals(pred.toString())
+            || "surname = \"bar\" OR name = \"foo\"".equals(pred.toString()));
   }
 
   @Test
   public void testRecordFiltering() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
     var rec1 =
-        db.computeInTx(
-            () -> {
-              Entity record1 = db.newEntity("Person");
+        session.computeInTx(
+            transaction -> {
+              var record1 = session.newEntity("Person");
               record1.setProperty("name", "foo");
-              record1.save();
               return record1;
             });
 
     var rec2 =
-        db.computeInTx(
-            () -> {
-              Entity record2 = db.newEntity("Person");
+        session.computeInTx(
+            transaction -> {
+              var record2 = session.newEntity("Person");
               record2.setProperty("name", "bar");
-              record2.save();
               return record2;
             });
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "policy1");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "admin"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "policy1");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "admin"), "database.class.Person",
+        policy);
+    session.commit();
 
-    db.bindToSession(rec1);
-    Assert.assertTrue(rec1.getIdentity().isPersistent());
+    session.executeInTx(transaction -> {
+      var activeTx1 = session.getActiveTransaction();
+      activeTx1.load(rec1);
+      Assert.assertTrue(rec1.getIdentity().isPersistent());
 
-    try {
-      db.bindToSession(rec2);
-      Assert.fail();
-    } catch (RecordNotFoundException e) {
-      // ignore
-    }
+      try {
+        var activeTx = session.getActiveTransaction();
+        activeTx.load(rec2);
+        Assert.fail();
+      } catch (RecordNotFoundException e) {
+        // ignore
+      }
+    });
   }
 }

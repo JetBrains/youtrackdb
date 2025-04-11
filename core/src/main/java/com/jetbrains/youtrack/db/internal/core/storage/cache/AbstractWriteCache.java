@@ -34,7 +34,7 @@ public class AbstractWriteCache {
   }
 
   public static long checkFileIdCompatibility(int storageId, long fileId) {
-    final int intId = extractFileId(fileId);
+    final var intId = extractFileId(fileId);
     return composeFileId(storageId, intId);
   }
 }

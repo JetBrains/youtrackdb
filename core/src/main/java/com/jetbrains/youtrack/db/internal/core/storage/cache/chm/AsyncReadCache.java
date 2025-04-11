@@ -24,13 +24,13 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Disk cache based on ConcurrentHashMap and eviction policy which is asynchronously processed by
@@ -111,7 +111,7 @@ public final class AsyncReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    final CacheEntry cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
 
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
@@ -130,20 +130,21 @@ public final class AsyncReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
   }
 
+  @Nullable
   @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final long fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final PageKey pageKey = new PageKey(fileId, pageIndex);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
+    final var pageKey = new PageKey(fileId, pageIndex);
 
     for (; ; ) {
-      CacheEntry cacheEntry = data.get(pageKey);
+      var cacheEntry = data.get(pageKey);
 
       if (cacheEntry == null) {
-        final CacheEntry[] updatedEntry = new CacheEntry[1];
+        final var updatedEntry = new CacheEntry[1];
 
         cacheEntry =
             data.compute(
@@ -151,7 +152,7 @@ public final class AsyncReadCache implements ReadCache {
                 (page, entry) -> {
                   if (entry == null) {
                     try {
-                      final CachePointer pointer =
+                      final var pointer =
                           writeCache.load(
                               fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
                       if (pointer == null) {
@@ -164,9 +165,9 @@ public final class AsyncReadCache implements ReadCache {
                       return null;
                     } catch (final IOException e) {
                       throw BaseException.wrapException(
-                          new StorageException(
+                          new StorageException(writeCache.getStorageName(),
                               "Error during loading of page " + pageIndex + " for file " + fileId),
-                          e);
+                          e, writeCache.getStorageName());
                     }
 
                   } else {
@@ -188,13 +189,14 @@ public final class AsyncReadCache implements ReadCache {
     }
   }
 
+  @Nullable
   private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final long fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final PageKey pageKey = new PageKey(fileId, pageIndex);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
+    final var pageKey = new PageKey(fileId, pageIndex);
 
     boolean success = false;
 
@@ -214,7 +216,7 @@ public final class AsyncReadCache implements ReadCache {
             return cacheEntry;
           }
         } else {
-          final boolean[] read = new boolean[1];
+          final var read = new boolean[1];
 
           cacheEntry =
               data.compute(
@@ -222,7 +224,7 @@ public final class AsyncReadCache implements ReadCache {
                   (page, entry) -> {
                     if (entry == null) {
                       try {
-                        final CachePointer pointer =
+                        final var pointer =
                             writeCache.load(
                                 fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
                         if (pointer == null) {
@@ -234,10 +236,10 @@ public final class AsyncReadCache implements ReadCache {
                             page.getFileId(), page.getPageIndex(), pointer, true, this);
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
-                            new StorageException(
+                            new StorageException(writeCache.getStorageName(),
                                 "Error during loading of page " + pageIndex + " for file "
                                     + fileId),
-                            e);
+                            e, writeCache.getStorageName());
                       }
                     } else {
                       read[0] = true;
@@ -261,7 +263,7 @@ public final class AsyncReadCache implements ReadCache {
               } catch (final java.lang.InterruptedException e) {
                 throw BaseException.wrapException(
                     new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                    e);
+                    e, writeCache.getStorageName());
               }
             }
 
@@ -276,8 +278,8 @@ public final class AsyncReadCache implements ReadCache {
 
   private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
 
-    final Pointer pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final CachePointer cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
+    final var pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
+    final var cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
     cachePointer.incrementReadersReferrer();
     DurablePage.setLogSequenceNumberForPage(
         pointer.getNativeByteBuffer(), new LogSequenceNumber(-1, -1));
@@ -285,7 +287,7 @@ public final class AsyncReadCache implements ReadCache {
     final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
     cacheEntry.acquireEntry();
 
-    final CacheEntry oldCacheEntry = data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
+    final var oldCacheEntry = data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
     if (oldCacheEntry != null) {
       throw new IllegalStateException(
           "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
@@ -318,7 +320,7 @@ public final class AsyncReadCache implements ReadCache {
   @Override
   public void releaseFromWrite(
       final CacheEntry cacheEntry, final WriteCache writeCache, final boolean changed) {
-    final CachePointer cachePointer = cacheEntry.getCachePointer();
+    final var cachePointer = cacheEntry.getCachePointer();
     assert cachePointer != null;
 
     if (cacheEntry.isNewlyAllocatedPage() || changed) {
@@ -363,8 +365,8 @@ public final class AsyncReadCache implements ReadCache {
       long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN)
       throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final int newPageIndex = writeCache.allocateNewPage(fileId);
-    final CacheEntry cacheEntry = addNewPagePointerToTheCache(fileId, newPageIndex);
+    final var newPageIndex = writeCache.allocateNewPage(fileId);
+    final var cacheEntry = addNewPagePointerToTheCache(fileId, newPageIndex);
 
     cacheEntry.acquireExclusiveLock();
     cacheEntry.markAllocated();
@@ -373,7 +375,7 @@ public final class AsyncReadCache implements ReadCache {
   }
 
   private void afterRead(final CacheEntry entry) {
-    final boolean bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
+    final var bufferOverflow = readBuffer.offer(entry) == Buffer.FULL;
 
     if (drainStatus.get().shouldBeDrained(bufferOverflow)) {
       tryToDrainBuffers();
@@ -456,8 +458,8 @@ public final class AsyncReadCache implements ReadCache {
   }
 
   private void drainWriteBuffer() {
-    for (int i = 0; i < WRITE_BUFFER_MAX_BATCH; i++) {
-      final CacheEntry entry = writeBuffer.poll();
+    for (var i = 0; i < WRITE_BUFFER_MAX_BATCH; i++) {
+      final var entry = writeBuffer.poll();
 
       if (entry == null) {
         break;
@@ -469,7 +471,7 @@ public final class AsyncReadCache implements ReadCache {
 
   private void emptyWriteBuffer() {
     while (true) {
-      final CacheEntry entry = writeBuffer.poll();
+      final var entry = writeBuffer.poll();
 
       if (entry == null) {
         break;
@@ -490,11 +492,11 @@ public final class AsyncReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      for (final CacheEntry entry : data.values()) {
+      for (final var entry : data.values()) {
         if (entry.freeze()) {
           policy.onRemove(entry);
         } else {
-          throw new StorageException(
+          throw new StorageException(null,
               "Page with index "
                   + entry.getPageIndex()
                   + " for file id "
@@ -514,7 +516,7 @@ public final class AsyncReadCache implements ReadCache {
   public void truncateFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
 
-    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
     writeCache.truncateFile(fileId);
 
     clearFile(fileId, filledUpTo, writeCache);
@@ -523,7 +525,7 @@ public final class AsyncReadCache implements ReadCache {
   @Override
   public void closeFile(long fileId, final boolean flush, final WriteCache writeCache) {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
     clearFile(fileId, filledUpTo, writeCache);
     writeCache.close(fileId, flush);
@@ -531,7 +533,7 @@ public final class AsyncReadCache implements ReadCache {
 
   public void deleteFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final int filledUpTo = (int) writeCache.getFilledUpTo(fileId);
+    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
     clearFile(fileId, filledUpTo, writeCache);
     writeCache.deleteFile(fileId);
@@ -539,13 +541,13 @@ public final class AsyncReadCache implements ReadCache {
 
   @Override
   public void deleteStorage(final WriteCache writeCache) throws IOException {
-    final Collection<Long> files = writeCache.files().values();
+    final var files = writeCache.files().values();
     final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
     for (final long fileId : files) {
       filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
     }
 
-    for (final RawPairLongInteger entry : filledUpTo) {
+    for (final var entry : filledUpTo) {
       clearFile(entry.first, entry.second, writeCache);
     }
 
@@ -554,13 +556,13 @@ public final class AsyncReadCache implements ReadCache {
 
   @Override
   public void closeStorage(final WriteCache writeCache) throws IOException {
-    final Collection<Long> files = writeCache.files().values();
+    final var files = writeCache.files().values();
     final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
     for (final long fileId : files) {
       filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
     }
 
-    for (final RawPairLongInteger entry : filledUpTo) {
+    for (final var entry : filledUpTo) {
       clearFile(entry.first, entry.second, writeCache);
     }
 
@@ -572,9 +574,9 @@ public final class AsyncReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      for (int pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final PageKey pageKey = new PageKey(fileId, pageIndex);
-        final CacheEntry cacheEntry = data.remove(pageKey);
+      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+        final var pageKey = new PageKey(fileId, pageIndex);
+        final var cacheEntry = data.remove(pageKey);
         if (cacheEntry != null) {
           if (cacheEntry.freeze()) {
             policy.onRemove(cacheEntry);
@@ -585,10 +587,10 @@ public final class AsyncReadCache implements ReadCache {
             } catch (final java.lang.InterruptedException e) {
               throw BaseException.wrapException(
                   new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                  e);
+                  e, writeCache.getStorageName());
             }
           } else {
-            throw new StorageException(
+            throw new StorageException(writeCache.getStorageName(),
                 "Page with index "
                     + cacheEntry.getPageIndex()
                     + " for file id "

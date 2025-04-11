@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import javax.annotation.Nonnull;
 
 /**
  *
@@ -17,12 +18,12 @@ public class LocalLiveResultListener implements LiveResultListener, CommandResul
   }
 
   @Override
-  public boolean result(DatabaseSessionInternal querySession, Object iRecord) {
+  public boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord) {
     return false;
   }
 
   @Override
-  public void end() {
+  public void end(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
@@ -31,8 +32,9 @@ public class LocalLiveResultListener implements LiveResultListener, CommandResul
   }
 
   @Override
-  public void onLiveResult(int iLiveToken, RecordOperation iOp) throws BaseException {
-    underlying.onLiveResult(iLiveToken, iOp);
+  public void onLiveResult(DatabaseSessionInternal db, int iLiveToken, RecordOperation iOp)
+      throws BaseException {
+    underlying.onLiveResult(db, iLiveToken, iOp);
   }
 
   @Override

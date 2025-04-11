@@ -19,14 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
 
 public class ServerCommandPostDocument extends ServerCommandDocumentAbstract {
@@ -34,44 +32,25 @@ public class ServerCommandPostDocument extends ServerCommandDocumentAbstract {
   private static final String[] NAMES = {"POST|document/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 2, "Syntax error: document/<database>");
 
-    iRequest.getData().commandInfo = "Create document";
+    iRequest.getData().commandInfo = "Create entity";
 
-    DatabaseSession db = null;
-
-    EntityImpl d;
-
-    try {
-      db = getProfiledDatabaseInstance(iRequest);
-
-      d =
-          db.computeInTx(
-              () -> {
-                EntityImpl entity = new EntityImpl();
-                entity.fromJSON(iRequest.getContent());
-                RecordInternal.setVersion(entity, 0);
-
-                // ASSURE TO MAKE THE RECORD ID INVALID
-                entity.getIdentity().setClusterPosition(RID.CLUSTER_POS_INVALID);
-
-                entity.save();
-                return entity;
-              });
-
-      d = db.bindToSession(d);
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      var detached = db.computeInTx(
+          transaction -> {
+            var entity = transaction.createOrLoadEntityFromJson(iRequest.getContent());
+            return new RawPair<>(entity, entity.detach());
+          });
+      ((ResultInternal) detached.second()).setProperty(EntityHelper.ATTRIBUTE_VERSION,
+          detached.first().getVersion());
       iResponse.send(
           HttpUtils.STATUS_CREATED_CODE,
           HttpUtils.STATUS_CREATED_DESCRIPTION,
           HttpUtils.CONTENT_JSON,
-          d.toJSON(),
-          HttpUtils.HEADER_ETAG + d.getVersion());
-
-    } finally {
-      if (db != null) {
-        db.close();
-      }
+          detached.second().toJSON(),
+          HttpUtils.HEADER_ETAG + detached.first().getVersion());
     }
     return false;
   }

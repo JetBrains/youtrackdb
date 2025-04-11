@@ -43,8 +43,8 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
       if (!(leftVal == null)) {
         return true;
       }
@@ -53,8 +53,8 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
       if (leftVal == null) {
         return false;
       }
@@ -100,7 +100,7 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
 
   @Override
   public SQLBooleanExpression copy() {
-    SQLIsNotNullCondition result = new SQLIsNotNullCondition(-1);
+    var result = new SQLIsNotNullCondition(-1);
     result.expression = expression.copy();
     return result;
   }
@@ -124,7 +124,7 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLIsNotNullCondition that = (SQLIsNotNullCondition) o;
+    var that = (SQLIsNotNullCondition) o;
 
     return Objects.equals(expression, that.expression);
   }

@@ -36,9 +36,9 @@ public class Binary implements Comparable<Binary> {
   }
 
   public int compareTo(final Binary o) {
-    final int size = value.length;
+    final var size = value.length;
 
-    for (int i = 0; i < size; ++i) {
+    for (var i = 0; i < size; ++i) {
       if (value[i] > o.value[i]) {
         return 1;
       } else if (value[i] < o.value[i]) {

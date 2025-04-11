@@ -9,7 +9,7 @@ public class UncaughtExceptionHandler implements Thread.UncaughtExceptionHandler
 
   @Override
   public void uncaughtException(Thread t, Throwable e) {
-    final LogManager logManager = LogManager.instance();
+    final var logManager = LogManager.instance();
 
     if (logManager != null) {
       LogManager.instance().error(this, "Uncaught exception in thread %s", e, t.getName());

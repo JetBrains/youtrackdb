@@ -30,7 +30,7 @@ public class ReadersWriterSpinLockBenchmark {
   public void benchmark() throws Exception {
     List<Future> futures = new ArrayList<Future>();
 
-    for (int i = 0; i < 8; i++) {
+    for (var i = 0; i < 8; i++) {
       futures.add(executorService.submit(new Reader()));
     }
 
@@ -40,7 +40,7 @@ public class ReadersWriterSpinLockBenchmark {
 
     stop = true;
 
-    for (Future future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -55,8 +55,8 @@ public class ReadersWriterSpinLockBenchmark {
   }
 
   private void consumeCPU(int cycles) {
-    long c1 = c;
-    for (int i = 0; i < cycles; i++) {
+    var c1 = c;
+    for (var i = 0; i < cycles; i++) {
       c1 += c1 * 31 + i * 51L;
     }
     c = c1;
@@ -69,9 +69,9 @@ public class ReadersWriterSpinLockBenchmark {
       latch.await();
 
       while (!stop) {
-        long start = System.nanoTime();
+        var start = System.nanoTime();
         spinLock.acquireReadLock();
-        long end = System.nanoTime();
+        var end = System.nanoTime();
 
         readLocksCount.incrementAndGet();
         acquireLockSum.addAndGet(end - start);

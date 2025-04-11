@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import org.junit.Assert;
@@ -24,24 +22,24 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSchema();
     schema.createClass("Owner", schema.getClass("V"));
     schema.createClass("link", schema.getClass("E"));
 
-    db.begin();
-    owner1 = new EntityImpl("Owner");
-    owner1.field("id", 1);
-    owner1.save();
-    owner2 = new EntityImpl("Owner");
-    owner2.field("id", 2);
-    owner2.save();
-    db.commit();
+    session.begin();
+    owner1 = (EntityImpl) session.newVertex("Owner");
+    owner1.setProperty("id", 1);
+
+    owner2 = (EntityImpl) session.newVertex("Owner");
+    owner2.setProperty("id", 2);
+
+    session.commit();
   }
 
   @Test
   public void testParametersBinding() {
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "CREATE EDGE link from "
                 + owner1.getIdentity()
                 + " TO "
@@ -49,67 +47,76 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
                 + " SET foo = ?",
             "123")
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet list = db.query("SELECT FROM link");
+    session.begin();
+    var list = session.query("SELECT FROM link");
 
-    Result res = list.next();
+    var res = list.next();
     Assert.assertEquals(res.getProperty("foo"), "123");
     Assert.assertFalse(list.hasNext());
+    session.commit();
   }
 
   @Test
   public void testSubqueryParametersBinding() throws Exception {
-    final HashMap<String, Object> params = new HashMap<String, Object>();
+    final var params = new HashMap<String, Object>();
     params.put("foo", "bar");
     params.put("fromId", 1);
     params.put("toId", 2);
 
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "CREATE EDGE link from (select from Owner where id = :fromId) TO (select from Owner"
                 + " where id = :toId) SET foo = :foo",
             params)
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet list = db.query("SELECT FROM link");
+    session.begin();
+    var list = session.query("SELECT FROM link");
 
-    Result edge = list.next();
+    var edge = list.next();
     Assert.assertEquals(edge.getProperty("foo"), "bar");
-    Assert.assertEquals(edge.getProperty("out"), owner1.getIdentity());
-    Assert.assertEquals(edge.getProperty("in"), owner2.getIdentity());
+    Assert.assertEquals(((EntityImpl) edge.asEntity()).getPropertyInternal("out"),
+        owner1.getIdentity());
+    Assert.assertEquals(((EntityImpl) edge.asEntity()).getPropertyInternal("in"),
+        owner2.getIdentity());
     Assert.assertFalse(list.hasNext());
+    session.commit();
   }
 
   @Test
   public void testBatch() throws Exception {
-    for (int i = 0; i < 20; ++i) {
-      db.begin();
-      db.command("CREATE VERTEX Owner SET testbatch = true, id = ?", i).close();
-      db.commit();
+    for (var i = 0; i < 20; ++i) {
+      session.begin();
+      session.execute("CREATE VERTEX Owner SET testbatch = true, id = ?", i).close();
+      session.commit();
     }
 
-    db.begin();
-    ResultSet edges =
-        db.command(
+    session.begin();
+    var edges =
+        session.execute(
             "CREATE EDGE link from (select from owner where testbatch = true and id > 0) TO (select"
                 + " from owner where testbatch = true and id = 0) batch 10",
             "456");
-    db.commit();
+    session.commit();
 
     Assert.assertEquals(edges.stream().count(), 19);
 
-    ResultSet list = db.query("select from owner where testbatch = true and id = 0");
+    session.begin();
+    var list = session.query("select from owner where testbatch = true and id = 0");
 
-    Result res = list.next();
-    Assert.assertEquals(((RidBag) res.getProperty("in_link")).size(), 19);
+    var res = list.next();
+    Assert.assertEquals(
+        ((RidBag) ((EntityImpl) res.asEntity()).getPropertyInternal("in_link")).size(), 19);
     Assert.assertFalse(list.hasNext());
+    session.commit();
   }
 
   @Test
   public void testEdgeConstraints() {
-    db.execute(
+    session.runScript(
             "sql",
             "create class E2 extends E;"
                 + "create property E2.x LONG;"
@@ -129,7 +136,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
                 + "alter property FooType.name MANDATORY true;")
         .close();
 
-    db.execute(
+    session.runScript(
             "sql",
             "begin;"
                 + "let $v1 = create vertex FooType content {'name':'foo1'};"

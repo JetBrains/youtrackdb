@@ -3,11 +3,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLRightBinaryCondition extends SimpleNode {
 
@@ -35,7 +36,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
   @Override
   public SQLRightBinaryCondition copy() {
-    SQLRightBinaryCondition result = new SQLRightBinaryCondition(-1);
+    var result = new SQLRightBinaryCondition(-1);
     result.operator = operator == null ? null : operator.copy();
     result.not = not;
     result.inOperator = inOperator == null ? null : inOperator.copy();
@@ -77,6 +78,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, Object elementToFilter, CommandContext ctx) {
     if (elementToFilter == null) {
       return null;
@@ -94,7 +96,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
     List result = new ArrayList();
     while (iterator.hasNext()) {
-      Object element = iterator.next();
+      var element = iterator.next();
       if (matchesFilters(iCurrentRecord, element, ctx)) {
         result.add(element);
       }
@@ -102,6 +104,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, Object elementToFilter,
       CommandContext ctx) {
     if (elementToFilter == null) {
@@ -120,7 +123,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
     List result = new ArrayList();
     while (iterator.hasNext()) {
-      Object element = iterator.next();
+      var element = iterator.next();
       if (matchesFilters(iCurrentRecord, element, ctx)) {
         result.add(element);
       }
@@ -134,11 +137,11 @@ public class SQLRightBinaryCondition extends SimpleNode {
       operator.execute(element, right.execute(iCurrentRecord, ctx));
     } else if (inOperator != null) {
 
-      Object rightVal = evaluateRight(iCurrentRecord, ctx);
+      var rightVal = evaluateRight(iCurrentRecord, ctx);
       if (rightVal == null) {
         return false;
       }
-      boolean result = SQLInCondition.evaluateExpression(ctx.getDatabase(), element, rightVal);
+      var result = SQLInCondition.evaluateExpression(ctx.getDatabaseSession(), element, rightVal);
       if (not) {
         result = !result;
       }
@@ -152,11 +155,11 @@ public class SQLRightBinaryCondition extends SimpleNode {
       return operator.execute(element, right.execute(iCurrentRecord, ctx));
     } else if (inOperator != null) {
 
-      Object rightVal = evaluateRight(iCurrentRecord, ctx);
+      var rightVal = evaluateRight(iCurrentRecord, ctx);
       if (rightVal == null) {
         return false;
       }
-      boolean result = SQLInCondition.evaluateExpression(ctx.getDatabase(), element, rightVal);
+      var result = SQLInCondition.evaluateExpression(ctx.getDatabaseSession(), element, rightVal);
       if (not) {
         result = !result;
       }
@@ -188,7 +191,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("operator", operator.getClass().getName());
     result.setProperty("not", not);
     result.setProperty("in", inOperator != null);
@@ -202,7 +205,9 @@ public class SQLRightBinaryCondition extends SimpleNode {
           (SQLBinaryCompareOperator)
               Class.forName(String.valueOf(fromResult.getProperty("operator"))).newInstance();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(
+          new CommandExecutionException(fromResult.getBoundedToSession(), ""), e,
+          fromResult.getBoundedToSession());
     }
     not = fromResult.getProperty("not");
     if (Boolean.TRUE.equals(fromResult.getProperty("in"))) {

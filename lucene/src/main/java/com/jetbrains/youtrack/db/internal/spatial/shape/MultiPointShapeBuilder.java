@@ -13,11 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -38,12 +39,11 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-    validate(document);
-    List<List<Number>> coordinates = document.field(COORDINATES);
-    Coordinate[] coords = new Coordinate[coordinates.size()];
-    int i = 0;
-    for (List<Number> coordinate : coordinates) {
+  public JtsGeometry fromResult(Result document) {
+    List<List<Number>> coordinates = document.getProperty(COORDINATES);
+    var coords = new Coordinate[coordinates.size()];
+    var i = 0;
+    for (var coordinate : coordinates) {
       coords[i] = new Coordinate(coordinate.get(0).doubleValue(), coordinate.get(1).doubleValue());
       i++;
     }
@@ -52,28 +52,25 @@ public class MultiPointShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
 
   @Override
   public void initClazz(DatabaseSessionInternal db) {
-
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass multiPoint = schema.createAbstractClass(getName(), superClass(db));
-    multiPoint.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+    var multiPoint = schema.createAbstractClass(getName(), superClass(db));
+    multiPoint.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.EMBEDDEDLIST);
   }
 
   @Override
-  public EntityImpl toDoc(final JtsGeometry shape) {
-    final MultiPoint geom = (MultiPoint) shape.getGeom();
+  public EmbeddedEntity toEmbeddedEntity(final JtsGeometry shape, DatabaseSessionInternal session) {
+    final var geom = (MultiPoint) shape.getGeom();
 
-    EntityImpl doc = new EntityImpl(getName());
-    doc.field(
-        COORDINATES,
-        new ArrayList<List<Double>>() {
-          {
-            Coordinate[] coordinates = geom.getCoordinates();
-            for (Coordinate coordinate : coordinates) {
-              add(Arrays.asList(coordinate.x, coordinate.y));
-            }
-          }
-        });
-    return doc;
+    var entity = session.newEmbeddedEntity(getName());
+    entity.newEmbeddedList(COORDINATES, new ArrayList<List<Double>>() {
+      {
+        var coordinates = geom.getCoordinates();
+        for (var coordinate : coordinates) {
+          add(Arrays.asList(coordinate.x, coordinate.y));
+        }
+      }
+    });
+    return entity;
   }
 }

@@ -14,13 +14,14 @@
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.LineString;
@@ -40,12 +41,11 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
   }
 
   @Override
-  public JtsGeometry fromDoc(EntityImpl document) {
-    validate(document);
-    List<List<List<Number>>> coordinates = document.field(COORDINATES);
-    LineString[] multiLine = new LineString[coordinates.size()];
-    int j = 0;
-    for (List<List<Number>> coordinate : coordinates) {
+  public JtsGeometry fromResult(Result document) {
+    List<List<List<Number>>> coordinates = document.getProperty(COORDINATES);
+    var multiLine = new LineString[coordinates.size()];
+    var j = 0;
+    for (var coordinate : coordinates) {
       multiLine[j] = createLineString(coordinate);
       j++;
     }
@@ -55,55 +55,56 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
   @Override
   public void initClazz(DatabaseSessionInternal db) {
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass lineString = schema.createAbstractClass(getName(), superClass(db));
-    lineString.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+    var lineString = schema.createAbstractClass(getName(), superClass(db));
+    lineString.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.EMBEDDEDLIST);
 
     if (GlobalConfiguration.SPATIAL_ENABLE_DIRECT_WKT_READER.getValueAsBoolean()) {
-      SchemaClass lineStringZ = schema.createAbstractClass(getName() + "Z", superClass(db));
-      lineStringZ.createProperty(db, COORDINATES, PropertyType.EMBEDDEDLIST,
+      var lineStringZ = schema.createAbstractClass(getName() + "Z", superClass(db));
+      lineStringZ.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
           PropertyType.EMBEDDEDLIST);
     }
   }
 
   @Override
-  public EntityImpl toDoc(JtsGeometry shape) {
-    final MultiLineString geom = (MultiLineString) shape.getGeom();
+  public EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, DatabaseSessionInternal session) {
+    final var geom = (MultiLineString) shape.getGeom();
 
     List<List<List<Double>>> coordinates = new ArrayList<List<List<Double>>>();
-    EntityImpl doc = new EntityImpl(getName());
-    for (int i = 0; i < geom.getNumGeometries(); i++) {
-      final LineString lineString = (LineString) geom.getGeometryN(i);
+
+    var entity = session.newEmbeddedEntity(getName());
+    for (var i = 0; i < geom.getNumGeometries(); i++) {
+      final var lineString = (LineString) geom.getGeometryN(i);
       coordinates.add(coordinatesFromLineString(lineString));
     }
 
-    doc.field(COORDINATES, coordinates);
-    return doc;
+    entity.newEmbeddedList(COORDINATES, coordinates);
+    return entity;
   }
 
   @Override
-  protected EntityImpl toDoc(JtsGeometry shape, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(JtsGeometry shape, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (geometry == null || Double.isNaN(geometry.getCoordinates()[0].getZ())) {
-      return toDoc(shape);
+      return toEmbeddedEntity(shape, session);
     }
 
     List<List<List<Double>>> coordinates = new ArrayList<List<List<Double>>>();
-    EntityImpl doc = new EntityImpl(getName() + "Z");
-    for (int i = 0; i < geometry.getNumGeometries(); i++) {
-      final Geometry lineString = geometry.getGeometryN(i);
+    var result = session.newEmbeddedEntity(getName() + "Z");
+    for (var i = 0; i < geometry.getNumGeometries(); i++) {
+      final var lineString = geometry.getGeometryN(i);
       coordinates.add(coordinatesFromLineStringZ(lineString));
     }
 
-    doc.field(COORDINATES, coordinates);
-    return doc;
+    result.newEmbeddedList(COORDINATES, coordinates);
+    return result;
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    if (document.getClassName().equals("OMultiLineStringZ")) {
-      List<List<List<Double>>> coordinates = document.getProperty("coordinates");
-
-      String result =
+  public String asText(EmbeddedEntity entity) {
+    if (Objects.equals(entity.getSchemaClassName(), "OMultiLineStringZ")) {
+      List<List<List<Double>>> coordinates = entity.getProperty("coordinates");
+      var result =
           coordinates.stream()
               .map(
                   line ->
@@ -112,7 +113,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
                           .map(
                               point ->
                                   (point.stream()
-                                      .map(coord -> format(coord))
+                                      .map(this::format)
                                       .collect(Collectors.joining(" "))))
                           .collect(Collectors.joining(", "))
                           + ")")
@@ -120,7 +121,7 @@ public class MultiLineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry
       return "MULTILINESTRING Z(" + result + ")";
 
     } else {
-      return super.asText(document);
+      return super.asText(entity);
     }
   }
 }

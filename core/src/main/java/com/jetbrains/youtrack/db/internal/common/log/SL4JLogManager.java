@@ -1,7 +1,8 @@
 package com.jetbrains.youtrack.db.internal.common.log;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,8 +15,8 @@ import org.slf4j.MarkerFactory;
 import org.slf4j.event.Level;
 
 /**
- * Centralized Log Manager used in YouTrackDB. All the log messages are routed through this class. It
- * uses SLF4J as the logging facade. Logging methods are accepting messages formatted as in
+ * Centralized Log Manager used in YouTrackDB. All the log messages are routed through this class.
+ * It uses SLF4J as the logging facade. Logging methods are accepting messages formatted as in
  * {@link String#format(String, Object...)} It is strongly recommended to use specialized logging
  * methods from this class instead of generic
  * {@link #log(Object, Level, String, Throwable, Object...)} method.
@@ -67,7 +68,7 @@ public abstract class SL4JLogManager {
             });
 
     if (log.isEnabledForLevel(level)) {
-      String dbName = fetchDbName(requester);
+      var dbName = fetchDbName(requester, exception);
 
       Marker dbMarker = null;
       if (dbName != null) {
@@ -100,19 +101,15 @@ public abstract class SL4JLogManager {
     }
   }
 
-  private static String fetchDbName(Object requester) {
+  private static String fetchDbName(@Nullable Object requester, @Nullable Throwable exception) {
     String dbName = null;
     try {
       if (requester instanceof Storage) {
         dbName = ((Storage) requester).getName();
-      } else {
-        var dbInstance = DatabaseRecordThreadLocal.getInstanceIfDefined();
-        if (dbInstance != null) {
-          var db = dbInstance.getIfDefined();
-          if (db != null && db.getStorage() != null) {
-            dbName = db.getStorage().getName();
-          }
-        }
+      } else if (requester instanceof DatabaseSession databaseSession) {
+        dbName = databaseSession.getDatabaseName();
+      } else if (exception instanceof BaseException baseException) {
+        dbName = baseException.getDbName();
       }
     } catch (Exception ignore) {
     }

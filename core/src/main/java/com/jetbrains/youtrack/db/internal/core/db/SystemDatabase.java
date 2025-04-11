@@ -21,16 +21,13 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.DefaultSecuritySystem;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import javax.annotation.Nonnull;
@@ -49,51 +46,12 @@ public class SystemDatabase {
     this.context = context;
   }
 
-  public String getSystemDatabaseName() {
-    return SystemDatabase.SYSTEM_DB_NAME;
-  }
-
-  /**
-   * Adds the specified cluster to the class, if it doesn't already exist.
-   */
-  public void createCluster(final String className, final String clusterName) {
-    final DatabaseSessionInternal currentDB = DatabaseRecordThreadLocal.instance()
-        .getIfDefined();
-    try {
-      final DatabaseSessionInternal sysdb = openSystemDatabase();
-      try {
-
-        if (!sysdb.existsCluster(clusterName)) {
-          Schema schema = sysdb.getMetadata().getSchema();
-          SchemaClass cls = schema.getClass(className);
-
-          if (cls != null) {
-            cls.addCluster(sysdb, clusterName);
-          } else {
-            LogManager.instance()
-                .error(this, "createCluster() Class name %s does not exist", null, className);
-          }
-        }
-
-      } finally {
-        sysdb.close();
-      }
-
-    } finally {
-      if (currentDB != null) {
-        DatabaseRecordThreadLocal.instance().set(currentDB);
-      } else {
-        DatabaseRecordThreadLocal.instance().remove();
-      }
-    }
-  }
-
   /**
    * Opens the System Database and returns an DatabaseSessionInternal object. The caller is
    * responsible for retrieving any ThreadLocal-stored database before openSystemDatabase() is
    * called and restoring it after the database is closed.
    */
-  public DatabaseSessionInternal openSystemDatabase() {
+  public DatabaseSessionInternal openSystemDatabaseSession() {
     if (!exists()) {
       init();
     }
@@ -103,107 +61,70 @@ public class SystemDatabase {
   public <R> R execute(
       @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
       final Object... args) {
-    final DatabaseSessionInternal currentDB = DatabaseRecordThreadLocal.instance()
-        .getIfDefined();
-    try {
-      // BYPASS SECURITY
-      try (final DatabaseSession db = openSystemDatabase()) {
-        try (ResultSet result = db.command(sql, args)) {
-          return callback.apply(result, db);
-        }
-      }
-    } finally {
-      if (currentDB != null) {
-        DatabaseRecordThreadLocal.instance().set(currentDB);
-      } else {
-        DatabaseRecordThreadLocal.instance().remove();
+    // BYPASS SECURITY
+    try (final var session = openSystemDatabaseSession()) {
+      try (var result = session.execute(sql, args)) {
+        return callback.apply(result, session);
       }
     }
   }
 
-  public EntityImpl save(final EntityImpl entity) {
-    return save(entity, null);
-  }
-
-  public EntityImpl save(final EntityImpl entity, final String clusterName) {
-    final DatabaseSessionInternal currentDB = DatabaseRecordThreadLocal.instance()
-        .getIfDefined();
-    try {
-      // BYPASS SECURITY
-      final DatabaseSessionInternal db = openSystemDatabase();
-      try {
-        if (clusterName != null) {
-          return db.save(entity, clusterName);
-        } else {
-          return db.save(entity);
+  public <R> R query(
+      @Nonnull final BiFunction<ResultSet, DatabaseSession, R> callback, final String sql,
+      final Object... args) {
+    // BYPASS SECURITY
+    try (final DatabaseSession session = openSystemDatabaseSession()) {
+      return session.computeInTx(transaction -> {
+        try (var result = transaction.query(sql, args)) {
+          return callback.apply(result, session);
         }
-      } finally {
-        db.close();
-      }
-
-    } finally {
-      if (currentDB != null) {
-        DatabaseRecordThreadLocal.instance().set(currentDB);
-      } else {
-        DatabaseRecordThreadLocal.instance().remove();
-      }
+      });
     }
   }
 
   public void init() {
-    final DatabaseRecordThreadLocal tl = DatabaseRecordThreadLocal.instance();
-    final DatabaseSessionInternal oldDbInThread = tl != null ? tl.getIfDefined() : null;
-    try {
-      if (!exists()) {
-        LogManager.instance()
-            .info(this, "Creating the system database '%s' for current server", SYSTEM_DB_NAME);
+    if (!exists()) {
+      LogManager.instance()
+          .info(this, "Creating the system database '%s' for current server", SYSTEM_DB_NAME);
 
-        YouTrackDBConfig config =
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_MINIMUM_CLUSTERS, 1)
-                .build();
-        DatabaseType type = DatabaseType.PLOCAL;
-        if (context.isMemoryOnly()) {
-          type = DatabaseType.MEMORY;
-        }
-        context.create(SYSTEM_DB_NAME, null, null, type, (YouTrackDBConfigImpl) config);
-        try (var session = context.openNoAuthorization(SYSTEM_DB_NAME)) {
-          DefaultSecuritySystem.createSystemRoles(session);
-        }
+      var config =
+          YouTrackDBConfig.builder()
+              .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+              .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
+              .build();
+      var type = DatabaseType.DISK;
+      if (context.isMemoryOnly()) {
+        type = DatabaseType.MEMORY;
       }
-      checkServerId();
-
-    } finally {
-      if (oldDbInThread != null) {
-        DatabaseRecordThreadLocal.instance().set(oldDbInThread);
-      } else {
-        DatabaseRecordThreadLocal.instance().remove();
+      context.create(SYSTEM_DB_NAME, null, null, type, config);
+      try (var session = context.openNoAuthorization(SYSTEM_DB_NAME)) {
+        DefaultSecuritySystem.createSystemRoles(session);
       }
     }
+    checkServerId();
+
   }
 
   private synchronized void checkServerId() {
-    try (DatabaseSessionInternal db = openSystemDatabase()) {
-      SchemaClass clazz = db.getClass(SERVER_INFO_CLASS);
+    try (var session = openSystemDatabaseSession()) {
+      var clazz = session.getClass(SERVER_INFO_CLASS);
       if (clazz == null) {
-        clazz = db.createClass(SERVER_INFO_CLASS);
+        clazz = session.createClass(SERVER_INFO_CLASS);
       }
       var clz = clazz;
-      db.executeInTx(
-          () -> {
+      session.executeInTx(
+          transaction -> {
             Entity info;
-            if (db.query("select count(*) as count from " + clz.getName()).
-                findFirst().<Long>getProperty("count") == 0) {
-              info = db.newEntity(SERVER_INFO_CLASS);
+            if (session.query("select count(*) as count from " + clz.getName()).
+                findFirst(r -> r.<Long>getProperty("count") == 0)) {
+              info = session.newEntity(SERVER_INFO_CLASS);
             } else {
-              info = db.browseClass(clz.getName()).next();
+              info = session.browseClass(clz.getName()).next();
             }
             this.serverId = info.getProperty(SERVER_ID_PROPERTY);
             if (this.serverId == null) {
               this.serverId = UUID.randomUUID().toString();
               info.setProperty(SERVER_ID_PROPERTY, serverId);
-              info.save();
             }
           });
     }
@@ -214,18 +135,8 @@ public class SystemDatabase {
   }
 
   public <T> T executeWithDB(CallableFunction<T, DatabaseSessionInternal> callback) {
-    final DatabaseSessionInternal currentDB = DatabaseRecordThreadLocal.instance()
-        .getIfDefined();
-    try {
-      try (final var db = openSystemDatabase()) {
-        return callback.call(db);
-      }
-    } finally {
-      if (currentDB != null) {
-        DatabaseRecordThreadLocal.instance().set(currentDB);
-      } else {
-        DatabaseRecordThreadLocal.instance().remove();
-      }
+    try (final var session = openSystemDatabaseSession()) {
+      return callback.call(session);
     }
   }
 

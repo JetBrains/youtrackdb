@@ -2,17 +2,18 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.OTokenHandler;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.server.TokenHandler;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAbstract;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -23,7 +24,7 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
 
   private static final String[] NAMES = {"POST|token/*"};
   private static final String RESPONSE_FORMAT = "indent:-1,attribSameRow";
-  private volatile OTokenHandler tokenHandler;
+  private volatile TokenHandler tokenHandler;
 
   @Override
   public String[] getNames() {
@@ -41,27 +42,28 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
   }
 
   @Override
-  public boolean execute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     init();
-    String[] urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: token/<database>");
+    var urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: token/<database>");
     iRequest.setDatabaseName(urlParts[1]);
 
     iRequest.getData().commandInfo = "Generate authentication token";
 
     // Parameter names consistent with 4.3.2 (Access Token Request) of RFC 6749
-    Map<String, String> content = iRequest.getUrlEncodedContent();
+    var content = iRequest.getUrlEncodedContent();
     if (content == null) {
-      EntityImpl result = new EntityImpl().field("error", "missing_auth_data");
-      sendError(iRequest, iResponse, result);
+      var result = new HashMap<String, Object>();
+      result.put("error", "missing_auth_data");
+      sendError(iResponse, result);
       return false;
     }
-    String signedToken = ""; // signedJWT.serialize();
+    var signedToken = ""; // signedJWT.serialize();
 
-    String grantType = content.get("grant_type").toLowerCase(Locale.ENGLISH);
-    String username = content.get("username");
-    String password = content.get("password");
+    var grantType = content.get("grant_type").toLowerCase(Locale.ENGLISH);
+    var username = content.get("username");
+    var password = content.get("password");
     String authenticatedRid;
-    EntityImpl result;
+    Map<String, Object> result;
 
     if (grantType.equals("password")) {
       authenticatedRid = authenticate(username, password, iRequest.getDatabaseName());
@@ -71,13 +73,13 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         // Generate and return a JWT access token
 
         SecurityUser user = null;
-        try (DatabaseSessionInternal db = server.openDatabase(iRequest.getDatabaseName(),
+        try (var db = server.openSession(iRequest.getDatabaseName(),
             username,
             password)) {
-          user = db.geCurrentUser();
+          user = db.getCurrentUser();
 
           if (user != null) {
-            byte[] tokenBytes = tokenHandler.getSignedWebToken(db, user);
+            var tokenBytes = tokenHandler.getSignedWebToken(db, user);
             signedToken = new String(tokenBytes);
           }
 
@@ -89,16 +91,20 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         }
 
         // 4.1.4 (Access Token Response) of RFC 6749
-        result = new EntityImpl().field("access_token", signedToken).field("expires_in", 3600);
+        result = new HashMap<>();
+        result.put("access_token", signedToken);
+        result.put("expires_in", 3600);
 
-        iResponse.writeRecord(result, RESPONSE_FORMAT, null);
+        iResponse.writeResult(result, null, null, null);
       } else {
-        result = new EntityImpl().field("error", "unsupported_grant_type");
-        sendError(iRequest, iResponse, result);
+        result = new HashMap<>();
+        result.put("error", "unsupported_grant_type");
+        sendError(iResponse, result);
       }
     } else {
-      result = new EntityImpl().field("error", "unsupported_grant_type");
-      sendError(iRequest, iResponse, result);
+      result = new HashMap<>();
+      result.put("error", "unsupported_grant_type");
+      sendError(iResponse, result);
     }
 
     return false;
@@ -112,10 +118,10 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     DatabaseSessionInternal db = null;
     String userRid = null;
     try {
-      db = server.openDatabase(iDatabaseName, username, password);
+      db = server.openSession(iDatabaseName, username, password);
 
-      userRid = (db.geCurrentUser() == null ? "<server user>"
-          : db.geCurrentUser().getIdentity(db).toString());
+      userRid = (db.getCurrentUser() == null ? "<server user>"
+          : db.getCurrentUser().getIdentity().toString());
     } catch (SecurityAccessException e) {
       // WRONG USER/PASSWD
     } catch (LockException e) {
@@ -129,28 +135,28 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
     return userRid;
   }
 
-  protected void sendError(
-      final OHttpRequest iRequest, final HttpResponse iResponse, final EntityImpl error)
+  protected static void sendError(
+      final HttpResponse iResponse, final Map<String, Object> error)
       throws IOException {
     iResponse.send(
         HttpUtils.STATUS_BADREQ_CODE,
         HttpUtils.STATUS_BADREQ_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        error.toJSON(),
+        JSONSerializerJackson.mapToJson(error),
         null);
   }
 
   protected void sendAuthorizationRequest(
-      final OHttpRequest iRequest, final HttpResponse iResponse, final String iDatabaseName)
+      final HttpRequest iRequest, final HttpResponse iResponse, final String iDatabaseName)
       throws IOException {
 
     String header = null;
-    String xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
+    var xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
     if (xRequestedWithHeader == null || !xRequestedWithHeader.equals("XMLHttpRequest")) {
       // Defaults to "WWW-Authenticate: Basic" if not an AJAX Request.
       header = server.getSecurity().getAuthenticationHeader(iDatabaseName);
 
-      Map<String, String> headers = server.getSecurity().getAuthenticationHeaders(iDatabaseName);
+      var headers = server.getSecurity().getAuthenticationHeaders(iDatabaseName);
       headers.entrySet().forEach(s -> iResponse.addHeader(s.getKey(), s.getValue()));
     }
 
@@ -159,7 +165,6 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
           iResponse,
           HttpUtils.STATUS_BADREQ_CODE,
           HttpUtils.STATUS_BADREQ_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "401 Unauthorized.",
           header);
     } else {

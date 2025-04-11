@@ -77,7 +77,7 @@ public abstract class AbstractPageWALRecord extends OperationUnitBodyRecord {
       return false;
     }
 
-    AbstractPageWALRecord that = (AbstractPageWALRecord) o;
+    var that = (AbstractPageWALRecord) o;
 
     if (pageIndex != that.pageIndex) {
       return false;
@@ -87,7 +87,7 @@ public abstract class AbstractPageWALRecord extends OperationUnitBodyRecord {
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + (int) (pageIndex ^ (pageIndex >>> 32));
     result = 31 * result + (int) (fileId ^ (fileId >>> 32));
     return result;

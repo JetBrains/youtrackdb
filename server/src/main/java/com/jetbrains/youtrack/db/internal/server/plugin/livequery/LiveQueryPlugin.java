@@ -21,10 +21,10 @@ package com.jetbrains.youtrack.db.internal.server.plugin.livequery;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
+import javax.annotation.Nonnull;
 
 /**
  * <p>Not needed anymore, keeping the class for backward compatibilty
@@ -46,7 +46,7 @@ public class LiveQueryPlugin extends ServerPluginAbstract implements DatabaseLif
   public void config(final YouTrackDBServer iServer,
       final ServerParameterConfiguration[] iParams) {
     super.config(iServer, iParams);
-    for (ServerParameterConfiguration param : iParams) {
+    for (var param : iParams) {
       if (param.name.equalsIgnoreCase("enabled")) {
         if (Boolean.parseBoolean(param.value)) {
           enabled = true;
@@ -71,22 +71,19 @@ public class LiveQueryPlugin extends ServerPluginAbstract implements DatabaseLif
   }
 
   @Override
-  public void onCreate(DatabaseSessionInternal iDatabase) {
+  public void onCreate(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
-  public void onOpen(DatabaseSessionInternal iDatabase) {
+  public void onOpen(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
-  public void onClose(DatabaseSessionInternal iDatabase) {
+  public void onClose(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
-  public void onDrop(DatabaseSessionInternal iDatabase) {
+  public void onDrop(@Nonnull DatabaseSessionInternal session) {
   }
 
-  @Override
-  public void onLocalNodeConfigurationRequest(EntityImpl iConfiguration) {
-  }
 }

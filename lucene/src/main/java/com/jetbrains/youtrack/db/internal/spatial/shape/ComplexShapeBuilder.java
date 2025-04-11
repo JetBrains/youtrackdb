@@ -37,9 +37,9 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   protected List<List<Double>> coordinatesFromLineString(LineString ring) {
 
-    Coordinate[] coordinates = ring.getCoordinates();
+    var coordinates = ring.getCoordinates();
     List<List<Double>> numbers = new ArrayList<List<Double>>();
-    for (Coordinate coordinate : coordinates) {
+    for (var coordinate : coordinates) {
 
       numbers.add(Arrays.asList(coordinate.x, coordinate.y));
     }
@@ -48,9 +48,9 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   protected List<List<Double>> coordinatesFromLineStringZ(Geometry ring) {
 
-    Coordinate[] coordinates = ring.getCoordinates();
+    var coordinates = ring.getCoordinates();
     List<List<Double>> numbers = new ArrayList<List<Double>>();
-    for (Coordinate coordinate : coordinates) {
+    for (var coordinate : coordinates) {
 
       numbers.add(Arrays.asList(coordinate.getX(), coordinate.getY(), coordinate.getZ()));
     }
@@ -58,9 +58,9 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
   }
 
   protected LineString createLineString(List<List<Number>> coordinates) {
-    Coordinate[] coords = new Coordinate[coordinates.size()];
-    int i = 0;
-    for (List<Number> c : coordinates) {
+    var coords = new Coordinate[coordinates.size()];
+    var i = 0;
+    for (var c : coordinates) {
       coords[i] = new Coordinate(c.get(0).doubleValue(), c.get(1).doubleValue());
       i++;
     }
@@ -69,63 +69,63 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   protected JtsGeometry createMultiPoint(ShapeCollection<JtsPoint> geometries) {
 
-    Coordinate[] points = new Coordinate[geometries.size()];
+    var points = new Coordinate[geometries.size()];
 
-    int i = 0;
+    var i = 0;
 
-    for (JtsPoint geometry : geometries) {
+    for (var geometry : geometries) {
       points[i] = new Coordinate(geometry.getX(), geometry.getY());
       i++;
     }
 
-    MultiPoint multiPoints = GEOMETRY_FACTORY.createMultiPoint(points);
+    var multiPoints = GEOMETRY_FACTORY.createMultiPoint(points);
 
     return SPATIAL_CONTEXT.makeShape(multiPoints);
   }
 
   protected JtsGeometry createMultiLine(ShapeCollection<JtsGeometry> geometries) {
 
-    LineString[] multiLineString = new LineString[geometries.size()];
+    var multiLineString = new LineString[geometries.size()];
 
-    int i = 0;
+    var i = 0;
 
-    for (JtsGeometry geometry : geometries) {
+    for (var geometry : geometries) {
       multiLineString[i] = (LineString) geometry.getGeom();
       i++;
     }
 
-    MultiLineString multiPoints = GEOMETRY_FACTORY.createMultiLineString(multiLineString);
+    var multiPoints = GEOMETRY_FACTORY.createMultiLineString(multiLineString);
 
     return SPATIAL_CONTEXT.makeShape(multiPoints);
   }
 
   protected JtsGeometry createMultiPolygon(ShapeCollection<Shape> geometries) {
 
-    Polygon[] polygons = new Polygon[geometries.size()];
+    var polygons = new Polygon[geometries.size()];
 
-    int i = 0;
+    var i = 0;
 
-    for (Shape geometry : geometries) {
+    for (var geometry : geometries) {
       if (geometry instanceof JtsGeometry) {
         polygons[i] = (Polygon) ((JtsGeometry) geometry).getGeom();
       } else {
-        Rectangle rectangle = (Rectangle) geometry;
-        Geometry geometryFrom = SPATIAL_CONTEXT.getGeometryFrom(rectangle);
+        var rectangle = (Rectangle) geometry;
+        var geometryFrom = SPATIAL_CONTEXT.getGeometryFrom(rectangle);
         polygons[i] = (Polygon) geometryFrom;
       }
 
       i++;
     }
 
-    MultiPolygon multiPolygon = GEOMETRY_FACTORY.createMultiPolygon(polygons);
+    var multiPolygon = GEOMETRY_FACTORY.createMultiPolygon(polygons);
 
     return SPATIAL_CONTEXT.makeShape(multiPolygon);
   }
 
   protected boolean isMultiPolygon(ShapeCollection<Shape> collection) {
 
-    boolean isMultiPolygon = true;
-    for (Shape shape : collection) {
+    var isMultiPolygon = true;
+    for (var shape : collection) {
 
       if (!isPolygon(shape)) {
         isMultiPolygon = false;
@@ -137,8 +137,8 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   protected boolean isMultiPoint(ShapeCollection<Shape> collection) {
 
-    boolean isMultipoint = true;
-    for (Shape shape : collection) {
+    var isMultipoint = true;
+    for (var shape : collection) {
 
       if (!isPoint(shape)) {
         isMultipoint = false;
@@ -150,8 +150,8 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   protected boolean isMultiLine(ShapeCollection<Shape> collection) {
 
-    boolean isMultipoint = true;
-    for (Shape shape : collection) {
+    var isMultipoint = true;
+    for (var shape : collection) {
 
       if (!isLineString(shape)) {
         isMultipoint = false;
@@ -163,7 +163,7 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
 
   private boolean isLineString(Shape shape) {
     if (shape instanceof JtsGeometry) {
-      Geometry geom = ((JtsGeometry) shape).getGeom();
+      var geom = ((JtsGeometry) shape).getGeom();
       return geom instanceof LineString;
     }
     return false;
@@ -176,7 +176,7 @@ public abstract class ComplexShapeBuilder<T extends Shape> extends ShapeBuilder<
   protected boolean isPolygon(Shape shape) {
 
     if (shape instanceof JtsGeometry) {
-      Geometry geom = ((JtsGeometry) shape).getGeom();
+      var geom = ((JtsGeometry) shape).getGeom();
       return geom instanceof Polygon;
     }
     return shape instanceof Rectangle;

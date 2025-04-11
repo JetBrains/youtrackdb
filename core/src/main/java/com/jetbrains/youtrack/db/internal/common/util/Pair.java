@@ -67,14 +67,14 @@ public class Pair<K extends Comparable, V>
   }
 
   public V setValue(final V iValue) {
-    V oldValue = value;
+    var oldValue = value;
     value = iValue;
     return oldValue;
   }
 
   @Override
   public String toString() {
-    final StringBuilder buffer = new StringBuilder(512);
+    final var buffer = new StringBuilder(512);
     buffer.append(key);
     buffer.append(':');
 
@@ -89,8 +89,8 @@ public class Pair<K extends Comparable, V>
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
+    final var prime = 31;
+    var result = 1;
     result = prime * result + ((key == null) ? 0 : key.hashCode());
     return result;
   }
@@ -106,7 +106,7 @@ public class Pair<K extends Comparable, V>
     if (getClass() != obj.getClass()) {
       return false;
     }
-    Pair<?, ?> other = (Pair<?, ?>) obj;
+    var other = (Pair<?, ?>) obj;
     if (key == null) {
       return other.key == null;
     } else {
@@ -120,8 +120,8 @@ public class Pair<K extends Comparable, V>
 
   public static <K extends Comparable<K>, V> Map<K, V> convertToMap(
       final List<Pair<K, V>> iValues) {
-    final HashMap<K, V> result = new HashMap<K, V>(iValues.size());
-    for (Pair<K, V> p : iValues) {
+    final var result = new HashMap<K, V>(iValues.size());
+    for (var p : iValues) {
       result.put(p.key, p.value);
     }
 
@@ -131,7 +131,7 @@ public class Pair<K extends Comparable, V>
   public static <K extends Comparable<K>, V> List<Pair<K, V>> convertFromMap(
       final Map<K, V> iValues) {
     final List<Pair<K, V>> result = new ArrayList<Pair<K, V>>(iValues.size());
-    for (Entry<K, V> p : iValues.entrySet()) {
+    for (var p : iValues.entrySet()) {
       result.add(new Pair<K, V>(p.getKey(), p.getValue()));
     }
 

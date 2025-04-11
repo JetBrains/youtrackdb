@@ -25,11 +25,11 @@ public class SyslogMessageFormatter extends Formatter {
 
   @Override
   public String format(LogRecord record) {
-    String message = formatMessage(record);
-    String throwable = "";
+    var message = formatMessage(record);
+    var throwable = "";
     if (record.getThrown() != null) {
-      StringWriter sw = new StringWriter();
-      PrintWriter pw = new PrintWriter(sw);
+      var sw = new StringWriter();
+      var pw = new PrintWriter(sw);
       pw.println();
       record.getThrown().printStackTrace(pw);
       pw.close();

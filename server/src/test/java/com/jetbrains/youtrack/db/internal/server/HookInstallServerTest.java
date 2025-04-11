@@ -1,13 +1,14 @@
 package com.jetbrains.youtrack.db.internal.server;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfigurationManager;
-import com.jetbrains.youtrack.db.internal.server.config.ServerHookConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -25,18 +26,14 @@ public class HookInstallServerTest {
 
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
 
-  public static class MyHook extends DocumentHookAbstract {
+  public static class MyHook extends EntityHookAbstract {
 
-    public MyHook() {
+    public MyHook(DatabaseSession session) {
+      super();
     }
 
     @Override
-    public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-      return DISTRIBUTED_EXECUTION_MODE.TARGET_NODE;
-    }
-
-    @Override
-    public void onRecordAfterCreate(EntityImpl entity) {
+    public void onBeforeEntityCreate(Entity entity) {
       count++;
     }
   }
@@ -62,20 +59,20 @@ public class HookInstallServerTest {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
 
-    ServerConfigurationManager ret =
+    var ret =
         new ServerConfigurationManager(
             this.getClass()
                 .getClassLoader()
                 .getResourceAsStream(
                     "com/jetbrains/youtrack/db/internal/server/network/youtrackdb-server-config.xml"));
-    ServerHookConfiguration hc = new ServerHookConfiguration();
+    var hc = new ServerHookConfiguration();
     hc.clazz = MyHook.class.getName();
     ret.getConfiguration().hooks = new ArrayList<>();
     ret.getConfiguration().hooks.add(hc);
     server.startup(ret.getConfiguration());
     server.activate();
 
-    ServerAdmin admin = new ServerAdmin("remote:localhost");
+    var admin = new ServerAdmin("remote:localhost");
     admin.connect("root", "root");
     admin.createDatabase("test", "nothign", "memory");
     admin.close();
@@ -83,7 +80,7 @@ public class HookInstallServerTest {
 
   @After
   public void after() throws IOException {
-    ServerAdmin admin = new ServerAdmin("remote:localhost");
+    var admin = new ServerAdmin("remote:localhost");
     admin.connect("root", "root");
     admin.dropDatabase("test", "memory");
     admin.close();
@@ -96,19 +93,19 @@ public class HookInstallServerTest {
 
   @Test
   public void test() {
-    final int initValue = count;
+    final var initValue = count;
 
     try (var pool =
         YourTracks.remote("remote:localhost", "root", "root")) {
-      for (int i = 0; i < 10; i++) {
+      for (var i = 0; i < 10; i++) {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
         var id = i;
-        try (var some = poolInstance.acquire()) {
-          some.createClassIfNotExist("Test");
+        try (var db = poolInstance.acquire()) {
+          db.getSchema().getOrCreateClass("Test");
 
-          some.executeInTx(() -> {
-            some.save(new EntityImpl("Test").field("entry", id));
-            some.commit();
+          db.executeInTx(transaction -> {
+            var entity = transaction.newEntity("Test");
+            entity.setProperty("entry", id);
           });
         }
       }

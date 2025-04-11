@@ -19,8 +19,8 @@ import com.jetbrains.youtrack.db.internal.security.kerberos.KerberosAuthenticato
 import com.jetbrains.youtrack.db.internal.security.ldap.LDAPImporter;
 import com.jetbrains.youtrack.db.internal.security.password.DefaultPasswordValidator;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 
 public class SecurityPlugin extends ServerPluginAbstract {
 

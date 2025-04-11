@@ -43,17 +43,17 @@ public class LuceneDocumentBuilder {
       final Identifiable value,
       final Map<String, Boolean> fieldsToStore,
       final Map<String, ?> metadata) {
-    final Document doc = new Document();
+    final var doc = new Document();
     this.addDefaultFieldsToDocument(definition, key, value, doc);
 
-    final List<Object> formattedKey = formatKeys(definition, key);
-    int counter = 0;
-    for (final String field : definition.getFields()) {
-      final Object val = formattedKey.get(counter);
+    final var formattedKey = formatKeys(definition, key);
+    var counter = 0;
+    for (final var field : definition.getFields()) {
+      final var val = formattedKey.get(counter);
       counter++;
       if (val != null) {
         // doc.add(createField(field, val, Field.Store.YES));
-        final Boolean sorted = isSorted(field, metadata);
+        final var sorted = isSorted(field, metadata);
         createFields(field, val, Field.Store.YES, sorted).forEach(f -> doc.add(f));
         // for cross class index
         createFields(definition.getClassName() + "." + field, val, Field.Store.YES, sorted)
@@ -68,7 +68,7 @@ public class LuceneDocumentBuilder {
     if (value != null) {
       doc.add(createOldIdField(value));
       doc.add(createIdField(value, key));
-      doc.add(createField("_CLUSTER", "" + value.getIdentity().getClusterId(), Field.Store.YES));
+      doc.add(createField("_COLLECTION", "" + value.getIdentity().getCollectionId(), Field.Store.YES));
       doc.add(createField("_CLASS", definition.getClassName(), Field.Store.YES));
     }
   }
@@ -84,7 +84,7 @@ public class LuceneDocumentBuilder {
       keys.add(key);
     }
     // a sort of padding
-    for (int i = keys.size(); i < definition.getFields().size(); i++) {
+    for (var i = keys.size(); i < definition.getFields().size(); i++) {
       keys.add("");
     }
     return keys;
@@ -100,7 +100,7 @@ public class LuceneDocumentBuilder {
     }
     Boolean sorted = true;
     try {
-      Boolean localSorted = (Boolean) metadata.get("*_index_sorted");
+      var localSorted = (Boolean) metadata.get("*_index_sorted");
       if (localSorted == null) {
         localSorted = (Boolean) metadata.get(field + "_index_sorted");
       }

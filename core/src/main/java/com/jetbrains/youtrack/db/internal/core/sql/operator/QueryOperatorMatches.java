@@ -19,12 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * MATCHES operator. Matches the left value against the regular expression contained in the second
@@ -38,7 +39,7 @@ public class QueryOperatorMatches extends QueryOperatorEqualityNotNulls {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
@@ -51,12 +52,14 @@ public class QueryOperatorMatches extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
       final Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, final Object iLeft, final Object iRight) {
     return null;
@@ -64,8 +67,8 @@ public class QueryOperatorMatches extends QueryOperatorEqualityNotNulls {
 
   private boolean matches(
       final String iValue, final String iRegex, final CommandContext iContext) {
-    final String key = "MATCHES_" + iRegex.hashCode();
-    Pattern p = (Pattern) iContext.getVariable(key);
+    final var key = "MATCHES_" + iRegex.hashCode();
+    var p = (Pattern) iContext.getVariable(key);
     if (p == null) {
       p = Pattern.compile(iRegex);
       iContext.setVariable(key, p);

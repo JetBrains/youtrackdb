@@ -18,7 +18,7 @@ public class ForEachExecutionPlan extends UpdateExecutionPlan {
   }
 
   public boolean containsReturn() {
-    for (ExecutionStep step : getSteps()) {
+    for (var step : getSteps()) {
       if (step instanceof ForEachStep) {
         return ((ForEachStep) step).containsReturn();
       }

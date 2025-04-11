@@ -1,26 +1,21 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import java.util.Collections;
-import java.util.Set;
+import java.util.Iterator;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
-/**
- *
- */
+
 public class SQLFunctionIn extends SQLFunctionMoveFiltered {
-
   public static final String NAME = "in";
 
   public SQLFunctionIn() {
@@ -29,12 +24,19 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSession graph, final Identifiable iRecord, final String[] iLabels) {
-    return v2v(graph, iRecord, Direction.IN, iLabels);
+      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+    return v2v(graph, record, Direction.IN, labels);
+  }
+
+  @Override
+  protected Object move(DatabaseSessionInternal db,
+      Relation<?> bidirectionalLink, String[] labels) {
+    throw new UnsupportedOperationException(
+        "Function in is not supported for bidirectional links");
   }
 
   protected Object move(
-      final DatabaseSession graph,
+      final DatabaseSessionInternal graph,
       final Identifiable iRecord,
       final String[] iLabels,
       Iterable<Identifiable> iPossibleResults) {
@@ -46,11 +48,11 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
       return Collections.emptyList();
     }
 
-    Object edges = v2e(graph, iRecord, Direction.IN, iLabels);
-    if (edges instanceof Sizeable) {
-      int size = ((Sizeable) edges).size();
+    var edges = v2e(graph, iRecord, Direction.IN, iLabels);
+    if (edges instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      var size = sizeable.size();
       if (size > supernodeThreshold) {
-        Object result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
+        var result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
         if (result != null) {
           return result;
         }
@@ -60,12 +62,13 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     return v2v(graph, iRecord, Direction.IN, iLabels);
   }
 
-  private static Object fetchFromIndex(
-      DatabaseSession graph,
+  @Nullable
+  private static Iterator<Vertex> fetchFromIndex(
+      DatabaseSessionInternal session,
       Identifiable iFrom,
       Iterable<Identifiable> to,
       String[] iEdgeTypes) {
-    String edgeClassName = null;
+    String edgeClassName;
     if (iEdgeTypes == null) {
       edgeClassName = "E";
     } else if (iEdgeTypes.length == 1) {
@@ -74,27 +77,31 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
       return null;
     }
     var edgeClass =
-        ((DatabaseSessionInternal) graph)
+        session
             .getMetadata()
             .getImmutableSchemaSnapshot()
             .getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    Set<Index> indexes = edgeClass.getInvolvedIndexesInternal(graph, "in", "out");
+    var indexes = edgeClass.getInvolvedIndexesInternal(session, "in", "out");
     if (indexes == null || indexes.isEmpty()) {
       return null;
     }
-    Index index = indexes.iterator().next();
+    var index = indexes.iterator().next();
 
-    MultiCollectionIterator<Vertex> result = new MultiCollectionIterator<Vertex>();
-    for (Identifiable identifiable : to) {
-      CompositeKey key = new CompositeKey(iFrom, identifiable);
-      try (Stream<RID> stream = index.getInternal()
-          .getRids((DatabaseSessionInternal) graph, key)) {
+    var result = new MultiCollectionIterator<Vertex>();
+    for (var identifiable : to) {
+      var key = new CompositeKey(iFrom, identifiable);
+      try (var stream = index
+          .getRids(session, key)) {
         result.add(
             stream
-                .map((edge) -> ((EntityImpl) edge.getRecord()).rawField("out"))
+                .map((edge) -> {
+                  var transaction = session.getActiveTransaction();
+                  EntityImpl entity = transaction.load(edge);
+                  return entity.getProperty("out");
+                })
                 .collect(Collectors.toSet()));
       }
     }

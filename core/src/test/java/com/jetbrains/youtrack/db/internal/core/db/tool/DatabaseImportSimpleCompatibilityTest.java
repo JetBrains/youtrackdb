@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -29,11 +28,11 @@ public class DatabaseImportSimpleCompatibilityTest {
   @Ignore
   @Test
   public void testImportExportOldEmpty() throws Exception {
-    final InputStream emptyDbV2 = load("/databases/databases_2_2/Empty.json");
+    final var emptyDbV2 = load("/databases/databases_2_2/Empty.json");
     Assert.assertNotNull("Input must not be null!", emptyDbV2);
-    final ByteArrayOutputStream output = new ByteArrayOutputStream();
+    final var output = new ByteArrayOutputStream();
     Assert.assertEquals(0, output.size());
-    final String databaseName = "testImportExportOldEmpty";
+    final var databaseName = "testImportExportOldEmpty";
     this.setup(databaseName, emptyDbV2, output);
 
     this.executeImport();
@@ -47,11 +46,11 @@ public class DatabaseImportSimpleCompatibilityTest {
   @Ignore
   @Test
   public void testImportExportOldSimple() throws Exception {
-    final InputStream simpleDbV2 = load("/databases/databases_2_2/OrderCustomer-sl-0.json");
+    final var simpleDbV2 = load("/databases/databases_2_2/OrderCustomer-sl-0.json");
     Assert.assertNotNull("Input must not be null!", simpleDbV2);
-    final ByteArrayOutputStream output = new ByteArrayOutputStream();
+    final var output = new ByteArrayOutputStream();
     Assert.assertEquals(0, output.size());
-    final String databaseName = "testImportExportOldSimple";
+    final var databaseName = "testImportExportOldSimple";
     this.setup(databaseName, simpleDbV2, output);
 
     this.executeImport();
@@ -70,13 +69,13 @@ public class DatabaseImportSimpleCompatibilityTest {
   @Test
   public void testImportExportNewerSimple() throws Exception {
     // Only required in case of manual indexes:
-    System.setProperty("index.allowManualIndexes", String.valueOf(true));
+    System.setProperty("youtrackdb.index.allowManualIndexes", String.valueOf(true));
 
-    final InputStream simpleDbV3 = load("/databases/databases_3_1/OrderCustomer-sl-0.json");
+    final var simpleDbV3 = load("/databases/databases_3_1/OrderCustomer-sl-0.json");
     Assert.assertNotNull("Input must not be null!", simpleDbV3);
-    final ByteArrayOutputStream output = new ByteArrayOutputStream();
+    final var output = new ByteArrayOutputStream();
     Assert.assertEquals(0, output.size());
-    final String databaseName = "testImportExportNewerSimple";
+    final var databaseName = "testImportExportNewerSimple";
     this.setup(databaseName, simpleDbV3, output);
 
     this.executeImport();
@@ -86,18 +85,16 @@ public class DatabaseImportSimpleCompatibilityTest {
 
     this.tearDown(databaseName);
     Assert.assertTrue(output.size() > 0);
-    System.setProperty(
-        GlobalConfiguration.INDEX_ALLOW_MANUAL_INDEXES.getKey(), String.valueOf(false));
   }
 
   private InputStream load(final String path) throws FileNotFoundException {
-    final File file = new File(getClass().getResource(path).getFile());
+    final var file = new File(getClass().getResource(path).getFile());
     return new FileInputStream(file);
   }
 
   private void setup(
       final String databaseName, final InputStream input, final OutputStream output) {
-    final String importDbUrl = "embedded:target/import_" + this.getClass().getSimpleName();
+    final var importDbUrl = "embedded:target/import_" + this.getClass().getSimpleName();
     youTrackDB =
         CreateDatabaseUtil.createDatabase(
             databaseName, importDbUrl, CreateDatabaseUtil.TYPE_MEMORY);

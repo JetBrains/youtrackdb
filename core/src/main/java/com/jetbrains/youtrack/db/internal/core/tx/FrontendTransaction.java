@@ -19,21 +19,25 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-public interface FrontendTransaction {
+public interface FrontendTransaction extends Transaction {
 
   enum TXSTATUS {
     INVALID,
@@ -44,42 +48,36 @@ public interface FrontendTransaction {
     ROLLED_BACK
   }
 
-  int begin();
+  int beginInternal();
 
-  void commit();
+  void commitInternal();
 
-  void commit(boolean force);
+  void commitInternal(boolean force);
 
-  void rollback();
+  void rollbackInternal();
 
-  void rollback(boolean force, int commitLevelDiff);
+  void rollbackInternal(boolean force, int commitLevelDiff);
 
-  DatabaseSession getDatabase();
+  @Nonnull
+  DatabaseSessionInternal getDatabaseSession();
 
   @Deprecated
   void clearRecordEntries();
 
   @Nonnull
-  DBRecord loadRecord(RID rid) throws RecordNotFoundException;
+  LoadRecordResult loadRecord(RID rid)
+      throws RecordNotFoundException;
 
-  boolean exists(RID rid);
+  boolean exists(@Nonnull RID rid);
 
   TXSTATUS getStatus();
 
   @Deprecated
   Iterable<? extends RecordOperation> getCurrentRecordEntries();
 
-  Iterable<? extends RecordOperation> getRecordOperations();
-
-  List<RecordOperation> getNewRecordEntriesByClass(SchemaClass iClass, boolean iPolymorphic);
-
-  List<RecordOperation> getNewRecordEntriesByClusterIds(int[] iIds);
-
   RecordOperation getRecordEntry(RID rid);
 
   List<String> getInvolvedIndexes();
-
-  EntityImpl getIndexChanges();
 
   @Deprecated
   void clearIndexEntries();
@@ -93,8 +91,9 @@ public interface FrontendTransaction {
    *
    * @param oldRid Record identity before commit.
    * @param newRid Record identity after commit.
+   * @return
    */
-  void updateIdentityAfterCommit(final RecordId oldRid, final RecordId newRid);
+  boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid);
 
   int amountOfNestedTxs();
 
@@ -104,15 +103,6 @@ public interface FrontendTransaction {
    * @return {@code true} if this transaction is active, {@code false} otherwise.
    */
   boolean isActive();
-
-  /**
-   * Saves the given record in this transaction.
-   *
-   * @param record      the record to save.
-   * @param clusterName record's cluster name.
-   * @return the record saved.
-   */
-  DBRecord saveRecord(RecordAbstract record, String clusterName);
 
   /**
    * Deletes the given record in this transaction.
@@ -125,10 +115,9 @@ public interface FrontendTransaction {
    * Resolves a record with the given RID in the context of this transaction.
    *
    * @param rid the record RID.
-   * @return the resolved record, or {@code null} if no record is found, or
-   * {@link FrontendTransactionAbstract#DELETED_RECORD} if the record was deleted in this
-   * transaction.
+   * @return the resolved record, or {@code null} if no record is found.
    */
+  @Nullable
   RecordAbstract getRecord(RID rid);
 
   /**
@@ -143,7 +132,7 @@ public interface FrontendTransaction {
   void addIndexEntry(
       Index index,
       String indexName,
-      FrontendTransactionIndexChanges.OPERATION operation,
+      OPERATION operation,
       Object key,
       Identifiable value);
 
@@ -153,6 +142,7 @@ public interface FrontendTransaction {
    * @param indexName the index name.
    * @return the index changes in question or {@code null} if index is not found.
    */
+  @Nullable
   FrontendTransactionIndexChanges getIndexChanges(String indexName);
 
   /**
@@ -163,6 +153,7 @@ public interface FrontendTransaction {
    * @return the index changes in question or {@code null} if index is not found or storage is
    * remote.
    */
+  @Nullable
   FrontendTransactionIndexChanges getIndexChangesInternal(String indexName);
 
   /**
@@ -188,5 +179,69 @@ public interface FrontendTransaction {
     return getId();
   }
 
+
+  /**
+   * Extract all the record operations for the current transaction
+   *
+   * @return the record operations, the collection should not be modified.
+   */
+  Collection<RecordOperation> getRecordOperationsInternal();
+
+  /**
+   * Extract all the calculated index operations for the current transaction changes, the key of the
+   * map is the index name the value all the changes for the specified index.
+   *
+   * @return the index changes, the map should not be modified.
+   */
+  Map<String, FrontendTransactionIndexChanges> getIndexOperations();
+
+  /**
+   * Change the status of the transaction.
+   */
+  void setStatus(final FrontendTransaction.TXSTATUS iStatus);
+
+  void setSession(DatabaseSessionInternal session);
+
+  @Nullable
+  default byte[] getMetadata() {
+    return null;
+  }
+
+  void setMetadataHolder(FrontendTransacationMetadataHolder metadata);
+
+  default void storageBegun() {
+  }
+
+  Iterator<byte[]> getSerializedOperations();
+
+  boolean isReadOnly();
+
   long getId();
+
+  RecordOperation addRecordOperation(RecordAbstract record, byte status);
+
+  @Nullable
+  RecordId getFirstRid(int collectionId);
+
+  @Nullable
+  RecordId getLastRid(int collectionId);
+
+  @Nullable
+  RecordId getNextRidInCollection(@Nonnull RecordId rid);
+
+  @Nullable
+  RecordId getPreviousRidInCollection(@Nonnull RecordId rid);
+
+  boolean isDeletedInTx(@Nonnull RID rid);
+
+  @Nullable
+  default List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+    return null;
+  }
+
+  boolean isCallBackProcessingInProgress();
+
+  void internalRollback();
+
+  boolean isScheduledForCallbackProcessing(RecordId rid);
 }

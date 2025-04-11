@@ -2,11 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -29,22 +27,22 @@ public class SQLRevokeStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    DatabaseSessionInternal db = ctx.getDatabase();
-    Role role = db.getMetadata().getSecurity().getRole(actor.getStringValue());
+    var session = ctx.getDatabaseSession();
+    var role = session.getMetadata().getSecurity().getRole(actor.getStringValue());
     if (role == null) {
-      throw new CommandExecutionException("Invalid role: " + actor.getStringValue());
+      throw new CommandExecutionException(session, "Invalid role: " + actor.getStringValue());
     }
 
-    String resourcePath = securityResource.toString();
+    var resourcePath = securityResource.toString();
     if (permission != null) {
-      role.revoke(db, resourcePath, toPrivilege(permission.permission));
-      role.save(db);
+      role.revoke(session, resourcePath, toPrivilege(permission.permission));
+      role.save(session);
     } else {
-      SecurityInternal security = db.getSharedContext().getSecurity();
-      security.removeSecurityPolicy(db, role, resourcePath);
+      var security = session.getSharedContext().getSecurity();
+      security.removeSecurityPolicy(session, role, resourcePath);
     }
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "grant");
     result.setProperty("role", actor.getStringValue());
     if (permission != null) {
@@ -55,24 +53,17 @@ public class SQLRevokeStatement extends SQLSimpleExecStatement {
   }
 
   protected int toPrivilege(String privilegeName) {
-    int privilege;
-    if ("CREATE".equals(privilegeName)) {
-      privilege = Role.PERMISSION_CREATE;
-    } else if ("READ".equals(privilegeName)) {
-      privilege = Role.PERMISSION_READ;
-    } else if ("UPDATE".equals(privilegeName)) {
-      privilege = Role.PERMISSION_UPDATE;
-    } else if ("DELETE".equals(privilegeName)) {
-      privilege = Role.PERMISSION_DELETE;
-    } else if ("EXECUTE".equals(privilegeName)) {
-      privilege = Role.PERMISSION_EXECUTE;
-    } else if ("ALL".equals(privilegeName)) {
-      privilege = Role.PERMISSION_ALL;
-    } else if ("NONE".equals(privilegeName)) {
-      privilege = Role.PERMISSION_NONE;
-    } else {
-      throw new CommandExecutionException("Unrecognized privilege '" + privilegeName + "'");
-    }
+    int privilege = switch (privilegeName) {
+      case "CREATE" -> Role.PERMISSION_CREATE;
+      case "READ" -> Role.PERMISSION_READ;
+      case "UPDATE" -> Role.PERMISSION_UPDATE;
+      case "DELETE" -> Role.PERMISSION_DELETE;
+      case "EXECUTE" -> Role.PERMISSION_EXECUTE;
+      case "ALL" -> Role.PERMISSION_ALL;
+      case "NONE" -> Role.PERMISSION_NONE;
+      case null, default ->
+          throw new CommandExecutionException("Unrecognized privilege '" + privilegeName + "'");
+    };
     return privilege;
   }
 
@@ -106,7 +97,7 @@ public class SQLRevokeStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLRevokeStatement copy() {
-    SQLRevokeStatement result = new SQLRevokeStatement(-1);
+    var result = new SQLRevokeStatement(-1);
     result.permission = permission == null ? null : permission.copy();
     result.securityResource = securityResource == null ? null : securityResource.copy();
     result.revokePolicy = revokePolicy;
@@ -122,7 +113,7 @@ public class SQLRevokeStatement extends SQLSimpleExecStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLRevokeStatement that = (SQLRevokeStatement) o;
+    var that = (SQLRevokeStatement) o;
     return revokePolicy == that.revokePolicy
         && Objects.equals(permission, that.permission)
         && Objects.equals(securityResource, that.securityResource)

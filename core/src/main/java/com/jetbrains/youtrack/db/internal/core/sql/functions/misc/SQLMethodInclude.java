@@ -19,21 +19,24 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
- * Filter the content by including only some fields. If the content is a entity, then creates a
- * copy with only the included fields. If it's a collection of documents it acts against on each
- * single entry.
+ * Filter the content by including only some fields. If the content is a entity, then creates a copy
+ * with only the included fields. If it's a collection of documents it acts against on each single
+ * entry.
  *
  * <p>
  *
@@ -80,38 +83,42 @@ public class SQLMethodInclude extends AbstractSQLMethod {
     return "Syntax error: include([<field-name>][,]*)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
 
+    var session = iContext.getDatabaseSession();
     if (iParams[0] != null) {
       if (iThis instanceof Identifiable) {
         try {
-          iThis = ((Identifiable) iThis).getRecord();
+          var transaction = session.getActiveTransaction();
+          iThis = transaction.load(((Identifiable) iThis));
         } catch (RecordNotFoundException rnf) {
           return null;
         }
       } else if (iThis instanceof Result result) {
-        iThis = result.asEntity();
+        iThis = result.asEntityOrNull();
       }
       if (iThis instanceof EntityImpl) {
         // ACT ON SINGLE ENTITY
-        return copy((EntityImpl) iThis, iParams);
+        return copy((EntityImpl) iThis, iParams, session);
       } else if (iThis instanceof Map) {
         // ACT ON MAP
-        return copy((Map) iThis, iParams);
+        return copy((Map) iThis, iParams, session);
       } else if (MultiValue.isMultiValue(iThis)) {
         // ACT ON MULTIPLE DOCUMENTS
         final List<Object> result = new ArrayList<Object>(MultiValue.getSize(iThis));
-        for (Object o : MultiValue.getMultiValueIterable(iThis)) {
+        for (var o : MultiValue.getMultiValueIterable(iThis)) {
           if (o instanceof Identifiable) {
             try {
-              var record = ((Identifiable) o).getRecord();
-              result.add(copy((EntityImpl) record, iParams));
+              var transaction = session.getActiveTransaction();
+              var record = transaction.load(((Identifiable) o));
+              result.add(copy((EntityImpl) record, iParams, session));
             } catch (RecordNotFoundException rnf) {
               // IGNORE IT
             }
@@ -125,55 +132,58 @@ public class SQLMethodInclude extends AbstractSQLMethod {
     return null;
   }
 
-  private Object copy(final EntityImpl entity, final Object[] iFieldNames) {
-    final EntityImpl ent = new EntityImpl();
-    for (int i = 0; i < iFieldNames.length; ++i) {
-      if (iFieldNames[i] != null) {
+  private static Object copy(final EntityImpl entity,
+      final Object[] iFieldNames, DatabaseSessionInternal session) {
+    var result = new ResultInternal(session);
+    for (var iFieldName : iFieldNames) {
+      if (iFieldName != null) {
 
-        final String fieldName = iFieldNames[i].toString();
+        final var fieldName = iFieldName.toString();
 
-        if (fieldName.endsWith("*")) {
-          final String fieldPart = fieldName.substring(0, fieldName.length() - 1);
+        if (!fieldName.isEmpty() && fieldName.charAt(fieldName.length() - 1) == '*') {
+          final var fieldPart = fieldName.substring(0, fieldName.length() - 1);
           final List<String> toInclude = new ArrayList<String>();
-          for (String f : entity.fieldNames()) {
+          for (var f : entity.propertyNames()) {
             if (f.startsWith(fieldPart)) {
               toInclude.add(f);
             }
           }
 
-          for (String f : toInclude) {
-            ent.field(fieldName, entity.<Object>field(f));
+          for (var f : toInclude) {
+            result.setProperty(fieldName, entity.getProperty(f));
           }
 
         } else {
-          ent.field(fieldName, entity.<Object>field(fieldName));
+          result.setProperty(fieldName, entity.getProperty(fieldName));
         }
       }
     }
-    return ent;
+
+    return result;
   }
 
-  private Object copy(final Map map, final Object[] iFieldNames) {
-    final EntityImpl entity = new EntityImpl();
-    for (int i = 0; i < iFieldNames.length; ++i) {
-      if (iFieldNames[i] != null) {
-        final String fieldName = iFieldNames[i].toString();
+  private static Object copy(final Map map,
+      final Object[] iFieldNames, DatabaseSessionInternal session) {
+    final var entity = new ResultInternal(session);
+    for (var iFieldName : iFieldNames) {
+      if (iFieldName != null) {
+        final var fieldName = iFieldName.toString();
 
-        if (fieldName.endsWith("*")) {
-          final String fieldPart = fieldName.substring(0, fieldName.length() - 1);
+        if (!fieldName.isEmpty() && fieldName.charAt(fieldName.length() - 1) == '*') {
+          final var fieldPart = fieldName.substring(0, fieldName.length() - 1);
           final List<String> toInclude = new ArrayList<String>();
-          for (Object f : map.keySet()) {
+          for (var f : map.keySet()) {
             if (f.toString().startsWith(fieldPart)) {
               toInclude.add(f.toString());
             }
           }
 
-          for (String f : toInclude) {
-            entity.field(fieldName, map.get(f));
+          for (var f : toInclude) {
+            entity.setProperty(fieldName, map.get(f));
           }
 
         } else {
-          entity.field(fieldName, map.get(fieldName));
+          entity.setProperty(fieldName, map.get(fieldName));
         }
       }
     }

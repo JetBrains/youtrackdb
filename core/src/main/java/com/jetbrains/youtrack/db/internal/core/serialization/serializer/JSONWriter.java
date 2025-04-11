@@ -23,22 +23,18 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectOutputStream;
-import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.util.Base64;
-import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
@@ -66,22 +62,25 @@ public class JSONWriter {
     }
   }
 
-  public static String writeValue(final Object iValue) throws IOException {
-    return writeValue(iValue, DEF_FORMAT);
+  public static String writeValue(DatabaseSessionInternal db, final Object iValue)
+      throws IOException {
+    return writeValue(db, iValue, DEF_FORMAT);
   }
 
-  public static String writeValue(Object iValue, final String iFormat) throws IOException {
-    return writeValue(iValue, iFormat, 0, null);
+  public static String writeValue(DatabaseSessionInternal db, Object iValue, final String iFormat)
+      throws IOException {
+    return writeValue(db, iValue, iFormat, 0, null);
   }
 
   public static String writeValue(
-      Object iValue, final String iFormat, final int iIndentLevel, PropertyType valueType)
+      DatabaseSessionInternal db, Object iValue, final String iFormat, final int iIndentLevel,
+      PropertyTypeInternal valueType)
       throws IOException {
     if (iValue == null) {
       return "null";
     }
 
-    final StringBuilder buffer = new StringBuilder(64);
+    final var buffer = new StringBuilder(64);
     if (iValue instanceof Boolean || iValue instanceof Number) {
 
       if (iValue instanceof Double && !Double.isFinite((Double) iValue)) {
@@ -93,7 +92,7 @@ public class JSONWriter {
       }
 
     } else if (iValue instanceof Identifiable linked) {
-      if (((RecordId) linked.getIdentity()).isValid()) {
+      if (((RecordId) linked.getIdentity()).isValidPosition()) {
         buffer.append('\"');
         ((RecordId) linked.getIdentity()).toString(buffer);
         buffer.append('\"');
@@ -102,8 +101,9 @@ public class JSONWriter {
           buffer.append("{}");
         } else {
           try {
-            final DBRecord rec = linked.getRecord();
-            final String embeddedFormat =
+            var transaction = db.getActiveTransaction();
+            var rec = transaction.load(linked);
+            final var embeddedFormat =
                 iFormat != null && iFormat.isEmpty()
                     ? "indent:" + iIndentLevel
                     : iFormat + ",indent:" + iIndentLevel;
@@ -128,73 +128,61 @@ public class JSONWriter {
         buffer.append('\"');
       } else {
         buffer.append('[');
-        int size = Array.getLength(iValue);
+        var size = Array.getLength(iValue);
         if (iFormat != null && iFormat.contains("shallow")) {
           buffer.append(size);
         } else {
-          for (int i = 0; i < size; ++i) {
+          for (var i = 0; i < size; ++i) {
             if (i > 0) {
               buffer.append(",");
             }
-            buffer.append(writeValue(Array.get(iValue, i), iFormat));
+            buffer.append(writeValue(db, Array.get(iValue, i), iFormat));
           }
         }
         buffer.append(']');
       }
     } else if (iValue instanceof Iterator<?>) {
-      iteratorToJSON((Iterator<?>) iValue, iFormat, buffer);
+      iteratorToJSON(db, (Iterator<?>) iValue, iFormat, buffer);
     } else if (iValue instanceof Iterable<?>) {
-      iteratorToJSON(((Iterable<?>) iValue).iterator(), iFormat, buffer);
+      iteratorToJSON(db, ((Iterable<?>) iValue).iterator(), iFormat, buffer);
     } else if (iValue instanceof Map<?, ?>) {
-      mapToJSON((Map<Object, Object>) iValue, iFormat, buffer);
+      mapToJSON(db, (Map<Object, Object>) iValue, iFormat, buffer);
     } else if (iValue instanceof Map.Entry<?, ?> entry) {
       buffer.append('{');
-      buffer.append(writeValue(entry.getKey(), iFormat));
+      buffer.append(writeValue(db, entry.getKey(), iFormat));
       buffer.append(":");
       if (iFormat.contains("prettyPrint")) {
         buffer.append(' ');
       }
-      buffer.append(writeValue(entry.getValue(), iFormat));
+      buffer.append(writeValue(db, entry.getValue(), iFormat));
       buffer.append('}');
     } else if (iValue instanceof Date) {
       if (iFormat.indexOf("dateAsLong") > -1) {
         buffer.append(((Date) iValue).getTime());
       } else {
         buffer.append('"');
-        buffer.append(DateHelper.getDateTimeFormatInstance().format(iValue));
+        buffer.append(DateHelper.getDateTimeFormatInstance(db).format(iValue));
         buffer.append('"');
       }
     } else if (iValue instanceof BigDecimal) {
       buffer.append(((BigDecimal) iValue).toPlainString());
     } else if (iValue instanceof Iterable<?>) {
-      iteratorToJSON(((Iterable<?>) iValue).iterator(), iFormat, buffer);
+      iteratorToJSON(db, ((Iterable<?>) iValue).iterator(), iFormat, buffer);
     } else {
-      if (valueType == null) {
-        valueType = PropertyType.getTypeByValue(iValue);
-      }
+      // TREAT IT AS STRING
+      final var v = iValue.toString();
+      buffer.append('"');
+      buffer.append(encode(v));
+      buffer.append('"');
 
-      if (valueType == PropertyType.CUSTOM) {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ObjectOutputStream object = new ObjectOutputStream(baos);
-        object.writeObject(iValue);
-        object.flush();
-        buffer.append('"');
-        buffer.append(Base64.getEncoder().encodeToString(baos.toByteArray()));
-        buffer.append('"');
-      } else {
-        // TREAT IT AS STRING
-        final String v = iValue.toString();
-        buffer.append('"');
-        buffer.append(encode(v));
-        buffer.append('"');
-      }
     }
 
     return buffer.toString();
   }
 
   protected static void iteratorToJSON(
-      final Iterator<?> it, final String iFormat, final StringBuilder buffer) throws IOException {
+      DatabaseSessionInternal db, final Iterator<?> it, final String iFormat,
+      final StringBuilder buffer) throws IOException {
     buffer.append('[');
     if (iFormat != null && iFormat.contains("shallow")) {
       if (it instanceof MultiCollectionIterator<?>) {
@@ -208,11 +196,11 @@ public class JSONWriter {
         buffer.append(i);
       }
     } else {
-      for (int i = 0; it.hasNext(); ++i) {
+      for (var i = 0; it.hasNext(); ++i) {
         if (i > 0) {
           buffer.append(",");
         }
-        buffer.append(writeValue(it.next(), iFormat));
+        buffer.append(writeValue(db, it.next(), iFormat));
       }
     }
     buffer.append(']');
@@ -226,72 +214,30 @@ public class JSONWriter {
     }
   }
 
-  public static String listToJSON(
-      final Collection<? extends Identifiable> iRecords, final String iFormat) {
-    try {
-      final StringWriter buffer = new StringWriter();
-      final JSONWriter json = new JSONWriter(buffer);
-      // WRITE RECORDS
-      json.beginCollection(0, false, null);
-      if (iRecords != null) {
-        if (iFormat != null && iFormat.contains("shallow")) {
-          buffer.append("" + iRecords.size());
-        } else {
-          int counter = 0;
-          String objectJson;
-          for (Identifiable rec : iRecords) {
-            if (rec != null) {
-              try {
-                objectJson =
-                    iFormat != null ? rec.getRecord().toJSON(iFormat) : rec.getRecord().toJSON();
-
-                if (counter++ > 0) {
-                  buffer.append(",");
-                }
-
-                buffer.append(objectJson);
-              } catch (Exception e) {
-                LogManager.instance()
-                    .error(json, "Error transforming record " + rec.getIdentity() + " to JSON", e);
-              }
-            }
-          }
-        }
-      }
-      json.endCollection(0, false);
-
-      return buffer.toString();
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new SerializationException("Error on serializing collection"), e);
-    }
-  }
-
-  public static String mapToJSON(Map<?, ?> iMap) {
-    return mapToJSON(iMap, null, new StringBuilder(128));
-  }
-
   public static String mapToJSON(
-      final Map<?, ?> iMap, final String iFormat, final StringBuilder buffer) {
+      DatabaseSessionInternal db, final Map<?, ?> iMap, final String iFormat,
+      final StringBuilder buffer) {
     try {
       buffer.append('{');
       if (iMap != null) {
-        int i = 0;
+        var i = 0;
         Entry<?, ?> entry;
         for (Iterator<?> it = iMap.entrySet().iterator(); it.hasNext(); ++i) {
           entry = (Entry<?, ?>) it.next();
           if (i > 0) {
             buffer.append(",");
           }
-          buffer.append(writeValue(entry.getKey(), iFormat));
+          buffer.append(writeValue(db, entry.getKey(), iFormat));
           buffer.append(":");
-          buffer.append(writeValue(entry.getValue(), iFormat));
+          buffer.append(writeValue(db, entry.getValue(), iFormat));
         }
       }
       buffer.append('}');
       return buffer.toString();
     } catch (IOException e) {
-      throw BaseException.wrapException(new SerializationException("Error on serializing map"), e);
+      throw BaseException.wrapException(
+          new SerializationException(db.getDatabaseName(), "Error on serializing map"), e,
+          db.getDatabaseName());
     }
   }
 
@@ -370,12 +316,14 @@ public class JSONWriter {
     return this;
   }
 
-  public JSONWriter beginCollection(final String iName) throws IOException {
-    return beginCollection(-1, false, iName);
+  public JSONWriter beginCollection(DatabaseSessionInternal db, final String iName)
+      throws IOException {
+    return beginCollection(db, -1, false, iName);
   }
 
   public JSONWriter beginCollection(
-      final int iIdentLevel, final boolean iNewLine, final String iName) throws IOException {
+      DatabaseSessionInternal db, final int iIdentLevel, final boolean iNewLine, final String iName)
+      throws IOException {
     if (!firstAttribute) {
       out.append(",");
     }
@@ -383,7 +331,7 @@ public class JSONWriter {
     format(iIdentLevel, iNewLine);
 
     if (iName != null && !iName.isEmpty()) {
-      out.append(writeValue(iName, format));
+      out.append(writeValue(db, iName, format));
       out.append(":");
       if (prettyPrint) {
         out.append(' ');
@@ -407,50 +355,54 @@ public class JSONWriter {
     return this;
   }
 
-  public JSONWriter writeObjects(final String iName, Object[]... iPairs) throws IOException {
-    return writeObjects(-1, false, iName, iPairs);
+  public JSONWriter writeObjects(DatabaseSessionInternal db, final String iName, Object[]... iPairs)
+      throws IOException {
+    return writeObjects(db, -1, false, iName, iPairs);
   }
 
   public JSONWriter writeObjects(
-      int iIdentLevel, boolean iNewLine, final String iName, Object[]... iPairs)
+      DatabaseSessionInternal db, int iIdentLevel, boolean iNewLine, final String iName,
+      Object[]... iPairs)
       throws IOException {
-    for (int i = 0; i < iPairs.length; ++i) {
+    for (var iPair : iPairs) {
       beginObject(iIdentLevel, true, iName);
-      for (int k = 0; k < iPairs[i].length; ) {
-        writeAttribute(iIdentLevel + 1, false, (String) iPairs[i][k++], iPairs[i][k++], format);
+      for (var k = 0; k < iPair.length; ) {
+        writeAttribute(db, iIdentLevel + 1, false, (String) iPair[k++], iPair[k++], format);
       }
       endObject(iIdentLevel, false);
     }
     return this;
   }
 
-  public JSONWriter writeAttribute(final String iName, final Object iValue) throws IOException {
-    return writeAttribute(-1, false, iName, iValue, format);
+  public JSONWriter writeAttribute(DatabaseSessionInternal db, final String iName,
+      final Object iValue) throws IOException {
+    return writeAttribute(db, -1, false, iName, iValue, format);
   }
 
   public JSONWriter writeAttribute(
-      final int iIdentLevel, final boolean iNewLine, final String iName, final Object iValue)
+      DatabaseSessionInternal db, final int iIdentLevel, final boolean iNewLine, final String iName,
+      final Object iValue)
       throws IOException {
-    return writeAttribute(iIdentLevel, iNewLine, iName, iValue, format, null);
+    return writeAttribute(db, iIdentLevel, iNewLine, iName, iValue, format, null);
   }
 
   public JSONWriter writeAttribute(
-      final int iIdentLevel,
+      DatabaseSessionInternal db, final int iIdentLevel,
       final boolean iNewLine,
       final String iName,
       final Object iValue,
       final String iFormat)
       throws IOException {
-    return writeAttribute(iIdentLevel, iNewLine, iName, iValue, iFormat, null);
+    return writeAttribute(db, iIdentLevel, iNewLine, iName, iValue, iFormat, null);
   }
 
   public JSONWriter writeAttribute(
-      final int iIdentLevel,
+      DatabaseSessionInternal db, final int iIdentLevel,
       final boolean iNewLine,
       final String iName,
       final Object iValue,
       final String iFormat,
-      PropertyType valueType)
+      PropertyTypeInternal valueType)
       throws IOException {
     if (!firstAttribute) {
       out.append(",");
@@ -459,7 +411,7 @@ public class JSONWriter {
     format(iIdentLevel, iNewLine);
 
     if (iName != null) {
-      out.append(writeValue(iName, iFormat));
+      out.append(writeValue(db, iName, iFormat));
       out.append(":");
       if (prettyPrint) {
         out.append(' ');
@@ -474,23 +426,24 @@ public class JSONWriter {
       // FORCE THE OUTPUT AS COLLECTION
       out.append('[');
       if (iValue instanceof Identifiable) {
-        final boolean shallow = iFormat != null && iFormat.contains("shallow");
+        final var shallow = iFormat != null && iFormat.contains("shallow");
         if (shallow) {
           out.append("1");
         } else {
-          out.append(writeValue(iValue, iFormat));
+          out.append(writeValue(db, iValue, iFormat));
         }
       }
       out.append(']');
     } else {
-      out.append(writeValue(iValue, iFormat, iIdentLevel, valueType));
+      out.append(writeValue(db, iValue, iFormat, iIdentLevel, valueType));
     }
 
     firstAttribute = false;
     return this;
   }
 
-  public JSONWriter writeValue(final int iIdentLevel, final boolean iNewLine, final Object iValue)
+  public void writeValue(DatabaseSessionInternal db, final int iIdentLevel,
+      final boolean iNewLine, final Object iValue)
       throws IOException {
     if (!firstAttribute) {
       out.append(",");
@@ -498,10 +451,9 @@ public class JSONWriter {
 
     format(iIdentLevel, iNewLine);
 
-    out.append(writeValue(iValue, format));
+    out.append(writeValue(db, iValue, format));
 
     firstAttribute = false;
-    return this;
   }
 
   public JSONWriter flush() throws IOException {
@@ -549,7 +501,7 @@ public class JSONWriter {
       }
 
       if (prettyPrint) {
-        for (int i = 0; i < iIdentLevel; ++i) {
+        for (var i = 0; i < iIdentLevel; ++i) {
           out.append("  ");
         }
       }

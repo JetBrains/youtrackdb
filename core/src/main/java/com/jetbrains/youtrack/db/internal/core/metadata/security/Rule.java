@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import javax.annotation.Nullable;
 
 /**
  * @since 08/11/14
@@ -13,7 +14,6 @@ public class Rule implements Serializable {
 
   public abstract static class ResourceGeneric implements Serializable {
 
-    private static final long serialVersionUID = 1L;
     private static final TreeMap<String, ResourceGeneric> nameToGenericMap =
         new TreeMap<String, ResourceGeneric>();
     private static final TreeMap<String, ResourceGeneric> legacyToGenericMap =
@@ -23,91 +23,72 @@ public class Rule implements Serializable {
 
     public static final ResourceGeneric ALL =
         new ResourceGeneric("ALL", DatabaseSecurityResources.ALL) {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric FUNCTION =
         new ResourceGeneric("FUNCTION", DatabaseSecurityResources.FUNCTION) {
-          private static final long serialVersionUID = 1L;
         };
     public static final ResourceGeneric CLASS =
         new ResourceGeneric("CLASS", DatabaseSecurityResources.CLASS) {
-          private static final long serialVersionUID = 1L;
         };
-    public static final ResourceGeneric CLUSTER =
-        new ResourceGeneric("CLUSTER", DatabaseSecurityResources.CLUSTER) {
-          private static final long serialVersionUID = 1L;
+    public static final ResourceGeneric COLLECTION =
+        new ResourceGeneric("COLLECTION", DatabaseSecurityResources.COLLECTION) {
         };
     public static final ResourceGeneric BYPASS_RESTRICTED =
         new ResourceGeneric("BYPASS_RESTRICTED", DatabaseSecurityResources.BYPASS_RESTRICTED) {
-          private static final long serialVersionUID = 1L;
         };
     public static final ResourceGeneric DATABASE =
         new ResourceGeneric("DATABASE", DatabaseSecurityResources.DATABASE) {
-          private static final long serialVersionUID = 1L;
         };
     public static final ResourceGeneric SCHEMA =
         new ResourceGeneric("SCHEMA", DatabaseSecurityResources.SCHEMA) {
-          private static final long serialVersionUID = 1L;
         };
     public static final ResourceGeneric COMMAND =
         new ResourceGeneric("COMMAND", DatabaseSecurityResources.COMMAND) {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric COMMAND_GREMLIN =
         new ResourceGeneric("COMMAND_GREMLIN", DatabaseSecurityResources.COMMAND_GREMLIN) {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric RECORD_HOOK =
         new ResourceGeneric("RECORD_HOOK", DatabaseSecurityResources.RECORD_HOOK) {
-          private static final long serialVersionUID = 1L;
         };
 
-    public static final ResourceGeneric SYSTEM_CLUSTERS =
-        new ResourceGeneric("SYSTEM_CLUSTER", DatabaseSecurityResources.SYSTEMCLUSTERS) {
-          private static final long serialVersionUID = 1L;
+    public static final ResourceGeneric SYSTEM_COLLECTIONS =
+        new ResourceGeneric("SYSTEM_COLLECTION", DatabaseSecurityResources.SYSTEMCOLLECTIONS) {
         };
 
     public static final ResourceGeneric SERVER =
         new ResourceGeneric("SERVER", "server") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_COPY =
         new ResourceGeneric("DATABASE_COPY", "database.copy") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_CREATE =
         new ResourceGeneric("DATABASE_CREATE", "database.create") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_DROP =
         new ResourceGeneric("DATABASE_DROP", "database.drop") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_EXISTS =
         new ResourceGeneric("DATABASE_EXISTS", "database.exists") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_FREEZE =
         new ResourceGeneric("DATABASE_FREEZE", "database.freeze") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_RELEASE =
         new ResourceGeneric("DATABASE_RELEASE", "database.release") {
-          private static final long serialVersionUID = 1L;
         };
 
     public static final ResourceGeneric DATABASE_PASSTHROUGH =
         new ResourceGeneric("DATABASE_PASSTHROUGH", "database.passthrough") {
-          private static final long serialVersionUID = 1L;
         };
 
     private final String name;
@@ -128,7 +109,7 @@ public class Rule implements Serializable {
     }
 
     private static void register(ResourceGeneric resource) {
-      String legacyNameLowCase = resource.legacyName.toLowerCase(Locale.ENGLISH);
+      var legacyNameLowCase = resource.legacyName.toLowerCase(Locale.ENGLISH);
       if (nameToGenericMap.containsKey(resource.name)
           || legacyToGenericMap.containsKey(resource.legacyName.toLowerCase(Locale.ENGLISH))
           || genericToLegacyMap.containsKey(resource)) {
@@ -158,8 +139,6 @@ public class Rule implements Serializable {
     }
   }
 
-  private static final long serialVersionUID = 1L;
-
   private final ResourceGeneric resourceGeneric;
   private final Map<String, Byte> specificResources = new HashMap<String, Byte>();
 
@@ -176,8 +155,9 @@ public class Rule implements Serializable {
     this.access = access;
   }
 
+  @Nullable
   public static ResourceGeneric mapLegacyResourceToGenericResource(final String resource) {
-    final Map.Entry<String, ResourceGeneric> found =
+    final var found =
         ResourceGeneric.legacyToGenericMap.floorEntry(resource.toLowerCase(Locale.ENGLISH));
     if (found == null) {
       return null;
@@ -198,8 +178,9 @@ public class Rule implements Serializable {
     return ResourceGeneric.genericToLegacyMap.get(resourceGeneric);
   }
 
+  @Nullable
   public static String mapLegacyResourceToSpecificResource(final String resource) {
-    Map.Entry<String, ResourceGeneric> found =
+    var found =
         ResourceGeneric.legacyToGenericMap.floorEntry(resource.toLowerCase(Locale.ENGLISH));
 
     if (found == null) {
@@ -238,7 +219,7 @@ public class Rule implements Serializable {
       access = grant((byte) operation, access);
     } else {
       resource = resource.toLowerCase(Locale.ENGLISH);
-      Byte ac = specificResources.get(resource);
+      var ac = specificResources.get(resource);
       specificResources.put(resource, grant((byte) operation, ac));
     }
   }
@@ -265,7 +246,7 @@ public class Rule implements Serializable {
       access = revoke((byte) operation, access);
     } else {
       resource = resource.toLowerCase(Locale.ENGLISH);
-      final Byte ac = specificResources.get(resource);
+      final var ac = specificResources.get(resource);
       specificResources.put(resource, revoke((byte) operation, ac));
     }
   }
@@ -290,8 +271,8 @@ public class Rule implements Serializable {
       return isAllowed(null, operation);
     }
 
-    final Byte ac = specificResources.get(name.toLowerCase(Locale.ENGLISH));
-    final Boolean allowed = allowed((byte) operation, ac);
+    final var ac = specificResources.get(name.toLowerCase(Locale.ENGLISH));
+    final var allowed = allowed((byte) operation, ac);
     if (allowed == null) {
       return isAllowed(null, operation);
     }
@@ -299,12 +280,13 @@ public class Rule implements Serializable {
     return allowed;
   }
 
+  @Nullable
   private Boolean allowed(final byte operation, final Byte ac) {
     if (ac == null) {
       return null;
     }
 
-    final byte mask = operation;
+    final var mask = operation;
 
     return (ac.byteValue() & mask) == mask;
   }

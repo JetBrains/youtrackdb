@@ -20,30 +20,26 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordFlat;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.Base64;
+import javax.annotation.Nonnull;
 
 public class RecordSerializerBinary implements RecordSerializer {
-
   public static final String NAME = "RecordSerializerBinary";
   public static final RecordSerializerBinary INSTANCE = new RecordSerializerBinary();
-  private static final byte CURRENT_RECORD_VERSION = 1;
+  private static final byte CURRENT_RECORD_VERSION = 0;
 
   private EntitySerializer[] serializerByVersion;
   private final byte currentSerializerVersion;
 
   private void init() {
-    serializerByVersion = new EntitySerializer[2];
-    serializerByVersion[0] = new RecordSerializerBinaryV0();
-    serializerByVersion[1] = new RecordSerializerBinaryV1();
+    serializerByVersion = new EntitySerializer[1];
+    serializerByVersion[0] = new RecordSerializerBinaryV1();
   }
 
   public RecordSerializerBinary(byte serializerVersion) {
@@ -84,30 +80,26 @@ public class RecordSerializerBinary implements RecordSerializer {
   }
 
   @Override
-  public RecordAbstract fromStream(
-      DatabaseSessionInternal db, final byte[] iSource, RecordAbstract iRecord,
+  public void fromStream(
+      @Nonnull DatabaseSessionInternal session, final @Nonnull byte[] iSource,
+      @Nonnull RecordAbstract iRecord,
       final String[] iFields) {
-    if (iSource == null || iSource.length == 0) {
-      return iRecord;
-    }
-    if (iRecord == null) {
-      iRecord = new EntityImpl();
-    } else if (iRecord instanceof Blob) {
-      iRecord.fromStream(iSource);
-      return iRecord;
-    } else if (iRecord instanceof RecordFlat) {
-      iRecord.fromStream(iSource);
-      return iRecord;
+    if (iSource.length == 0) {
+      return;
     }
 
-    final BytesContainer container = new BytesContainer(iSource).skip(1);
+    if (iRecord instanceof Blob) {
+      iRecord.fromStream(iSource);
+      return;
+    }
 
+    final var container = new BytesContainer(iSource).skip(1);
     try {
       if (iFields != null && iFields.length > 0) {
-        serializerByVersion[iSource[0]].deserializePartial(db, (EntityImpl) iRecord, container,
+        serializerByVersion[iSource[0]].deserializePartial(session, (EntityImpl) iRecord, container,
             iFields);
       } else {
-        serializerByVersion[iSource[0]].deserialize(db, (EntityImpl) iRecord, container);
+        serializerByVersion[iSource[0]].deserialize(session, (EntityImpl) iRecord, container);
       }
     } catch (RuntimeException e) {
       LogManager.instance()
@@ -118,22 +110,19 @@ public class RecordSerializerBinary implements RecordSerializer {
               Base64.getEncoder().encodeToString(iSource));
       throw e;
     }
-    return iRecord;
   }
 
   @Override
-  public byte[] toStream(DatabaseSessionInternal session, RecordAbstract record) {
+  public byte[] toStream(@Nonnull DatabaseSessionInternal session, @Nonnull RecordAbstract record) {
     if (record instanceof Blob) {
       return record.toStream();
-    } else if (record instanceof RecordFlat) {
-      return record.toStream();
     } else {
-      EntityImpl documentToSerialize = (EntityImpl) record;
+      var documentToSerialize = (EntityImpl) record;
 
-      final BytesContainer container = new BytesContainer();
+      final var container = new BytesContainer();
 
       // WRITE SERIALIZER VERSION
-      int pos = container.alloc(1);
+      var pos = container.alloc(1);
       container.bytes[pos] = currentSerializerVersion;
       // SERIALIZE RECORD
       serializerByVersion[currentSerializerVersion].serialize(session, documentToSerialize,
@@ -144,16 +133,16 @@ public class RecordSerializerBinary implements RecordSerializer {
   }
 
   @Override
-  public String[] getFieldNames(DatabaseSessionInternal db, EntityImpl reference,
-      final byte[] iSource) {
-    if (iSource == null || iSource.length == 0) {
+  public String[] getFieldNames(@Nonnull DatabaseSessionInternal session, EntityImpl reference,
+      final @Nonnull byte[] iSource) {
+    if (iSource.length == 0) {
       return new String[0];
     }
 
-    final BytesContainer container = new BytesContainer(iSource).skip(1);
+    final var container = new BytesContainer(iSource).skip(1);
 
     try {
-      return serializerByVersion[iSource[0]].getFieldNames(reference, container, false);
+      return serializerByVersion[iSource[0]].getFieldNames(session, reference, container, false);
     } catch (RuntimeException e) {
       LogManager.instance()
           .warn(
@@ -172,10 +161,5 @@ public class RecordSerializerBinary implements RecordSerializer {
   @Override
   public String getName() {
     return NAME;
-  }
-
-  public Result getBinaryResult(DatabaseSessionInternal db, byte[] bytes, RecordId id) {
-    EntitySerializer serializer = getSerializer(bytes[0]);
-    return new ResultBinary(db, bytes, 1, bytes.length, serializer, id);
   }
 }

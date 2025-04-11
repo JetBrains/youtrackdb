@@ -23,7 +23,7 @@ public class RecordConflictStrategyFactory
     extends ConfigurableStatelessFactory<String, RecordConflictStrategy> {
 
   public RecordConflictStrategyFactory() {
-    final VersionRecordConflictStrategy def = new VersionRecordConflictStrategy();
+    final var def = new VersionRecordConflictStrategy();
 
     registerImplementation(VersionRecordConflictStrategy.NAME, def);
     registerImplementation(

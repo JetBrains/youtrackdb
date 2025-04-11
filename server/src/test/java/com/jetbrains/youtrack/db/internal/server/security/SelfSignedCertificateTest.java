@@ -57,9 +57,9 @@ public class SelfSignedCertificateTest extends TestCase {
     Assert.assertThrows(
         CertificateNotYetValidException.class,
         () -> {
-          X509Certificate cert = testInstance.getCertificate();
-          PublicKey pubK = testInstance.getPublicKey();
-          Date yesterday = new Date(System.currentTimeMillis() - 86400000);
+          var cert = testInstance.getCertificate();
+          var pubK = testInstance.getPublicKey();
+          var yesterday = new Date(System.currentTimeMillis() - 86400000);
           SelfSignedCertificate.checkCertificate(cert, pubK, yesterday);
         });
   }
@@ -71,11 +71,11 @@ public class SelfSignedCertificateTest extends TestCase {
     Assert.assertThrows(
         SignatureException.class,
         () -> {
-          X509Certificate cert = testInstance.getCertificate();
-          KeyPair tamperK =
+          var cert = testInstance.getCertificate();
+          var tamperK =
               SelfSignedCertificate.computeKeyPair(
                   testInstance.getAlgorithm(), testInstance.getKey_size());
-          Date yesterday = new Date(System.currentTimeMillis());
+          var yesterday = new Date(System.currentTimeMillis());
           SelfSignedCertificate.checkCertificate(cert, tamperK.getPublic(), yesterday);
         });
   }

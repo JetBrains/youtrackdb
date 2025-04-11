@@ -5,12 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerNetworkConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerNetworkListenerConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerNetworkProtocolConfiguration;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpDb;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerNetworkConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerNetworkListenerConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerNetworkProtocolConfiguration;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +35,7 @@ public class YouTrackDBServerShutdownMainTest {
     prevPassword = System.setProperty("YOUTRACKDB_ROOT_PASSWORD", "rootPassword");
     prevOrientHome = System.setProperty("YOUTRACKDB_HOME", "./target/testhome");
 
-    ServerConfiguration conf = new ServerConfiguration();
+    var conf = new ServerConfiguration();
     conf.network = new ServerNetworkConfiguration();
 
     conf.network.protocols = new ArrayList<ServerNetworkProtocolConfiguration>();
@@ -75,7 +75,7 @@ public class YouTrackDBServerShutdownMainTest {
   @Test
   public void shouldShutdownServerWithDirectCall() throws Exception {
 
-    ServerShutdownMain shutdownMain =
+    var shutdownMain =
         new ServerShutdownMain("localhost", "2424", "root", "rootPassword");
     shutdownMain.connect(5000);
 

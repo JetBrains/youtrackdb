@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,19 +24,19 @@ public class QueryStats {
       boolean range,
       boolean additionalRange,
       DatabaseSession database) {
-    String key =
+    var key =
         generateKey(
             "INDEX",
             indexName,
             String.valueOf(params),
             String.valueOf(range),
             String.valueOf(additionalRange));
-    Long val = stats.get(key);
+    var val = stats.get(key);
     if (val != null) {
       return val;
     }
     if (database != null && database instanceof DatabaseSessionInternal db) {
-      Index idx = db.getMetadata().getIndexManagerInternal().getIndex(db, indexName);
+      var idx = db.getSharedContext().getIndexManager().getIndex(db, indexName);
       if (idx != null
           && idx.isUnique()
           && (idx.getDefinition().getFields().size() == params)
@@ -50,7 +49,7 @@ public class QueryStats {
 
   public void pushIndexStats(
       String indexName, int params, boolean range, boolean additionalRange, Long value) {
-    String key =
+    var key =
         generateKey(
             "INDEX",
             indexName,
@@ -61,8 +60,8 @@ public class QueryStats {
   }
 
   public long getAverageOutEdgeSpan(String vertexClass, String edgeClass) {
-    String key = generateKey(vertexClass, "-", edgeClass, "->");
-    Long val = stats.get(key);
+    var key = generateKey(vertexClass, "-", edgeClass, "->");
+    var val = stats.get(key);
     if (val != null) {
       return val;
     }
@@ -70,8 +69,8 @@ public class QueryStats {
   }
 
   public long getAverageInEdgeSpan(String vertexClass, String edgeClass) {
-    String key = generateKey(vertexClass, "<-", edgeClass, "-");
-    Long val = stats.get(key);
+    var key = generateKey(vertexClass, "<-", edgeClass, "-");
+    var val = stats.get(key);
     if (val != null) {
       return val;
     }
@@ -79,8 +78,8 @@ public class QueryStats {
   }
 
   public long getAverageBothEdgeSpan(String vertexClass, String edgeClass) {
-    String key = generateKey(vertexClass, "-", edgeClass, "-");
-    Long val = stats.get(key);
+    var key = generateKey(vertexClass, "-", edgeClass, "-");
+    var val = stats.get(key);
     if (val != null) {
       return val;
     }
@@ -88,17 +87,17 @@ public class QueryStats {
   }
 
   public void pushAverageOutEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    String key = generateKey(vertexClass, "-", edgeClass, "->");
+    var key = generateKey(vertexClass, "-", edgeClass, "->");
     pushValue(key, value);
   }
 
   public void pushAverageInEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    String key = generateKey(vertexClass, "<-", edgeClass, "-");
+    var key = generateKey(vertexClass, "<-", edgeClass, "-");
     pushValue(key, value);
   }
 
   public void pushAverageBothEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    String key = generateKey(vertexClass, "-", edgeClass, "-");
+    var key = generateKey(vertexClass, "-", edgeClass, "-");
     pushValue(key, value);
   }
 
@@ -106,7 +105,7 @@ public class QueryStats {
     if (value == null) {
       return;
     }
-    Long val = stats.get(key);
+    var val = stats.get(key);
 
     if (val == null) {
       val = value;
@@ -121,8 +120,8 @@ public class QueryStats {
   }
 
   protected String generateKey(String... keys) {
-    StringBuilder result = new StringBuilder();
-    for (String s : keys) {
+    var result = new StringBuilder();
+    for (var s : keys) {
       result.append(".->");
       result.append(s);
     }

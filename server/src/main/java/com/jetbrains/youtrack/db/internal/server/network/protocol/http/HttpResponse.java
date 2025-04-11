@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import java.io.IOException;
@@ -17,8 +17,7 @@ public interface HttpResponse {
   String JSON_FORMAT =
       "type,indent:-1,rid,version,attribSameRow,class,keepTypes,alwaysFetchEmbeddedDocuments";
 
-  void send(int iCode, String iReason, String iContentType, Object iContent, String iHeaders)
-      throws IOException;
+  void send(int iCode, String iReason, String iContentType, Object iContent, String iHeaders);
 
   void writeStatus(int iStatus, String iReason) throws IOException;
 
@@ -30,14 +29,14 @@ public interface HttpResponse {
 
   void writeContent(String iContent) throws IOException;
 
-  void writeResult(Object result, DatabaseSessionInternal databaseDocumentInternal)
+  void writeResult(Object result, DatabaseSessionInternal session)
       throws InterruptedException, IOException;
 
   void writeResult(
       Object iResult,
       String iFormat,
       String iAccept,
-      DatabaseSessionInternal databaseDocumentInternal)
+      DatabaseSessionInternal session)
       throws InterruptedException, IOException;
 
   void writeResult(
@@ -45,7 +44,7 @@ public interface HttpResponse {
       String iFormat,
       String iAccept,
       Map<String, Object> iAdditionalProperties,
-      DatabaseSessionInternal databaseDocumentInternal)
+      DatabaseSessionInternal session)
       throws InterruptedException, IOException;
 
   void writeResult(
@@ -54,22 +53,9 @@ public interface HttpResponse {
       String iAccept,
       Map<String, Object> iAdditionalProperties,
       String mode,
-      DatabaseSessionInternal databaseDocumentInternal)
-      throws InterruptedException, IOException;
+      DatabaseSessionInternal session);
 
-  void writeRecords(Object iRecords, DatabaseSessionInternal databaseDocumentInternal)
-      throws IOException;
-
-  void writeRecords(
-      Object iRecords, String iFetchPlan, DatabaseSessionInternal databaseDocumentInternal)
-      throws IOException;
-
-  void writeRecords(
-      Object iRecords,
-      String iFetchPlan,
-      String iFormat,
-      String accept,
-      DatabaseSessionInternal databaseDocumentInternal)
+  void writeRecords(Object iRecords, DatabaseSessionInternal session)
       throws IOException;
 
   void writeRecords(
@@ -78,8 +64,7 @@ public interface HttpResponse {
       String iFormat,
       String accept,
       Map<String, Object> iAdditionalProperties,
-      DatabaseSessionInternal databaseDocumentInternal)
-      throws IOException;
+      DatabaseSessionInternal session);
 
   void writeRecords(
       Object iRecords,
@@ -88,19 +73,19 @@ public interface HttpResponse {
       String accept,
       Map<String, Object> iAdditionalProperties,
       String mode,
-      DatabaseSessionInternal databaseDocumentInternal)
+      DatabaseSessionInternal session)
       throws IOException;
 
   void formatMultiValue(
       Iterator<?> iIterator,
       Writer buffer,
       String format,
-      DatabaseSessionInternal databaseDocumentInternal)
+      DatabaseSessionInternal session)
       throws IOException;
 
-  void writeRecord(DBRecord iRecord) throws IOException;
+  void writeRecord(DBRecord iRecord);
 
-  void writeRecord(DBRecord iRecord, String iFetchPlan, String iFormat) throws IOException;
+  void writeRecord(DBRecord iRecord, String iFetchPlan, String iFormat);
 
   void sendStream(int iCode, String iReason, String iContentType, InputStream iContent, long iSize)
       throws IOException;

@@ -78,7 +78,7 @@ public class LogManager extends SL4JLogManager {
   }
 
   public void installCustomFormatter() {
-    final boolean installCustomFormatter =
+    final var installCustomFormatter =
         Boolean.parseBoolean(
             SystemVariableResolver.resolveSystemVariables(
                 "${" + ENV_INSTALL_CUSTOM_FORMATTER + "}", "true"));
@@ -90,7 +90,7 @@ public class LogManager extends SL4JLogManager {
     try {
       // ASSURE TO HAVE THE YouTrackDB LOG FORMATTER TO THE CONSOLE EVEN IF NO CONFIGURATION FILE IS
       // TAKEN
-      final Logger log = Logger.getLogger("");
+      final var log = Logger.getLogger("");
 
       setLevelInternal(log.getLevel());
 
@@ -100,7 +100,7 @@ public class LogManager extends SL4JLogManager {
         h.setFormatter(new AnsiLogFormatter());
         log.addHandler(h);
       } else {
-        for (Handler h : log.getHandlers()) {
+        for (var h : log.getHandlers()) {
           if (h instanceof ConsoleHandler
               && !h.getFormatter().getClass().equals(AnsiLogFormatter.class)) {
             h.setFormatter(new AnsiLogFormatter());
@@ -138,7 +138,7 @@ public class LogManager extends SL4JLogManager {
 
   public java.util.logging.Level setLevel(
       final String iLevel, final Class<? extends Handler> iHandler) {
-    final java.util.logging.Level level =
+    final var level =
         iLevel != null
             ? java.util.logging.Level.parse(iLevel.toUpperCase(Locale.ENGLISH))
             : java.util.logging.Level.INFO;
@@ -148,9 +148,9 @@ public class LogManager extends SL4JLogManager {
       setLevelInternal(level);
     }
 
-    Logger log = Logger.getLogger(DEFAULT_LOG);
+    var log = Logger.getLogger(DEFAULT_LOG);
     while (log != null) {
-      for (Handler h : log.getHandlers()) {
+      for (var h : log.getHandlers()) {
         if (h.getClass().isAssignableFrom(iHandler)) {
           h.setLevel(level);
           break;
@@ -185,7 +185,7 @@ public class LogManager extends SL4JLogManager {
   }
 
   public void flush() {
-    for (Handler h : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME).getHandlers()) {
+    for (var h : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME).getHandlers()) {
       h.flush();
     }
   }

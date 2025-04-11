@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import javax.annotation.Nullable;
 
 /**
  * takes a normal result set and transforms it in another result set made of OUpdatableRecord
@@ -22,27 +23,25 @@ public class ConvertToUpdatableResultStep extends AbstractExecutionStep {
     if (prev == null) {
       throw new IllegalStateException("filter step requires a previous step");
     }
-    ExecutionStream resultSet = prev.start(ctx);
-    return resultSet.filter(this::filterMap);
+    var resultSet = prev.start(ctx);
+    return resultSet.filter(ConvertToUpdatableResultStep::filterMap);
   }
 
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable
+  private static Result filterMap(Result result, CommandContext ctx) {
     if (result instanceof UpdatableResult) {
       return result;
     }
     if (result.isEntity()) {
-      var element = result.toEntity();
-      if (element != null) {
-        return new UpdatableResult(ctx.getDatabase(), element);
-      }
-      return result;
+      var element = result.asEntityOrNull();
+      return new UpdatableResult(ctx.getDatabaseSession(), element);
     }
     return null;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result = ExecutionStepInternal.getIndent(depth, indent) + "+ CONVERT TO UPDATABLE ITEM";
+    var result = ExecutionStepInternal.getIndent(depth, indent) + "+ CONVERT TO UPDATABLE ITEM";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

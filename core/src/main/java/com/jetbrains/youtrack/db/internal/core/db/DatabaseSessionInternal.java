@@ -21,65 +21,71 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.dictionary.Dictionary;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceAction;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionData;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimerTask;
-import java.util.UUID;
-import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
 
@@ -92,18 +98,25 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   CurrentStorageComponentsFactory getStorageVersions();
 
   /**
+   * Returns the current user logged into the database.
+   */
+  SecurityUser getCurrentUser();
+
+  /**
    * Creates a new element instance.
    *
    * @return The new instance.
    */
-  <RET extends Entity> RET newInstance(String className);
+  EntityImpl newInstance(String className);
 
-  <RET extends Entity> RET newInstance();
+  EntityImpl newInstance();
+
+  EntityImpl newInternalInstance();
 
   /**
    * Internal. Gets an instance of sb-tree collection manager for current database.
    */
-  SBTreeCollectionManager getSbTreeCollectionManager();
+  BTreeCollectionManager getBTreeCollectionManager();
 
   /**
    * @return the factory of binary serializers.
@@ -120,45 +133,88 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
-  int begin(TransactionOptimistic tx);
+  RecordHook registerHook(final @Nonnull RecordHook iHookImpl);
+
+  /**
+   * Retrieves all the registered hooks.
+   *
+   * @return A not-null unmodifiable map of RecordHook and position instances. If there are no hooks
+   * registered, the Map is empty.
+   */
+  List<RecordHook> getHooks();
+
+  /**
+   * Activate current database instance on current thread.
+   */
+  void activateOnCurrentThread();
+
+  /**
+   * Returns true if the current database instance is active on current thread, otherwise false.
+   */
+  boolean isActiveOnCurrentThread();
+
+  /**
+   * Adds a new collection for store blobs.
+   *
+   * @param iCollectionName Collection name
+   * @param iParameters     Additional parameters to pass to the factories
+   * @return Collection id
+   */
+  int addBlobCollection(String iCollectionName, Object... iParameters);
+
+  int begin(FrontendTransactionImpl tx);
 
   void setSerializer(RecordSerializer serializer);
 
-  int assignAndCheckCluster(DBRecord record, String clusterName);
+  int assignAndCheckCollection(DBRecord record);
 
   void reloadUser();
 
-  void afterReadOperations(final Identifiable identifiable);
+  void afterReadOperations(final RecordAbstract identifiable);
 
-  boolean beforeReadOperations(final Identifiable identifiable);
+  boolean beforeReadOperations(final RecordAbstract identifiable);
 
-  Identifiable beforeCreateOperations(final Identifiable id, String iClusterName);
+  void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName);
 
-  Identifiable beforeUpdateOperations(final Identifiable id, String iClusterName);
+  void afterUpdateOperations(final RecordAbstract recordAbstract);
 
-  void beforeDeleteOperations(final Identifiable id, String iClusterName);
+  void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName);
 
-  void afterUpdateOperations(final Identifiable id);
+  void afterCreateOperations(final RecordAbstract recordAbstract);
 
-  void afterCreateOperations(final Identifiable id);
+  void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName);
 
-  void afterDeleteOperations(final Identifiable id);
+  void afterDeleteOperations(final RecordAbstract recordAbstract);
 
-  RecordHook.RESULT callbackHooks(final RecordHook.TYPE type, final Identifiable id);
+  void callbackHooks(final TYPE type, final RecordAbstract record);
 
-  @Nonnull
-  <RET extends RecordAbstract> RET executeReadRecord(final RecordId rid);
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId);
 
-  boolean executeExists(RID rid);
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId);
+
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
+      @Nonnull final RecordId recordId);
+
+  @Nullable
+  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
+      @Nonnull final RecordId recordId);
+
+  @Nullable
+  LoadRecordResult executeReadRecord(@Nonnull final RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwIfNotFound);
+
+  boolean executeExists(@Nonnull RID rid);
 
   void setDefaultTransactionMode();
 
   DatabaseSessionInternal copy();
 
   void recycle(DBRecord record);
-
-  void checkIfActive();
-
 
   boolean assertIfNotActive();
 
@@ -172,8 +228,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean isPrefetchRecords();
 
-  void checkForClusterPermissions(String name);
-
+  @Nullable
   default ResultSet getActiveQuery(String id) {
     throw new UnsupportedOperationException();
   }
@@ -195,12 +250,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   Edge newRegularEdge(String iClassName, Vertex from, Vertex to);
 
-  VertexInternal newVertex(RecordId rid);
-
-  void setUseLightweightEdges(boolean b);
-
-  DatabaseSessionInternal cleanOutRecord(RID rid, int version);
-
   default void realClose() {
     // Only implemented by pooled instances
     throw new UnsupportedOperationException();
@@ -212,90 +261,29 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   }
 
   /**
-   * synchronizes current database instance with the rest of the cluster (if in distributed mode).
-   *
-   * @return true if the database was synchronized, false otherwise
-   */
-  default boolean sync(boolean forceDeployment, boolean tryWithDelta) {
-    return false;
-  }
-
-  default Map<String, Object> getHaStatus(
-      boolean servers, boolean db, boolean latency, boolean messages) {
-    return null;
-  }
-
-  default boolean removeHaServer(String serverName) {
-    return false;
-  }
-
-  /**
-   * sends an execution plan to a remote node for a remote query execution
-   *
-   * @param nodeName        the node name
-   * @param executionPlan   the execution plan
-   * @param inputParameters the input parameters for execution
-   * @return an ResultSet to fetch the results of the query execution
-   */
-  default ResultSet queryOnNode(
-      String nodeName, ExecutionPlan executionPlan, Map<Object, Object> inputParameters) {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
    * Executed the commit on the storage hiding away storage concepts from the transaction
    */
-  void internalCommit(TransactionOptimistic transaction);
+  void internalCommit(@Nonnull FrontendTransactionImpl transaction);
 
-  boolean isClusterVertex(int cluster);
+  boolean isCollectionVertex(int collection);
 
-  boolean isClusterEdge(int cluster);
+  boolean isCollectionEdge(int collection);
 
+  void deleteInternal(@Nonnull DBRecord record);
 
   void internalClose(boolean recycle);
 
-  String getClusterName(final DBRecord record);
-
-  default ResultSet indexQuery(String indexName, String query, Object... args) {
-    return command(query, args);
-  }
-
-
-  <T> T sendSequenceAction(SequenceAction action) throws ExecutionException, InterruptedException;
-
-  default boolean isDistributed() {
-    return false;
-  }
+  String getCollectionName(@Nonnull final DBRecord record);
 
   default boolean isRemote() {
     return false;
   }
 
-  Map<UUID, BonsaiCollectionPointer> getCollectionsChanges();
+  boolean dropCollectionInternal(int collectionId);
 
-  default void syncCommit(FrontendTransactionData data) {
-    throw new UnsupportedOperationException();
-  }
+  String getCollectionRecordConflictStrategy(int collectionId);
 
-  default boolean isLocalEnv() {
-    return true;
-  }
-
-  boolean dropClusterInternal(int clusterId);
-
-  default String getStorageId() {
-    return getName();
-  }
-
-  long[] getClusterDataRange(int currentClusterId);
-
-  void setDefaultClusterId(int addCluster);
-
-  long getLastClusterPosition(int clusterId);
-
-  String getClusterRecordConflictStrategy(int clusterId);
-
-  int[] getClustersIds(Set<String> filterClusters);
+  int[] getCollectionsIds(@Nonnull Set<String> filterCollections);
 
   default void startExclusiveMetadataChange() {
   }
@@ -307,49 +295,16 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   long truncateClass(String name, boolean polimorfic);
 
-  long truncateClusterInternal(String name);
-
-  FrontendTransactionNoTx.NonTxReadMode getNonTxReadMode();
+  long truncateCollectionInternal(String name);
 
   /**
-   * Browses all the records of the specified cluster.
+   * Browses all the records of the specified collection.
    *
-   * @param iClusterName Cluster name to iterate
+   * @param iCollectionName Collection name to iterate
    * @return Iterator of EntityImpl instances
    */
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(String iClusterName);
-
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones);
-
-  /**
-   * Browses all the records of the specified cluster of the passed record type.
-   *
-   * @param iClusterName Cluster name to iterate
-   * @param iRecordClass The record class expected
-   * @return Iterator of EntityImpl instances
-   */
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName, Class<REC> iRecordClass);
-
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition);
-
-  @Deprecated
-  <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones);
+  <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
+      String iCollectionName);
 
   /**
    * Browses all the records of the specified class and also all the subclasses. If you've a class
@@ -357,10 +312,12 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * instances of Vehicle and Car. The order of the returned instance starts from record id with
    * position 0 until the end. Base classes are worked at first.
    *
-   * @param iClassName Class name to iterate
+   * @param className Class name to iterate
    * @return Iterator of EntityImpl instances
    */
-  RecordIteratorClass<EntityImpl> browseClass(String iClassName);
+  RecordIteratorClass browseClass(@Nonnull String className);
+
+  RecordIteratorClass browseClass(@Nonnull SchemaClass clz);
 
   /**
    * Browses all the records of the specified class and if iPolymorphic is true also all the
@@ -369,11 +326,14 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * the returned instance starts from record id with position 0 until the end. Base classes are
    * worked at first.
    *
-   * @param iClassName   Class name to iterate
+   * @param className    Class name to iterate
    * @param iPolymorphic Consider also the instances of the subclasses or not
    * @return Iterator of EntityImpl instances
    */
-  RecordIteratorClass<EntityImpl> browseClass(String iClassName, boolean iPolymorphic);
+  RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic);
+
+  RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection);
 
   /**
    * Counts the entities contained in the specified class and sub classes (polymorphic).
@@ -433,9 +393,9 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resource
    * </ol>
    *
-   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.collections
    * @param iOperation        Operation to execute against the resource
-   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the cluster name.
+   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the collection name.
    */
   @Deprecated
   void checkSecurity(String iResourceGeneric, int iOperation, Object iResourceSpecific);
@@ -449,10 +409,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resources
    * </ol>
    *
-   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.collections
    * @param iOperation         Operation to execute against the resource
    * @param iResourcesSpecific Target resources as an array of Objects, i.e.: ["employee", 2] to
-   *                           specify cluster name and id.
+   *                           specify collection name and id.
    */
   @Deprecated
   void checkSecurity(String iResourceGeneric, int iOperation, Object... iResourcesSpecific);
@@ -475,12 +435,14 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resource
    * </ol>
    *
-   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric  Resource where to execute the operation, i.e.: database.collections
    * @param iOperation        Operation to execute against the resource
-   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the cluster name.
+   * @param iResourceSpecific Target resource, i.e.: "employee" to specify the collection name.
    */
   void checkSecurity(
       Rule.ResourceGeneric iResourceGeneric, int iOperation, Object iResourceSpecific);
+
+  void checkSecurity(final int operation, final Identifiable record, String collection);
 
   /**
    * Checks if the operation against multiple resources is allowed for the current user. The check
@@ -491,10 +453,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *   <li>Access to the specific target resources
    * </ol>
    *
-   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.clusters
+   * @param iResourceGeneric   Resource where to execute the operation, i.e.: database.collections
    * @param iOperation         Operation to execute against the resource
    * @param iResourcesSpecific Target resources as an array of Objects, i.e.: ["employee", 2] to
-   *                           specify cluster name and id.
+   *                           specify collection name and id.
    */
   void checkSecurity(
       Rule.ResourceGeneric iResourceGeneric, int iOperation, Object... iResourcesSpecific);
@@ -505,10 +467,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @return FrontendTransaction implementation
    */
-  FrontendTransaction getTransaction();
+  FrontendTransaction getTransactionInternal();
 
   /**
-   * Reloads the database information like the cluster list.
+   * Reloads the database information like the collection list.
    */
   void reload();
 
@@ -527,14 +489,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   void setUser(SecurityUser user);
 
-  /**
-   * Internal only: replace the storage with a new one.
-   *
-   * @param iNewStorage The new storage to use. Usually it's a wrapped instance of the current
-   *                    cluster.
-   */
-  void replaceStorage(Storage iNewStorage);
-
   void resetInitialization();
 
   /**
@@ -548,14 +502,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Internal. Sets the database owner.
    */
   DatabaseSessionInternal setDatabaseOwner(DatabaseSessionInternal iOwner);
-
-  /**
-   * Return the underlying database. Used in wrapper instances to know the down level ODatabase
-   * instance.
-   *
-   * @return The underlying ODatabase implementation.
-   */
-  DatabaseSession getUnderlying();
 
   /**
    * Internal method. Don't call it directly unless you're building an internal component.
@@ -572,57 +518,12 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   DatabaseSession open(final Token iToken);
 
-  SharedContext getSharedContext();
-
-  /**
-   * returns the cluster map for current deploy. The keys of the map are node names, the values
-   * contain names of clusters (data files) available on the single node.
-   *
-   * @return the cluster map for current deploy
-   */
-  default String getLocalNodeName() {
-    return "local";
-  }
-
-  /**
-   * returns the cluster map for current deploy. The keys of the map are node names, the values
-   * contain names of clusters (data files) available on the single node.
-   *
-   * @return the cluster map for current deploy
-   */
-  default Map<String, Set<String>> getActiveClusterMap() {
-    Map<String, Set<String>> result = new HashMap<>();
-    result.put(getLocalNodeName(), getStorage().getClusterNames());
-    return result;
-  }
-
-  /**
-   * returns the data center map for current deploy. The keys are data center names, the values are
-   * node names per data center
-   *
-   * @return data center map for current deploy
-   */
-  default Map<String, Set<String>> getActiveDataCenterMap() {
-    Map<String, Set<String>> result = new HashMap<>();
-    Set<String> val = new HashSet<>();
-    val.add(getLocalNodeName());
-    result.put("local", val);
-    return result;
-  }
-
-  /**
-   * checks the cluster map and tells whether this is a sharded database (ie. a distributed DB where
-   * at least two nodes contain distinct subsets of data) or not
-   *
-   * @return true if the database is sharded, false otherwise
-   */
-  default boolean isSharded() {
-    return false;
-  }
+  SharedContext<?> getSharedContext();
 
   /**
    * @return an endpoint for Enterprise features. Null in Community Edition
    */
+  @Nullable
   default EnterpriseEndpoint getEnterpriseEndpoint() {
     return null;
   }
@@ -642,6 +543,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @return the timer task. Null if this operation is not supported for current db impl.
    */
+  @Nullable
   default TimerTask createInterruptTimerTask() {
     return null;
   }
@@ -709,52 +611,52 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   DatabaseSession setStatus(STATUS iStatus);
 
   /**
-   * Returns the total size of records contained in the cluster defined by its name.
+   * Returns the total size of records contained in the collection defined by its name.
    *
-   * @param iClusterName Cluster name
+   * @param iCollectionName Collection name
    * @return Total size of records contained.
    */
   @Deprecated
-  long getClusterRecordSizeByName(String iClusterName);
+  long getCollectionRecordSizeByName(String iCollectionName);
 
   /**
-   * Returns the total size of records contained in the cluster defined by its id.
+   * Returns the total size of records contained in the collection defined by its id.
    *
-   * @param iClusterId Cluster id
-   * @return The name of searched cluster.
+   * @param iCollectionId Collection id
+   * @return The name of searched collection.
    */
   @Deprecated
-  long getClusterRecordSizeById(int iClusterId);
+  long getCollectionRecordSizeById(int iCollectionId);
 
   /**
-   * Removes all data in the cluster with given name. As result indexes for this class will be
+   * Removes all data in the collection with given name. As result indexes for this class will be
    * rebuilt.
    *
-   * @param clusterName Name of cluster to be truncated.
+   * @param collectionName Name of collection to be truncated.
    */
-  void truncateCluster(String clusterName);
+  void truncateCollection(String collectionName);
 
   /**
-   * Counts all the entities in the specified cluster id.
+   * Counts all the entities in the specified collection id.
    *
-   * @param iCurrentClusterId Cluster id
-   * @return Total number of entities contained in the specified cluster
+   * @param iCurrentCollectionId Collection id
+   * @return Total number of entities contained in the specified collection
    */
-  long countClusterElements(int iCurrentClusterId);
+  long countCollectionElements(int iCurrentCollectionId);
 
   @Deprecated
-  long countClusterElements(int iCurrentClusterId, boolean countTombstones);
+  long countCollectionElements(int iCurrentCollectionId, boolean countTombstones);
 
   /**
-   * Counts all the entities in the specified cluster ids.
+   * Counts all the entities in the specified collection ids.
    *
-   * @param iClusterIds Array of cluster ids Cluster id
-   * @return Total number of entities contained in the specified clusters
+   * @param iCollectionIds Array of collection ids Collection id
+   * @return Total number of entities contained in the specified collections
    */
-  long countClusterElements(int[] iClusterIds);
+  long countCollectionElements(int[] iCollectionIds);
 
   @Deprecated
-  long countClusterElements(int[] iClusterIds, boolean countTombstones);
+  long countCollectionElements(int[] iCollectionIds, boolean countTombstones);
 
   /**
    * Sets a property value
@@ -792,7 +694,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param iListener the listener to register
    */
-  @Deprecated
   void registerListener(SessionListener iListener);
 
   /**
@@ -800,48 +701,12 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param iListener the listener to unregister
    */
-  @Deprecated
   void unregisterListener(SessionListener iListener);
 
   @Deprecated
   RecordMetadata getRecordMetadata(final RID rid);
 
-  /**
-   * Returns the Dictionary manual index.
-   *
-   * @return Dictionary instance
-   * @deprecated Manual indexes are prohibited and will be removed
-   */
-  @Deprecated
-  Dictionary<DBRecord> getDictionary();
-
   void rollback(boolean force) throws TransactionException;
-
-  /**
-   * Execute a query against the database. If the Storage used is remote (OStorageRemote) then the
-   * command will be executed remotely and the result returned back to the calling client.
-   *
-   * @param iCommand Query command
-   * @param iArgs    Optional parameters to bind to the query
-   * @return List of POJOs
-   * @deprecated use {@link #query(String, Map)} or {@link #query(String, Object...)} instead
-   */
-  @Deprecated
-  <RET extends List<?>> RET query(final Query<?> iCommand, final Object... iArgs);
-
-  /**
-   * Creates a command request to run a command against the database (you have to invoke
-   * .execute(parameters) to actually execute it). A command can be a SQL statement or a Procedure.
-   * If the Storage used is remote (OStorageRemote) then the command will be executed remotely and
-   * the result returned back to the calling client.
-   *
-   * @param iCommand Command request to execute.
-   * @return The same Command request received as parameter.
-   * @deprecated use {@link #command(String, Map)}, {@link #command(String, Object...)},
-   * {@link #execute(String, String, Map)}, {@link #execute(String, String, Object...)} instead
-   */
-  @Deprecated
-  <RET extends CommandRequest> RET command(CommandRequest iCommand);
 
   /**
    * Returns if the Multi Version Concurrency Control is enabled or not. If enabled the version of
@@ -856,7 +721,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Enables or disables the Multi-Version Concurrency Control. If enabled the version of the record
    * is checked before each update and delete against the records.
    *
-   * @param iValue
    * @return The Database instance itself giving a "fluent interface". Useful to call multiple
    * methods in chain. deprecated since 2.2
    */
@@ -895,87 +759,73 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   long getSize();
 
   /**
-   * Returns the default cluster id. If not specified all the new entities will be stored in the
-   * default cluster.
+   * Returns the number of collections.
    *
-   * @return The default cluster id
+   * @return Number of the collections
    */
-  int getDefaultClusterId();
+  int getCollections();
 
   /**
-   * Returns the number of clusters.
+   * Returns true if the collection exists, otherwise false.
    *
-   * @return Number of the clusters
+   * @param iCollectionName Collection name
+   * @return true if the collection exists, otherwise false
    */
-  int getClusters();
+  boolean existsCollection(String iCollectionName);
 
   /**
-   * Returns true if the cluster exists, otherwise false.
+   * Returns all the names of the collections.
    *
-   * @param iClusterName Cluster name
-   * @return true if the cluster exists, otherwise false
+   * @return Collection of collection names.
    */
-  boolean existsCluster(String iClusterName);
+  Collection<String> getCollectionNames();
 
   /**
-   * Returns all the names of the clusters.
+   * Returns the collection id by name.
    *
-   * @return Collection of cluster names.
+   * @param iCollectionName Collection name
+   * @return The id of searched collection.
    */
-  Collection<String> getClusterNames();
+  int getCollectionIdByName(String iCollectionName);
 
   /**
-   * Returns the cluster id by name.
+   * Returns the collection name by id.
    *
-   * @param iClusterName Cluster name
-   * @return The id of searched cluster.
+   * @param iCollectionId Collection id
+   * @return The name of searched collection.
    */
-  int getClusterIdByName(String iClusterName);
+  @Nullable
+  String getCollectionNameById(int iCollectionId);
 
   /**
-   * Returns the cluster name by id.
+   * Counts all the entities in the specified collection name.
    *
-   * @param iClusterId Cluster id
-   * @return The name of searched cluster.
+   * @param iCollectionName Collection name
+   * @return Total number of entities contained in the specified collection
    */
-  String getClusterNameById(int iClusterId);
+  long countCollectionElements(String iCollectionName);
 
   /**
-   * Counts all the entities in the specified cluster name.
+   * Adds a new collection.
    *
-   * @param iClusterName Cluster name
-   * @return Total number of entities contained in the specified cluster
+   * @param iCollectionName Collection name
+   * @param iParameters     Additional parameters to pass to the factories
+   * @return Collection id
    */
-  long countClusterElements(String iClusterName);
+  int addCollection(String iCollectionName, Object... iParameters);
+
+  boolean dropCollection(final String iCollectionName);
+
+  boolean dropCollection(final int collectionId);
 
   /**
-   * Adds a new cluster.
+   * Adds a new collection.
    *
-   * @param iClusterName Cluster name
-   * @param iParameters  Additional parameters to pass to the factories
-   * @return Cluster id
+   * @param iCollectionName Collection name
+   * @param iRequestedId    requested id of the collection
+   * @return Collection id
    */
-  int addCluster(String iClusterName, Object... iParameters);
-
-  /**
-   * Adds a new cluster.
-   *
-   * @param iClusterName Cluster name
-   * @param iRequestedId requested id of the cluster
-   * @return Cluster id
-   */
-  int addCluster(String iClusterName, int iRequestedId);
-
-  /**
-   * Saves an entity in the specified cluster in synchronous mode. If the entity is not dirty, then
-   * the operation will be ignored. For custom entity implementations assure to set the entity as
-   * dirty. If the cluster does not exist, an error will be thrown.
-   *
-   * @param iObject      The entity to save
-   * @param iClusterName Name of the cluster where to save
-   * @return The saved entity.
-   */
-  <RET extends DBRecord> RET save(DBRecord iObject, String iClusterName);
+  int addCollection(String iCollectionName, int iRequestedId);
 
   MetadataInternal getMetadata();
 
@@ -994,6 +844,407 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   }
 
   /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Map<String, ?> args);
+
+  /**
+   * Subscribe a query as a live query for future create/update event with the referred conditions
+   *
+   * @param query    live query
+   * @param listener the listener that receive the query results
+   * @param args     the live query args
+   */
+  LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args);
+
+
+  @Nonnull
+  RID refreshRid(@Nonnull RID rid);
+
+  /**
+   * Returns the number of active nested transactions.
+   *
+   * @return the number of active transactions, 0 means no active transactions are present.
+   * @see #begin()
+   * @see #commit()
+   * @see #rollback()
+   */
+  int activeTxCount();
+
+  /**
+   * Loads an element by its id, throws an exception if record is not an element or does not exist.
+   *
+   * @param id the id of the element to load
+   * @return the loaded element
+   * @throws DatabaseException       if the record is not an element
+   * @throws RecordNotFoundException if the record does not exist
+   */
+  @Nonnull
+  default Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+    if (record instanceof Entity element) {
+      return element;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not an entity, but a " + record.getClass().getSimpleName());
+  }
+
+
+  /**
+   * Loads a vertex by its id, throws an exception if record is not a vertex or does not exist.
+   *
+   * @param id the id of the vertex to load
+   * @return the loaded vertex
+   * @throws DatabaseException       if the record is not a vertex
+   * @throws RecordNotFoundException if the record does not exist
+   */
+  @Nonnull
+  default Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+    if (record instanceof Vertex vertex) {
+      return vertex;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not a vertex, but a " + record.getClass().getSimpleName());
+  }
+
+  /**
+   * Loads an edge by its id, throws an exception if record is not an edge or does not exist.
+   *
+   * @param id the id of the edge to load
+   * @return the loaded edge
+   * @throws DatabaseException       if the record is not an edge
+   * @throws RecordNotFoundException if the record does not exist
+   */
+  @Nonnull
+  default StatefulEdge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+
+    if (record instanceof StatefulEdge edge) {
+      return edge;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not an edge, but a " + record.getClass().getSimpleName());
+  }
+
+  /**
+   * Loads a blob by its id, throws an exception if record is not a blob or does not exist.
+   *
+   * @param id the id of the blob to load
+   * @return the loaded blob
+   * @throws DatabaseException       if the record is not a blob
+   * @throws RecordNotFoundException if the record does not exist
+   */
+  @Nonnull
+  default Blob loadBlob(RID id) throws DatabaseException, RecordNotFoundException {
+    var record = load(id);
+
+    if (record instanceof Blob blob) {
+      return blob;
+    }
+
+    throw new DatabaseException(getDatabaseName(),
+        "Record with id " + id + " is not a blob, but a " + record.getClass().getSimpleName());
+  }
+
+  /**
+   * Create a new instance of a blob containing the given bytes.
+   *
+   * @param bytes content of the Blob
+   * @return the Blob instance.
+   */
+  Blob newBlob(byte[] bytes);
+
+
+  /**
+   * Create a new empty instance of a blob.
+   *
+   * @return the Blob instance.
+   */
+  Blob newBlob();
+
+
+  Entity newEntity(final String className);
+
+  Entity newEntity(final SchemaClass cls);
+
+  Entity newEntity();
+
+  EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass);
+
+  EmbeddedEntity newEmbeddedEntity(String schemaClass);
+
+  EmbeddedEntity newEmbeddedEntity();
+
+  <T extends DBRecord> T createOrLoadRecordFromJson(String json);
+
+  Entity createOrLoadEntityFromJson(String json);
+
+  /**
+   * Creates a new Edge of type E
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @return the edge
+   */
+  default StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+    return newStatefulEdge(from, to, "E");
+  }
+
+  /**
+   * Creates a new Edge
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @param type the edge type
+   * @return the edge
+   */
+  StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
+
+  /**
+   * Creates a new Edge
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @param type the edge type
+   * @return the edge
+   */
+  StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
+
+  /**
+   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
+   * class.
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @param type the edge type
+   * @return the edge
+   */
+  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
+
+  /**
+   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
+   * class.
+   *
+   * @param from the starting point vertex
+   * @param to   the endpoint vertex
+   * @param type the edge type
+   * @return the edge
+   */
+  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type);
+
+  /**
+   * Creates a new Vertex of type V
+   */
+  default Vertex newVertex() {
+    return newVertex("V");
+  }
+
+  /**
+   * Creates a new Vertex
+   *
+   * @param type the vertex type
+   */
+  Vertex newVertex(SchemaClass type);
+
+  /**
+   * Creates a new Vertex
+   *
+   * @param type the vertex type (class name)
+   */
+  Vertex newVertex(String type);
+
+  /**
+   * Retrieve the set of defined blob collection.
+   *
+   * @return the array of defined blob collection ids.
+   */
+  int[] getBlobCollectionIds();
+
+  /**
+   * Loads the entity by the Record ID.
+   *
+   * @param recordId The unique record id of the entity to load.
+   * @return The loaded entity
+   * @throws RecordNotFoundException if record does not exist in database
+   */
+  @Nonnull
+  <RET extends DBRecord> RET load(RID recordId);
+
+  /**
+   * Loads the entity by the Record ID, unlike {@link  #load(RID)} method does not throw exception
+   * if record not found but returns <code>null</code> instead.
+   *
+   * @param recordId The unique record id of the entity to load.
+   * @return The loaded entity or <code>null</code> if entity does not exist.
+   */
+  @Nullable
+  default <RET extends DBRecord> RET loadOrNull(RID recordId) {
+    try {
+      return load(recordId);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Checks if record exists in database. That happens in two cases:
+   * <ol>
+   *   <li>Record is already stored in database.</li>
+   *   <li>Record is only added in current transaction.</li>
+   * </ol>
+   * <p/>
+   *
+   * @param rid Record id to check.
+   * @return True if record exists, otherwise false.
+   */
+  boolean exists(RID rid);
+
+  /**
+   * Deletes an entity from the database in synchronous mode.
+   *
+   * @param record The entity to delete.
+   */
+  void delete(@Nonnull DBRecord record);
+
+  /**
+   * Commits the current transaction. The approach is all or nothing. All changes will be permanent
+   * following the storage type. If the operation succeed all the entities changed inside the
+   * transaction context will be effective. If the operation fails, all the changed entities will be
+   * restored in the data store.
+   *
+   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
+   * otherwise false. If false is returned, then there are still nested transaction that have to be
+   * committed.
+   */
+  boolean commit() throws TransactionException;
+
+  /**
+   * Aborts the current running transaction. All the pending changed entities will be restored in
+   * the data store.
+   */
+  void rollback() throws TransactionException;
+
+  /**
+   * Close all active queries. This method is called upon transaction commit/rollback.
+   */
+  void closeActiveQueries();
+
+  /**
+   * Executes an SQL query. The result set has to be closed after usage <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.query("SELECT FROM V where name = ?", "John"); while(rs.hasNext()){ Result
+   * item = rs.next(); ... } rs.close(); </code>
+   *
+   * @param query the query string
+   * @param args  query parameters (positional)
+   * @return the query result set
+   */
+  ResultSet query(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException;
+
+  /**
+   * Executes an SQL query (idempotent). The result set has to be closed after usage <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("name", "John");
+   * ResultSet rs = db.query("SELECT FROM V where name = :name", params); while(rs.hasNext()){
+   * Result item = rs.next(); ... } rs.close();
+   * </code>
+   *
+   * @param query the query string
+   * @param args  query parameters (named)
+   * @return the query result set
+   */
+  ResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException;
+
+  ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException;
+
+  /**
+   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
+   * after usage <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.execute("INSERT INTO Person SET name = ?", "John"); ... rs.close();
+   * </code>
+   *
+   * @param args query arguments
+   * @return the query result set
+   */
+  default ResultSet execute(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Executes a generic (idempotent or non-idempotent) command. The result set has to be closed
+   * after usage <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.execute("INSERT INTO Person SET name = :name", Map.of("name", "John")); ...
+   * rs.close();
+   * </code>
+   */
+  default ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
+   * way as {@link DatabaseSessionInternal#execute(String, Object...)}, but doesn't require closing
+   * the result set after usage. <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.command("INSERT INTO Person SET name = ?", "John");
+   * </code>
+   *
+   * @param args query arguments
+   */
+  default void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
+  }
+
+  /**
+   * Executes a generic (non-idempotent) command, ignoring the produced result. Works in the same
+   * way as {@link DatabaseSessionInternal#execute(String, Map)}, but doesn't require closing the
+   * result set after usage. <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * ResultSet rs = db.command("INSERT INTO Person SET name = :name", Map.of("name", "John");
+   * </code>
+   *
+   * @param args query arguments
+   */
+  default void command(String query, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    execute(query, args).close();
+  }
+
+  /**
    * retrieves a class from the schema
    *
    * @param className The class name
@@ -1004,9 +1255,197 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     return schema.getClassInternal(className);
   }
 
+  /**
+   * creates a new vertex class (a class that extends V)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if V class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createVertexClass(String className) throws SchemaException {
+    return createClass(className, SchemaClass.VERTEX_CLASS_NAME);
+  }
+
+  /**
+   * Creates a non-abstract new edge class (a class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createEdgeClass(String className) {
+    var edgeClass = createClass(className, SchemaClass.EDGE_CLASS_NAME);
+
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
+
+    return edgeClass;
+  }
+
+  /**
+   * Creates a new edge class for lightweight edge (an abstract class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createLightweightEdgeClass(String className) {
+    return createAbstractClass(className, SchemaClass.EDGE_CLASS_NAME);
+  }
+
+
+  /**
+   * retrieves a class from the schema
+   *
+   * @param className The class name
+   * @return The object representing the class in the schema. Null if the class does not exist.
+   */
+  default SchemaClass getClass(String className) {
+    var schema = getSchema();
+    return schema.getClass(className);
+  }
+
+  /**
+   * Creates a new class in the schema
+   *
+   * @param className    the class name
+   * @param superclasses a list of superclasses for the class (can be empty)
+   * @return the class with the given name
+   * @throws SchemaException if a class with this name already exists or if one of the superclasses
+   *                         does not exist.
+   */
+  default SchemaClass createClass(String className, String... superclasses) throws SchemaException {
+    var schema = getSchema();
+    SchemaClass[] superclassInstances = null;
+    if (superclasses != null) {
+      superclassInstances = new SchemaClass[superclasses.length];
+      for (var i = 0; i < superclasses.length; i++) {
+        var superclass = superclasses[i];
+        var superclazz = schema.getClass(superclass);
+        if (superclazz == null) {
+          throw new SchemaException(getDatabaseName(), "Class " + superclass + " does not exist");
+        }
+        superclassInstances[i] = superclazz;
+      }
+    }
+    var result = schema.getClass(className);
+    if (result != null) {
+      throw new SchemaException(getDatabaseName(), "Class " + className + " already exists");
+    }
+    if (superclassInstances == null) {
+      return schema.createClass(className);
+    } else {
+      return schema.createClass(className, superclassInstances);
+    }
+  }
+
+  /**
+   * Creates a new abstract class in the schema
+   *
+   * @param className    the class name
+   * @param superclasses a list of superclasses for the class (can be empty)
+   * @return the class with the given name
+   * @throws SchemaException if a class with this name already exists or if one of the superclasses
+   *                         does not exist.
+   */
+  default SchemaClass createAbstractClass(String className, String... superclasses)
+      throws SchemaException {
+    var schema = getSchema();
+    SchemaClass[] superclassInstances = null;
+    if (superclasses != null) {
+      superclassInstances = new SchemaClass[superclasses.length];
+      for (var i = 0; i < superclasses.length; i++) {
+        var superclass = superclasses[i];
+        var superclazz = schema.getClass(superclass);
+        if (superclazz == null) {
+          throw new SchemaException(getDatabaseName(), "Class " + superclass + " does not exist");
+        }
+        superclassInstances[i] = superclazz;
+      }
+    }
+    var result = schema.getClass(className);
+    if (result != null) {
+      throw new SchemaException(getDatabaseName(), "Class " + className + " already exists");
+    }
+    if (superclassInstances == null) {
+      return schema.createAbstractClass(className);
+    } else {
+      return schema.createAbstractClass(className, superclassInstances);
+    }
+  }
+
+  /**
+   * If a class with given name already exists, it's just returned, otherwise the method creates a
+   * new class and returns it.
+   *
+   * @param className    the class name
+   * @param superclasses a list of superclasses for the class (can be empty)
+   * @return the class with the given name
+   * @throws SchemaException if one of the superclasses does not exist in the schema
+   */
+  default SchemaClass createClassIfNotExist(String className, String... superclasses)
+      throws SchemaException {
+    var schema = getSchema();
+
+    var result = schema.getClass(className);
+    if (result == null) {
+      result = createClass(className, superclasses);
+    }
+
+    return result;
+  }
+
+  void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code);
+
+  @Override
+  default void executeInTx(@Nonnull Consumer<Transaction> code) {
+    executeInTxInternal(code::accept);
+  }
+
+  @Nullable
+  <R> R computeInTxInternal(Function<FrontendTransaction, R> supplier);
+
+  @Nullable
+  @Override
+  default <R> R computeInTx(Function<Transaction, R> supplier) {
+    return computeInTxInternal(supplier::apply);
+  }
+
+  <T> void executeInTxBatchesInternal(Stream<T> stream,
+      BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(stream, consumer::accept);
+  }
+
+  <T> void executeInTxBatchesInternal(
+      Iterator<T> iterator, BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(iterator, consumer::accept);
+  }
+
+  <T> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<FrontendTransaction, T> consumer);
+
+  @Override
+  default <T> void executeInTxBatches(@Nonnull Iterator<T> iterator, int batchSize,
+      BiConsumer<Transaction, T> consumer) {
+    executeInTxBatchesInternal(iterator, batchSize, consumer::accept);
+  }
+
+  @Nonnull
+  FrontendTransaction getActiveTransaction();
+
+  FrontendTransaction begin();
+
   default Index getIndex(String indexName) {
-    var metadata = getMetadata();
-    var indexManager = metadata.getIndexManagerInternal();
+    var indexManager = getSharedContext().getIndexManager();
     return indexManager.getIndex(this, indexName);
   }
 

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -29,7 +29,7 @@ public final class TimeoutResultSet implements ExecutionStream {
     if (timedOut) {
       return false;
     }
-    long begin = System.nanoTime();
+    var begin = System.nanoTime();
 
     try {
       return internal.hasNext(ctx);
@@ -43,10 +43,10 @@ public final class TimeoutResultSet implements ExecutionStream {
     if (totalTime.get() / 1_000_000 > timeoutMillis) {
       fail();
       if (timedOut) {
-        return new ResultInternal(ctx.getDatabase());
+        return new ResultInternal(ctx.getDatabaseSession());
       }
     }
-    long begin = System.nanoTime();
+    var begin = System.nanoTime();
     try {
       return internal.next(ctx);
     } finally {

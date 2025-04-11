@@ -7,5 +7,12 @@ import java.util.Collection;
 
 public interface SchemaPropertyInternal extends SchemaProperty {
 
-  Collection<Index> getAllIndexesInternal(DatabaseSession session);
+  /**
+   * @return All indexes in which this property participates.
+   */
+  Collection<String> getAllIndexes();
+
+  Collection<Index> getAllIndexesInternal();
+
+  DatabaseSession getBoundToSession();
 }

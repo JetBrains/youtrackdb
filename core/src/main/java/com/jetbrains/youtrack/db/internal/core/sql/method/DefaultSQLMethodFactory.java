@@ -142,7 +142,7 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
 
   @Override
   public SQLMethod createMethod(final String name) throws CommandExecutionException {
-    final Object m = methods.get(name);
+    final var m = methods.get(name);
     final SQLMethod method;
 
     if (m instanceof Class<?>) {
@@ -150,7 +150,7 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
         method = (SQLMethod) ((Class<?>) m).newInstance();
       } catch (Exception e) {
         throw BaseException.wrapException(
-            new CommandExecutionException("Cannot create SQL method: " + m), e);
+            new CommandExecutionException("Cannot create SQL method: " + m), e, (String) null);
       }
     } else {
       method = (SQLMethod) m;

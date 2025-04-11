@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAbstract;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.IOException;
@@ -31,13 +31,13 @@ public class ServerCommandGetDisconnect extends ServerCommandAbstract {
   private static final String[] NAMES = {"GET|disconnect"};
 
   @Override
-  public boolean beforeExecute(OHttpRequest iRequest, HttpResponse iResponse) throws IOException {
+  public boolean beforeExecute(HttpRequest iRequest, HttpResponse iResponse) throws IOException {
     super.beforeExecute(iRequest, iResponse);
     return true;
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 1, "Syntax error: disconnect");
 
     iRequest.getData().commandInfo = "Disconnect";
@@ -56,7 +56,6 @@ public class ServerCommandGetDisconnect extends ServerCommandAbstract {
           iResponse,
           HttpUtils.STATUS_AUTH_CODE,
           HttpUtils.STATUS_AUTH_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "Logged out",
           null);
     } else {
