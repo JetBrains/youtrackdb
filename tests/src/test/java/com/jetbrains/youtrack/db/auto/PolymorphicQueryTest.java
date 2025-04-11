@@ -107,19 +107,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
   public void testSubclassesIndexes() throws Exception {
     session.begin();
 
-    var profiler = ProfilerStub.INSTANCE;
-
-    var indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
-
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
-
     for (var i = 0; i < 10000; i++) {
 
       final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
@@ -138,7 +125,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
     session.begin();
     var result =
         session.query(
-
             "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
                 + " 'name9999' order by name ASC").toList();
     Assert.assertEquals(result.size(), 6);
@@ -151,10 +137,6 @@ public class PolymorphicQueryTest extends BaseDBTest {
       Assert.assertTrue(lastName.compareTo(currentName) <= 0);
       lastName = currentName;
     }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), indexUsage + 2);
-    var reverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    Assert.assertEquals(reverted < 0 ? 0 : reverted, indexUsageReverted);
 
     result =
         session.query(

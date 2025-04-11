@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -18,7 +19,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
   public BrokenMapHook() {
   }
 
-  public void onBeforeRecordCreate(DBRecord record) {
+  public void onAfterRecordCreate(DBRecord record) {
     var now = new Date();
     var element = (Entity) record;
 
@@ -29,7 +30,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
 
       myMap.replaceAll((k, v) -> newDate);
 
-      element.setProperty("myMap", myMap);
+      element.setProperty("myMap", ((EntityImpl) element).getSession().newEmbeddedMap(myMap));
     }
   }
 

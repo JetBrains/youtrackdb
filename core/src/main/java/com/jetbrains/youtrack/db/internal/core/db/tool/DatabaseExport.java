@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -177,6 +178,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     for (var i = 0; exportedCollections <= maxCollectionId; ++i) {
       var collectionName = session.getCollectionNameById(i);
 
+      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
+        continue;
+      }
+
       exportedCollections++;
 
       long collectionExportedRecordsTot = 0;
@@ -245,7 +250,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       }
 
       listener.onMessage(
-          "OK (records=" + collectionExportedRecordsCurrent + "/" + collectionExportedRecordsTot + ")");
+          "OK (records="
+              + collectionExportedRecordsCurrent + "/" + collectionExportedRecordsTot + ")");
 
       totalExportedRecords += collectionExportedRecordsCurrent;
       totalFoundRecords += collectionExportedRecordsTot;
@@ -579,7 +585,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       long recordTot, long recordNum, RecordAbstract rec, Set<RID> brokenRids) {
     if (rec != null) {
       try {
-        final var format = "version,class,type,keepTypes,internal,markEmbeddedEntities";
+        final var format = "rid,version,class,type,keepTypes,internal,markEmbeddedEntities";
         JSONSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;

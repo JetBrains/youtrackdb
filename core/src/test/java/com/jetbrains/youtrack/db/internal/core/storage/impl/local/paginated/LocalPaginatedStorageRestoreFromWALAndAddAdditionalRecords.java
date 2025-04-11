@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
@@ -144,15 +143,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     }
 
     var databaseCompare =
-        new DatabaseCompare(
-            testDocumentTx,
-            baseDocumentTx,
-            new CommandOutputListener() {
-              @Override
-              public void onMessage(String text) {
-                System.out.println(text);
-              }
-            });
+        new DatabaseCompare(testDocumentTx, baseDocumentTx, System.out::println);
     databaseCompare.setCompareIndexMetadata(true);
 
     Assert.assertTrue(databaseCompare.compare());

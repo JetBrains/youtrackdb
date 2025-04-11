@@ -1,7 +1,7 @@
 package com.orientechnologies.distribution.integration;
 
-import com.orientechnologies.orient.core.db.ODatabasePool;
-import com.orientechnologies.orient.core.db.OrientDB;
+import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -10,15 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
-import org.testcontainers.containers.wait.Wait;
+import org.testcontainers.containers.wait.strategy.Wait;
 
-public abstract class OSingleYouTrackDBServerBaseIT {
+public abstract class SingleYouTrackDBServerBaseIT {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(OSingleYouTrackDBServerBaseIT.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(SingleYouTrackDBServerBaseIT.class);
 
   @ClassRule
   public static GenericContainer container =
-      new GenericContainer("orientdb/orientdb:latest")
+      new GenericContainer("youtrackdb/youtrackdb:latest")
           .withEnv("YOUTRACKDB_ROOT_PASSWORD", "root")
           .withExposedPorts(2480, 2424)
           .waitingFor(Wait.forListeningPort());
@@ -26,8 +26,8 @@ public abstract class OSingleYouTrackDBServerBaseIT {
   @Rule
   public TestName name = new TestName();
 
-  protected OrientDB orientDB;
-  protected ODatabasePool pool;
+  protected YouTrackDB youTrackDB;
+  protected SessionPool pool;
 
   @BeforeClass
   public static void beforeClass() throws Exception {

@@ -75,7 +75,7 @@ public class EntityHelper {
   public static final String ATTRIBUTE_EMBEDDED = "@embedded";
   public static final String ATTRIBUTE_SIZE = "@size";
   public static final String ATTRIBUTE_FIELDS = "@fields";
-  public static final String ATTRIBUTE_FIELS_TYPES = "@fieldtypes";
+  public static final String ATTRIBUTE_FIELD_TYPES = "@fieldtypes";
   public static final String ATTRIBUTE_RAW = "@raw";
 
   public interface RIDMapper {
@@ -95,7 +95,7 @@ public class EntityHelper {
     retSet.add(ATTRIBUTE_SIZE);
     retSet.add(ATTRIBUTE_FIELDS);
     retSet.add(ATTRIBUTE_RAW);
-    retSet.add(ATTRIBUTE_FIELS_TYPES);
+    retSet.add(ATTRIBUTE_FIELD_TYPES);
     return retSet;
   }
 
