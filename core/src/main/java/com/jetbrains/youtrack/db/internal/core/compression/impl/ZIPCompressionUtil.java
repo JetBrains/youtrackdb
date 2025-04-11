@@ -70,11 +70,8 @@ public class ZIPCompressionUtil {
 
     try (var zin = new ZipInputStream(in)) {
       ZipEntry entry;
-      String name;
-      String dir;
       while ((entry = zin.getNextEntry()) != null) {
-        name = entry.getName();
-
+        final var name = entry.getName();
 
         // Validate the name to prevent path traversal
         if (name.contains("..") ||
@@ -101,7 +98,7 @@ public class ZIPCompressionUtil {
         /*
          * this part is necessary because file entry can come before directory entry where is file located i.e.: /foo/foo.txt /foo/
          */
-        dir = getDirectoryPart(name);
+        final var dir = getDirectoryPart(name);
         if (dir != null) {
           mkdirs(outdir, dir);
         }
