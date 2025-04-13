@@ -2593,7 +2593,7 @@ public class SQLSelectHashIndexReuseTest extends AbstractIndexReuseTest {
   public void testCountFunctionWithNotUniqueIndex() {
     SchemaClass klazz =
         database.getMetadata().getSchema().getOrCreateClass("CountFunctionWithNotUniqueHashIndex");
-    if (!klazz.existsProperty("a")) {
+    if (!klazz.existsProperty(database,"a")) {
       klazz.createProperty(database, "a", PropertyType.STRING);
       klazz.createIndex(database, "CountFunctionWithNotUniqueHashIndex_A", "NOTUNIQUE_HASH_INDEX",
           "a");
@@ -2630,7 +2630,7 @@ public class SQLSelectHashIndexReuseTest extends AbstractIndexReuseTest {
 
     SchemaClass klazz =
         database.getMetadata().getSchema().getOrCreateClass("CountFunctionWithUniqueHashIndex");
-    if (!klazz.existsProperty("a")) {
+    if (!klazz.existsProperty(database,"a")) {
       klazz.createProperty(database, "a", PropertyType.STRING);
       klazz.createIndex(database, "CountFunctionWithUniqueHashIndex_A", "UNIQUE_HASH_INDEX", "a");
     }

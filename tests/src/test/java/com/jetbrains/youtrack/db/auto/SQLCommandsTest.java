@@ -15,11 +15,11 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
@@ -50,7 +50,8 @@ public class SQLCommandsTest extends BaseDBTest {
     database.command("create property account.timesheet string").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty("timesheet").getType(),
+        database.getMetadata().getSchema().getClass("account").getProperty(database, "timesheet")
+            .getType(),
         PropertyType.STRING);
   }
 
@@ -59,14 +60,15 @@ public class SQLCommandsTest extends BaseDBTest {
     database.command("create property account.knows embeddedmap account").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty("knows").getType(),
+        database.getMetadata().getSchema().getClass("account").getProperty(database, "knows")
+            .getType(),
         PropertyType.EMBEDDEDMAP);
     Assert.assertEquals(
         database
             .getMetadata()
             .getSchema()
             .getClass("account")
-            .getProperty("knows")
+            .getProperty(database, "knows")
             .getLinkedClass(database),
         database.getMetadata().getSchema().getClass("account"));
   }
@@ -76,10 +78,12 @@ public class SQLCommandsTest extends BaseDBTest {
     database.command("create property account.tags embeddedlist string").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty("tags").getType(),
+        database.getMetadata().getSchema().getClass("account").getProperty(database, "tags")
+            .getType(),
         PropertyType.EMBEDDEDLIST);
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty("tags").getLinkedType(),
+        database.getMetadata().getSchema().getClass("account").getProperty(database, "tags")
+            .getLinkedType(),
         PropertyType.STRING);
   }
 
@@ -89,9 +93,10 @@ public class SQLCommandsTest extends BaseDBTest {
     database.command("drop property account.tags").close();
 
     Assert.assertFalse(
-        database.getMetadata().getSchema().getClass("account").existsProperty("timesheet"));
+        database.getMetadata().getSchema().getClass("account")
+            .existsProperty(database, "timesheet"));
     Assert.assertFalse(
-        database.getMetadata().getSchema().getClass("account").existsProperty("tags"));
+        database.getMetadata().getSchema().getClass("account").existsProperty(database, "tags"));
   }
 
   @Test(dependsOnMethods = "removeProperty")

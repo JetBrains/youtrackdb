@@ -612,7 +612,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
         database.query("select from GraphVehicle").stream().collect(Collectors.toList());
     Assert.assertEquals(result.size(), 2);
     for (Result v : result) {
-      Assert.assertTrue(v.getEntity().get().getSchemaType().get().isSubClassOf(vehicleClass));
+      Assert.assertTrue(
+          v.getEntity().get().getSchemaType().get().isSubClassOf(database, vehicleClass));
     }
 
     database.commit();
@@ -623,7 +624,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
     Edge edge2 = null;
 
     for (Result v : result) {
-      Assert.assertTrue(v.getEntity().get().getSchemaType().get().isSubClassOf("GraphVehicle"));
+      Assert.assertTrue(
+          v.getEntity().get().getSchemaType().get().isSubClassOf(database, "GraphVehicle"));
 
       if (v.getEntity().get().getSchemaType().isPresent()
           && v.getEntity().get().getSchemaType().get().getName().equals("GraphCar")) {

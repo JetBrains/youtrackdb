@@ -183,7 +183,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     Collection<Index> indexes =
         database.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal("nick")
+            .getPropertyInternal(database, "nick")
             .getAllIndexesInternal(database);
 
     Assert.assertEquals(indexes.size(), 1);
@@ -219,7 +219,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
     Collection<Index> indexes =
         database.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal("name")
+            .getPropertyInternal(database, "name")
             .getAllIndexesInternal(database);
     Assert.assertEquals(indexes.size(), 1);
 
@@ -535,6 +535,12 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "create")
   public void polymorphicQuery() {
+    // seems like tests interconnection
+    // I don't know where I've broken it, but at this point Company is no longet a subclass of an account,
+    // before my changes it was like this
+
+    database.getClass("Company").setSuperClasses(database, List.of(database.getClass("Account")));
+
     database.begin();
     final RecordAbstract newAccount =
         new EntityImpl("Account").field("name", "testInheritanceName");

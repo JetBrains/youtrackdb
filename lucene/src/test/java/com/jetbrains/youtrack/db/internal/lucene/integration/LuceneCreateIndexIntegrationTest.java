@@ -56,10 +56,10 @@ public class LuceneCreateIndexIntegrationTest {
     if (person == null) {
       person = session.getMetadata().getSchema().createClass("Person");
     }
-    if (!person.existsProperty("name")) {
+    if (!person.existsProperty(session, "name")) {
       person.createProperty(session, "name", PropertyType.STRING);
     }
-    if (!person.existsProperty("surname")) {
+    if (!person.existsProperty(session, "surname")) {
       person.createProperty(session, "surname", PropertyType.STRING);
     }
 

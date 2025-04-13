@@ -38,6 +38,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Test(expected = CommandExecutionException.class)
   public void shouldNotDeleteVertexAndEdge() {
     CommandContext context = new BasicCommandContext();
+    context.setDatabase(db);
     switch (className) {
       case VERTEX_CLASS_NAME:
         db.createVertexClass(VERTEX_CLASS_NAME);
@@ -78,6 +79,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Test
   public void shouldSafelyDeleteRecord() {
     CommandContext context = new BasicCommandContext();
+    context.setDatabase(db);
     CheckSafeDeleteStep step = new CheckSafeDeleteStep(context, false);
     AbstractExecutionStep previous =
         new AbstractExecutionStep(context, false) {

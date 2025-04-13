@@ -207,7 +207,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     SchemaClass aClass =
         getDatabase().getMetadata().getSchema().getClass(indexDefinition.getClassName());
     for (String field : fields) {
-      SchemaProperty property = aClass.getProperty(field);
+      SchemaProperty property = aClass.getProperty(getDatabase(), field);
 
       if (property.getType().isEmbedded() && property.getLinkedType() != null) {
         collectionFields.put(field, true);

@@ -43,7 +43,7 @@ public class SpatialStrategyFactory {
     SchemaClass aClass =
         db.getMetadata().getImmutableSchemaSnapshot().getClass(indexDefinition.getClassName());
 
-    SchemaProperty property = aClass.getProperty(indexDefinition.getFields().get(0));
+    SchemaProperty property = aClass.getProperty(db, indexDefinition.getFields().get(0));
 
     SchemaClass linkedClass = property.getLinkedClass(db);
 

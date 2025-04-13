@@ -254,7 +254,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     return RecordSerializerJSON.INSTANCE
-        .toString(getSession(), this, new StringBuilder(1024), format == null ? "" : format)
+        .toString( this, new StringBuilder(1024), format == null ? "" : format)
         .toString();
   }
 

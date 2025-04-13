@@ -96,7 +96,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
       getOwner().reload(session);
       reload(session);
 
-      return getProperty(propertyName);
+      return getProperty(session, propertyName);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -165,7 +165,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     if (classes != null) {
       List<SchemaClass> toCheck = new ArrayList<SchemaClass>(classes);
       toCheck.add(this);
-      checkParametersConflict(toCheck);
+      checkParametersConflict(session, toCheck);
     }
     acquireSchemaWriteLock(database);
     try {
@@ -179,6 +179,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
         sb.append("null");
       }
 
+      owner.markClassDirty(this);
       final String cmd = String.format("alter class `%s` superclasses %s", name, sb);
       database.command(cmd).close();
     } finally {
@@ -346,6 +347,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
     acquireSchemaWriteLock(database);
     try {
+      owner.markClassDirty(this);
       final String cmd = String.format("alter class `%s` add_cluster %d", name, clusterId);
       database.command(cmd).close();
 
@@ -392,8 +394,10 @@ public class SchemaClassRemote extends SchemaClassImpl {
             "Property '" + propertyName + "' not found in class " + name + "'");
       }
 
+      owner.markClassDirty(this);
       database.command("drop property " + name + '.' + propertyName).close();
 
+      reload(database);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -460,7 +464,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
         return this;
       }
 
-      if (subclasses.remove(baseClass)) {
+      if (subclasses.remove(session, baseClass)) {
         removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
       }
 
@@ -468,35 +472,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
     } finally {
       releaseSchemaWriteLock(session);
     }
-  }
-
-  protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClass> classes) {
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
-    SchemaClassImpl cls;
-    for (SchemaClass superClass : classes) {
-      cls = (SchemaClassImpl) superClass;
-
-      if (newSuperClasses.contains(cls)) {
-        throw new SchemaException("Duplicated superclass '" + cls.getName() + "'");
-      }
-
-      newSuperClasses.add(cls);
-    }
-
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
-    toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
-    toRemoveList.removeAll(newSuperClasses);
-
-    for (SchemaClassImpl toRemove : toRemoveList) {
-      toRemove.removeBaseClassInternal(session, this);
-    }
-    for (SchemaClassImpl addTo : toAddList) {
-      addTo.addBaseClass(session, this);
-    }
-    superClasses.clear();
-    superClasses.addAll(newSuperClasses);
   }
 
   public void setDefaultClusterId(DatabaseSession session, final int defaultClusterId) {

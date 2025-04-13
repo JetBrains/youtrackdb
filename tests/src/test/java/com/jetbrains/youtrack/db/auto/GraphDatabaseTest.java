@@ -100,7 +100,7 @@ public class GraphDatabaseTest extends BaseDBTest {
       oc = (SchemaClassInternal) database.createVertexClass("vertexA");
     }
 
-    if (!oc.existsProperty("name")) {
+    if (!oc.existsProperty(database,"name")) {
       oc.createProperty(database, "name", PropertyType.STRING);
     }
 

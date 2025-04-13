@@ -72,7 +72,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void testCreateUniqueIndex() {
     var schema = database.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    final SchemaProperty propOne = oClass.getProperty("prop1");
+    final SchemaProperty propOne = oClass.getProperty(database, "prop1");
 
     propOne.createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
         Map.of("ignoreNullValues", true));
@@ -131,7 +131,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void testGetIndexes() {
     var schema = database.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    oClass.getProperty("prop1");
+    oClass.getProperty(database, "prop1");
 
     var indexes = oClass.getInvolvedIndexesInternal(database, "prop1");
     Assert.assertEquals(indexes.size(), 1);
@@ -142,7 +142,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void testGetAllIndexes() {
     var schema = database.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    var propOne = oClass.getPropertyInternal("prop1");
+    var propOne = oClass.getPropertyInternal(database,"prop1");
 
     final Collection<Index> indexes = propOne.getAllIndexesInternal(database);
     Assert.assertEquals(indexes.size(), 5);
@@ -157,7 +157,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void testIsIndexedNonIndexedField() {
     var schema = database.getMetadata().getSchema();
     var oClass = schema.getClass("PropertyIndexTestClass");
-    var propThree = oClass.getProperty("prop3");
+    var propThree = oClass.getProperty(database, "prop3");
 
     Assert.assertTrue(propThree.getAllIndexes(database).isEmpty());
   }
@@ -166,7 +166,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void testIsIndexedIndexedField() {
     final Schema schema = database.getMetadata().getSchema();
     final SchemaClass oClass = schema.getClass("PropertyIndexTestClass");
-    final SchemaProperty propOne = oClass.getProperty("prop1");
+    final SchemaProperty propOne = oClass.getProperty(database, "prop1");
     Assert.assertFalse(propOne.getAllIndexes(database).isEmpty());
   }
 

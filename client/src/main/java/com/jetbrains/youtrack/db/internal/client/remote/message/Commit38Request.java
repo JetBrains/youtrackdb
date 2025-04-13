@@ -65,7 +65,7 @@ public class Commit38Request implements BinaryRequest<Commit37Response> {
             if (EntityImpl.RECORD_TYPE == RecordInternal.getRecordType(txEntry.record)) {
               request.setRecordType(DocumentSerializerDelta.DELTA_RECORD_TYPE);
               DocumentSerializerDelta delta = DocumentSerializerDelta.instance();
-              request.setRecord(delta.serializeDelta((EntityImpl) txEntry.record));
+              request.setRecord(delta.serializeDelta(session, (EntityImpl) txEntry.record));
               request.setContentChanged(RecordInternal.isContentChanged(txEntry.record));
             } else {
               request.setRecordType(RecordInternal.getRecordType(txEntry.record));

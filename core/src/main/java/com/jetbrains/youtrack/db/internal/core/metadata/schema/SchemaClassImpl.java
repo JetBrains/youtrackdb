@@ -320,11 +320,53 @@ public abstract class SchemaClassImpl implements SchemaClassInternal {
     setSuperClasses(session, classes);
   }
 
-  protected abstract void setLazySuperClassesInternal(DatabaseSessionInternal session,
-      final List<LazySchemaClass> lazyClasses);
+  protected void setLazySuperClassesInternal(DatabaseSessionInternal session,
+      List<LazySchemaClass> lazyClasses) {
+    Map<String, LazySchemaClass> newSuperClasses = new HashMap<>();
+    for (LazySchemaClass superClass : lazyClasses) {
+      String className = superClass.getName(session);
+      if (newSuperClasses.containsKey(className)) {
+        throw new SchemaException("Duplicated superclass '" + className + "'");
+      }
+      newSuperClasses.put(className, superClass);
+    }
 
-  protected abstract void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClass> classes);
+    Map<String, LazySchemaClass> classesToAdd = new HashMap<>();
+    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : newSuperClasses.entrySet()) {
+      if (!superClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToAdd.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
+    }
+
+    Map<String, LazySchemaClass> classesToRemove = new HashMap<>();
+    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : superClasses.entrySet()) {
+      if (!newSuperClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToRemove.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
+    }
+
+    for (LazySchemaClass toRemove : classesToRemove.values()) {
+      toRemove.loadWithoutInheritanceIfNeeded(session);
+      ((SchemaClassImpl) toRemove.getDelegate()).removeBaseClassInternal(session, this);
+    }
+    for (LazySchemaClass addTo : classesToAdd.values()) {
+      addTo.loadWithoutInheritanceIfNeeded(session);
+      ((SchemaClassImpl) addTo.getDelegate()).addBaseClass(session, this);
+    }
+    superClasses.clear();
+    superClasses.putAll(newSuperClasses);
+  }
+
+  protected void setSuperClassesInternal(DatabaseSessionInternal session,
+      final List<? extends SchemaClass> classes) {
+    // todo this is a bad temporary decision, we already have all classes, converting them to lazy classes to load again smells.
+    // I think it's possible to completely move to lazy classes and remove this method
+    List<LazySchemaClass> lazyClasses = new ArrayList<>(classes.size());
+    for (SchemaClass superClass : classes) {
+      lazyClasses.add(owner.getLazyClass(superClass.getName()));
+    }
+    setLazySuperClassesInternal(session, lazyClasses);
+  }
 
   public long getSize(DatabaseSessionInternal session) {
     acquireSchemaReadLock();

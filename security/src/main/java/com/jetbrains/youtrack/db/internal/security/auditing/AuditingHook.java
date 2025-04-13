@@ -506,7 +506,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
 
         // BROWSE SUPER CLASSES UP TO ROOT
         while (cfg == null && cls != null) {
-          cls = cls.getSuperClass();
+          cls = cls.getSuperClass(((EntityImpl) iRecord).getSession());
           if (cls != null) {
             cfg = classes.get(cls.getName());
             if (cfg != null && !cfg.polymorphic) {

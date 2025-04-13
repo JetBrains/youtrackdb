@@ -118,8 +118,8 @@ public class CRUDInheritanceTest extends BaseDBTest {
     SchemaClass baseClass = database.getMetadata().getSchema().getClass("InheritanceTestBaseClass");
     SchemaClass testClass = database.getMetadata().getSchema().getClass("InheritanceTestClass");
 
-    Assert.assertTrue(baseClass.getSuperClasses().contains(abstractClass));
-    Assert.assertTrue(testClass.getSuperClasses().contains(baseClass));
+    Assert.assertTrue(baseClass.getSuperClasses(database).contains(abstractClass));
+    Assert.assertTrue(testClass.getSuperClasses(database).contains(baseClass));
   }
 
   @Test
@@ -143,8 +143,8 @@ public class CRUDInheritanceTest extends BaseDBTest {
     SchemaClass klass = database.getMetadata().getSchema().createClass("Not");
 
     SchemaClass klass1 = database.getMetadata().getSchema().createClass("Extends_Not", klass);
-    Assert.assertEquals(1, klass1.getSuperClasses().size(), 1);
-    Assert.assertEquals("Not", klass1.getSuperClasses().get(0).getName());
+    Assert.assertEquals(1, klass1.getSuperClasses(database).size(), 1);
+    Assert.assertEquals("Not", klass1.getSuperClasses(database).get(0).getName());
   }
 
   @Test
@@ -218,14 +218,14 @@ public class CRUDInheritanceTest extends BaseDBTest {
   }
 
   protected void checkProperty(SchemaClass iClass, String iPropertyName, PropertyType iType) {
-    SchemaProperty prop = iClass.getProperty(iPropertyName);
+    SchemaProperty prop = iClass.getProperty(database, iPropertyName);
     Assert.assertNotNull(prop);
     Assert.assertEquals(prop.getType(), iType);
   }
 
   protected void checkProperty(
       SchemaClass iClass, String iPropertyName, PropertyType iType, SchemaClass iLinkedClass) {
-    SchemaProperty prop = iClass.getProperty(iPropertyName);
+    SchemaProperty prop = iClass.getProperty(database, iPropertyName);
     Assert.assertNotNull(prop);
     Assert.assertEquals(prop.getType(), iType);
     Assert.assertEquals(prop.getLinkedClass(database), iLinkedClass);
@@ -233,7 +233,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   protected void checkProperty(
       SchemaClass iClass, String iPropertyName, PropertyType iType, PropertyType iLinkedType) {
-    SchemaProperty prop = iClass.getProperty(iPropertyName);
+    SchemaProperty prop = iClass.getProperty(database, iPropertyName);
     Assert.assertNotNull(prop);
     Assert.assertEquals(prop.getType(), iType);
     Assert.assertEquals(prop.getLinkedType(), iLinkedType);

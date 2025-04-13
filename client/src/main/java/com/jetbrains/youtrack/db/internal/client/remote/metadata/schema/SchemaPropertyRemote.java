@@ -127,6 +127,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final String cmd =
           String.format(
               "alter property %s custom %s=%s", getFullNameQuoted(), name, quoteString(value));
+      owner.getOwner().markClassDirty(owner);
       database.command(cmd).close();
     } finally {
       releaseSchemaWriteLock(database);

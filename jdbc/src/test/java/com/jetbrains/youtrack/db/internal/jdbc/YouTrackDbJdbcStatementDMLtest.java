@@ -15,9 +15,9 @@ package com.jetbrains.youtrack.db.internal.jdbc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.IOException;
 import java.sql.Date;
 import java.sql.ResultSet;
@@ -105,9 +105,9 @@ public class YouTrackDbJdbcStatementDMLtest extends YouTrackDbJdbcDbPerMethodTem
     assertThat(database.getClusterIdByName("account")).isNotNull();
     SchemaClass account = database.getMetadata().getSchema().getClass("Account");
     assertThat(account).isNotNull();
-    assertThat(account.getProperty("id").getType()).isEqualTo(PropertyType.INTEGER);
-    assertThat(account.getProperty("birthDate").getType()).isEqualTo(PropertyType.DATE);
-    assertThat(account.getProperty("binary").getType()).isEqualTo(PropertyType.BINARY);
+    assertThat(account.getProperty(database, "id").getType()).isEqualTo(PropertyType.INTEGER);
+    assertThat(account.getProperty(database, "birthDate").getType()).isEqualTo(PropertyType.DATE);
+    assertThat(account.getProperty(database, "binary").getType()).isEqualTo(PropertyType.BINARY);
   }
 
   @Test
@@ -127,8 +127,8 @@ public class YouTrackDbJdbcStatementDMLtest extends YouTrackDbJdbcDbPerMethodTem
     assertThat(database.getClusterIdByName("account")).isNotNull();
     SchemaClass account = database.getMetadata().getSchema().getClass("Account");
     assertThat(account).isNotNull();
-    assertThat(account.getProperty("id").getType()).isEqualTo(PropertyType.INTEGER);
-    assertThat(account.getProperty("birthDate").getType()).isEqualTo(PropertyType.DATE);
-    assertThat(account.getProperty("binary").getType()).isEqualTo(PropertyType.BINARY);
+    assertThat(account.getProperty(database, "id").getType()).isEqualTo(PropertyType.INTEGER);
+    assertThat(account.getProperty(database, "birthDate").getType()).isEqualTo(PropertyType.DATE);
+    assertThat(account.getProperty(database, "binary").getType()).isEqualTo(PropertyType.BINARY);
   }
 }

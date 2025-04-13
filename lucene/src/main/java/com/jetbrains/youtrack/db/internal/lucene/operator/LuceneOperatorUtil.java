@@ -16,9 +16,9 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.operator;
 
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -107,14 +107,15 @@ public class LuceneOperatorUtil {
 
     if (result.lastField.isLong()) {
       final int fieldCount = result.lastField.getItemCount();
-      SchemaClass cls = iSchemaClass.getProperty(result.lastField.getItemName(0)).getLinkedClass(session);
+      SchemaClass cls = iSchemaClass.getProperty(session, result.lastField.getItemName(0))
+          .getLinkedClass(session);
 
       for (int i = 1; i < fieldCount; i++) {
         if (cls == null || !cls.areIndexed(session, result.lastField.getItemName(i))) {
           return false;
         }
 
-        cls = cls.getProperty(result.lastField.getItemName(i)).getLinkedClass(session);
+        cls = cls.getProperty(session, result.lastField.getItemName(i)).getLinkedClass(session);
       }
     }
     return true;

@@ -42,7 +42,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
           .getMetadata()
           .getSchema()
           .createClass("PersonTest", database.getMetadata().getSchema().getClass("V"));
-    } else if (personTest.getSuperClass() == null) {
+    } else if (personTest.getSuperClass(database) == null) {
       personTest.setSuperClass(database, database.getMetadata().getSchema().getClass("V"));
     }
 
@@ -52,7 +52,7 @@ public class FetchPlanComplexNestedLevelsTest extends BaseDBTest {
           .getMetadata()
           .getSchema()
           .createClass("FollowTest", database.getMetadata().getSchema().getClass("E"));
-    } else if (followTest.getSuperClass() == null) {
+    } else if (followTest.getSuperClass(database) == null) {
       followTest.setSuperClass(database, database.getMetadata().getSchema().getClass("E"));
     }
 

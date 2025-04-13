@@ -125,7 +125,6 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
   }
 
   public static void fieldTypeToString(
-      DatabaseSessionInternal session,
       final StringBuilder iBuffer, PropertyType iType, final Object iValue) {
     if (iValue == null) {
       return;
@@ -187,8 +186,7 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
 
       case EMBEDDED:
         if (iValue instanceof EntityImpl) {
-          RecordSerializerSchemaAware2CSV.INSTANCE.toString(session, (EntityImpl) iValue, iBuffer,
-              null);
+          RecordSerializerSchemaAware2CSV.INSTANCE.toString((EntityImpl) iValue, iBuffer, null);
         } else {
           StringSerializerEmbedded.INSTANCE.toStream(iBuffer, iValue);
         }
@@ -640,9 +638,8 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
       DatabaseSessionInternal db, String iContent, RecordAbstract iRecord, String[] iFields);
 
   public StringBuilder toString(
-      DatabaseSessionInternal session,
       final DBRecord iRecord, final StringBuilder iOutput, final String iFormat) {
-    return toString(session, iRecord, iOutput, iFormat, true);
+    return toString(iRecord, iOutput, iFormat, true);
   }
 
   public DBRecord fromString(DatabaseSessionInternal db, final String iSource) {
@@ -664,13 +661,12 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
   }
 
   public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
-    return toString(session, iRecord, new StringBuilder(2048), null, true)
+    return toString(iRecord, new StringBuilder(2048), null, true)
         .toString()
         .getBytes(StandardCharsets.UTF_8);
   }
 
   protected abstract StringBuilder toString(
-      final DatabaseSessionInternal session,
       final DBRecord iRecord,
       final StringBuilder iOutput,
       final String iFormat,

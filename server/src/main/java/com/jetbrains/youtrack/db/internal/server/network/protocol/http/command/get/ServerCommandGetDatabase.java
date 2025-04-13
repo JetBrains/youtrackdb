@@ -61,11 +61,11 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
     json.beginObject();
     json.writeAttribute("name", cls.getName());
     json.writeAttribute(
-        "superClass", cls.getSuperClass() != null ? cls.getSuperClass().getName() : "");
+        "superClass", cls.getSuperClass(db) != null ? cls.getSuperClass(db).getName() : "");
 
     json.beginCollection("superClasses");
     int i = 0;
-    for (SchemaClass oClass : cls.getSuperClasses()) {
+    for (SchemaClass oClass : cls.getSuperClasses(db)) {
       json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
       i++;
     }

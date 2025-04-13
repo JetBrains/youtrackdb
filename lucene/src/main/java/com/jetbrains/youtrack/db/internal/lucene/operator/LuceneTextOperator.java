@@ -248,7 +248,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
           SQLFilterItemField.FieldChain fieldChain = chained.getFieldChain();
           SchemaClassInternal oClass = cls;
           for (int i = 0; i < fieldChain.getItemCount() - 1; i++) {
-            oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
+            oClass = (SchemaClassInternal) oClass.getProperty(session, fieldChain.getItemName(i))
                 .getLinkedClass(session);
           }
           if (oClass != null) {

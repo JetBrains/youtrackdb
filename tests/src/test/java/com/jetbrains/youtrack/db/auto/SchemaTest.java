@@ -66,31 +66,36 @@ public class SchemaTest extends BaseDBTest {
 
     assert schema != null;
     assert schema.getClass("Profile") != null;
-    assert schema.getClass("Profile").getProperty("nick").getType() == PropertyType.STRING;
-    assert schema.getClass("Profile").getProperty("name").getType() == PropertyType.STRING;
-    assert schema.getClass("Profile").getProperty("surname").getType() == PropertyType.STRING;
     assert
-        schema.getClass("Profile").getProperty("registeredOn").getType() == PropertyType.DATETIME;
+        schema.getClass("Profile").getProperty(database, "nick").getType() == PropertyType.STRING;
     assert
-        schema.getClass("Profile").getProperty("lastAccessOn").getType() == PropertyType.DATETIME;
+        schema.getClass("Profile").getProperty(database, "name").getType() == PropertyType.STRING;
+    assert schema.getClass("Profile").getProperty(database, "surname").getType()
+        == PropertyType.STRING;
+    assert
+        schema.getClass("Profile").getProperty(database, "registeredOn").getType()
+            == PropertyType.DATETIME;
+    assert
+        schema.getClass("Profile").getProperty(database, "lastAccessOn").getType()
+            == PropertyType.DATETIME;
 
     assert schema.getClass("Whiz") != null;
-    assert schema.getClass("whiz").getProperty("account").getType() == PropertyType.LINK;
+    assert schema.getClass("whiz").getProperty(database, "account").getType() == PropertyType.LINK;
     assert schema
         .getClass("whiz")
-        .getProperty("account")
+        .getProperty(database, "account")
         .getLinkedClass(database)
         .getName()
         .equalsIgnoreCase("Account");
-    assert schema.getClass("WHIZ").getProperty("date").getType() == PropertyType.DATE;
-    assert schema.getClass("WHIZ").getProperty("text").getType() == PropertyType.STRING;
-    assert schema.getClass("WHIZ").getProperty("text").isMandatory();
-    assert schema.getClass("WHIZ").getProperty("text").getMin().equals("1");
-    assert schema.getClass("WHIZ").getProperty("text").getMax().equals("140");
-    assert schema.getClass("whiz").getProperty("replyTo").getType() == PropertyType.LINK;
+    assert schema.getClass("WHIZ").getProperty(database, "date").getType() == PropertyType.DATE;
+    assert schema.getClass("WHIZ").getProperty(database, "text").getType() == PropertyType.STRING;
+    assert schema.getClass("WHIZ").getProperty(database, "text").isMandatory();
+    assert schema.getClass("WHIZ").getProperty(database, "text").getMin().equals("1");
+    assert schema.getClass("WHIZ").getProperty(database, "text").getMax().equals("140");
+    assert schema.getClass("whiz").getProperty(database, "replyTo").getType() == PropertyType.LINK;
     assert schema
         .getClass("Whiz")
-        .getProperty("replyTo")
+        .getProperty(database, "replyTo")
         .getLinkedClass(database)
         .getName()
         .equalsIgnoreCase("Account");
@@ -237,7 +242,7 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .setCustom(database, "stereotype", "icon");
 
     Assert.assertEquals(
@@ -245,7 +250,7 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("stereotype"),
         "icon");
 
@@ -256,7 +261,7 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("stereotype"),
         "icon");
 
@@ -265,14 +270,14 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .setCustom(database, "stereotype", null);
     Assert.assertNull(
         database
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("stereotype"));
 
     // TEST CUSTOM PROPERTY UPDATE
@@ -280,14 +285,14 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .setCustom(database, "stereotype", "polygon");
     Assert.assertEquals(
         database
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("stereotype"),
         "polygon");
 
@@ -298,7 +303,7 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("stereotype"),
         "polygon");
 
@@ -308,7 +313,7 @@ public class SchemaTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .setCustom(database, "equal", "this = that");
 
     Assert.assertEquals(
@@ -316,7 +321,7 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("equal"),
         "this = that");
 
@@ -327,7 +332,7 @@ public class SchemaTest extends BaseDBTest {
             .getMetadata()
             .getSchema()
             .getClass("Profile")
-            .getProperty("nick")
+            .getProperty(database, "nick")
             .getCustom("equal"),
         "this = that");
   }
@@ -336,11 +341,11 @@ public class SchemaTest extends BaseDBTest {
   public void alterAttributes() {
 
     SchemaClass company = database.getMetadata().getSchema().getClass("Company");
-    SchemaClass superClass = company.getSuperClass();
+    SchemaClass superClass = company.getSuperClass(database);
 
     Assert.assertNotNull(superClass);
     boolean found = false;
-    for (SchemaClass c : superClass.getSubclasses()) {
+    for (SchemaClass c : superClass.getSubclasses(database)) {
       if (c.equals(company)) {
         found = true;
         break;
@@ -349,8 +354,8 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertTrue(found);
 
     company.setSuperClass(database, null);
-    Assert.assertNull(company.getSuperClass());
-    for (SchemaClass c : superClass.getSubclasses()) {
+    Assert.assertNull(company.getSuperClass(database));
+    for (SchemaClass c : superClass.getSubclasses(database)) {
       Assert.assertNotSame(c, company);
     }
 
@@ -359,11 +364,11 @@ public class SchemaTest extends BaseDBTest {
         .close();
 
     company = database.getMetadata().getSchema().getClass("Company");
-    superClass = company.getSuperClass();
+    superClass = company.getSuperClass(database);
 
-    Assert.assertNotNull(company.getSuperClass());
+    Assert.assertNotNull(company.getSuperClass(database));
     found = false;
-    for (SchemaClass c : superClass.getSubclasses()) {
+    for (SchemaClass c : superClass.getSubclasses(database)) {
       if (c.equals(company)) {
         found = true;
         break;

@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.tx.IndexChange;
 import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperation38Response;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -65,7 +64,7 @@ public class FetchTransaction38Response implements BinaryResponse {
         request.setOriginal(
             RecordSerializerNetworkV37Client.INSTANCE.toStream(session, entityFromPersistence));
         DocumentSerializerDelta delta = DocumentSerializerDelta.instance();
-        request.setRecord(delta.serializeDelta(entity));
+        request.setRecord(delta.serializeDelta(session, entity));
       } else {
         request.setRecord(
             RecordSerializerNetworkV37Client.INSTANCE.toStream(session, txEntry.record));

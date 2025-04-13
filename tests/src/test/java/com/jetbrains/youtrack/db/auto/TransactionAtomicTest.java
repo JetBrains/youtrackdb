@@ -166,7 +166,7 @@ public class TransactionAtomicTest extends BaseDBTest {
           .getMetadata()
           .getSchema()
           .getClass("Fruit")
-          .getProperty("color")
+          .getProperty(database,"color")
           .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE);
     }
 

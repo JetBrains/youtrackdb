@@ -1846,10 +1846,10 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\nSupported clusters...: " + clusters);
     message("\nCluster selection....: " + cls.getClusterSelectionStrategyName());
 
-    if (!cls.getSubclasses().isEmpty()) {
+    if (!cls.getSubclasses(currentDatabase).isEmpty()) {
       message("\nSubclasses.........: ");
       int i = 0;
-      for (SchemaClass c : cls.getSubclasses()) {
+      for (SchemaClass c : cls.getSubclasses(currentDatabase)) {
         if (i > 0) {
           message(", ");
         }
@@ -1873,7 +1873,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           row.field("TYPE", (Object) p.getType());
           row.field(
               "LINKED-TYPE/CLASS",
-              p.getLinkedClass(currentDatabase) != null ? p.getLinkedClass(currentDatabase) : p.getLinkedType());
+              p.getLinkedClass(currentDatabase) != null ? p.getLinkedClass(currentDatabase)
+                  : p.getLinkedType());
           row.field("MANDATORY", p.isMandatory());
           row.field("READONLY", p.isReadonly());
           row.field("NOT-NULL", p.isNotNull());
@@ -1967,7 +1968,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       return;
     }
 
-    final SchemaProperty prop = cls.getProperty(parts[1]);
+    final SchemaProperty prop = cls.getProperty(currentDatabase, parts[1]);
 
     if (prop == null) {
       message("\n! Property '" + parts[1] + "' does not exist in class '" + parts[0] + "'");

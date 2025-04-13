@@ -1149,7 +1149,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     if (facClass == null) {
       facClass = schema.createClass("FicheAppelCDI");
     }
-    if (!facClass.existsProperty("date")) {
+    if (!facClass.existsProperty(database,"date")) {
       facClass.createProperty(database, "date", PropertyType.DATE);
     }
 

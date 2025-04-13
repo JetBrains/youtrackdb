@@ -544,7 +544,6 @@ public class RecordSerializerJSON extends RecordSerializerStringAbstract {
 
   @Override
   public StringBuilder toString(
-      final DatabaseSessionInternal session,
       final DBRecord record,
       final StringBuilder output,
       final String format,

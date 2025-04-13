@@ -194,13 +194,13 @@ public class IndexTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .createIndex(database, INDEX_TYPE.NOTUNIQUE);
   }
 
   private void dropIndexes(String className, String propertyName) {
     for (var indexName : database.getMetadata().getSchema().getClassInternal(className)
-        .getPropertyInternal(propertyName).getAllIndexes(database)) {
+        .getPropertyInternal(database, propertyName).getAllIndexes(database)) {
       database.getMetadata().getIndexManagerInternal().dropIndex(database, indexName);
     }
   }
@@ -225,7 +225,7 @@ public class IndexTest extends BaseDBTest {
           .getMetadata()
           .getSchema()
           .getClass("Profile")
-          .getProperty("nick")
+          .getProperty(database, "nick")
           .createIndex(database, INDEX_TYPE.UNIQUE);
       Assert.fail();
     } catch (RecordDuplicatedException e) {
@@ -459,7 +459,7 @@ public class IndexTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty("nick")
+        .getProperty(database, "nick")
         .createIndex(database, INDEX_TYPE.NOTUNIQUE);
   }
 
@@ -496,7 +496,7 @@ public class IndexTest extends BaseDBTest {
         .getMetadata()
         .getSchema()
         .getClass("Whiz")
-        .getProperty("account")
+        .getProperty(database, "account")
         .createIndex(database, INDEX_TYPE.NOTUNIQUE);
 
     final List<EntityImpl> result = executeQuery("select * from Account limit 1");
@@ -629,13 +629,13 @@ public class IndexTest extends BaseDBTest {
         db.getMetadata()
             .getSchema()
             .getClass("MyFruit")
-            .getProperty("name")
+            .getProperty(database, "name")
             .createIndex(db, INDEX_TYPE.UNIQUE);
 
         db.getMetadata()
             .getSchema()
             .getClass("MyFruit")
-            .getProperty("color")
+            .getProperty(database, "color")
             .createIndex(db, INDEX_TYPE.NOTUNIQUE);
       }
 
@@ -928,10 +928,10 @@ public class IndexTest extends BaseDBTest {
             db.getMetadata().getSchema()
                 .createClass("AnotherChildTestClass", 1, (SchemaClass[]) null);
 
-        if (!baseClass.isSuperClassOf(childClass)) {
+        if (!baseClass.isSuperClassOf(db, childClass)) {
           childClass.setSuperClass(db, baseClass);
         }
-        if (!baseClass.isSuperClassOf(anotherChildClass)) {
+        if (!baseClass.isSuperClassOf(db, anotherChildClass)) {
           anotherChildClass.setSuperClass(db, baseClass);
         }
 

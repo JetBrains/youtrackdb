@@ -13,13 +13,16 @@
  */
 package com.jetbrains.youtrack.db.internal.jdbc;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -122,13 +125,12 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
     String fieldName = fieldNames[column - 1];
 
-    PropertyType otype =
-        currentRecord
-            .toEntity()
-            .getSchemaType()
-            .map(st -> st.getProperty(fieldName))
-            .map(op -> op.getType())
-            .orElse(null);
+    Entity entity = currentRecord.toEntity();
+    DatabaseSessionInternal session = ((EntityImpl) entity).getSession();
+    PropertyType otype = entity.getSchemaType()
+        .map(st -> st.getProperty(session, fieldName))
+        .map(op -> op.getType())
+        .orElse(null);
 
     if (otype == null) {
       Object value = currentRecord.getProperty(fieldName);
@@ -236,10 +238,12 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
     String columnLabel = fieldNames[column - 1];
 
-    return currentRecord
-        .toEntity()
+    Entity entity = currentRecord
+        .toEntity();
+    DatabaseSessionInternal session = ((EntityImpl) entity).getSession();
+    return entity
         .getSchemaType()
-        .map(st -> st.getProperty(columnLabel))
+        .map(st -> st.getProperty(session, columnLabel))
         .map(p -> p.getType())
         .map(t -> t.toString())
         .orElse(null);
@@ -301,12 +305,13 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
   public boolean isSigned(final int column) throws SQLException {
     final Result currentRecord = getCurrentRecord();
-    PropertyType otype =
-        currentRecord
-            .toEntity()
-            .getSchemaType()
-            .map(st -> st.getProperty(fieldNames[column - 1]).getType())
-            .orElse(null);
+    Entity entity = currentRecord
+        .toEntity();
+    DatabaseSessionInternal session = ((EntityImpl) entity).getSession();
+    PropertyType otype = entity
+        .getSchemaType()
+        .map(st -> st.getProperty(session, fieldNames[column - 1]).getType())
+        .orElse(null);
 
     return this.isANumericColumn(otype);
   }
@@ -336,10 +341,12 @@ public class YouTrackDbJdbcResultSetMetaData implements ResultSetMetaData {
 
     String fieldName = getColumnName(column);
 
-    return getCurrentRecord()
-        .toEntity()
+    Entity entity = getCurrentRecord()
+        .toEntity();
+    DatabaseSession session = ((EntityImpl) entity).getSession();
+    return entity
         .getSchemaType()
-        .map(st -> st.getProperty(fieldName))
+        .map(st -> st.getProperty(session, fieldName))
         .orElse(null);
   }
 }

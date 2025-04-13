@@ -13,6 +13,7 @@
  */
 package com.jetbrains.youtrack.db.internal.jdbc;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -322,11 +323,12 @@ public class YouTrackDbJdbcResultSet implements java.sql.ResultSet {
 
   public Array getArray(String columnLabel) throws SQLException {
 
+    DatabaseSession session = ((YouTrackDbJdbcConnection) statement.getConnection()).getDatabase();
     PropertyType columnType =
         result
             .toEntity()
             .getSchemaType()
-            .map(t -> t.getProperty(columnLabel).getType())
+            .map(t -> t.getProperty(session, columnLabel).getType())
             .orElse(PropertyType.EMBEDDEDLIST);
 
     assert columnType.isEmbedded() && columnType.isMultiValue();

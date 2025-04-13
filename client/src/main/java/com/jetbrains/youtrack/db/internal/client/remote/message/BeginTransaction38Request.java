@@ -61,7 +61,7 @@ public class BeginTransaction38Request implements BinaryRequest<BeginTransaction
             if (EntityImpl.RECORD_TYPE == RecordInternal.getRecordType(txEntry.record)) {
               request.setRecordType(DocumentSerializerDelta.DELTA_RECORD_TYPE);
               DocumentSerializerDelta delta = DocumentSerializerDelta.instance();
-              request.setRecord(delta.serializeDelta((EntityImpl) txEntry.record));
+              request.setRecord(delta.serializeDelta(session, (EntityImpl) txEntry.record));
             } else {
               request.setRecord(
                   RecordSerializerNetworkV37.INSTANCE.toStream(session, txEntry.record));

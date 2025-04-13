@@ -363,7 +363,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
   }
 
   public void fieldToStream(
-      DatabaseSessionInternal session,
       final EntityImpl iRecord,
       final StringBuilder iOutput,
       final PropertyType iType,
@@ -390,7 +389,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             && ((EntityImpl) iValue).isEmbedded()) {
           // WRONG: IT'S EMBEDDED!
           fieldToStream(
-              session,
               iRecord,
               iOutput,
               PropertyType.EMBEDDED,
@@ -502,7 +500,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
             iOutput.append(StringSerializerHelper.RECORD_SEPARATOR);
           }
 
-          fieldTypeToString(session, iOutput, PropertyType.STRING, entry.getKey());
+          fieldTypeToString(iOutput, PropertyType.STRING, entry.getKey());
           iOutput.append(StringSerializerHelper.ENTRY_SEPARATOR);
           final Object link = linkToStream(iOutput, iRecord, entry.getValue());
 
@@ -531,14 +529,14 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       case EMBEDDED:
         if (iValue instanceof DBRecord) {
           iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
-          toString(session, (DBRecord) iValue, iOutput, null, true);
+          toString((DBRecord) iValue, iOutput, null, true);
           iOutput.append(StringSerializerHelper.EMBEDDED_END);
         } else if (iValue instanceof DocumentSerializable) {
           final EntityImpl entity = ((DocumentSerializable) iValue).toDocument();
           entity.field(DocumentSerializable.CLASS_NAME, iValue.getClass().getName());
 
           iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
-          toString(session, entity, iOutput, null, true);
+          toString(entity, iOutput, null, true);
           iOutput.append(StringSerializerHelper.EMBEDDED_END);
 
         } else if (iValue != null) {
@@ -569,7 +567,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
 
       default:
-        fieldTypeToString(session, iOutput, iType, iValue);
+        fieldTypeToString(iOutput, iType, iValue);
     }
   }
 
@@ -591,14 +589,12 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
         if (o != null) {
-          fieldTypeToString((DatabaseSessionInternal) session, iOutput, PropertyType.STRING,
-              o.getKey());
+          fieldTypeToString(iOutput, PropertyType.STRING, o.getKey());
           iOutput.append(StringSerializerHelper.ENTRY_SEPARATOR);
 
           if (o.getValue() instanceof EntityImpl
               && ((EntityImpl) o.getValue()).getIdentity().isValid()) {
-            fieldTypeToString((DatabaseSessionInternal) session, iOutput, PropertyType.LINK,
-                o.getValue());
+            fieldTypeToString(iOutput, PropertyType.LINK, o.getValue());
           } else if (o.getValue() instanceof DBRecord
               || o.getValue() instanceof DocumentSerializable) {
             final EntityImpl record;
@@ -611,29 +607,29 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
               record = null;
             }
             iOutput.append(StringSerializerHelper.EMBEDDED_BEGIN);
-            toString((DatabaseSessionInternal) session, record, iOutput, null, true);
+            toString(record, iOutput, null, true);
             iOutput.append(StringSerializerHelper.EMBEDDED_END);
           } else if (o.getValue() instanceof Set<?>) {
             // SUB SET
-            fieldTypeToString((DatabaseSessionInternal) session, iOutput, PropertyType.EMBEDDEDSET,
+            fieldTypeToString( iOutput, PropertyType.EMBEDDEDSET,
                 o.getValue());
           } else if (o.getValue() instanceof Collection<?>) {
             // SUB LIST
-            fieldTypeToString((DatabaseSessionInternal) session, iOutput, PropertyType.EMBEDDEDLIST,
+            fieldTypeToString( iOutput, PropertyType.EMBEDDEDLIST,
                 o.getValue());
           } else if (o.getValue() instanceof Map<?, ?>) {
             // SUB MAP
-            fieldTypeToString((DatabaseSessionInternal) session, iOutput, PropertyType.EMBEDDEDMAP,
+            fieldTypeToString( iOutput, PropertyType.EMBEDDEDMAP,
                 o.getValue());
           } else {
             // EMBEDDED LITERALS
             if (iLinkedType == null && o.getValue() != null) {
               fieldTypeToString(
-                  (DatabaseSessionInternal) session,
+
                   iOutput, PropertyType.getTypeByClass(o.getValue().getClass()),
                   o.getValue());
             } else {
-              fieldTypeToString((DatabaseSessionInternal) session, iOutput, iLinkedType,
+              fieldTypeToString( iOutput, iLinkedType,
                   o.getValue());
             }
           }
@@ -830,9 +826,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       }
 
       if (linkedType == PropertyType.EMBEDDED && o instanceof Identifiable) {
-        toString((DatabaseSessionInternal) session, ((Identifiable) o).getRecord(), iOutput, null);
+        toString(((Identifiable) o).getRecord(), iOutput, null);
       } else if (linkedType != PropertyType.LINK && (linkedClass != null || entity != null)) {
-        toString((DatabaseSessionInternal) session, entity, iOutput, null, true);
+        toString(entity, iOutput, null, true);
       } else {
         // EMBEDDED LITERALS
         if (iLinkedType == null) {
@@ -842,7 +838,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         } else if (iLinkedType == PropertyType.CUSTOM) {
           iOutput.append(StringSerializerHelper.CUSTOM_TYPE);
         }
-        fieldTypeToString((DatabaseSessionInternal) session, iOutput, linkedType, o);
+        fieldTypeToString( iOutput, linkedType, o);
       }
 
       if (id != null && linkedType != PropertyType.LINK) {

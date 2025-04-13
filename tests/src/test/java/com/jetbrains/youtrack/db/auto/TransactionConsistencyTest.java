@@ -447,19 +447,19 @@ public class TransactionConsistencyTest extends BaseDBTest {
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty("name")
+          .getProperty(database, "name")
           .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
       database
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty("color")
+          .getProperty(database, "color")
           .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
       database
           .getMetadata()
           .getSchema()
           .getClass("MyFruit")
-          .getProperty("flavor")
+          .getProperty(database, "flavor")
           .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
     }
 

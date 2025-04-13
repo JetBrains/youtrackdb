@@ -41,9 +41,7 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass cls = classesRefs.get(normalizeClassName(iClassName));
       if (cls != null) {
-        if (!cls.isLoaded()) {
-          cls.load(database, createClassInstance(iClassName));
-        }
+        cls.loadIfNeededWithTemplate(database, createClassInstance(iClassName));
         return cls.getDelegate();
       }
     } finally {
@@ -58,9 +56,7 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
-        if (!lazySchemaClass.isLoaded()) {
-          lazySchemaClass.load(database, createClassInstance(iClassName));
-        }
+        lazySchemaClass.loadIfNeededWithTemplate(database, createClassInstance(iClassName));
         return lazySchemaClass.getDelegate();
       }
 
@@ -96,7 +92,7 @@ public class SchemaRemote extends SchemaShared {
 
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
     }
 
     acquireSchemaWriteLock(database);
@@ -191,7 +187,7 @@ public class SchemaRemote extends SchemaShared {
 
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
     }
     acquireSchemaWriteLock(database);
     try {
@@ -295,12 +291,12 @@ public class SchemaRemote extends SchemaShared {
         throw new SchemaException("Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
+      if (!cls.getSubclasses(database).isEmpty()) {
         throw new SchemaException(
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + cls.getSubclasses(database)
                 + ". Remove the dependencies before trying to drop it again");
       }
 

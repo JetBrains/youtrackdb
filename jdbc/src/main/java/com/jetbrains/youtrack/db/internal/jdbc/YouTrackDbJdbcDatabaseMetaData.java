@@ -1247,14 +1247,14 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final SchemaClass cls = database.getMetadata().getSchema().getClass(typeNamePattern);
 
     final InternalResultSet resultSet = new InternalResultSet();
-    if (cls != null && cls.getSuperClass() != null) {
+    if (cls != null && cls.getSuperClass(database) != null) {
       final ResultInternal res = new ResultInternal(database);
       res.setProperty("TABLE_CAT", catalog);
       res.setProperty("TABLE_SCHEM", catalog);
       res.setProperty("TABLE_NAME", cls.getName());
       res.setProperty("SUPERTYPE_CAT", catalog);
       res.setProperty("SUPERTYPE_SCHEM", catalog);
-      res.setProperty("SUPERTYPE_NAME", cls.getSuperClass().getName());
+      res.setProperty("SUPERTYPE_NAME", cls.getSuperClass(database).getName());
       resultSet.add(res);
     }
 
@@ -1273,7 +1273,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
     final SchemaClass cls = database.getMetadata().getSchema().getClass(tableNamePattern);
     final InternalResultSet resultSet = new InternalResultSet();
 
-    if (cls != null && cls.getSuperClass() != null) {
+    if (cls != null && cls.getSuperClass(database) != null) {
       final ResultInternal res = new ResultInternal(database);
 
       res.setProperty("TABLE_CAT", catalog);
@@ -1281,7 +1281,7 @@ public class YouTrackDbJdbcDatabaseMetaData implements DatabaseMetaData {
       res.setProperty("TABLE_NAME", cls.getName());
       res.setProperty("SUPERTABLE_CAT", catalog);
       res.setProperty("SUPERTABLE_SCHEM", catalog);
-      res.setProperty("SUPERTABLE_NAME", cls.getSuperClass().getName());
+      res.setProperty("SUPERTABLE_NAME", cls.getSuperClass(database).getName());
       resultSet.add(res);
     }
 

@@ -270,8 +270,8 @@ public final class CommandResponse implements BinaryResponse {
         entity.field("result", result);
         listener.linkdedBySimpleValue(entity);
       }
-      RecordSerializerStringAbstract.fieldTypeToString(
-          value, PropertyType.getTypeByClass(result.getClass()), result);
+      RecordSerializerStringAbstract.fieldTypeToString(value,
+          PropertyType.getTypeByClass(result.getClass()), result);
       channel.writeString(value.toString());
     }
   }

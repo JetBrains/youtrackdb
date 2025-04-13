@@ -606,7 +606,7 @@ public class SQLInsertTest extends BaseDBTest {
   @Test
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
     SchemaClass c = database.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    if (!c.existsProperty("embeddedListWithLinkedClass")) {
+    if (!c.existsProperty(database,"embeddedListWithLinkedClass")) {
       c.createProperty(database,
           "embeddedListWithLinkedClass",
           PropertyType.EMBEDDEDLIST,

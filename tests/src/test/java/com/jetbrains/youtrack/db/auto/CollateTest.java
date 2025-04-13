@@ -206,7 +206,7 @@ public class CollateTest extends BaseDBTest {
     Assert.assertTrue(
         explain.<Set<String>>field("involvedIndexes").contains("collateWasChangedIndex"));
 
-    cp = clazz.getProperty("cp");
+    cp = clazz.getProperty(database, "cp");
     cp.setCollate(database, CaseInsensitiveCollate.NAME);
 
     query = "select from collateWasChangedIndexTest where cp = 'VaL'";
@@ -344,7 +344,7 @@ public class CollateTest extends BaseDBTest {
             .<Set<String>>field("involvedIndexes")
             .contains("collateCompositeIndexCollateWasChanged"));
 
-    csp = clazz.getProperty("csp");
+    csp = clazz.getProperty(database,"csp");
     csp.setCollate(database, CaseInsensitiveCollate.NAME);
 
     query = "select from CompositeIndexQueryCollateWasChangedTest where csp = 'VaL'";

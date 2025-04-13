@@ -557,7 +557,7 @@ public abstract class SchemaShared implements CloseableInStorage {
             dirtyClasses.remove(entry.getKey());
             // mark dirty class unloaded
             // it will be reloaded next time we need to use it
-//            classesRefs.get(entry.getKey()).unload();
+            classesRefs.get(entry.getKey()).unload();
           } else {
             // skip already loaded classes
             continue;
