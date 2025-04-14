@@ -94,8 +94,8 @@
     <jaxb.api.version>2.3.0</jaxb.api.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
     <graalvm.version>24.1.2</graalvm.version>
-    <slf4j.version>2.0.16</slf4j.version>
-    <slf4j.version>2.0.16</slf4j.version>
+    <slf4j.version>2.0.17</slf4j.version>
+    <slf4j.version>2.0.17</slf4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <kotlin.version>2.1.0</kotlin.version>
     <kotlin.compiler.incremental>true</kotlin.compiler.incremental>
@@ -145,7 +145,7 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
-        <version>2.18.2</version>
+        <version>2.18.3</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
@@ -230,7 +230,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.13.0</version>
+          <version>3.14.0</version>
         </plugin>
 
         <plugin>
