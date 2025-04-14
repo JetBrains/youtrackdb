@@ -35,7 +35,7 @@ import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.AsyncReadCache;
+import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import java.util.ArrayList;
@@ -113,7 +113,7 @@ public class EngineLocalPaginated extends EngineAbstract {
       pages.clear();
     }
 
-    readCache = new AsyncReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
   }
 
   private static long calculateReadCacheMaxMemory(final long cacheSize) {

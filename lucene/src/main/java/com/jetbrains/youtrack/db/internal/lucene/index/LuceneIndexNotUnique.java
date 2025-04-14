@@ -208,11 +208,9 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         doReloadIndexEngine();
       }
     }
-  }
 
-  @Override
-  protected void clearAllEntries(DatabaseSessionInternal session) {
-    session.executeInTxInternal(this::doDelete);
+    var entity = transaction.loadEntity(identity);
+    entity.delete();
   }
 
   protected Object decodeKey(Object key, DatabaseSessionInternal session) {

@@ -55,6 +55,10 @@ import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -125,10 +129,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -2182,7 +2182,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public void executeInTxInternal(@Nonnull Consumer<FrontendTransaction> code) {
+  public <X extends Exception> void executeInTxInternal(
+      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
     var ok = false;
     assert assertIfNotActive();
     begin();
@@ -2195,8 +2196,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
@@ -2220,24 +2221,28 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
     forEachInTx(iterator, (db, t) -> {
       consumer.accept(db, t);
       return true;
     });
   }
 
+
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
   }
 
+
   @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (var s = stream) {
@@ -2245,9 +2250,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
 
@@ -2256,6 +2262,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
       while (iterator.hasNext()) {
         var cont = consumer.apply(tx, iterator.next());
         commit();
+
         if (!cont) {
           break;
         }
@@ -2269,16 +2276,16 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2301,8 +2308,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(
-      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<FrontendTransaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
@@ -2326,8 +2334,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatchesInternal(
-      Iterator<T> iterator, BiConsumer<FrontendTransaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     executeInTxBatchesInternal(
@@ -2337,10 +2345,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
     executeInTxBatches(
         iterable,
         getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
@@ -2348,8 +2355,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2357,9 +2364,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+
   @Override
-  public <T> void executeInTxBatchesInternal(Stream<T> stream,
-      BiConsumer<FrontendTransaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2367,8 +2375,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+
   @Override
-  public <R> R computeInTxInternal(Function<FrontendTransaction, R> code) {
+  public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
+      throws X {
     assert assertIfNotActive();
     var ok = false;
     begin();

@@ -464,9 +464,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
           removeClassPropertyIndexInternal(idx);
           idx.delete(transaction);
           indexes.remove(iIndexName);
-
-          var indexEntity = transaction.loadEntity(indexManagerIdentity);
-          indexEntity.getLinkSet(CONFIG_INDEXES).remove(idx.getIdentity());
         }
       } finally {
         releaseExclusiveLock(session, true);

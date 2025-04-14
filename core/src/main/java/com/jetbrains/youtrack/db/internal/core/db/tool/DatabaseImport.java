@@ -1367,12 +1367,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                     metadata = objectMapper.readValue(jsonMetadata, typeRef);
                   } else {
                     if (fieldName.equals("engineProperties")) {
-                      final var jsonEngineProperties =
-                          jsonReader.readString(JSONReader.END_OBJECT, true);
-                      var entity = new EntityImpl(session);
-                      entity.updateFromJSON(jsonEngineProperties);
-                      Map<String, ?> map = entity.toMap();
-                      map.replaceAll((k, v) -> v);
+                      jsonReader.readString(JSONReader.END_OBJECT, true);
                       jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
                     }
                   }

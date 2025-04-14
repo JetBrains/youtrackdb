@@ -1316,18 +1316,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   public void setDeserializedPropertyInternal(String name, Object value,
       PropertyTypeInternal propertyType) {
-    if (value instanceof RecordAbstract recordAbstract) {
-      recordAbstract.checkForBinding();
-
-      if (recordAbstract.getSession() != session) {
-        throw new DatabaseException(getSession().getDatabaseName(),
-            "Entity instance is bound to another session instance");
-      }
+    if (this.properties == null) {
+      this.properties = new HashMap<>();
     }
-    checkForProperties();
 
     var entry = new EntityEntry();
-
     propertiesCount++;
     properties.put(name, entry);
 
@@ -2421,7 +2414,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String key) {
     Entity embedded;
     if (value instanceof Map<?, ?> mapValue) {
-      embedded = new EntityImpl(session);
+      embedded = session.newEmbeddedEntity();
       embedded.updateFromMap((Map<String, ?>) mapValue);
     } else {
       throw new IllegalArgumentException(
@@ -3919,11 +3912,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return "Data containers have to be created using appropriate getOrCreateXxx methods";
     }
 
+    if (propertyValue instanceof RecordAbstract recordAbstract) {
+      recordAbstract.checkForBinding();
+
+      if (recordAbstract.getSession() != session) {
+        throw new DatabaseException(getSession().getDatabaseName(),
+            "Entity instance is bound to another session instance");
+      }
+    }
+
     if (propertyValue instanceof Identifiable) {
       return null;
     }
 
-    return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass();
+    return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass() + " : "
+        + propertyValue;
   }
 
   private void removeAllCollectionChangeListeners() {

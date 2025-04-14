@@ -83,9 +83,7 @@ public abstract class LuceneSearchFunctionTemplate extends SQLFunctionAbstract
     } else if (md instanceof String) {
       return JSONSerializerJackson.mapFromJson((String) md);
     } else {
-      var doc = new EntityImpl(ctx.getDatabaseSession());
-      doc.updateFromJSON(metadata.toString());
-      return doc.toMap();
+      return JSONSerializerJackson.mapFromJson(metadata.toString());
     }
   }
 
