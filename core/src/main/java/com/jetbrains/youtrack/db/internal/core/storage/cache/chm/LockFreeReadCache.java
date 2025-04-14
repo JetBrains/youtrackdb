@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
-import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
@@ -43,7 +42,7 @@ import javax.annotation.Nullable;
  * policy because it prevents usage of ghost entries and as result considerably decrease usage of
  * heap memory.
  */
-public final class AsyncReadCache implements ReadCache {
+public final class LockFreeReadCache implements ReadCache {
 
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
@@ -69,7 +68,7 @@ public final class AsyncReadCache implements ReadCache {
 
   private final Ratio cacheHitRatio;
 
-  public AsyncReadCache(
+  public LockFreeReadCache(
       final ByteBufferPool bufferPool,
       final long maxCacheSizeInBytes,
       final int pageSize) {
@@ -79,7 +78,7 @@ public final class AsyncReadCache implements ReadCache {
       this.bufferPool = bufferPool;
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
-      this.data = new ConcurrentHashMap<>(this.maxCacheSize, 0.5f, N_CPU * 2);
+      this.data = new ConcurrentHashMap<>(this.maxCacheSize, 0.5f, N_CPU << 1);
       policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
       policy.setMaxSize(this.maxCacheSize);
     } finally {
@@ -198,8 +197,7 @@ public final class AsyncReadCache implements ReadCache {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
     final var pageKey = new PageKey(fileId, pageIndex);
 
-    boolean success = false;
-
+    var success = false;
     try {
       while (true) {
         checkWriteBuffer();
