@@ -10,7 +10,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,9 +97,9 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
     final var fileId =
         wowCache.fileIdByName(
-            BTreeCollectionManagerShared.FILE_NAME_PREFIX
+            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
                 + collectionId
-                + BTreeCollectionManagerShared.FILE_EXTENSION);
+                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
     final var fileName = wowCache.nativeFileNameById(fileId);
     assert fileName != null;
     final var linkSetFile = new File(directory, fileName);
@@ -219,6 +220,46 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(oldThreshold);
     session.rollback();
+  }
+
+  @Test
+  public void testRemoveLinkSet() {
+    if (session.isRemote()) {
+      return;
+    }
+
+    var rid = session.computeInTx(transaction -> {
+      var linkSet = session.newLinkSet();
+      var entityHolder = session.newEntity();
+
+      for (var i = 0; i < 10; i++) {
+        var entity = session.newEntity();
+        linkSet.add(entity.getIdentity());
+      }
+
+      entityHolder.setLinkSet("linkSet", linkSet);
+      return entityHolder.getIdentity();
+    });
+
+    var pointer = session.computeInTx(transaction -> {
+      var entityHolder = transaction.loadEntity(rid);
+      var linkSet = entityHolder.getLinkSet("linkSet");
+      Assert.assertEquals(linkSet.size(), 10);
+
+      assertIsEmbedded(linkSet);
+
+      var delegate = (BTreeBasedLinkBag) ((EntityLinkSetImpl) linkSet).getDelegate();
+      return delegate.getCollectionPointer();
+    });
+
+    session.executeInTx(transaction -> {
+      var entityHolder = transaction.loadEntity(rid);
+      entityHolder.delete();
+    });
+
+    var collectionManager = session.getStorage().getLinkCollectionsBtreeCollectionManager();
+    var isolatedTree = collectionManager.loadIsolatedBTree(pointer);
+    Assert.assertEquals(isolatedTree.getRealBagSize(), 0);
   }
 
   @Override

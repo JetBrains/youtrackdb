@@ -89,7 +89,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
@@ -1663,9 +1663,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
-  public BTreeCollectionManager getBTreeCollectionManager() {
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
-    return storage.getSBtreeCollectionManager();
+    return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
   @Override

@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
@@ -62,6 +63,50 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     assertEquals(set.size(), 1);
     assertIsEmbedded(set);
     session.commit();
+  }
+
+  @Test
+  public void testAdd3() {
+    var pair = session.computeInTx(transaction -> {
+      var entityHolder = transaction.newEntity();
+      var linkSet = transaction.newLinkSet();
+
+      entityHolder.setLinkSet("linkSet", linkSet);
+
+      var rids = new HashSet<RID>();
+      for (var i = 0; i < 100; i++) {
+        var id = transaction.newEntity().getIdentity();
+        rids.add(id);
+        linkSet.add(id);
+      }
+
+      return new RawPair<Set<RID>, Entity>(rids, entityHolder);
+    });
+
+    //reinit changed rids after commit
+    var set = new HashSet<>(pair.first());
+    var entity = pair.second();
+
+    session.executeInTx(transaction -> {
+      var entityHolder = transaction.loadEntity(entity);
+      var linkSet = entityHolder.getLinkSet("linkSet");
+      linkSet.addAll(set);
+    });
+
+    session.executeInTx(transaction -> {
+      var entityHolder = transaction.loadEntity(entity);
+      var linkSet = entityHolder.getLinkSet("linkSet");
+      linkSet.addAll(set);
+    });
+
+    session.executeInTx(transaction -> {
+      var entityHolder = transaction.loadEntity(entity);
+      var linkSet = entityHolder.getLinkSet("linkSet");
+      for (var rid : linkSet) {
+        assertTrue(set.remove(rid.getIdentity()));
+      }
+      Assert.assertTrue(set.isEmpty());
+    });
   }
 
   @Test

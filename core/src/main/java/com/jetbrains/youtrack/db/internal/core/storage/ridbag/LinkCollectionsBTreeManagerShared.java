@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  *
  */
-public final class BTreeCollectionManagerShared implements BTreeCollectionManager  {
+public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsBTreeManager {
 
   public static final String FILE_EXTENSION = ".grb";
   public static final String FILE_NAME_PREFIX = "global_collection_";
@@ -50,7 +50,7 @@ public final class BTreeCollectionManagerShared implements BTreeCollectionManage
 
   private final AtomicLong ridBagIdCounter = new AtomicLong();
 
-  public BTreeCollectionManagerShared(AbstractStorage storage) {
+  public LinkCollectionsBTreeManagerShared(AbstractStorage storage) {
     this.storage = storage;
   }
 

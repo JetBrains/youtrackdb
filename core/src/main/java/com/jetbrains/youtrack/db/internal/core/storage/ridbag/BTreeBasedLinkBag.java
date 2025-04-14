@@ -39,7 +39,7 @@ import javax.annotation.Nullable;
 
 public class BTreeBasedLinkBag extends AbstractLinkBag {
 
-  private final BTreeCollectionManager collectionManager;
+  private final LinkCollectionsBTreeManager collectionManager;
   private LinkBagPointer collectionPointer;
 
   public BTreeBasedLinkBag(@Nonnull DatabaseSessionInternal session, int counterMaxValue) {

@@ -749,9 +749,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     public EnhancedIterator() {
       spliterator = new MergingSpliterator();
-      spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      });
+      spliterator.tryAdvance(rid -> nextRid = rid);
     }
 
     @Override
@@ -786,11 +784,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Override
     public RID next() {
       assert assertIfNotActive();
-
       currentRid = nextRid;
-      if (!spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      })) {
+      if (!spliterator.tryAdvance(rid -> nextRid = rid)) {
         nextRid = null;
       }
 
