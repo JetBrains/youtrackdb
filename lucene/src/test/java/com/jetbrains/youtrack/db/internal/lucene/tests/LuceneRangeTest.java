@@ -15,6 +15,7 @@ import org.junit.Test;
  *
  */
 public class LuceneRangeTest extends LuceneBaseTest {
+  private long baseTime;
 
   @Before
   public void setUp() throws Exception {
@@ -27,6 +28,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     cls.createProperty("age", PropertyType.INTEGER);
     cls.createProperty("weight", PropertyType.FLOAT);
 
+    baseTime = System.currentTimeMillis();
     var names =
         Arrays.asList(
             "John",
@@ -46,7 +48,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
           .setPropertyInChain("name", names.get(i))
           .setPropertyInChain("surname", "Reese")
           // from today back one day a time
-          .setPropertyInChain("date", System.currentTimeMillis() - (i * 3600 * 24 * 1000))
+          .setPropertyInChain("date", baseTime - (i * 3600 * 24 * 1000))
           .setPropertyInChain("age", i)
           .setProperty("weight", i + 0.1f);
       session.commit();
@@ -137,10 +139,10 @@ public class LuceneRangeTest extends LuceneBaseTest {
         .isEqualTo(10);
     session.commit();
 
-    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var today = DateTools.timeToString(baseTime, DateTools.Resolution.MINUTE);
     var fiveDaysAgo =
         DateTools.timeToString(
-            System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
+            baseTime - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     session.begin();
     // range
@@ -175,10 +177,10 @@ public class LuceneRangeTest extends LuceneBaseTest {
             .size(session))
         .isEqualTo(10);
 
-    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var today = DateTools.timeToString(baseTime, DateTools.Resolution.MINUTE);
     var fiveDaysAgo =
         DateTools.timeToString(
-            System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
+            baseTime - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     // name and age range
     try (var results =
@@ -231,10 +233,10 @@ public class LuceneRangeTest extends LuceneBaseTest {
         .isEqualTo(10);
     session.commit();
 
-    var today = DateTools.timeToString(System.currentTimeMillis(), DateTools.Resolution.MINUTE);
+    var today = DateTools.timeToString(baseTime, DateTools.Resolution.MINUTE);
     var fiveDaysAgo =
         DateTools.timeToString(
-            System.currentTimeMillis() - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
+            baseTime - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "Person.composite");
