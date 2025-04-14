@@ -78,7 +78,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -182,7 +182,7 @@ public class LocalStorage extends AbstractStorage {
       CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION,
       CASDiskWriteAheadLog.MASTER_RECORD_EXTENSION,
       CollectionPositionMap.DEF_EXTENSION,
-      BTreeCollectionManagerShared.FILE_EXTENSION,
+      LinkCollectionsBTreeManagerShared.FILE_EXTENSION,
       CollectionBasedStorageConfiguration.MAP_FILE_EXTENSION,
       CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION,
       CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
@@ -1737,8 +1737,8 @@ public class LocalStorage extends AbstractStorage {
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
-    sbTreeCollectionManager.close();
-    sbTreeCollectionManager.load();
+    linkCollectionsBTreeManager.close();
+    linkCollectionsBTreeManager.load();
     openIndexes();
 
     flushAllData();

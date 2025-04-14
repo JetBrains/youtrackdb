@@ -7,12 +7,12 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -124,7 +124,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
 
     assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByClass(EntityLinkMapIml.class));
 
-    assertEquals(PropertyTypeInternal.LINKBAG, PropertyTypeInternal.getTypeByClass(RidBag.class));
+    assertEquals(PropertyTypeInternal.LINKBAG, PropertyTypeInternal.getTypeByClass(LinkBag.class));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
         PropertyTypeInternal.getTypeByClass(Object[].class));
@@ -201,7 +201,7 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByValue(new EntityLinkMapIml((EntityImpl) session.newEntity())));
 
     assertEquals(PropertyTypeInternal.LINKBAG,
-        PropertyTypeInternal.getTypeByValue(new RidBag(session)));
+        PropertyTypeInternal.getTypeByValue(new LinkBag(session)));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
         PropertyTypeInternal.getTypeByValue(new Object[]{}));

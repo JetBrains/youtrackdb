@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
@@ -1616,9 +1616,9 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static Object convert(Object originalValue) {
-    if (originalValue instanceof RidBag) {
+    if (originalValue instanceof LinkBag) {
       Set result = new LinkedHashSet<>();
-      ((RidBag) originalValue).iterator().forEachRemaining(result::add);
+      ((LinkBag) originalValue).iterator().forEachRemaining(result::add);
       return result;
     }
     return originalValue;
@@ -1626,9 +1626,9 @@ public class SecurityShared implements SecurityInternal {
 
   public static Object unboxRidbags(Object value) {
     // TODO move it to some helper class
-    if (value instanceof RidBag) {
-      List<Identifiable> result = new ArrayList<>(((RidBag) value).size());
-      for (Identifiable identifiable : (RidBag) value) {
+    if (value instanceof LinkBag) {
+      List<Identifiable> result = new ArrayList<>(((LinkBag) value).size());
+      for (Identifiable identifiable : (LinkBag) value) {
         result.add(identifiable);
       }
 

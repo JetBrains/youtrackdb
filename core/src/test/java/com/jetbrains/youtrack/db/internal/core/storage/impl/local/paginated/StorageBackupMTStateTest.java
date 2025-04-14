@@ -14,7 +14,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -325,7 +325,7 @@ public class StorageBackupMTStateTest {
         linkedClassCounter = classInstancesCounters.get(linkedClassName);
       } while (linkedClassCounter == null);
 
-      var linkedDocuments = new RidBag(db);
+      var linkedDocuments = new LinkBag(db);
 
       var linkedClassCount = db.countClass(linkedClassName);
       long tCount = 0;

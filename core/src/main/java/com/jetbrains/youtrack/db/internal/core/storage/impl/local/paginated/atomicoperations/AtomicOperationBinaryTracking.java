@@ -33,7 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -84,7 +84,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * Pointers to ridbags deleted during current transaction. We can not reuse pointers if we delete
    * ridbag and then create new one inside of the same transaction.
    */
-  private final Set<RidBagBucketPointer> deletedBonsaiPointers = new HashSet<>();
+  private final Set<LinkBagBucketPointer> deletedBonsaiPointers = new HashSet<>();
 
   private final Map<IntIntImmutablePair, IntSet> deletedRecordPositions = new HashMap<>();
 
@@ -229,12 +229,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addDeletedRidBag(RidBagBucketPointer rootPointer) {
+  public void addDeletedRidBag(LinkBagBucketPointer rootPointer) {
     deletedBonsaiPointers.add(rootPointer);
   }
 
   @Override
-  public Set<RidBagBucketPointer> getDeletedBonsaiPointers() {
+  public Set<LinkBagBucketPointer> getDeletedBonsaiPointers() {
     return deletedBonsaiPointers;
   }
 

@@ -117,10 +117,18 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     var added = new boolean[1];
     if (rid.isPersistent()) {
       var counter = localChanges.getChange(rid);
-
       if (counter == null) {
         added[0] = true;
-        localChanges.putChange(rid, new DiffChange(1));
+        Change change;
+
+        if (isEmbedded()) {
+          change = new AbsoluteChange(getAbsoluteValue(rid));
+          change.increment(counterMaxValue);
+        } else {
+          change = new DiffChange(1);
+        }
+
+        localChanges.putChange(rid, change);
       } else {
         assert counter.getValue() >= 0 || counter.getType() == AbsoluteChange.TYPE;
         added[0] = counter.increment(counterMaxValue);
@@ -470,22 +478,10 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     return StreamSupport.stream(spliterator(), false);
   }
 
-  public void clearChanges() {
-    assert assertIfNotActive();
-    localChanges.clear();
-    for (var rid : newEntries.keySet()) {
-      if (rid instanceof ChangeableIdentity changeableIdentity) {
-        changeableIdentity.removeIdentityChangeListener(this);
-      }
-    }
-    localChangesModificationsCount++;
-  }
-
   @Nullable
   protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator();
 
-  @Nullable
-  protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after);
+  protected abstract boolean isEmbedded();
 
   @Override
   public Spliterator<RID> spliterator() {
@@ -753,9 +749,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     public EnhancedIterator() {
       spliterator = new MergingSpliterator();
-      spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      });
+      spliterator.tryAdvance(rid -> nextRid = rid);
     }
 
     @Override
@@ -790,11 +784,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Override
     public RID next() {
       assert assertIfNotActive();
-
       currentRid = nextRid;
-      if (!spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      })) {
+      if (!spliterator.tryAdvance(rid -> nextRid = rid)) {
         nextRid = null;
       }
 

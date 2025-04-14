@@ -29,7 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStor
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -306,9 +306,9 @@ public class LiveQueryHookV2 {
   }
 
   private static Object convert(Object originalValue) {
-    if (originalValue instanceof RidBag) {
+    if (originalValue instanceof LinkBag) {
       Set result = new LinkedHashSet<>();
-      ((RidBag) originalValue).forEach(result::add);
+      ((LinkBag) originalValue).forEach(result::add);
       return result;
     }
     return originalValue;
@@ -330,9 +330,9 @@ public class LiveQueryHookV2 {
 
   public static Object unboxRidbags(Object value) {
     // TODO move it to some helper class
-    if (value instanceof RidBag) {
-      List<Identifiable> result = new ArrayList<>(((RidBag) value).size());
-      for (Identifiable oIdentifiable : (RidBag) value) {
+    if (value instanceof LinkBag) {
+      List<Identifiable> result = new ArrayList<>(((LinkBag) value).size());
+      for (Identifiable oIdentifiable : (LinkBag) value) {
         result.add(oIdentifiable);
       }
       return result;

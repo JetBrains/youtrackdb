@@ -2,17 +2,17 @@ package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 
-public final class RidBagConverter extends AbstractCollectionConverter<RidBag> {
+public final class LinkBagConverter extends AbstractCollectionConverter<LinkBag> {
 
-  public RidBagConverter(ConverterData converterData) {
+  public LinkBagConverter(ConverterData converterData) {
     super(converterData);
   }
 
   @Override
-  public RidBag convert(DatabaseSessionInternal session, RidBag value) {
-    final var result = new RidBag(session);
+  public LinkBag convert(DatabaseSessionInternal session, LinkBag value) {
+    final var result = new LinkBag(session);
     var updated = false;
     final ResultCallback callback =
         item -> result.add(((Identifiable) item).getIdentity());

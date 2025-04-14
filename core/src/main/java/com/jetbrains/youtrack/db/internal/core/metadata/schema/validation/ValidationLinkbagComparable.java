@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema.validation;
 
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 
 public class ValidationLinkbagComparable implements Comparable<Object> {
 
@@ -12,6 +12,6 @@ public class ValidationLinkbagComparable implements Comparable<Object> {
 
   @Override
   public int compareTo(Object o) {
-    return size - ((RidBag) o).size();
+    return size - ((LinkBag) o).size();
   }
 }

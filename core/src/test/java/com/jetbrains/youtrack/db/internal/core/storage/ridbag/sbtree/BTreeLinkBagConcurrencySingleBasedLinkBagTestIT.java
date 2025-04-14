@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -24,8 +24,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
-
+public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   public static final String URL = "disk:target/testdb/BTreeRidBagConcurrencySingleBasedRidBagTestIT";
   private final AtomicInteger positionCounter = new AtomicInteger();
   private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
@@ -65,7 +64,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
     db.create();
 
     var document = ((EntityImpl) db.newEntity());
-    var ridBag = new RidBag(db);
+    var ridBag = new LinkBag(db);
 
     document.setProperty("ridBag", ridBag);
     for (var i = 0; i < 100; i++) {
@@ -137,9 +136,9 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
             EntityImpl document = db.load(docContainerRid);
             document.setLazyLoad(false);
 
-            RidBag ridBag = document.getProperty("ridBag");
+            LinkBag linkBag = document.getProperty("ridBag");
             for (var rid : ridsToAdd) {
-              ridBag.add(rid);
+              linkBag.add(rid);
             }
 
             try {
@@ -184,8 +183,8 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
           while (true) {
             EntityImpl document = db.load(docContainerRid);
             document.setLazyLoad(false);
-            RidBag ridBag = document.getProperty("ridBag");
-            var iterator = ridBag.iterator();
+            LinkBag linkBag = document.getProperty("ridBag");
+            var iterator = linkBag.iterator();
 
             List<RID> ridsToDelete = new ArrayList<>();
             var counter = 0;
