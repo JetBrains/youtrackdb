@@ -5,12 +5,12 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class LightweightRelationImpl<T extends Entity> implements
     Relation<T> {
-
   @Nullable
   protected final T out;
   @Nullable
@@ -33,13 +33,13 @@ public class LightweightRelationImpl<T extends Entity> implements
 
   @Nullable
   @Override
-  public T fromEntity() {
+  public T getFrom() {
     return out;
   }
 
   @Nullable
   @Override
-  public T toEntity() {
+  public T getTo() {
     return in;
   }
 
@@ -79,12 +79,12 @@ public class LightweightRelationImpl<T extends Entity> implements
   }
 
   @Override
-  public Map<String, Object> toMap() {
+  public @Nonnull Map<String, Object> toMap() {
     return Map.of("out", out, "in", in, "label", label);
   }
 
   @Override
-  public String toJSON() {
+  public @Nonnull String toJSON() {
     return "{\"out\":\""
         + out.getIdentity()
         + "\", \"in\":\""
@@ -112,19 +112,24 @@ public class LightweightRelationImpl<T extends Entity> implements
       return false;
     }
 
-    return out.equals(bidirectionalRelation.fromEntity()) && in.equals(
-        bidirectionalRelation.toEntity())
+    return out.equals(bidirectionalRelation.getFrom()) && in.equals(
+        bidirectionalRelation.getTo())
         && label.equals(bidirectionalRelation.label());
 
   }
 
   @Override
   public int hashCode() {
-    return super.hashCode();
+    //noinspection ObjectInstantiationInEqualsHashCode
+    return Objects.hash(out, in, label);
   }
 
   @Override
   public String toString() {
-    return super.toString();
+    return "LightweightRelationImpl {" +
+        " out=" + out +
+        ", in=" + in +
+        ", label='" + label + '\'' +
+        '}';
   }
 }

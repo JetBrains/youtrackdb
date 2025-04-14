@@ -2049,8 +2049,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @since 2.0
    */
   @Override
-  @Nonnull
-  public Map<String, Object> toMap() {
+  public @Nonnull Map<String, Object> toMap() {
     return toMap(true);
   }
 

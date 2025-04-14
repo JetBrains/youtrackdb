@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -46,7 +45,6 @@ import javax.annotation.Nullable;
 
 
 public class ResultInternal implements Result {
-
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -979,7 +977,7 @@ public class ResultInternal implements Result {
   @Override
   public boolean isRelation() {
     assert checkSession();
-    return relation != null;
+    return relation != null || isEdge();
   }
 
   @Override
@@ -1081,7 +1079,7 @@ public class ResultInternal implements Result {
     }
 
     if (isStatefulEdge()) {
-      return (EdgeInternal) asStatefulEdge();
+      return asStatefulEdge();
     }
 
     throw new DatabaseException("Result is not an relation");
@@ -1097,7 +1095,7 @@ public class ResultInternal implements Result {
     }
 
     if (isStatefulEdge()) {
-      return (EdgeInternal) asStatefulEdge();
+      return asStatefulEdge();
     }
 
     return null;

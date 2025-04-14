@@ -191,18 +191,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return RECORD_TYPE;
   }
 
-  @Nullable
-  @Override
-  public Vertex fromEntity() {
-    return getFrom();
-  }
-
-  @Nullable
-  @Override
-  public Vertex toEntity() {
-    return getTo();
-  }
-
   @Override
   public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
     throw new UnsupportedOperationException("Operation not supported for edges");

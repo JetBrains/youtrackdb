@@ -6,10 +6,10 @@ import javax.annotation.Nullable;
 
 public interface Relation<L extends Entity> extends Element {
   @Nullable
-  L fromEntity();
+  L getFrom();
 
   @Nullable
-  L toEntity();
+  L getTo();
 
   boolean isLabeled(@Nonnull String[] labels);
 
@@ -19,8 +19,10 @@ public interface Relation<L extends Entity> extends Element {
 
   Entity asEntity();
 
+  @Nonnull
   Map<String, Object> toMap();
 
+  @Nonnull
   String toJSON();
 
   String label();
