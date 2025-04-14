@@ -41,6 +41,7 @@ public class IterableObject<T> implements Iterable<T>, Resettable, Iterator<T> {
    *
    * @return an Iterator.
    */
+  @Override
   public Iterator<T> iterator() {
     return this;
   }

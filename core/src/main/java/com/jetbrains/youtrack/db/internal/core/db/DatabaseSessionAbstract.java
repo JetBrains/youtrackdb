@@ -200,6 +200,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     RecordSerializerFactory.instance().setDefaultRecordSerializer(iDefaultSerializer);
   }
 
+  @Override
   public void callOnOpenListeners() {
     assert assertIfNotActive();
     wakeupOnOpenDbLifecycleListeners();
@@ -207,6 +208,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected abstract void loadMetadata();
 
+  @Override
   public void callOnCloseListeners() {
     assert assertIfNotActive();
     wakeupOnCloseDbLifecycleListeners();
@@ -286,6 +288,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public byte getRecordType() {
     return recordType;
   }
@@ -311,6 +314,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
@@ -343,6 +347,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isRetainRecords() {
     assert assertIfNotActive();
     return retainRecords;
@@ -351,6 +356,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setRetainRecords(boolean retainRecords) {
     assert assertIfNotActive();
     this.retainRecords = retainRecords;
@@ -360,6 +366,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setStatus(final STATUS status) {
     assert assertIfNotActive();
     this.status = status;
@@ -369,6 +376,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setInternal(final ATTRIBUTES iAttribute, final Object iValue) {
     set(iAttribute, iValue);
   }
@@ -376,6 +384,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
     return user;
@@ -394,6 +403,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setUser(final SecurityUser user) {
     assert assertIfNotActive();
     if (user instanceof SecurityUserImpl) {
@@ -409,6 +419,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public void reloadUser() {
     assert assertIfNotActive();
 
@@ -436,6 +447,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
@@ -444,6 +456,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
@@ -453,6 +466,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    *
    * @return
    */
+  @Override
   public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     checkOpenness();
     assert assertIfNotActive();
@@ -467,6 +481,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
     if (hooks.remove(iHookImpl)) {
@@ -503,6 +518,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
     return Collections.unmodifiableList(hooks);
@@ -549,6 +565,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    * @param type   Hook type. Define when hook is called.
    * @param record Record received in the callback
    */
+  @Override
   public void callbackHooks(final TYPE type, final RecordAbstract record) {
     assert assertIfNotActive();
     if (record == null || hooks.isEmpty() || record.getIdentity().getCollectionId() == 0) {
@@ -572,6 +589,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isValidationEnabled() {
     assert assertIfNotActive();
     return (Boolean) get(ATTRIBUTES_INTERNAL.VALIDATION);
@@ -580,6 +598,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setValidationEnabled(final boolean iEnabled) {
     assert assertIfNotActive();
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
@@ -711,6 +730,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public FrontendTransaction getTransactionInternal() {
     assert assertIfNotActive();
     return currentTx;
@@ -914,6 +934,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   @Nullable
   public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
       boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
@@ -1176,6 +1197,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return previousRid;
   }
 
+  @Override
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
@@ -1250,6 +1272,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return collectionId;
   }
 
+  @Override
   public FrontendTransaction begin() {
     assert assertIfNotActive();
 
@@ -1272,6 +1295,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     begin(newReadOnlyTxInstance(FrontendTransactionImpl.generateTxId()));
   }
 
+  @Override
   public int begin(FrontendTransactionImpl transaction) {
     checkOpenness();
     assert assertIfNotActive();
@@ -1312,6 +1336,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public void setDefaultTransactionMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {
       currentTx = new FrontendTransactionNoTx(this);
@@ -1321,6 +1346,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * Creates a new EntityImpl.
    */
+  @Override
   public EntityImpl newInstance() {
     assert assertIfNotActive();
     return newInstance(Entity.DEFAULT_CLASS_NAME);
@@ -1455,11 +1481,13 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public Entity newEntity(SchemaClass clazz) {
     assert assertIfNotActive();
     return newInstance(clazz.getName());
   }
 
+  @Override
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
 
@@ -1638,6 +1666,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
     return browseClass(className, true);
@@ -1646,6 +1675,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public RecordIteratorClass browseClass(
       final @Nonnull String className, final boolean iPolymorphic) {
     return browseClass(className, iPolymorphic, true);
@@ -1697,6 +1727,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * Returns the number of the records of the class iClassName.
    */
+  @Override
   public long countClass(final String iClassName) {
     assert assertIfNotActive();
     return countClass(iClassName, true);
@@ -1706,6 +1737,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    * Returns the number of the records of the class iClassName considering also sub classes if
    * polymorphic is true.
    */
+  @Override
   public long countClass(final String iClassName, final boolean iPolymorphic) {
     assert assertIfNotActive();
     final var cls =
@@ -1858,6 +1890,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public void afterCommitOperations() {
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
@@ -1939,6 +1972,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return componentsFactory;
   }
 
+  @Override
   public RecordSerializer getSerializer() {
     assert assertIfNotActive();
     return serializer;
@@ -1949,6 +1983,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    *
    * @param serializer the serializer to set.
    */
+  @Override
   public void setSerializer(RecordSerializer serializer) {
     assert assertIfNotActive();
     this.serializer = serializer;
@@ -1967,6 +2002,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     initialized = false;
   }
 
+  @Override
   public void checkSecurity(final int operation, final Identifiable record, String collection) {
     assert assertIfNotActive();
     if (collection == null) {
@@ -2067,6 +2103,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return true;
   }
 
+  @Override
   public int[] getBlobCollectionIds() {
     assert assertIfNotActive();
     return getMetadata().getSchema().getBlobCollections().toIntArray();
@@ -2080,6 +2117,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
     var clazz =
@@ -2088,6 +2126,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return new EdgeImpl(this, from, to, clazz);
   }
 
+  @Override
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
@@ -2129,6 +2168,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   }
 
+  @Override
   public synchronized void closeActiveQueries() {
     while (!activeQueries.isEmpty()) {
       this.activeQueries
@@ -2139,12 +2179,14 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public Map<String, QueryDatabaseState> getActiveQueries() {
     assert assertIfNotActive();
 
     return activeQueries;
   }
 
+  @Override
   public ResultSet getActiveQuery(String id) {
     assert assertIfNotActive();
 

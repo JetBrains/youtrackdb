@@ -58,6 +58,7 @@ public interface FrontendTransaction extends Transaction {
 
   void rollbackInternal(boolean force, int commitLevelDiff);
 
+  @Override
   @Nonnull
   DatabaseSessionInternal getDatabaseSession();
 
@@ -68,6 +69,7 @@ public interface FrontendTransaction extends Transaction {
   LoadRecordResult loadRecord(RID rid)
       throws RecordNotFoundException;
 
+  @Override
   boolean exists(@Nonnull RID rid);
 
   TXSTATUS getStatus();
@@ -102,6 +104,7 @@ public interface FrontendTransaction extends Transaction {
   /**
    * @return {@code true} if this transaction is active, {@code false} otherwise.
    */
+  @Override
   boolean isActive();
 
   /**

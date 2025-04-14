@@ -41,11 +41,13 @@ public class CharSerializer implements BinarySerializer<Character> {
   private static final BinaryConverter BINARY_CONVERTER = BinaryConverterFactory.getConverter();
   public static final CharSerializer INSTANCE = new CharSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final Character object,
       Object... hints) {
     return CHAR_SIZE;
   }
 
+  @Override
   public void serialize(
       final Character object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -57,6 +59,7 @@ public class CharSerializer implements BinarySerializer<Character> {
     stream[startPosition + 1] = (byte) (value);
   }
 
+  @Override
   public Character deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return deserializeLiteral(stream, startPosition);
@@ -66,15 +69,18 @@ public class CharSerializer implements BinarySerializer<Character> {
     return (char) (((stream[startPosition] & 0xFF) << 8) + (stream[startPosition + 1] & 0xFF));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return CHAR_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return CHAR_SIZE;
@@ -109,10 +115,12 @@ public class CharSerializer implements BinarySerializer<Character> {
     return BINARY_CONVERTER.getChar(stream, startPosition, ByteOrder.nativeOrder());
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return CHAR_SIZE;
   }

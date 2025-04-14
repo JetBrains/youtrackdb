@@ -37,6 +37,7 @@ public class ReloadRequest37 implements BinaryRequest<ReloadResponse37> {
       StorageRemoteSession session) throws IOException {
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

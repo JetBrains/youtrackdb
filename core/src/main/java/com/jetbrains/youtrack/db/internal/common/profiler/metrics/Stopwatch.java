@@ -72,10 +72,12 @@ public interface Stopwatch extends Gauge<Double> {
       return ticker.lastNanoTime();
     }
 
+    @Override
     public Double getValue() {
       return value;
     }
 
+    @Override
     public void setValue(Double value) {
       this.value = value;
     }

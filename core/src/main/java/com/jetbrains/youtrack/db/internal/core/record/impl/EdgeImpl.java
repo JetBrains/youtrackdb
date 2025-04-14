@@ -73,6 +73,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     return true;
   }
 
+  @Override
   public void delete() {
     StatefullEdgeEntityImpl.deleteLinks(session, this);
   }
@@ -89,6 +90,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     return lightweightEdgeType.getName();
   }
 
+  @Override
   public boolean isLabeled(@Nonnull String[] labels) {
     if (super.isLabeled(labels)) {
       return true;

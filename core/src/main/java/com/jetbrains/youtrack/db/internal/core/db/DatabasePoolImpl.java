@@ -136,6 +136,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     }
   }
 
+  @Override
   public void release(DatabaseSessionInternal database) {
     ResourcePool<Void, DatabaseSessionInternal> p;
     synchronized (this) {
@@ -149,6 +150,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     lastCloseTime = System.currentTimeMillis();
   }
 
+  @Override
   public boolean isUnused() {
     if (pool == null) {
       return true;
@@ -157,10 +159,12 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     }
   }
 
+  @Override
   public long getLastCloseTime() {
     return lastCloseTime;
   }
 
+  @Override
   public YouTrackDBConfigImpl getConfig() {
     return config;
   }

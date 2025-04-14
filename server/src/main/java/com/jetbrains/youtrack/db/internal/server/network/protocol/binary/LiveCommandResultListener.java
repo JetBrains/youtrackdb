@@ -118,10 +118,12 @@ public class LiveCommandResultListener extends AbstractCommandResultListener
     return true;
   }
 
+  @Override
   public boolean isEmpty() {
     return empty.get();
   }
 
+  @Override
   public void onLiveResult(DatabaseSessionInternal db, int iToken, RecordOperation iOp)
       throws BaseException {
     var sendFail = true;

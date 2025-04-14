@@ -44,6 +44,7 @@ public final class DropCollectionResponse implements BinaryResponse {
     result = network.readByte() != 0;
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

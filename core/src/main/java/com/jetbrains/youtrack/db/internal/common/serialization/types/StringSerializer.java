@@ -34,6 +34,7 @@ public class StringSerializer implements BinarySerializer<String> {
   public static final StringSerializer INSTANCE = new StringSerializer();
   public static final byte ID = 13;
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final String object,
       Object... hints) {
     return staticGetObjectSize(object);
@@ -43,6 +44,7 @@ public class StringSerializer implements BinarySerializer<String> {
     return (object.length() << 1) + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public void serialize(
       final String object, BinarySerializerFactory serializerFactory, final byte[] stream,
       int startPosition, Object... hints) {
@@ -69,6 +71,7 @@ public class StringSerializer implements BinarySerializer<String> {
     }
   }
 
+  @Override
   public String deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       int startPosition) {
     final var len = IntegerSerializer.deserializeLiteral(stream, startPosition);
@@ -85,16 +88,19 @@ public class StringSerializer implements BinarySerializer<String> {
     return new String(buffer);
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return (IntegerSerializer.deserializeLiteral(stream, startPosition) << 1)
         + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return (IntegerSerializer.deserializeNative(stream, startPosition) << 1)
@@ -126,6 +132,7 @@ public class StringSerializer implements BinarySerializer<String> {
     }
   }
 
+  @Override
   public String deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     var len = IntegerSerializer.deserializeNative(stream, startPosition);
@@ -142,10 +149,12 @@ public class StringSerializer implements BinarySerializer<String> {
     return new String(buffer);
   }
 
+  @Override
   public boolean isFixedLength() {
     return false;
   }
 
+  @Override
   public int getFixedLength() {
     throw new UnsupportedOperationException("Length of serialized string is not fixed.");
   }

@@ -55,6 +55,7 @@ public class ModifiableLong extends Number implements Comparable<ModifiableLong>
     value -= iValue;
   }
 
+  @Override
   public int compareTo(final ModifiableLong anotherInteger) {
     var thisVal = value;
     var anotherVal = anotherInteger.value;

@@ -9,6 +9,7 @@ public interface DatabasePoolInternal extends AutoCloseable {
 
   DatabaseSession acquire();
 
+  @Override
   void close();
 
   void release(DatabaseSessionInternal database);

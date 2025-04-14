@@ -21,7 +21,6 @@
 package com.jetbrains.youtrack.db.internal.common.serialization;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import java.lang.reflect.Field;
 import java.nio.ByteOrder;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -46,6 +45,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
         (Unsafe)
             AccessController.doPrivileged(
                 new PrivilegedAction<Object>() {
+                  @Override
                   public Object run() {
                     try {
                       var f = Unsafe.class.getDeclaredField("theUnsafe");
@@ -67,6 +67,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     BYTE_ARRAY_OFFSET = theUnsafe.arrayBaseOffset(byte[].class);
   }
 
+  @Override
   public void putShort(byte[] buffer, int index, short value, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
@@ -85,6 +86,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public short getShort(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       var result = theUnsafe.getShort(buffer, index + BYTE_ARRAY_OFFSET);
@@ -106,6 +108,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
             | (theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET + 1) << 8));
   }
 
+  @Override
   public void putInt(byte[] buffer, int pointer, int value, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       final var position = pointer + BYTE_ARRAY_OFFSET;
@@ -129,6 +132,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public int getInt(byte[] buffer, int pointer, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       final var position = pointer + BYTE_ARRAY_OFFSET;
@@ -153,6 +157,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
         | ((0xFF & theUnsafe.getByte(buffer, pointer + BYTE_ARRAY_OFFSET + 3)) << 24);
   }
 
+  @Override
   public void putLong(byte[] buffer, int index, long value, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
@@ -183,6 +188,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public long getLong(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       var result = theUnsafe.getLong(buffer, index + BYTE_ARRAY_OFFSET);
@@ -214,6 +220,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
         | ((0xFFL & theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET + 7)) << 56);
   }
 
+  @Override
   public void putChar(byte[] buffer, int index, char character, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
@@ -232,6 +239,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public char getChar(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
       var result = theUnsafe.getChar(buffer, index + BYTE_ARRAY_OFFSET);
@@ -253,6 +261,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
             | (theUnsafe.getByte(buffer, index + BYTE_ARRAY_OFFSET + 1) << 8));
   }
 
+  @Override
   public boolean nativeAccelerationUsed() {
     return true;
   }

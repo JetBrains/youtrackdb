@@ -58,6 +58,7 @@ public class Connect37Request implements BinaryRequest<ConnectResponse> {
     return username;
   }
 
+  @Override
   public boolean requireDatabaseSession() {
     return false;
   }

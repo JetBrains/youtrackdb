@@ -60,22 +60,26 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     delegate.create(session);
   }
 
+  @Override
   public int countClasses() {
     assert session.assertIfNotActive();
     return delegate.countClasses(session);
   }
 
 
+  @Override
   @Nonnull
   public SchemaClass createClass(final String iClassName) {
     assert session.assertIfNotActive();
     return new SchemaClassProxy(delegate.createClass(session, iClassName), session);
   }
 
+  @Override
   public SchemaClass getOrCreateClass(final String iClassName) {
     return getOrCreateClass(iClassName, (SchemaClass) null);
   }
 
+  @Override
   @Nullable
   public SchemaClass getOrCreateClass(final String iClassName, final SchemaClass iSuperClass) {
     assert session.assertIfNotActive();
@@ -129,6 +133,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return new SchemaClassProxy(delegate.createClass(session, iClassName, superImpls), session);
   }
 
+  @Override
   public SchemaClass createClass(final String iClassName, final SchemaClass iSuperClass,
       final int[] iCollectionIds) {
     assert session.assertIfNotActive();
@@ -179,11 +184,13 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
         session);
   }
 
+  @Override
   public void dropClass(final String iClassName) {
     assert session.assertIfNotActive();
     delegate.dropClass(session, iClassName);
   }
 
+  @Override
   public boolean existsClass(final String iClassName) {
     assert session.assertIfNotActive();
     if (iClassName == null) {
@@ -193,6 +200,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return delegate.existsClass(session, iClassName);
   }
 
+  @Override
   @Nullable
   public SchemaClass getClass(final Class<?> iClass) {
     assert session.assertIfNotActive();
@@ -204,6 +212,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
+  @Override
   @Nullable
   public SchemaClass getClass(final String iClassName) {
     if (iClassName == null) {
@@ -215,6 +224,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
+  @Override
   public Collection<SchemaClass> getClasses() {
     assert session.assertIfNotActive();
     var classes = delegate.getClasses(session);
@@ -283,10 +293,12 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return this;
   }
 
+  @Override
   public int getVersion() {
     return delegate.getVersion();
   }
 
+  @Override
   public RecordId getIdentity() {
     return delegate.getIdentity(session);
   }
@@ -350,6 +362,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return delegate.getGlobalProperties(session);
   }
 
+  @Override
   public GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id) {
     assert session.assertIfNotActive();
     return delegate.createGlobalProperty(session, name,

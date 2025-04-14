@@ -44,6 +44,7 @@ public class HideRecordResponse implements BinaryResponse {
     result = network.readBoolean();
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

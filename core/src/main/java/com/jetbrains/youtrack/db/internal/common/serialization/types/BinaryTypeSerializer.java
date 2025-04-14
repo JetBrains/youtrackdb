@@ -39,6 +39,7 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
     return length + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] object,
       Object... hints) {
     return object.length + IntegerSerializer.INT_SIZE;
@@ -48,6 +49,7 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
     return object.length + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public void serialize(
       final byte[] object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -63,6 +65,7 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
     System.arraycopy(object, 0, stream, startPosition + IntegerSerializer.INT_SIZE, len);
   }
 
+  @Override
   public byte[] deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     final var len = IntegerSerializer.deserializeLiteral(stream, startPosition);
@@ -80,6 +83,7 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
         startPosition + IntegerSerializer.INT_SIZE + len);
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return IntegerSerializer.deserializeLiteral(stream, startPosition)
@@ -91,12 +95,14 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
         + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return IntegerSerializer.deserializeNative(stream, startPosition)
         + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
   public void serializeNativeObject(
       byte[] object, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
       Object... hints) {
@@ -105,6 +111,7 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
     System.arraycopy(object, 0, stream, startPosition + IntegerSerializer.INT_SIZE, len);
   }
 
+  @Override
   public byte[] deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     final var len = IntegerSerializer.deserializeNative(stream, startPosition);
@@ -114,14 +121,17 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
         startPosition + IntegerSerializer.INT_SIZE + len);
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public boolean isFixedLength() {
     return false;
   }
 
+  @Override
   public int getFixedLength() {
     return 0;
   }

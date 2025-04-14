@@ -467,6 +467,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Override
   public <T> T getProperty(@Nonnull String name) {
     assert checkSession();
 
@@ -638,6 +639,7 @@ public class ResultInternal implements Result {
 
   }
 
+  @Override
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
     if (content != null) {
@@ -651,6 +653,7 @@ public class ResultInternal implements Result {
     return Collections.emptyList();
   }
 
+  @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
     if (isEntity() && asEntity().hasProperty(propName)) {
@@ -734,6 +737,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Override
   @Nonnull
   public Entity asEntity() {
     assert checkSession();
@@ -972,6 +976,7 @@ public class ResultInternal implements Result {
     return map;
   }
 
+  @Override
   public boolean isRelation() {
     assert checkSession();
     return relation != null;
@@ -1067,6 +1072,7 @@ public class ResultInternal implements Result {
     return null;
   }
 
+  @Override
   @Nonnull
   public Relation<?> asRelation() {
     assert checkSession();
@@ -1081,6 +1087,7 @@ public class ResultInternal implements Result {
     throw new DatabaseException("Result is not an relation");
   }
 
+  @Override
   @Nullable
   public Relation<?> asRelationOrNull() {
     assert checkSession();
@@ -1096,6 +1103,7 @@ public class ResultInternal implements Result {
     return null;
   }
 
+  @Override
   public @Nonnull String toJSON() {
     assert checkSession();
 

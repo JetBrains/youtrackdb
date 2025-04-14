@@ -25,10 +25,12 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   @Override
   Result next();
 
+  @Override
   default void remove() {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   void close();
 
   @Nullable

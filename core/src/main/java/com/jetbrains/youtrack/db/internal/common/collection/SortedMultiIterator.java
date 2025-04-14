@@ -160,6 +160,7 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
     return false;
   }
 
+  @Override
   public void remove() {
     throw new UnsupportedOperationException("remove");
   }

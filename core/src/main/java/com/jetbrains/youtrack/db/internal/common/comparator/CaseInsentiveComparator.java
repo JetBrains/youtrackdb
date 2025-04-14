@@ -27,6 +27,7 @@ import java.util.Comparator;
  */
 public class CaseInsentiveComparator implements Comparator<String> {
 
+  @Override
   public int compare(final String stringOne, final String stringTwo) {
     return stringOne.compareToIgnoreCase(stringTwo);
   }

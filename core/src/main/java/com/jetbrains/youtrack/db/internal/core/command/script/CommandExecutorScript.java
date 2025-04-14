@@ -82,6 +82,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   public CommandExecutorScript() {
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public CommandExecutorScript parse(DatabaseSessionInternal session,
       final CommandRequest iRequest) {
@@ -89,6 +90,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return this;
   }
 
+  @Override
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (context == null) {
       context = new BasicCommandContext();
@@ -189,6 +191,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return builder.toString();
   }
 
+  @Override
   public boolean isIdempotent() {
     return false;
   }

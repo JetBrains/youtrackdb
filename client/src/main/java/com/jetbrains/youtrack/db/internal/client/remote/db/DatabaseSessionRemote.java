@@ -96,10 +96,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
   }
 
 
+  @Override
   public DatabaseSession open(final String iUserName, final String iUserPassword) {
     throw new UnsupportedOperationException("Use YouTrackDB");
   }
 
+  @Override
   @Deprecated
   public DatabaseSession open(final Token iToken) {
     throw new UnsupportedOperationException("Deprecated Method");
@@ -163,6 +165,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     return this;
   }
 
+  @Override
   public DatabaseSessionInternal copy() {
     assertIfNotActive();
     var database = new DatabaseSessionRemote(storage, this.sharedContext);
@@ -507,6 +510,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     }
   }
 
+  @Override
   public void beforeUpdateOperations(final RecordAbstract recordAbstract,
       java.lang.String collectionName) {
     assert assertIfNotActive();
@@ -522,6 +526,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
 
   }
 
+  @Override
   public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -535,6 +540,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
   }
 
+  @Override
   public void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -595,10 +601,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     }
   }
 
+  @Override
   public String getCollectionName(final @Nonnull DBRecord record) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void delete(final @Nonnull DBRecord record) {
     checkOpenness();
     assert assertIfNotActive();
@@ -618,11 +626,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
+  @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
     return getStorageInfo().getRecordConflictStrategy();
   }
 
+  @Override
   public DatabaseSessionRemote setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
     storage.setConflictStrategy(
@@ -630,6 +640,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     return this;
   }
 
+  @Override
   public DatabaseSessionRemote setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
     storage.setConflictStrategy(iResolver);
@@ -734,6 +745,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     return storage.dropCollection(this, collectionId);
   }
 
+  @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
     return storage.dropCollection(this, collectionId);
@@ -845,6 +857,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
   /**
    * {@inheritDoc}
    */
+  @Override
   public BTreeCollectionManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getSBtreeCollectionManager();
@@ -873,6 +886,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
 
+  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;

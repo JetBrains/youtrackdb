@@ -50,6 +50,7 @@ public final class AddCollectionRequest implements BinaryRequest<AddCollectionRe
     network.writeShort((short) requestedId);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

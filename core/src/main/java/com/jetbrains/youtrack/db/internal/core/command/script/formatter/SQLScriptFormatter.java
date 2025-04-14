@@ -28,6 +28,7 @@ import javax.annotation.Nullable;
  */
 public class SQLScriptFormatter implements ScriptFormatter {
 
+  @Override
   @Nullable
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
     return null;

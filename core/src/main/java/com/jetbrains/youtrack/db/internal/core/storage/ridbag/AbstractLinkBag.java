@@ -337,6 +337,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     assert assertIfNotActive();
 
@@ -345,6 +346,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
   }
 
+  @Override
   public void disableTracking(RecordElement entity) {
     if (tracker.isEnabled()) {
       this.tracker.disable();
@@ -393,6 +395,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
   }
 
+  @Override
   public void setTransactionModified(boolean transactionDirty) {
     assert assertIfNotActive();
 

@@ -60,6 +60,7 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return progressListener;
   }
 
+  @Override
   public <RET extends CommandExecutor> RET setProgressListener(
       final ProgressListener progressListener) {
     this.progressListener = progressListener;
@@ -70,11 +71,13 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return limit;
   }
 
+  @Override
   public <RET extends CommandExecutor> RET setLimit(final int iLimit) {
     this.limit = iLimit;
     return (RET) this;
   }
 
+  @Override
   public Map<Object, Object> getParameters() {
     return parameters;
   }
@@ -85,10 +88,12 @@ public abstract class CommandExecutorAbstract extends BaseParser implements Comm
     return null;
   }
 
+  @Override
   public CommandContext getContext() {
     return context;
   }
 
+  @Override
   public void setContext(final CommandContext iContext) {
     context = iContext;
   }

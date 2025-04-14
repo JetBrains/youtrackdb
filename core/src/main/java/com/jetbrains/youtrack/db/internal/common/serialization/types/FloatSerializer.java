@@ -44,32 +44,38 @@ public class FloatSerializer implements BinarySerializer<Float> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final FloatSerializer INSTANCE = new FloatSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Float object,
       Object... hints) {
     return FLOAT_SIZE;
   }
 
+  @Override
   public void serialize(Float object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
     IntegerSerializer.serializeLiteral(
         Float.floatToIntBits(object), stream, startPosition);
   }
 
+  @Override
   public Float deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return Float.intBitsToFloat(
         IntegerSerializer.deserializeLiteral(stream, startPosition));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return FLOAT_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return FLOAT_SIZE;
@@ -104,10 +110,12 @@ public class FloatSerializer implements BinarySerializer<Float> {
     return Float.intBitsToFloat(CONVERTER.getInt(stream, startPosition, ByteOrder.nativeOrder()));
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return FLOAT_SIZE;
   }

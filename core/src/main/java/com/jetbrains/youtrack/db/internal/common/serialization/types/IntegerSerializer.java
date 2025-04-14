@@ -44,11 +44,13 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final IntegerSerializer INSTANCE = new IntegerSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Integer object,
       Object... hints) {
     return INT_SIZE;
   }
 
+  @Override
   public void serialize(
       final Integer object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -63,6 +65,7 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
     stream[startPosition + 3] = (byte) ((value) & 0xFF);
   }
 
+  @Override
   public Integer deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return deserializeLiteral(stream, startPosition);
@@ -75,15 +78,18 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
         | ((0xff & stream[startPosition + 3]));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return INT_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return INT_SIZE;
@@ -116,10 +122,12 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
     return CONVERTER.getInt(stream, startPosition, ByteOrder.nativeOrder());
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return INT_SIZE;
   }

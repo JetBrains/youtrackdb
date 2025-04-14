@@ -45,6 +45,7 @@ public class HigherPhysicalPositionsResponse implements BinaryResponse {
     this.nextPositions = MessageHelper.readPhysicalPositions(network);
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

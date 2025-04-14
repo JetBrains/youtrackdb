@@ -40,24 +40,29 @@ public class StorageCollectionRemote implements StorageCollection {
   private String name;
   private int id;
 
+  @Override
   public void configure(int iId, String iCollectionName) {
     id = iId;
     name = iCollectionName;
   }
 
 
+  @Override
   public void configure(Storage iStorage, StorageCollectionConfiguration iConfig) {
     id = iConfig.getId();
     name = iConfig.getName();
   }
 
+  @Override
   public void create(AtomicOperation atomicOperation) {
   }
 
 
+  @Override
   public void open(AtomicOperation atomicOperation) {
   }
 
+  @Override
   public void close() {
   }
 
@@ -116,6 +121,7 @@ public class StorageCollectionRemote implements StorageCollection {
     throw new UnsupportedOperationException("exists");
   }
 
+  @Override
   public void delete(AtomicOperation atomicOperation) {
   }
 
@@ -129,11 +135,13 @@ public class StorageCollectionRemote implements StorageCollection {
     throw new UnsupportedOperationException("encryption");
   }
 
+  @Override
   @Nullable
   public PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition) {
     return null;
   }
 
+  @Override
   public long getEntries() {
     return 0;
   }
@@ -163,17 +171,21 @@ public class StorageCollectionRemote implements StorageCollection {
     throw new UnsupportedOperationException("getFileName()");
   }
 
+  @Override
   public int getId() {
     return id;
   }
 
+  @Override
   public void synch() {
   }
 
+  @Override
   public String getName() {
     return name;
   }
 
+  @Override
   public long getRecordsSize() {
     throw new UnsupportedOperationException("getRecordsSize()");
   }

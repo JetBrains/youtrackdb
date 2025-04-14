@@ -49,6 +49,7 @@ public class SBTFirstKeyRequest implements BinaryRequest<SBTFirstKeyResponse> {
     CollectionNetworkSerializer.writeCollectionPointer(network, collectionPointer);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

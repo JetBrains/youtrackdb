@@ -582,6 +582,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.getCurrentUserName();
   }
 
+  @Override
   public Vertex newVertex(final String iClassName) {
     checkOpenness();
     return internal.newVertex(iClassName);
@@ -1302,11 +1303,13 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return new RecordBytes(this);
   }
 
+  @Override
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     checkOpenness();
     return internal.newLightweightEdgeInternal(iClassName, from, to);
   }
 
+  @Override
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     checkOpenness();
     return internal.newRegularEdge(iClassName, from, to);
@@ -1324,6 +1327,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.countClass(iClassName, iPolymorphic);
   }
 
+  @Override
   public void setSerializer(RecordSerializer serializer) {
     if (internal != null) {
       internal.setSerializer(serializer);
@@ -1358,6 +1362,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.execute(query, args);
   }
 
+  @Override
   public ResultSet execute(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
@@ -1406,6 +1411,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.isPrefetchRecords();
   }
 
+  @Override
   public void setPrefetchRecords(boolean prefetchRecords) {
     checkOpenness();
     internal.setPrefetchRecords(prefetchRecords);

@@ -2712,6 +2712,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     return answer;
   }
 
+  @Override
   public void onMessage(final String iText) {
     message(iText);
   }
@@ -2729,6 +2730,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
+  @Override
   public boolean onProgress(final Object iTask, final long iCounter, final float iPercent) {
     final var completitionBar = (int) iPercent / 10;
 
@@ -2758,6 +2760,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\nCurrent path: " + new File("").getAbsolutePath());
   }
 
+  @Override
   public void onCompletition(DatabaseSessionInternal session, final Object iTask,
       final boolean iSucceed) {
     if (interactiveMode) {

@@ -300,6 +300,7 @@ public interface DatabaseSession extends AutoCloseable {
    * Closes an opened database, if the database is already closed does nothing, if a transaction is
    * active will be rollback.
    */
+  @Override
   void close();
 
   /**

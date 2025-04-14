@@ -56,6 +56,7 @@ public class LightweightRelationImpl<T extends Entity> implements
     return false;
   }
 
+  @Override
   @Nullable
   public T getEntity(@Nonnull Direction dir) {
     if (dir == Direction.IN) {

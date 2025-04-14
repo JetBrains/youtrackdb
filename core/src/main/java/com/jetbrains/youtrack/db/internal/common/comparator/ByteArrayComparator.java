@@ -30,6 +30,7 @@ public class ByteArrayComparator implements Comparator<byte[]> {
 
   public static final ByteArrayComparator INSTANCE = new ByteArrayComparator();
 
+  @Override
   public int compare(final byte[] arrayOne, final byte[] arrayTwo) {
     final var lenDiff = arrayOne.length - arrayTwo.length;
 

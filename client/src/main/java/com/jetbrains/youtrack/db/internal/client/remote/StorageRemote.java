@@ -81,7 +81,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
@@ -95,7 +94,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponent
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.TokenException;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -107,18 +105,14 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -132,7 +126,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -273,14 +266,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public StorageConfiguration getConfiguration() {
     return configuration;
   }
 
+  @Override
   public boolean checkForRecordValidity(final PhysicalPosition ppos) {
     return ppos != null && !RecordVersionHelper.isTombstone(ppos.recordVersion);
   }
 
+  @Override
   public String getName() {
     return name;
   }
@@ -536,6 +532,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     } while (true);
   }
 
+  @Override
   public boolean isAssigningCollectionIds() {
     return false;
   }
@@ -543,6 +540,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   /**
    * Supported only in embedded storage. Use <code>SELECT FROM metadata:storage</code> instead.
    */
+  @Override
   public String getCreatedAtVersion() {
     throw new UnsupportedOperationException(
         "Supported only in embedded storage. Use 'SELECT FROM metadata:storage' instead.");
@@ -553,6 +551,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return session != null ? session.getSessionId() : -1;
   }
 
+  @Override
   public void open(
       DatabaseSessionInternal db, final String iUserName, final String iUserPassword,
       final ContextConfiguration conf) {
@@ -605,10 +604,12 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public BTreeCollectionManager getSBtreeCollectionManager() {
     return sbTreeCollectionManager;
   }
 
+  @Override
   public void reload(DatabaseSessionInternal database) {
     var res =
         networkOperation((DatabaseSessionRemote) database, new ReloadRequest37(),
@@ -622,18 +623,21 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     updateStorageConfiguration(storageConfiguration);
   }
 
+  @Override
   public void create(ContextConfiguration contextConfiguration) {
     throw new UnsupportedOperationException(
         "Cannot create a database in a remote server. Please use the console or the ServerAdmin"
             + " class.");
   }
 
+  @Override
   public boolean exists() {
     throw new UnsupportedOperationException(
         "Cannot check the existence of a database in a remote server. Please use the console or the"
             + " ServerAdmin class.");
   }
 
+  @Override
   public void close(DatabaseSessionInternal database, final boolean iForce) {
     if (status == STATUS.CLOSED) {
       return;
@@ -661,6 +665,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void shutdown() {
     if (status == STATUS.CLOSED || status == STATUS.CLOSING) {
       return;
@@ -715,14 +720,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return force || remainingUsers == 0;
   }
 
+  @Override
   public int getUsers() {
     return users.get();
   }
 
+  @Override
   public int addUser() {
     return users.incrementAndGet();
   }
 
+  @Override
   public int removeUser() {
     if (users.get() < 1) {
       throw new IllegalStateException(
@@ -732,12 +740,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return users.decrementAndGet();
   }
 
+  @Override
   public void delete() {
     throw new UnsupportedOperationException(
         "Cannot delete a database in a remote server. Please use the console or the ServerAdmin"
             + " class.");
   }
 
+  @Override
   public Set<String> getCollectionNames() {
     stateLock.readLock().lock();
     try {
@@ -749,6 +759,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid) {
     var request = new GetRecordMetadataRequest(rid);
     var response =
@@ -776,6 +787,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.isRecordExists();
   }
 
+  @Override
   public @Nonnull ReadRecordResult readRecord(
       DatabaseSessionInternal session, final RecordId iRid, boolean fetchPreviousRid,
       boolean fetchNextRid) {
@@ -801,6 +813,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return 0;
   }
 
+  @Override
   public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
       CallableFunction<Void, Void> started) {
     var request = new IncrementalBackupRequest(backupDirectory);
@@ -810,18 +823,21 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getFileName();
   }
 
+  @Override
   public void fullIncrementalBackup(final OutputStream stream)
       throws UnsupportedOperationException {
     throw new UnsupportedOperationException(
         "This operations is part of internal API and is not supported in remote storage");
   }
 
+  @Override
   public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
       final String filePath) {
     throw new UnsupportedOperationException(
         "This operations is part of internal API and is not supported in remote storage");
   }
 
+  @Override
   public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
       final InputStream stream)
       throws UnsupportedOperationException {
@@ -829,6 +845,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         "This operations is part of internal API and is not supported in remote storage");
   }
 
+  @Override
   public List<String> backup(
       DatabaseSessionInternal db, OutputStream out,
       Map<String, Object> options,
@@ -842,6 +859,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             + " incremental backup in the Enterprise Edition");
   }
 
+  @Override
   public void restore(
       InputStream in,
       Map<String, Object> options,
@@ -857,14 +875,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return clientConfiguration;
   }
 
+  @Override
   public long count(DatabaseSessionInternal session, final int iCollectionId) {
     return count(session, new int[]{iCollectionId});
   }
 
+  @Override
   public long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones) {
     return count(session, new int[]{iCollectionId}, countTombstones);
   }
 
+  @Override
   public PhysicalPosition[] higherPhysicalPositions(
       DatabaseSessionInternal session, final int iCollectionId,
       final PhysicalPosition iCollectionPosition, int limit) {
@@ -878,6 +899,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getNextPositions();
   }
 
+  @Override
   public PhysicalPosition[] ceilingPhysicalPositions(
       DatabaseSessionInternal session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
@@ -892,6 +914,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getPositions();
   }
 
+  @Override
   public PhysicalPosition[] lowerPhysicalPositions(
       DatabaseSessionInternal session, final int iCollectionId,
       final PhysicalPosition physicalPosition, int limit) {
@@ -904,6 +927,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getPreviousPositions();
   }
 
+  @Override
   public PhysicalPosition[] floorPhysicalPositions(
       DatabaseSessionInternal session, final int collectionId,
       final PhysicalPosition physicalPosition, int limit) {
@@ -916,6 +940,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getPositions();
   }
 
+  @Override
   public long getSize(DatabaseSessionInternal session) {
     var request = new GetSizeRequest();
     var response = networkOperation((DatabaseSessionRemote) session, request,
@@ -929,6 +954,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public long countRecords(DatabaseSessionInternal session) {
     var request = new CountRecordsRequest();
     var response =
@@ -937,10 +963,12 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getCountRecords();
   }
 
+  @Override
   public long count(DatabaseSessionInternal session, final int[] iCollectionIds) {
     return count(session, iCollectionIds, false);
   }
 
+  @Override
   public long count(DatabaseSessionInternal session, final int[] iCollectionIds,
       final boolean countTombstones) {
     var request = new CountRequest(iCollectionIds, countTombstones);
@@ -1206,6 +1234,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void commit(final FrontendTransactionImpl tx) {
     var remoteSession = (DatabaseSessionRemote) tx.getDatabaseSession();
     unstickToSession(remoteSession);
@@ -1228,6 +1257,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void rollback(FrontendTransaction iTx) {
     var remoteSession = (DatabaseSessionRemote) iTx.getDatabaseSession();
     try {
@@ -1241,6 +1271,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public int getCollectionIdByName(final String iCollectionName) {
     stateLock.readLock().lock();
     try {
@@ -1264,11 +1295,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final Object... iArguments) {
     return addCollection(database, iCollectionName, -1);
   }
 
+  @Override
   public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final int iRequestedId) {
     var request = new AddCollectionRequest(iRequestedId, iCollectionName);
@@ -1279,6 +1312,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getCollectionId();
   }
 
+  @Override
   public String getCollectionNameById(int collectionId) {
     stateLock.readLock().lock();
     try {
@@ -1293,22 +1327,27 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public long getCollectionRecordsSizeById(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public long getCollectionRecordsSizeByName(String collectionName) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean isSystemCollection(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean dropCollection(DatabaseSessionInternal database, final int iCollectionId) {
 
     var request = new DropCollectionRequest(iCollectionId);
@@ -1322,6 +1361,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.getResult();
   }
 
+  @Override
   public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
     stateLock.readLock().lock();
     try {
@@ -1346,6 +1386,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
   }
 
+  @Override
   public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute,
       Object value) {
     return false;
@@ -1369,9 +1410,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void synch() {
   }
 
+  @Override
   @Nullable
   public String getPhysicalCollectionNameById(final int iCollectionId) {
     stateLock.readLock().lock();
@@ -1398,6 +1441,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public Collection<StorageCollection> getCollectionInstances() {
     stateLock.readLock().lock();
     try {
@@ -1409,6 +1453,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public long getVersion() {
     throw new UnsupportedOperationException("getVersion");
   }
@@ -1432,22 +1477,27 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     iNetwork.endResponse();
   }
 
+  @Override
   public boolean isRemote() {
     return true;
   }
 
+  @Override
   public RecordConflictStrategy getRecordConflictStrategy() {
     throw new UnsupportedOperationException("getRecordConflictStrategy");
   }
 
+  @Override
   public void setConflictStrategy(final RecordConflictStrategy iResolver) {
     throw new UnsupportedOperationException("setConflictStrategy");
   }
 
+  @Override
   public String getURL() {
     return EngineRemote.NAME + ":" + url;
   }
 
+  @Override
   public int getCollections() {
     stateLock.readLock().lock();
     try {
@@ -1457,10 +1507,12 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public String getType() {
     return EngineRemote.NAME;
   }
 
+  @Override
   @Nullable
   public String getUserName(DatabaseSessionInternal database) {
     final var session = getCurrentSession((DatabaseSessionRemote) database);
@@ -1789,6 +1841,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         false, getCurrentSession(database), configuration.getContextConfiguration());
   }
 
+  @Override
   public SocketChannelBinaryAsynchClient getNetwork(final String iCurrentURL) {
     return getNetwork(iCurrentURL, connectionManager, clientConfiguration);
   }
@@ -1912,6 +1965,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return session;
   }
 
+  @Override
   public boolean isClosed(DatabaseSessionInternal database) {
     if (status == STATUS.CLOSED) {
       return true;
@@ -2041,6 +2095,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     updateTxFromResponse(transaction, response);
   }
 
+  @Override
   @Nullable
   public BinaryPushRequest createPush(byte type) {
     return switch (type) {
@@ -2057,6 +2112,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     };
   }
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateDistributedConfig(
       PushDistributedConfigurationRequest request) {
@@ -2064,12 +2120,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return null;
   }
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateSequences(PushSequencesRequest request) {
     DatabaseSessionRemote.updateSequences(this);
     return null;
   }
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateIndexManager(PushIndexManagerRequest request) {
     DatabaseSessionRemote.updateIndexManager(this);
@@ -2077,6 +2135,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateStorageConfig(PushStorageConfigurationRequest payload) {
     final StorageConfiguration storageConfiguration =
@@ -2089,12 +2148,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return null;
   }
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateFunction(PushFunctionsRequest request) {
     DatabaseSessionRemote.updateFunction(this);
     return null;
   }
 
+  @Override
   @Nullable
   public BinaryPushResponse executeUpdateSchema(PushSchemaRequest request) {
     DatabaseSessionRemote.updateSchema(this);
@@ -2158,6 +2219,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return params;
   }
 
+  @Override
   public void executeLiveQueryPush(LiveQueryPushRequest pushRequest) {
     var listener = liveQueryListener.get(pushRequest.getMonitorId());
     if (listener.onEvent(pushRequest)) {
@@ -2165,6 +2227,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void onPushReconnect(String host) {
     if (status != STATUS.OPEN) {
       // AVOID RECONNECT ON CLOSE
@@ -2198,6 +2261,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void onPushDisconnect(SocketChannelBinary network, Exception e) {
     if (this.connectionManager.getPool(((SocketChannelBinaryAsynchClient) network).getServerURL())
         != null) {
@@ -2220,66 +2284,82 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
+  @Override
   public void returnSocket(SocketChannelBinary network) {
     this.connectionManager.remove((SocketChannelBinaryAsynchClient) network);
   }
 
+  @Override
   public void setSchemaRecordId(String schemaRecordId) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setDateFormat(String dateFormat) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setTimeZone(TimeZone timeZoneValue) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setLocaleLanguage(String locale) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setCharset(String charset) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setIndexMgrRecordId(String indexMgrRecordId) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setDateTimeFormat(String dateTimeFormat) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setLocaleCountry(String localeCountry) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setCollectionSelection(String collectionSelection) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setMinimumCollections(int minimumCollections) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setValidation(boolean validation) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void removeProperty(String property) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setProperty(String property, String value) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void setRecordSerializer(String recordSerializer, int version) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public void clearProperties() {
     throw new UnsupportedOperationException();
   }
@@ -2292,18 +2372,22 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return sharedContext;
   }
 
+  @Override
   public STATUS getStatus() {
     return status;
   }
 
+  @Override
   public void close(DatabaseSessionInternal session) {
     close(session, false);
   }
 
+  @Override
   public boolean dropCollection(DatabaseSessionInternal session, final String iCollectionName) {
     return dropCollection(session, getCollectionIdByName(iCollectionName));
   }
 
+  @Override
   public CurrentStorageComponentsFactory getComponentsFactory() {
     return componentsFactory;
   }
