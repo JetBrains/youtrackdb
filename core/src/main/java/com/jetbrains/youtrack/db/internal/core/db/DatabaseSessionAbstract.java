@@ -595,7 +595,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   @Override
   public STATUS getStatus() {
-    assert assertIfNotActive();
     return status;
   }
 
