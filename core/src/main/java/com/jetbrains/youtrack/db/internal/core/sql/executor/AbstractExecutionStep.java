@@ -62,6 +62,7 @@ public abstract class AbstractExecutionStep implements ExecutionStepInternal {
     this.profilingEnabled = profilingEnabled;
   }
 
+  @Override
   public ExecutionStream start(CommandContext ctx) throws TimeoutException {
     if (profilingEnabled) {
       ctx.startProfiling(this);

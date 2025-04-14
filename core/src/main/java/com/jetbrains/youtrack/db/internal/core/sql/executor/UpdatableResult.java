@@ -30,6 +30,7 @@ public class UpdatableResult extends ResultInternal {
     asEntity().setProperty(name, value);
   }
 
+  @Override
   public void removeProperty(String name) {
     assert checkSession();
     asEntity().removeProperty(name);
