@@ -19,18 +19,28 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation that allows multiple values for the same key.
  */
 public class IndexNotUnique extends IndexMultiValues {
 
-  public IndexNotUnique(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public IndexNotUnique(@Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexNotUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   public boolean canBeUsedInEqualityOperators() {

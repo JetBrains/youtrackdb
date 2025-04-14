@@ -332,15 +332,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             }
             response = request.execute(connection.getExecutor());
           } catch (RuntimeException t) {
-            // This should be moved in the execution of the command that manipulate data
-            var session = connection.getDatabaseSession();
-            if (session != null) {
-              final var collectionManager =
-                  connection.getDatabaseSession().getBTreeCollectionManager();
-              if (collectionManager != null) {
-                collectionManager.clearChangedIds(session);
-              }
-            }
             exception = t;
           } catch (Throwable err) {
             sendShutdown();
@@ -464,7 +455,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       if (handshakeInfo != null) {
         if (connection == null) {
-          throw new TokenSecurityException("missing session and token");
+          throw new TokenSecurityException("Missing session and token. Client id : "
+              + clientTxId + ", request type :" + requestType);
         }
         connection.acquire();
         connection.validateSession(tokenBytes, server.getTokenHandler(), this);

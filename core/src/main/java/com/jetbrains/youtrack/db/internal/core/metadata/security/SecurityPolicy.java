@@ -19,30 +19,30 @@ public interface SecurityPolicy {
 
   RID getIdentity();
 
-  String getName(@Nonnull DatabaseSessionInternal session);
+  String getName();
 
-  boolean isActive(@Nonnull DatabaseSessionInternal session);
+  boolean isActive();
 
-  String getCreateRule(@Nonnull DatabaseSessionInternal session);
+  String getCreateRule();
 
-  String getReadRule(@Nonnull DatabaseSessionInternal session);
+  String getReadRule();
 
-  String getBeforeUpdateRule(@Nonnull DatabaseSessionInternal session);
+  String getBeforeUpdateRule();
 
-  String getAfterUpdateRule(@Nonnull DatabaseSessionInternal session);
+  String getAfterUpdateRule();
 
-  String getDeleteRule(@Nonnull DatabaseSessionInternal session);
+  String getDeleteRule();
 
-  String getExecuteRule(@Nonnull DatabaseSessionInternal session);
+  String getExecuteRule();
 
   default String get(Scope scope, @Nonnull DatabaseSessionInternal session) {
     return switch (scope) {
-      case CREATE -> getCreateRule(session);
-      case READ -> getReadRule(session);
-      case BEFORE_UPDATE -> getBeforeUpdateRule(session);
-      case AFTER_UPDATE -> getAfterUpdateRule(session);
-      case DELETE -> getDeleteRule(session);
-      case EXECUTE -> getExecuteRule(session);
+      case CREATE -> getCreateRule();
+      case READ -> getReadRule();
+      case BEFORE_UPDATE -> getBeforeUpdateRule();
+      case AFTER_UPDATE -> getAfterUpdateRule();
+      case DELETE -> getDeleteRule();
+      case EXECUTE -> getExecuteRule();
     };
   }
 }

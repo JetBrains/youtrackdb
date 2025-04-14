@@ -55,7 +55,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelo
 import com.jetbrains.youtrack.db.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.IOResult;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -252,7 +252,7 @@ public final class WOWCache extends AbstractWriteCache
   static {
     commitExecutor =
         ThreadPoolExecutors.newSingleThreadScheduledPool(
-            "YouTrackDB Write Cache Flush Task", AbstractPaginatedStorage.storageThreadGroup);
+            "YouTrackDB Write Cache Flush Task", AbstractStorage.storageThreadGroup);
   }
 
   /**
@@ -1292,7 +1292,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
-        writeNameIdEntry(new NameFileIdEntry(file.first, -intId, file.second), true);
+        writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
       }
     } finally {
       filesLock.releaseWriteLock();

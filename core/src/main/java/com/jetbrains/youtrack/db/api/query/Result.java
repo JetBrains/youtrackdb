@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
@@ -294,7 +295,7 @@ public interface Result {
   }
 
   @Nullable
-  default Map<String, Identifiable> getLinkMap(@Nonnull String name) {
+  default LinkMap getLinkMap(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkMap(name);
     }
@@ -304,9 +305,8 @@ public interface Result {
       return null;
     }
 
-    if (value instanceof Map<?, ?> map && PropertyTypeInternal.canBeLinkCollection(map.values())) {
-      //noinspection unchecked
-      return (Map<String, Identifiable>) map;
+    if (value instanceof LinkMap linkMap) {
+      return linkMap;
     }
 
     throw new DatabaseException(

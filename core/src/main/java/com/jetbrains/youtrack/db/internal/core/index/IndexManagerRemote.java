@@ -21,64 +21,49 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableLong;
-import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import java.util.ArrayList;
-import java.util.Arrays;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class IndexManagerRemote implements IndexManagerAbstract {
+public class IndexManagerRemote extends IndexManagerAbstract {
 
-  private final StorageInfo storage;
-  // values of this Map should be IMMUTABLE !! for thread safety reasons.
-  protected final Map<String, Map<MultiKey, Set<Index>>> classPropertyIndex =
-      new ConcurrentHashMap<>();
-  protected Map<String, Index> indexes = new ConcurrentHashMap<>();
+  private static final String QUERY_DROP = "drop index `%s` if exists";
+
   protected final ReentrantLock lock = new ReentrantLock();
-
   private final AtomicInteger updateRequests = new AtomicInteger(0);
   private final ThreadLocal<ModifiableLong> lockNesting = ThreadLocal.withInitial(
       ModifiableLong::new);
-
-  private RID identity;
-
   private final ThreadLocal<boolean[]> ignoreReloadRequest = ThreadLocal.withInitial(
       () -> new boolean[1]);
 
-  public IndexManagerRemote(StorageInfo storage) {
-    super();
-    this.storage = storage;
+  public IndexManagerRemote(Storage storage) {
+    super(storage);
   }
 
   public void load(DatabaseSessionInternal session) {
     acquireExclusiveLock(session);
     try {
       // RELOAD IT
-      identity =
+      indexManagerIdentity =
           new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
 
-      session.executeInTx(
+      session.executeInTxInternal(
           transaction -> {
-            EntityImpl entity = transaction.load(identity);
-            fromStream(entity, session);
+            var entity = (EntityImpl) transaction.loadEntity(indexManagerIdentity);
+            load(transaction, entity);
           });
     } finally {
       releaseExclusiveLock(session);
@@ -88,44 +73,22 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   public void reload(DatabaseSessionInternal session) {
     acquireExclusiveLock(session);
     try {
-      identity =
+      indexManagerIdentity =
           new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
-      session.executeInTx(
+      session.executeInTxInternal(
           transaction -> {
-            EntityImpl entity = session.load(identity);
-            fromStream(entity, session);
+            var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
+            load(transaction, entity);
           });
     } finally {
       releaseExclusiveLock(session);
     }
   }
 
-  public void save(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
-  }
-
-  public void addCollectionToIndex(DatabaseSessionInternal session, final String collectionName,
-      final String indexName) {
-    throw new UnsupportedOperationException();
-  }
-
-  public void removeCollectionFromIndex(DatabaseSessionInternal session,
-      final String collectionName,
-      final String indexName) {
-    throw new UnsupportedOperationException();
-  }
-
-  public void create(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
-  }
-
   public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
     enterReadAccess(session);
     try {
-      final var rawResult = indexes.values();
-      final List<Index> result = new ArrayList<>(rawResult.size());
-      result.addAll(rawResult);
-      return result;
+      return super.getIndexes(session);
     } finally {
       leaveReadAccess(session);
     }
@@ -134,7 +97,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   public Index getIndex(DatabaseSessionInternal session, final String iName) {
     enterReadAccess(session);
     try {
-      return indexes.get(iName);
+      return super.getIndex(session, iName);
     } finally {
       leaveReadAccess(session);
     }
@@ -144,17 +107,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
     enterReadAccess(session);
     try {
-      return indexes.containsKey(iName);
-    } finally {
-      leaveReadAccess(session);
-    }
-  }
-
-
-  public EntityImpl getConfiguration(DatabaseSessionInternal session) {
-    enterReadAccess(session);
-    try {
-      return getEntity(session);
+      return super.existsIndex(session, iName);
     } finally {
       leaveReadAccess(session);
     }
@@ -170,66 +123,63 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       DatabaseSessionInternal session, final String className, Collection<String> fields) {
     enterReadAccess(session);
     try {
-      final var multiKey = new MultiKey(fields);
-      final var propertyIndex = getIndexOnProperty(className);
-      if (propertyIndex == null || !propertyIndex.containsKey(multiKey)) {
-        return Collections.emptySet();
-      }
-
-      final var rawResult = propertyIndex.get(multiKey);
-      final Set<Index> transactionalResult = new HashSet<>(rawResult.size());
-      for (final var index : rawResult) {
-        // ignore indexes that ignore null values on partial match
-        if (fields.size() == index.getDefinition().getFields().size()
-            || !index.getDefinition().isNullValuesIgnored()) {
-          transactionalResult.add(index);
-        }
-      }
-
-      return transactionalResult;
+      return super.getClassInvolvedIndexes(session, className, fields);
     } finally {
       leaveReadAccess(session);
     }
-
   }
 
-  public Set<Index> getClassInvolvedIndexes(
-      DatabaseSessionInternal session, final String className, final String... fields) {
-    return getClassInvolvedIndexes(session, className, Arrays.asList(fields));
+  @Override
+  public Set<Index> getClassInvolvedIndexes(DatabaseSessionInternal session, String className,
+      String... fields) {
+    enterReadAccess(session);
+    try {
+      return super.getClassInvolvedIndexes(session, className, fields);
+    } finally {
+      leaveReadAccess(session);
+    }
   }
+
+  @Override
+  public boolean areIndexed(DatabaseSessionInternal session, String className,
+      String... fields) {
+    enterReadAccess(session);
+    try {
+      return super.areIndexed(session, className, fields);
+    } finally {
+      leaveReadAccess(session);
+    }
+  }
+
 
   public boolean areIndexed(DatabaseSessionInternal session, final String className,
       Collection<String> fields) {
     enterReadAccess(session);
     try {
-      final var multiKey = new MultiKey(fields);
-      final var propertyIndex = getIndexOnProperty(className);
-
-      if (propertyIndex == null) {
-        return false;
-      }
-
-      return propertyIndex.containsKey(multiKey) && !propertyIndex.get(multiKey).isEmpty();
+      return super.areIndexed(session, className, fields);
     } finally {
       leaveReadAccess(session);
     }
-
-  }
-
-  public boolean areIndexed(DatabaseSessionInternal session, final String className,
-      final String... fields) {
-    return areIndexed(session, className, Arrays.asList(fields));
   }
 
   public Set<Index> getClassIndexes(DatabaseSessionInternal session, final String className) {
-    final var coll = new HashSet<Index>(4);
-    getClassIndexes(session, className, coll);
-    return coll;
+    enterReadAccess(session);
+    try {
+      return super.getClassIndexes(session, className);
+    } finally {
+      leaveReadAccess(session);
+    }
   }
 
   public void getClassIndexes(
       DatabaseSessionInternal session, final String className,
       final Collection<Index> indexes) {
+    enterReadAccess(session);
+    try {
+      super.getClassIndexes(session, className, indexes);
+    } finally {
+      leaveReadAccess(session);
+    }
     getClassRawIndexes(session, className, indexes);
   }
 
@@ -237,15 +187,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       final String className, final Collection<Index> indexes) {
     enterReadAccess(session);
     try {
-      final var propertyIndex = getIndexOnProperty(className);
-
-      if (propertyIndex == null) {
-        return;
-      }
-
-      for (final var propertyIndexes : propertyIndex.values()) {
-        indexes.addAll(propertyIndexes);
-      }
+      super.getClassRawIndexes(session, className, indexes);
     } finally {
       leaveReadAccess(session);
     }
@@ -254,19 +196,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
   public IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, final String className) {
     enterReadAccess(session);
     try {
-      final var propertyIndex = getIndexOnProperty(className);
-
-      if (propertyIndex != null) {
-        for (final var propertyIndexes : propertyIndex.values()) {
-          for (final var index : propertyIndexes) {
-            if (index instanceof IndexUnique) {
-              return (IndexUnique) index;
-            }
-          }
-        }
-      }
-
-      return null;
+      return super.getClassUniqueIndex(session, className);
     } finally {
       leaveReadAccess(session);
     }
@@ -277,17 +207,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
       DatabaseSessionInternal session, String className, String indexName) {
     enterReadAccess(session);
     try {
-      className = className.toLowerCase();
-      final var index = indexes.get(indexName);
-
-      if (index != null
-          && index.getDefinition() != null
-          && index.getDefinition().getClassName() != null
-          && className.equals(index.getDefinition().getClassName().toLowerCase())) {
-        return index;
-      }
-
-      return null;
+      return super.getClassIndex(session, className, indexName);
     } finally {
       leaveReadAccess(session);
     }
@@ -363,51 +283,6 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     classPropertyIndex.clear();
   }
 
-  private void addIndexInternal(final Index index) {
-    indexes.put(index.getName(), index);
-
-    final var indexDefinition = index.getDefinition();
-    if (indexDefinition == null || indexDefinition.getClassName() == null) {
-      return;
-    }
-
-    var propertyIndex = getIndexOnProperty(indexDefinition.getClassName());
-
-    if (propertyIndex == null) {
-      propertyIndex = new HashMap<>();
-    } else {
-      propertyIndex = new HashMap<>(propertyIndex);
-    }
-
-    final var paramCount = indexDefinition.getParamCount();
-
-    for (var i = 1; i <= paramCount; i++) {
-      final var fields = indexDefinition.getFields().subList(0, i);
-      final var multiKey = new MultiKey(fields);
-      var indexSet = propertyIndex.get(multiKey);
-
-      if (indexSet == null) {
-        indexSet = new HashSet<>();
-      } else {
-        indexSet = new HashSet<>(indexSet);
-      }
-
-      indexSet.add(index);
-      propertyIndex.put(multiKey, indexSet);
-    }
-
-    classPropertyIndex.put(
-        indexDefinition.getClassName().toLowerCase(), copyPropertyMap(propertyIndex));
-  }
-
-  private static Map<MultiKey, Set<Index>> copyPropertyMap(Map<MultiKey, Set<Index>> original) {
-    return IndexManagerShared.copyPropertyMap(original);
-  }
-
-  private Map<MultiKey, Set<Index>> getIndexOnProperty(final String className) {
-    return classPropertyIndex.get(className.toLowerCase());
-  }
-
   public Index createIndex(
       DatabaseSessionInternal session,
       final String iName,
@@ -457,6 +332,31 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     }
   }
 
+  public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
+    acquireExclusiveLock(session);
+    try {
+      final var text = String.format(QUERY_DROP, iIndexName);
+      session.command(text);
+
+      // REMOVE THE INDEX LOCALLY
+      indexes.remove(iIndexName);
+      reload(session);
+
+    } finally {
+      releaseExclusiveLock(session);
+    }
+  }
+
+  @Override
+  protected Index createIndexInstance(FrontendTransaction transaction,
+      Identifiable indexIdentifiable, IndexMetadata newIndexMetadata) {
+    return new IndexRemote(newIndexMetadata.getName(), newIndexMetadata.getType(),
+        newIndexMetadata.getAlgorithm(), indexIdentifiable.getIdentity(),
+        newIndexMetadata.getIndexDefinition(), newIndexMetadata.getMetadata(),
+        newIndexMetadata.getCollectionsToIndex(),
+        transaction.getDatabaseSession().getDatabaseName());
+  }
+
   @Override
   public Index createIndex(
       DatabaseSessionInternal session,
@@ -477,76 +377,6 @@ public class IndexManagerRemote implements IndexManagerAbstract {
         null);
   }
 
-  public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
-    throw new UnsupportedOperationException();
-  }
-
-  public EntityImpl toStream(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException("Remote index cannot be streamed");
-  }
-
-  @Override
-  public RID getIdentity() {
-    return identity;
-  }
-
-  @Override
-  public void recreateIndexes(DatabaseSessionInternal database) {
-    throw new UnsupportedOperationException("recreateIndexes(DatabaseSessionInternal)");
-  }
-
-  public void waitTillIndexRestore() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean autoRecreateIndexesAfterCrash(DatabaseSessionInternal session) {
-    return false;
-  }
-
-  public void removeClassPropertyIndex(DatabaseSessionInternal session, Index idx) {
-    throw new UnsupportedOperationException();
-  }
-
-  private void fromStream(EntityImpl entity, DatabaseSessionInternal session) {
-    acquireExclusiveLock(session);
-    try {
-      clearMetadata();
-
-      final Collection<Map<String, Object>> idxs = entity.getProperty(CONFIG_INDEXES);
-      if (idxs != null) {
-        for (var configMap : idxs) {
-          try {
-            final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(session, configMap);
-
-            var type = newIndexMetadata.getType();
-            var name = newIndexMetadata.getName();
-            var algorithm = newIndexMetadata.getAlgorithm();
-            var collectionsToIndex = newIndexMetadata.getCollectionsToIndex();
-            var indexDefinition = newIndexMetadata.getIndexDefinition();
-            var configMapId = (RID) configMap.get(IndexAbstract.CONFIG_MAP_RID);
-
-            addIndexInternal(
-                new IndexRemote(
-                    name,
-                    type,
-                    algorithm,
-                    configMapId,
-                    indexDefinition,
-                    configMap,
-                    collectionsToIndex,
-                    storage.getName()));
-          } catch (Exception e) {
-            LogManager.instance()
-                .error(this, "Error on loading of index by configuration: %s", e, configMap);
-          }
-        }
-      }
-    } finally {
-      releaseExclusiveLock(session);
-    }
-  }
-
   private void acquireExclusiveLock(DatabaseSessionInternal session) {
     internalAcquireExclusiveLock(session);
   }
@@ -555,12 +385,7 @@ public class IndexManagerRemote implements IndexManagerAbstract {
     session
         .getSharedContext()
         .getSchema()
-        .forceSnapshot(session);
+        .forceSnapshot();
     internalReleaseExclusiveLock(session);
   }
-
-  public EntityImpl getEntity(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
-  }
-
 }

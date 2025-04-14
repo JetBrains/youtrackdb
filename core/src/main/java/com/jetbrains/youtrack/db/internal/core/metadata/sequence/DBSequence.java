@@ -459,103 +459,77 @@ public abstract class DBSequence {
 
   protected long callRetry(DatabaseSessionInternal db, final SequenceCallable callable,
       final String method) {
-    var dbCopy = db.copy();
-    var future =
-        sequenceExecutor.submit(
-            () -> {
-              dbCopy.activateOnCurrentThread();
-              try (dbCopy) {
-                for (var retry = 0; retry < maxRetry; ++retry) {
-                  updateLock.lock();
-                  try {
-                    return dbCopy.computeInTx(
-                        transaction -> {
-                          var transaction1 = dbCopy.getActiveTransaction();
-                          var entity = transaction1.<EntityImpl>load(entityRid);
+    try (var dbCopy = db.copy()) {
+      for (var retry = 0; retry < maxRetry; ++retry) {
+        updateLock.lock();
+        try {
+          return dbCopy.computeInTx(
+              transaction -> {
+                var entity = transaction.<EntityImpl>load(entityRid);
+                return callable.call(dbCopy, entity);
+              });
+        } catch (ConcurrentModificationException ignore) {
+          try {
+            //noinspection BusyWait
+            Thread.sleep(
+                1
+                    + new Random()
+                    .nextInt(
+                        dbCopy
+                            .getConfiguration()
+                            .getValueAsInteger(
+                                GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
+          } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+            break;
+          }
 
-                          return callable.call(dbCopy, entity);
-                        });
-                  } catch (ConcurrentModificationException ignore) {
-                    try {
-                      //noinspection BusyWait
-                      Thread.sleep(
-                          1
-                              + new Random()
-                              .nextInt(
-                                  dbCopy
-                                      .getConfiguration()
-                                      .getValueAsInteger(
-                                          GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
-                    } catch (InterruptedException ignored) {
-                      Thread.currentThread().interrupt();
-                      break;
-                    }
-
-                  } catch (StorageException e) {
-                    if (!(e.getCause() instanceof ConcurrentModificationException)) {
-                      throw BaseException.wrapException(
-                          new SequenceException(db.getDatabaseName(),
-                              "Error in transactional processing of "
-                                  + getName(dbCopy)
-                                  + "."
-                                  + method
-                                  + "()"),
-                          e, db.getDatabaseName());
-                    }
-                  } catch (Exception e) {
-                    dbCopy.executeInTx(
-                        transaction -> {
-                          throw BaseException.wrapException(
-                              new SequenceException(db.getDatabaseName(),
-                                  "Error in transactional processing of "
-                                      + getName(dbCopy)
-                                      + "."
-                                      + method
-                                      + "()"),
-                              e, db.getDatabaseName());
-                        });
-                  } finally {
-                    updateLock.unlock();
-                  }
-                }
-                updateLock.lock();
-                try {
-                  return dbCopy.computeInTx(
-                      transaction -> {
-                        var transaction1 = dbCopy.getActiveTransaction();
-                        var entity = transaction1.<EntityImpl>load(entityRid);
-
-                        return callable.call(dbCopy, entity);
-                      });
-                } catch (Exception e) {
-                  throw BaseException.wrapException(
-                      new SequenceException(db.getDatabaseName(),
-                          "Error in transactional processing of "
-                              + getName(dbCopy)
-                              + "."
-                              + method
-                              + "()"),
-                      e, db.getDatabaseName());
-                } finally {
-                  updateLock.unlock();
-                }
-              }
-            });
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      throw BaseException.wrapException(
-          new DatabaseException(db.getDatabaseName(), "Sequence operation was interrupted"), e,
-          db.getDatabaseName());
-    } catch (ExecutionException e) {
-      var cause = e.getCause();
-      if (cause == null) {
-        cause = e;
+        } catch (StorageException e) {
+          if (!(e.getCause() instanceof ConcurrentModificationException)) {
+            throw BaseException.wrapException(
+                new SequenceException(db.getDatabaseName(),
+                    "Error in transactional processing of "
+                        + getName(dbCopy)
+                        + "."
+                        + method
+                        + "()"),
+                e, db.getDatabaseName());
+          }
+        } catch (Exception e) {
+          dbCopy.executeInTx(
+              transaction -> {
+                throw BaseException.wrapException(
+                    new SequenceException(db.getDatabaseName(),
+                        "Error in transactional processing of "
+                            + getName(dbCopy)
+                            + "."
+                            + method
+                            + "()"),
+                    e, db.getDatabaseName());
+              });
+        } finally {
+          updateLock.unlock();
+        }
       }
-      throw BaseException.wrapException(
-          new SequenceException(db.getDatabaseName(),
-              "Error in transactional processing of " + getName(db) + "." + method + "()"),
-          cause, db.getDatabaseName());
+      updateLock.lock();
+      try {
+        return dbCopy.computeInTx(
+            transaction -> {
+              var entity = (EntityImpl) transaction.loadEntity(entityRid);
+              return callable.call(dbCopy, entity);
+            });
+      } catch (Exception e) {
+        throw BaseException.wrapException(
+            new SequenceException(db.getDatabaseName(),
+                "Error in transactional processing of "
+                    + getName(dbCopy)
+                    + "."
+                    + method
+                    + "()"),
+            e, db.getDatabaseName());
+      } finally {
+        updateLock.unlock();
+      }
     }
   }
 

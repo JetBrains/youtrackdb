@@ -63,7 +63,7 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata metadata) {
+  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
   }
 
   @Override

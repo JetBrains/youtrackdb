@@ -40,7 +40,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLValueExpression;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -125,8 +125,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           "The command has been interrupted");
     }
     count++;
-    var key = nextEntry.first;
-    Identifiable value = nextEntry.second;
+    var key = nextEntry.first();
+    Identifiable value = nextEntry.second();
 
     var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("key", convertKey(key));
@@ -186,10 +186,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     if (index.getDefinition() == null) {
       return Collections.emptyList();
     }
+    var session = ctx.getDatabaseSession();
+    var transaction = session.getActiveTransaction();
     return switch (condition) {
       case null -> processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc);
       case SQLBinaryCondition sqlBinaryCondition ->
-          processBinaryCondition(ctx.getDatabaseSession(), index, condition, isOrderAsc, ctx);
+          processBinaryCondition(transaction, index, condition, isOrderAsc, ctx);
       case SQLBetweenCondition sqlBetweenCondition ->
           processBetweenCondition(index, condition, isOrderAsc, ctx);
       case SQLAndBlock sqlAndBlock ->
@@ -213,6 +215,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "search for index for " + condition + " is not supported yet");
     }
+    var transaction = ctx.getDatabaseSession().getActiveTransaction();
     var rightValue = inCondition.evaluateRight((Result) null, ctx);
     var equals = new SQLEqualsCompareOperator(-1);
     if (MultiValue.isMultiValue(rightValue)) {
@@ -228,7 +231,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         }
 
         var localCursor =
-            createCursor(ctx.getDatabaseSession(), index, equals, definition, item, orderAsc,
+            createCursor(transaction, index, equals, definition, item, orderAsc,
                 condition);
 
         if (acquiredStreams.add(localCursor)) {
@@ -238,7 +241,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     } else {
       var stream =
           createCursor(
-              ctx.getDatabaseSession(), index, equals, definition, rightValue, orderAsc, condition);
+              transaction, index, equals, definition, rightValue, orderAsc, condition);
       if (acquiredStreams.add(stream)) {
         streams.add(stream);
       }
@@ -313,7 +316,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       boolean isOrderAsc,
       SQLBinaryCondition additionalRangeCondition,
       CommandContext ctx) {
-    var db = ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
@@ -322,6 +325,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
     var indexDef = index.getDefinition();
 
+    var transaction = session.getActiveTransaction();
     for (var i = 0; i < secondValueCombinations.size(); i++) {
 
       var secondValue = secondValueCombinations.get(i).execute((Result) null, ctx);
@@ -343,9 +347,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       thirdValue = unboxOResult(thirdValue);
 
       try {
-        secondValue = convertToIndexDefinitionTypes(db, condition, secondValue,
+        secondValue = convertToIndexDefinitionTypes(session, condition, secondValue,
             indexDef.getTypes());
-        thirdValue = convertToIndexDefinitionTypes(db, condition, thirdValue, indexDef.getTypes());
+        thirdValue = convertToIndexDefinitionTypes(session, condition, thirdValue,
+            indexDef.getTypes());
       } catch (Exception e) {
         // manage subquery that returns a single collection
         if (secondValue instanceof Collection && secondValue.equals(thirdValue)) {
@@ -354,22 +359,23 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                   item -> {
                     Stream<RawPair<Object, RID>> stream;
                     var itemVal =
-                        convertToIndexDefinitionTypes(db, condition, item, indexDef.getTypes());
+                        convertToIndexDefinitionTypes(session, condition, item,
+                            indexDef.getTypes());
                     if (index.supportsOrderedIterations()) {
 
-                      var from = toBetweenIndexKey(db, indexDef, itemVal);
-                      var to = toBetweenIndexKey(db, indexDef, itemVal);
+                      var from = toBetweenIndexKey(transaction, indexDef, itemVal);
+                      var to = toBetweenIndexKey(transaction, indexDef, itemVal);
                       if (from == null && to == null) {
                         // manage null value explicitly, as the index API does not seem to work
                         // correctly in this
                         // case
-                        stream = getStreamForNullKey(db, index);
+                        stream = getStreamForNullKey(session, index);
                         if (acquiredStreams.add(stream)) {
                           streams.add(stream);
                         }
                       } else {
                         stream =
-                            index.streamEntriesBetween(db,
+                            index.streamEntriesBetween(session,
                                 from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
                         if (acquiredStreams.add(stream)) {
                           streams.add(stream);
@@ -379,8 +385,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                     } else if (additionalRangeCondition == null
                         && allEqualities((SQLAndBlock) condition)) {
                       stream =
-                          index.streamEntries(db,
-                              toIndexKey(db, indexDef, itemVal), isOrderAsc);
+                          index.streamEntries(session,
+                              toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
 
                       if (acquiredStreams.add(stream)) {
                         streams.add(stream);
@@ -388,8 +394,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
                     } else if (isFullTextIndex(index)) {
                       stream =
-                          index.streamEntries(db,
-                              toIndexKey(db, indexDef, itemVal), isOrderAsc);
+                          index.streamEntries(session,
+                              toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
                       if (acquiredStreams.add(stream)) {
                         streams.add(stream);
                       }
@@ -406,18 +412,18 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       Stream<RawPair<Object, RID>> stream;
       if (index.supportsOrderedIterations()) {
 
-        var from = toBetweenIndexKey(db, indexDef, secondValue);
-        var to = toBetweenIndexKey(db, indexDef, thirdValue);
+        var from = toBetweenIndexKey(transaction, indexDef, secondValue);
+        var to = toBetweenIndexKey(transaction, indexDef, thirdValue);
 
         if (from == null && to == null) {
           // manage null value explicitly, as the index API does not seem to work correctly in this
           // case
-          stream = getStreamForNullKey(db, index);
+          stream = getStreamForNullKey(session, index);
           if (acquiredStreams.add(stream)) {
             streams.add(stream);
           }
         } else {
-          stream = index.streamEntriesBetween(db, from, fromKeyIncluded, to, toKeyIncluded,
+          stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
               isOrderAsc);
           if (acquiredStreams.add(stream)) {
             streams.add(stream);
@@ -426,14 +432,16 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
       } else if (additionalRangeCondition == null && allEqualities((SQLAndBlock) condition)) {
         stream =
-            index.streamEntries(db, toIndexKey(ctx.getDatabaseSession(), indexDef, secondValue),
+            index.streamEntries(session,
+                toIndexKey(transaction, indexDef, secondValue),
                 isOrderAsc);
         if (acquiredStreams.add(stream)) {
           streams.add(stream);
         }
       } else if (isFullTextIndex(index)) {
         stream =
-            index.streamEntries(db, toIndexKey(ctx.getDatabaseSession(), indexDef, secondValue),
+            index.streamEntries(session,
+                toIndexKey(transaction, indexDef, secondValue),
                 isOrderAsc);
         if (acquiredStreams.add(stream)) {
           streams.add(stream);
@@ -602,19 +610,20 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     secondValue = unboxOResult(secondValue);
     var thirdValue = third.execute((Result) null, ctx);
     thirdValue = unboxOResult(thirdValue);
-    var db = ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
+    var transaction = session.getActiveTransaction();
     var stream =
-        index.streamEntriesBetween(db,
-            toBetweenIndexKey(db, definition, secondValue),
+        index.streamEntriesBetween(session,
+            toBetweenIndexKey(transaction, definition, secondValue),
             true,
-            toBetweenIndexKey(db, definition, thirdValue),
+            toBetweenIndexKey(transaction, definition, thirdValue),
             true, isOrderAsc);
     streams.add(stream);
     return streams;
   }
 
   private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       Index index,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
@@ -632,7 +641,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
     var rightValue = ((SQLBinaryCondition) condition).getRight().execute((Result) null, ctx);
     var stream =
-        createCursor(session, index, operator, definition, rightValue, isOrderAsc, condition);
+        createCursor(transaction, index, operator, definition, rightValue, isOrderAsc, condition);
     if (acquiredStreams.add(stream)) {
       streams.add(stream);
     }
@@ -641,14 +650,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Collection<?> toIndexKey(
-      DatabaseSessionInternal session, IndexDefinition definition, Object rightValue) {
+      FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
     if (definition.getFields().size() == 1 && rightValue instanceof Collection) {
       rightValue = ((Collection<?>) rightValue).iterator().next();
     }
     if (rightValue instanceof List) {
-      rightValue = definition.createValue(session, (List<?>) rightValue);
+      rightValue = definition.createValue(transaction, (List<?>) rightValue);
     } else if (!(rightValue instanceof CompositeKey)) {
-      rightValue = definition.createValue(session, rightValue);
+      rightValue = definition.createValue(transaction, rightValue);
     }
     if (!(rightValue instanceof Collection)) {
       rightValue = Collections.singleton(rightValue);
@@ -657,7 +666,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Object toBetweenIndexKey(
-      DatabaseSessionInternal session, IndexDefinition definition, Object rightValue) {
+      FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
     if (definition.getFields().size() == 1 && rightValue instanceof Collection) {
       if (!((Collection<?>) rightValue).isEmpty()) {
         rightValue = ((Collection<?>) rightValue).iterator().next();
@@ -667,26 +676,27 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
 
     if (rightValue instanceof Collection) {
-      rightValue = definition.createValue(session, ((Collection<?>) rightValue).toArray());
+      rightValue = definition.createValue(transaction, ((Collection<?>) rightValue).toArray());
     } else {
-      rightValue = definition.createValue(session, rightValue);
+      rightValue = definition.createValue(transaction, rightValue);
     }
 
     return rightValue;
   }
 
   private static Stream<RawPair<Object, RID>> createCursor(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       Index index,
       SQLBinaryCompareOperator operator,
       IndexDefinition definition,
       Object value,
       boolean orderAsc,
       SQLBooleanExpression condition) {
+    var session = transaction.getDatabaseSession();
     if (operator instanceof SQLEqualsCompareOperator
         || operator instanceof SQLContainsKeyOperator
         || operator instanceof SQLContainsValueOperator) {
-      return index.streamEntries(session, toIndexKey(session, definition, value), orderAsc);
+      return index.streamEntries(session, toIndexKey(transaction, definition, value), orderAsc);
     } else if (operator instanceof SQLGeOperator) {
       return index.streamEntriesMajor(session, value, true, orderAsc);
     } else if (operator instanceof SQLGtOperator) {
@@ -868,7 +878,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         additionalRangeCondition = new SQLBinaryCondition(-1);
         additionalRangeCondition.deserialize(fromResult.getProperty("additionalRangeCondition"));
       }
-      var index = session.getMetadata().getIndexManagerInternal().getIndex(session, indexName);
+      var index = session.getSharedContext().getIndexManager().getIndex(session, indexName);
       desc = new IndexSearchDescriptor(index, condition, additionalRangeCondition, null);
       orderAsc = fromResult.getProperty("orderAsc");
     } catch (Exception e) {

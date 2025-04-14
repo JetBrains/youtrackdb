@@ -87,7 +87,7 @@ public class ImmutableSchema implements SchemaInternal {
 
     this.blogCollections = schemaShared.getBlobCollections(session);
 
-    var indexManager = session.getMetadata().getIndexManagerInternal();
+    var indexManager = session.getSharedContext().getIndexManager();
     var internalIndexes = indexManager.getIndexes(session);
 
     var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
@@ -96,7 +96,7 @@ public class ImmutableSchema implements SchemaInternal {
       var indexName = index.getName();
       var metadata = index.getMetadata();
 
-      if (metadata != null) {
+      if (metadata == null) {
         metadata = Collections.emptyMap();
       }
 
@@ -156,7 +156,8 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public SchemaClass createClass(String className, int[] collectionIds, SchemaClass... superClasses) {
+  public SchemaClass createClass(String className, int[] collectionIds,
+      SchemaClass... superClasses) {
     throw new UnsupportedOperationException();
   }
 

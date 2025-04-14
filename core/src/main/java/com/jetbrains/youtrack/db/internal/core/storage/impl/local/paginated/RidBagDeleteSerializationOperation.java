@@ -20,21 +20,21 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedRidBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 
 public class RidBagDeleteSerializationOperation implements RecordSerializationOperation {
 
-  private final BTreeBasedRidBag ridBag;
+  private final BTreeBasedLinkBag ridBag;
 
-  public RidBagDeleteSerializationOperation(BTreeBasedRidBag ridBag) {
+  public RidBagDeleteSerializationOperation(BTreeBasedLinkBag ridBag) {
     this.ridBag = ridBag;
   }
 
   @Override
   public void execute(
-      final AtomicOperation atomicOperation, final AbstractPaginatedStorage paginatedStorage) {
+      final AtomicOperation atomicOperation, final AbstractStorage paginatedStorage) {
     paginatedStorage.deleteTreeRidBag(ridBag);
   }
 }

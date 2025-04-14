@@ -37,8 +37,8 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTra
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneIndexType;
@@ -134,7 +134,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata im) {
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
     this.indexDefinition = im.getIndexDefinition();
     this.metadata = im.getMetadata();
 
@@ -142,7 +142,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     indexAnalyzer = fc.createAnalyzer(indexDefinition, INDEX, metadata);
     queryAnalyzer = fc.createAnalyzer(indexDefinition, QUERY, metadata);
 
-    checkCollectionIndex(db, indexDefinition);
+    checkCollectionIndex(session, indexDefinition);
 
     flushIndexInterval =
         Optional.ofNullable((Integer) metadata.get("flushIndexInterval"))
@@ -350,8 +350,8 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
         }
       }
 
-      final var storageLocalAbstract = (AbstractPaginatedStorage) storage;
-      if (storageLocalAbstract instanceof LocalPaginatedStorage localStorage) {
+      final var storageLocalAbstract = (AbstractStorage) storage;
+      if (storageLocalAbstract instanceof LocalStorage localStorage) {
         var storagePath = localStorage.getStoragePath().toFile();
         deleteIndexFolder(storagePath);
       }

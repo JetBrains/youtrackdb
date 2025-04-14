@@ -21,9 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManager;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerProxy;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibrary;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryProxy;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -39,13 +36,11 @@ import java.io.IOException;
 import javax.annotation.Nullable;
 
 public class MetadataDefault implements MetadataInternal {
-
   public static final String COLLECTION_INTERNAL_NAME = "internal";
   protected int schemaCollectionId;
 
   protected SchemaProxy schema;
   protected Security security;
-  protected IndexManagerProxy indexManager;
   protected FunctionLibraryProxy functionLibrary;
   protected SchedulerProxy scheduler;
   protected SequenceLibraryProxy sequenceLibrary;
@@ -96,6 +91,17 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
+  @Override
+  public void forceClearThreadLocalSchemaSnapshot() {
+    if (this.immutableCount == 0) {
+      this.immutableSchema = null;
+    } else {
+      throw new IllegalStateException("Attempted to force clear local schema snapshot for thread " +
+          Thread.currentThread().getName() + " but the snapshot usage count is not zero: "
+          + this.immutableCount);
+    }
+  }
+
   @Nullable
   @Override
   public ImmutableSchema getImmutableSchemaSnapshot() {
@@ -112,24 +118,11 @@ public class MetadataDefault implements MetadataInternal {
     return security;
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public IndexManager getIndexManager() {
-    return indexManager;
-  }
-
-  @Override
-  public IndexManagerAbstract getIndexManagerInternal() {
-    return indexManager.delegate();
-  }
 
   public SharedContext init(SharedContext shared) {
     schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
 
     schema = new SchemaProxy(shared.getSchema(), database);
-    indexManager = new IndexManagerProxy(shared.getIndexManager(), database);
-
     security = new SecurityProxy(shared.getSecurity(), database);
     functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);
     sequenceLibrary = new SequenceLibraryProxy(shared.getSequenceLibrary(), database);

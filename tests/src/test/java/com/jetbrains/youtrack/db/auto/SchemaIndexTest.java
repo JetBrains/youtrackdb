@@ -44,23 +44,23 @@ public class SchemaIndexTest extends BaseDBTest {
         .execute(
             "CREATE INDEX SchemaSharedIndexCompositeIndex ON SchemaIndexTest (prop1, prop2) UNIQUE")
         .close();
-    session.getMetadata().getIndexManagerInternal().reload(session);
+    session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "SchemaSharedIndexCompositeIndex"));
 
     session.getMetadata().getSchema().dropClass("SchemaIndexTest");
-    session.getMetadata().getIndexManagerInternal().reload(session);
+    session.getSharedContext().getIndexManager().reload(session);
 
     Assert.assertNull(session.getMetadata().getSchema().getClass("SchemaIndexTest"));
     Assert.assertNotNull(session.getMetadata().getSchema().getClass("SchemaSharedIndexSuperTest"));
 
     Assert.assertNull(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "SchemaSharedIndexCompositeIndex"));
   }
 
@@ -87,8 +87,8 @@ public class SchemaIndexTest extends BaseDBTest {
 
     Assert.assertNotNull(
         session
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getIndex(session, "SchemaSharedIndexCompositeIndex"));
   }
 

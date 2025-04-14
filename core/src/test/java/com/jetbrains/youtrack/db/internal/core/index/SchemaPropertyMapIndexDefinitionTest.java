@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -27,12 +28,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   private PropertyMapIndexDefinition propertyIndexByIntegerKey;
 
   @Before
-  public void beforeClass() {
-
-  }
-
-  @Before
   public void beforeMethod() {
+    session.begin();
     mapToTest = session.newEmbeddedMap();
 
     mapToTest.put("st1", 1);
@@ -52,9 +49,14 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
             PropertyMapIndexDefinition.INDEX_BY.VALUE);
   }
 
+  @After
+  public void afterMethod() {
+    session.rollback();
+  }
+
   @Test
   public void testCreateValueByKeySingleParameter() {
-    final var result = propertyIndexByKey.createValue(session,
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
         Collections.singletonList(mapToTest));
     Assert.assertTrue(result instanceof Collection);
 
@@ -68,7 +70,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   @Test
   public void testCreateValueByValueSingleParameter() {
     final var result =
-        propertyIndexByValue.createValue(session, Collections.singletonList(mapToTest));
+        propertyIndexByValue.createValue(session.getActiveTransaction(),
+            Collections.singletonList(mapToTest));
     Assert.assertTrue(result instanceof Collection);
 
     final var collectionResult = (Collection<?>) result;
@@ -80,7 +83,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueByKeyTwoParameters() {
-    final var result = propertyIndexByKey.createValue(session, Arrays.asList(mapToTest, "25"));
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
+        Arrays.asList(mapToTest, "25"));
 
     Assert.assertTrue(result instanceof Collection);
 
@@ -93,7 +97,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueByValueTwoParameters() {
-    final var result = propertyIndexByValue.createValue(session, Arrays.asList(mapToTest, "25"));
+    final var result = propertyIndexByValue.createValue(session.getActiveTransaction(),
+        Arrays.asList(mapToTest, "25"));
 
     Assert.assertTrue(result instanceof Collection);
 
@@ -106,13 +111,15 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueWrongParameter() {
-    final var result = propertyIndexByKey.createValue(session, Collections.singletonList("tt"));
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
+        Collections.singletonList("tt"));
     Assert.assertNull(result);
   }
 
   @Test
   public void testCreateValueByKeySingleParameterArrayParams() {
-    final var result = propertyIndexByKey.createValue(session, mapToTest);
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
+        mapToTest);
     Assert.assertTrue(result instanceof Collection);
 
     final var collectionResult = (Collection<?>) result;
@@ -124,7 +131,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueByValueSingleParameterArrayParams() {
-    final var result = propertyIndexByValue.createValue(session, mapToTest);
+    final var result = propertyIndexByValue.createValue(session.getActiveTransaction(),
+        mapToTest);
     Assert.assertTrue(result instanceof Collection);
 
     final var collectionResult = (Collection<?>) result;
@@ -136,7 +144,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueByKeyTwoParametersArrayParams() {
-    final var result = propertyIndexByKey.createValue(session, mapToTest, "25");
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
+        mapToTest, "25");
 
     Assert.assertTrue(result instanceof Collection);
 
@@ -149,7 +158,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueByValueTwoParametersArrayParams() {
-    final var result = propertyIndexByValue.createValue(session, mapToTest, "25");
+    final var result = propertyIndexByValue.createValue(session.getActiveTransaction(),
+        mapToTest, "25");
 
     Assert.assertTrue(result instanceof Collection);
 
@@ -162,7 +172,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueWrongParameterArrayParams() {
-    final var result = propertyIndexByKey.createValue(session, "tt");
+    final var result = propertyIndexByKey.createValue(session.getActiveTransaction(),
+        "tt");
     Assert.assertNull(result);
   }
 
@@ -174,7 +185,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
     document.setProperty("fOne", mapToTest);
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndexByKey.getDocumentValueToIndex(session, document);
+    final var result = propertyIndexByKey.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
     Assert.assertTrue(result instanceof Collection);
 
     final var collectionResult = (Collection<?>) result;
@@ -188,12 +200,13 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   @Test
   public void testGetDocumentValueByValueToIndex() {
     session.begin();
-    final var document = (EntityImpl) session.newEntity();
+    final var entity = (EntityImpl) session.newEntity();
 
-    document.setProperty("fOne", mapToTest);
-    document.setProperty("fTwo", 10);
+    entity.setProperty("fOne", mapToTest);
+    entity.setProperty("fTwo", 10);
 
-    final var result = propertyIndexByValue.getDocumentValueToIndex(session, document);
+    final var result = propertyIndexByValue.getDocumentValueToIndex(session.getActiveTransaction(),
+        entity);
     Assert.assertTrue(result instanceof Collection);
 
     final var collectionResult = (Collection<?>) result;
@@ -247,19 +260,19 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateSingleValueByKey() {
-    final var result = propertyIndexByKey.createSingleValue(session, "tt");
+    final var result = propertyIndexByKey.createSingleValue(session.getActiveTransaction(), "tt");
     Assert.assertEquals("tt", result);
   }
 
   @Test
   public void testCreateSingleValueByValue() {
-    final var result = propertyIndexByValue.createSingleValue(session, "12");
+    final var result = propertyIndexByValue.createSingleValue(session.getActiveTransaction(), "12");
     Assert.assertEquals(12, result);
   }
 
   @Test(expected = NumberFormatException.class)
   public void testCreateWrongSingleValueByValue() {
-    propertyIndexByValue.createSingleValue(session, "tt");
+    propertyIndexByValue.createSingleValue(session.getActiveTransaction(), "tt");
   }
 
   @Test(expected = NullPointerException.class)
@@ -297,7 +310,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, String>(
             ChangeType.ADD, "key1", "value1");
 
-    propertyIndexByKey.processChangeEvent(session, multiValueChangeEvent, keysToAdd, keysToRemove);
+    propertyIndexByKey.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put("key1", 1);
@@ -321,7 +335,7 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
             ChangeType.ADD, "12", "value1");
 
     propertyIndexByIntegerKey.processChangeEvent(
-        session, multiValueChangeEvent, keysToAdd, keysToRemove);
+        session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     addedKeys.put(12, 1);
@@ -344,7 +358,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, Integer>(
             ChangeType.ADD, "key1", 42);
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
@@ -368,7 +383,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, String>(
             ChangeType.ADD, "12", "42");
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
@@ -392,7 +408,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, String>(
             ChangeType.REMOVE, "key1", "value1");
 
-    propertyIndexByKey.processChangeEvent(session, multiValueChangeEvent, keysToAdd, keysToRemove);
+    propertyIndexByKey.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
@@ -415,7 +432,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
             ChangeType.REMOVE, "12", "value1");
 
     propertyIndexByIntegerKey.processChangeEvent(
-        session, multiValueChangeEvent, keysToAdd, keysToRemove);
+        session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
@@ -438,7 +456,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, Integer>(
             ChangeType.REMOVE, "key1", null, 42);
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
@@ -461,7 +480,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, String>(
             ChangeType.REMOVE, "12", null, "42");
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
@@ -484,7 +504,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, Integer>(
             ChangeType.UPDATE, "key1", 42);
 
-    propertyIndexByKey.processChangeEvent(session, multiValueChangeEvent, keysToAdd, keysToRemove);
+    propertyIndexByKey.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd, keysToRemove);
     Assert.assertTrue(keysToAdd.isEmpty());
     Assert.assertTrue(keysToRemove.isEmpty());
   }
@@ -501,7 +522,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, Integer>(
             ChangeType.UPDATE, "key1", 41, 42);
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
@@ -526,7 +548,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
         new MultiValueChangeEvent<String, String>(
             ChangeType.UPDATE, "12", "42", "41");
 
-    propertyIndexByValue.processChangeEvent(session, multiValueChangeEvent, keysToAdd,
+    propertyIndexByValue.processChangeEvent(session.getActiveTransaction(),
+        multiValueChangeEvent, keysToAdd,
         keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();

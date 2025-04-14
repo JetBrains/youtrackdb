@@ -203,14 +203,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     ridBag.add(docTwo.getIdentity());
 
     session.commit();
-
-    Assert.assertEquals(2, ridBag.size());
-    Assert.assertEquals(rootDoc.getVersion(), version);
-
     session.begin();
-
+    activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
+    ridBag = rootDoc.getProperty("ridBag");
     Assert.assertEquals(2, ridBag.size());
-    Assert.assertEquals(rootDoc.getVersion(), version);
+    Assert.assertEquals(rootDoc.getVersion(), version + 1);
     session.rollback();
   }
 
@@ -241,13 +239,13 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     session.commit();
 
-    Assert.assertEquals(2, ridBag.size());
-    Assert.assertEquals(rootDoc.getVersion(), version);
-
     session.begin();
+    activeTx = session.getActiveTransaction();
+    rootDoc = activeTx.load(rootDoc);
 
+    ridBag = rootDoc.getProperty("ridBag");
     Assert.assertEquals(2, ridBag.size());
-    Assert.assertEquals(rootDoc.getVersion(), version);
+    Assert.assertEquals(rootDoc.getVersion(), version + 1);
     session.rollback();
   }
 
@@ -916,28 +914,21 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.commit();
   }
 
-  private void generateCME(RID rid) throws InterruptedException {
+  private void generateCME(RID rid) {
     var session = this.session.copy();
-    var th =
-        new Thread(
-            () -> {
-              try (session) {
-                session.activateOnCurrentThread();
-                session.begin();
-                EntityImpl cmeDocument = session.load(rid);
+    try (session) {
+      session.begin();
+      EntityImpl cmeDocument = session.load(rid);
 
-                var v = cmeDocument.getInt("v");
-                if (v != null) {
-                  cmeDocument.setProperty("v", v + 1);
-                } else {
-                  cmeDocument.setProperty("v", 1);
-                }
+      var v = cmeDocument.getInt("v");
+      if (v != null) {
+        cmeDocument.setProperty("v", v + 1);
+      } else {
+        cmeDocument.setProperty("v", 1);
+      }
 
-                session.commit();
-              }
-            });
-    th.start();
-    th.join();
+      session.commit();
+    }
   }
 
   @Test

@@ -55,9 +55,9 @@ public class IndexTxTest extends BaseDBTest {
     final var doc1 = ((EntityImpl) session.newEntity("IndexTxTestClass"));
     final var doc2 = ((EntityImpl) session.newEntity("IndexTxTestClass"));
 
-    doc1.setProperty("ref", doc2.getIdentity().copy());
+    doc1.setProperty("ref", doc2.getIdentity());
     doc1.setProperty("name", "doc1");
-    doc2.setProperty("ref", doc1.getIdentity().copy());
+    doc2.setProperty("ref", doc1.getIdentity());
     doc2.setProperty("name", "doc2");
 
     session.commit();

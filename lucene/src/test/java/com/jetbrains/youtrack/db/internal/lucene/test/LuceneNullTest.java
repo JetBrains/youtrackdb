@@ -29,7 +29,7 @@ public class LuceneNullTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Test.names");
     Assert.assertEquals(1, index.size(session));
     session.commit();
   }
@@ -55,7 +55,7 @@ public class LuceneNullTest extends BaseLuceneTest {
     session.commit();
 
     session.begin();
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "Test.names");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Test.names");
     Assert.assertEquals(index.size(session), 0);
     session.commit();
   }

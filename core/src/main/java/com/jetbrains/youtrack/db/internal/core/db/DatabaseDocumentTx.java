@@ -27,12 +27,18 @@ import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
@@ -58,7 +64,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
@@ -71,16 +76,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -518,11 +518,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public DatabaseSession getUnderlying() {
-    return internal.getUnderlying();
-  }
-
-  @Override
   public void setInternal(ATTRIBUTES attribute, Object iValue) {
     checkOpenness();
     internal.setInternal(attribute, iValue);
@@ -703,7 +698,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Transaction begin() {
+  public FrontendTransaction begin() {
     checkOpenness();
     return internal.begin();
   }
@@ -1102,7 +1097,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public @Nonnull Transaction getActiveTransaction() {
+  public @Nonnull FrontendTransaction getActiveTransaction() {
     checkOpenness();
     return internal.getActiveTransaction();
   }
@@ -1228,49 +1223,43 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public LinkSet newLinkSet(int size) {
-    checkOpenness();
-    return internal.newLinkSet(size);
-  }
-
-  @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkSet(source);
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap() {
+  public <V> EmbeddedMap<V> newEmbeddedMap() {
     checkOpenness();
     return internal.newEmbeddedMap();
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(int size) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
     checkOpenness();
     return internal.newEmbeddedMap(size);
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(Map<String, V> map) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
     checkOpenness();
     return internal.newEmbeddedMap(map);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap() {
+  public LinkMap newLinkMap() {
     checkOpenness();
     return internal.newLinkMap();
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(int size) {
+  public LinkMap newLinkMap(int size) {
     checkOpenness();
     return internal.newLinkMap(size);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
+  public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
     checkOpenness();
     return internal.newLinkMap(source);
   }
@@ -1357,6 +1346,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public ResultSet query(String query, boolean syncTx, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    return internal.query(query, syncTx, args);
+  }
+
+  @Override
   public ResultSet execute(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
@@ -1367,6 +1362,37 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     return internal.execute(query, args);
+  }
+
+  @Override
+  public <X extends Exception> void executeInTxInternal(
+      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  @Override
+  public <R, X extends Exception> R computeInTxInternal(
+      TxFunction<FrontendTransaction, R, X> supplier) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Iterator<T> iterator,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(@Nonnull Iterator<T> iterator,
+      int batchSize, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1441,7 +1467,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeDeleteOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+  public void beforeDeleteOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
     internal.beforeDeleteOperations(recordAbstract, collectionName);
   }
 
@@ -1451,7 +1478,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void beforeUpdateOperations(RecordAbstract recordAbstract, java.lang.String collectionName) {
+  public void beforeUpdateOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
     internal.beforeUpdateOperations(recordAbstract, collectionName);
   }
 
@@ -1478,11 +1506,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public String getCollectionName(@Nonnull DBRecord record) {
     return internal.getCollectionName(record);
-  }
-
-  @Override
-  public Map<UUID, BonsaiCollectionPointer> getCollectionsChanges() {
-    return internal.getCollectionsChanges();
   }
 
   @Override
@@ -1526,48 +1549,57 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTx(@Nonnull Consumer<Transaction> code) {
-    internal.executeInTx(code);
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable, int batchSize,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterator, batchSize, consumer);
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterator, consumer);
+  public <T, X extends Exception> void executeInTxBatches(Stream<T> stream, int batchSize,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterable, batchSize, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(iterable, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(stream, batchSize, consumer);
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
-    internal.executeInTxBatches(stream, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <R> R computeInTx(Function<Transaction, R> supplier) {
-    return internal.computeInTx(supplier);
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1578,39 +1610,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public int activeTxCount() {
     return internal.activeTxCount();
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<Transaction, T, Boolean> consumer) {
-    internal.forEachInTx(stream, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
-    internal.forEachInTx(stream, consumer);
   }
 
   @Override

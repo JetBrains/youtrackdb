@@ -5,12 +5,14 @@ import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
 
 public class DatabaseSessionRemotePooled extends DatabaseSessionRemote {
   private final DatabasePoolInternal pool;
 
   public DatabaseSessionRemotePooled(
-      DatabasePoolInternal pool, StorageRemote storage, SharedContext sharedContext) {
+      DatabasePoolInternal pool, StorageRemote storage,
+      SharedContext<IndexManagerRemote> sharedContext) {
     super(storage, sharedContext);
     this.pool = pool;
   }

@@ -30,12 +30,13 @@ import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBTree;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTree;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeBTreeImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTreeImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,19 +46,18 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public final class BTreeCollectionManagerShared
-    implements BTreeCollectionManager, YouTrackDBStartupListener, YouTrackDBShutdownListener {
+public final class BTreeCollectionManagerShared implements BTreeCollectionManager  {
 
   public static final String FILE_EXTENSION = ".grb";
   public static final String FILE_NAME_PREFIX = "global_collection_";
 
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
 
-  private final ConcurrentHashMap<Integer, LinkBagBTree> fileIdBTreeMap = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Integer, SharedLinkBagBTree> fileIdBTreeMap = new ConcurrentHashMap<>();
 
   private final AtomicLong ridBagIdCounter = new AtomicLong();
 
-  public BTreeCollectionManagerShared(AbstractPaginatedStorage storage) {
+  public BTreeCollectionManagerShared(AbstractStorage storage) {
     this.storage = storage;
   }
 
@@ -68,7 +68,7 @@ public final class BTreeCollectionManagerShared
       final var fileName = entry.getKey();
       if (fileName.endsWith(FILE_EXTENSION) && fileName.startsWith(FILE_NAME_PREFIX)) {
         final var bTree =
-            new LinkBagBTree(
+            new SharedLinkBagBTree(
                 storage,
                 fileName.substring(0, fileName.length() - FILE_EXTENSION.length()),
                 FILE_EXTENSION);
@@ -89,7 +89,7 @@ public final class BTreeCollectionManagerShared
 
   public void createComponent(final AtomicOperation operation, final int collectionId) {
     // lock is already acquired on storage level, during storage open
-    final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
+    final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
     bTree.create(operation);
 
     final var intFileId = WOWCache.extractFileId(bTree.getFileId());
@@ -108,13 +108,13 @@ public final class BTreeCollectionManagerShared
     }
   }
 
-  private EdgeBTreeImpl doCreateRidBag(AtomicOperation atomicOperation, int collectionId) {
+  private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation, int collectionId) {
     var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
 
     // lock is already acquired on storage level, during start fo the transaction so we
     // are thread safe here.
     if (fileId < 0) {
-      final var bTree = new LinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
+      final var bTree = new SharedLinkBagBTree(storage, FILE_NAME_PREFIX + collectionId, FILE_EXTENSION);
       bTree.create(atomicOperation);
 
       fileId = bTree.getFileId();
@@ -123,106 +123,34 @@ public final class BTreeCollectionManagerShared
       final var intFileId = AbstractWriteCache.extractFileId(fileId);
       fileIdBTreeMap.put(intFileId, bTree);
 
-      return new EdgeBTreeImpl(
+      return new IsolatedLinkBagBTreeImpl(
           bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
     } else {
       final var intFileId = AbstractWriteCache.extractFileId(fileId);
       final var bTree = fileIdBTreeMap.get(intFileId);
       final var nextRidBagId = -ridBagIdCounter.incrementAndGet();
 
-      return new EdgeBTreeImpl(
+      return new IsolatedLinkBagBTreeImpl(
           bTree, intFileId, nextRidBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
     }
   }
 
   @Override
-  public EdgeBTree<RID, Integer> loadSBTree(
-      BonsaiCollectionPointer collectionPointer) {
-    final var intFileId = AbstractWriteCache.extractFileId(collectionPointer.getFileId());
-
+  public IsolatedLinkBagBTree<RID, Integer> loadIsolatedBTree(
+      LinkBagPointer collectionPointer) {
+    final var intFileId = AbstractWriteCache.extractFileId(collectionPointer.fileId());
     final var bTree = fileIdBTreeMap.get(intFileId);
-
-    final long ridBagId;
-    final var rootPointer = collectionPointer.getRootPointer();
-    if (rootPointer.getPageIndex() < 0) {
-      ridBagId = rootPointer.getPageIndex();
-    } else {
-      ridBagId = (rootPointer.getPageIndex() << 16) + rootPointer.getPageOffset();
-    }
-
-    return new EdgeBTreeImpl(
-        bTree, intFileId, ridBagId, LinkSerializer.INSTANCE, IntegerSerializer.INSTANCE);
+    return new IsolatedLinkBagBTreeImpl(
+        bTree, intFileId, collectionPointer.linkBagId(), LinkSerializer.INSTANCE,
+        IntegerSerializer.INSTANCE);
   }
 
   @Override
-  public void releaseSBTree(final BonsaiCollectionPointer collectionPointer) {
-  }
-
-  @Override
-  public void delete(final BonsaiCollectionPointer collectionPointer) {
-  }
-
-  @Override
-  public BonsaiCollectionPointer createSBTree(
-      int collectionId, AtomicOperation atomicOperation, UUID ownerUUID,
+  public LinkBagPointer createBTree(
+      int collectionId, AtomicOperation atomicOperation,
       DatabaseSessionInternal session) {
     final var bonsaiGlobal = doCreateRidBag(atomicOperation, collectionId);
-    final var pointer = bonsaiGlobal.getCollectionPointer();
-
-    if (ownerUUID != null) {
-      var changedPointers =
-          session.getCollectionsChanges();
-      if (pointer != null && pointer.isValid()) {
-        changedPointers.put(ownerUUID, pointer);
-      }
-    }
-
-    return pointer;
-  }
-
-  /**
-   * Change UUID to null to prevent its serialization to disk.
-   */
-  @Nullable
-  @Override
-  public UUID listenForChanges(RidBag collection, DatabaseSessionInternal session) {
-    var ownerUUID = collection.getTemporaryId();
-    if (ownerUUID != null) {
-      final var pointer = collection.getPointer();
-      var changedPointers = session.getCollectionsChanges();
-      if (pointer != null && pointer.isValid()) {
-        changedPointers.put(ownerUUID, pointer);
-      }
-    }
-
-    return null;
-  }
-
-  @Override
-  public void updateCollectionPointer(UUID uuid, BonsaiCollectionPointer pointer,
-      DatabaseSessionInternal session) {
-  }
-
-  @Override
-  public void clearPendingCollections() {
-  }
-
-  @Override
-  public Map<UUID, BonsaiCollectionPointer> changedIds(DatabaseSessionInternal session) {
-    return session.getCollectionsChanges();
-  }
-
-  @Override
-  public void clearChangedIds(DatabaseSessionInternal session) {
-    session.getCollectionsChanges().clear();
-  }
-
-  @Override
-  public void onShutdown() {
-  }
-
-  @Override
-  public void onStartup() {
+    return bonsaiGlobal.getCollectionPointer();
   }
 
   public void close() {
@@ -230,28 +158,21 @@ public final class BTreeCollectionManagerShared
   }
 
   public boolean delete(
-      AtomicOperation atomicOperation, BonsaiCollectionPointer collectionPointer,
+      AtomicOperation atomicOperation, LinkBagPointer collectionPointer,
       String storageName) {
-    final var fileId = (int) collectionPointer.getFileId();
+    final var fileId = (int) collectionPointer.fileId();
     final var bTree = fileIdBTreeMap.get(fileId);
     if (bTree == null) {
       throw new StorageException(storageName,
           "RidBug for with collection pointer " + collectionPointer + " does not exist");
     }
 
-    final long ridBagId;
-    final var rootPointer = collectionPointer.getRootPointer();
-    if (rootPointer.getPageIndex() < 0) {
-      ridBagId = rootPointer.getPageIndex();
-    } else {
-      ridBagId = (rootPointer.getPageIndex() << 16) + rootPointer.getPageOffset();
-    }
-
+    var linkBagId = collectionPointer.linkBagId();
     try (var stream =
-        bTree.iterateEntriesBetween(
-            new EdgeKey(ridBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+        bTree.streamEntriesBetween(
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
             true,
             true)) {
       stream.forEach(pair -> bTree.remove(atomicOperation, pair.first));

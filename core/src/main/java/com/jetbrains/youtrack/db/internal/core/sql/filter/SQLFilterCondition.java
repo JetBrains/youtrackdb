@@ -163,7 +163,7 @@ public class SQLFilterCondition {
     if (!binaryEvaluation) {
       // no collate for regular expressions, otherwise quotes will result in no match
       Collate collate = null;
-      if (iCurrentRecord.isEntity()) {
+      if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
         var entity = iCurrentRecord.asEntity();
         collate = operator instanceof QueryOperatorMatches ? null : getCollate(session, entity);
       }

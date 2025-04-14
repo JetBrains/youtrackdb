@@ -16,27 +16,28 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static com.jetbrains.youtrack.db.internal.lucene.LuceneIndexFactory.LUCENE_ALGORITHM;
 
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexEngineDelegator;
 import com.jetbrains.youtrack.db.internal.spatial.index.LuceneSpatialIndex;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import javax.annotation.Nullable;
 
 public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycleListener {
 
@@ -85,29 +86,24 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public Index createIndex(Storage storage, IndexMetadata im)
+  public Index createIndex(String indexType, @Nonnull Storage storage)
       throws ConfigurationException {
-    var metadata = im.getMetadata();
-    final var indexType = im.getType();
-    final var algorithm = im.getAlgorithm();
-
-    if (metadata == null || !metadata.containsKey("analyzer")) {
-      HashMap<String, Object> met;
-      if (metadata != null) {
-        met = new HashMap<>(metadata);
-      } else {
-        met = new HashMap<>();
-      }
-
-      met.put("analyzer", StandardAnalyzer.class.getName());
-      im.setMetadata(met);
-    }
-
     if (SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
-      return new LuceneSpatialIndex(im, storage);
+      return new LuceneSpatialIndex(storage);
     }
 
-    throw new ConfigurationException(storage.getName(), "Unsupported type : " + algorithm);
+    throw new ConfigurationException(storage.getName(), "Unsupported type : " + indexType);
+  }
+
+  @Override
+  public Index createIndex(String indexType, @Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) throws ConfigurationException {
+    if (SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
+      return new LuceneSpatialIndex(identity, transaction, storage);
+    }
+
+    throw new ConfigurationException(storage.getName(), "Unsupported type : " + indexType);
   }
 
   @Override
@@ -141,12 +137,14 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
         return;
       }
 
+      var embeddedSession = (DatabaseSessionEmbedded) session;
+      var indexManager = embeddedSession.getSharedContext().getIndexManager();
       LogManager.instance().debug(this, "Dropping spatial indexes...");
-      for (var idx : session.getMetadata().getIndexManagerInternal().getIndexes(session)) {
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
 
         if (idx instanceof LuceneSpatialIndex) {
           LogManager.instance().debug(this, "- index '%s'", idx.getName());
-          session.getMetadata().getIndexManager().dropIndex(idx.getName());
+          indexManager.dropIndex(embeddedSession, idx.getName());
         }
       }
     } catch (Exception e) {

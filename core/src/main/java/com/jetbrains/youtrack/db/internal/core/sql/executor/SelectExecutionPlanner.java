@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
@@ -1662,7 +1661,7 @@ public class SelectExecutionPlanner {
 
     var result =
         handleClassAsTargetWithIndex(
-            targetClass.getStringValue(), null, info, ctx, profilingEnabled);
+            targetClass.getStringValue(), null, info, ctx, profilingEnabled, true);
     if (result != null) {
       result.forEach(plan::chain);
       info.whereClause = null;
@@ -1734,7 +1733,8 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var result =
-        handleClassAsTargetWithIndex(targetClass, filterCollections, info, ctx, profilingEnabled);
+        handleClassAsTargetWithIndex(targetClass, filterCollections, info, ctx, profilingEnabled,
+            false);
     var session = ctx.getDatabaseSession();
     if (result == null) {
       result = new ArrayList<>();
@@ -1776,7 +1776,9 @@ public class SelectExecutionPlanner {
       Set<String> filterCollections,
       QueryPlanningInfo info,
       CommandContext ctx,
-      boolean profilingEnabled) {
+      boolean profilingEnabled,
+      boolean isHierarchyRoot
+  ) {
     if (info.flattenedWhereClause == null || info.flattenedWhereClause.isEmpty()) {
       return null;
     }
@@ -1803,7 +1805,14 @@ public class SelectExecutionPlanner {
         commonFactor(indexSearchDescriptors);
 
     return executionStepFromIndexes(
-        filterCollections, clazz, info, ctx, profilingEnabled, optimumIndexSearchDescriptors);
+        filterCollections,
+        clazz,
+        info,
+        ctx,
+        profilingEnabled,
+        optimumIndexSearchDescriptors,
+        isHierarchyRoot
+    );
   }
 
   private List<ExecutionStepInternal> executionStepFromIndexes(
@@ -1812,7 +1821,9 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled,
-      List<IndexSearchDescriptor> optimumIndexSearchDescriptors) {
+      List<IndexSearchDescriptor> optimumIndexSearchDescriptors,
+      boolean isHierarchyRoot
+  ) {
     List<ExecutionStepInternal> result;
     if (optimumIndexSearchDescriptors.size() == 1) {
       var desc = optimumIndexSearchDescriptors.getFirst();
@@ -1831,7 +1842,11 @@ public class SelectExecutionPlanner {
       if (desc.requiresDistinctStep()) {
         result.add(new DistinctExecutionStep(ctx, profilingEnabled));
       }
-      if (orderAsc != null
+      // at the moment, we allow this optimization only for root classes in the hierarchy.
+      // I.e. For B and C that are subclasses of A, `select from A where aField > 10` will
+      // apply this optimization only if `aField` is indexed in the root class A.
+      if (isHierarchyRoot
+          && orderAsc != null
           && info.orderBy != null
           && fullySorted(info.orderBy, desc)) {
         info.orderApplied = true;

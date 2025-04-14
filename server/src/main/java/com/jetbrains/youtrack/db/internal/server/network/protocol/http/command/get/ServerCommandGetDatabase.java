@@ -258,7 +258,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
 
         // exportSecurityInfo(db, json);
       }
-      final var idxManager = session.getMetadata().getIndexManagerInternal();
+      final var idxManager = session.getSharedContext().getIndexManager();
       json.beginCollection(session, "indexes");
       for (var index : idxManager.getIndexes(session)) {
         json.beginObject();
@@ -287,8 +287,10 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
           new Object[]{"name", "charSet", "value", configuration.getCharset()},
           new Object[]{"name", "timezone", "value", configuration.getTimeZone().getID()},
           new Object[]{"name", "definitionVersion", "value", configuration.getVersion()},
-          new Object[]{"name", "collectionSelection", "value", configuration.getCollectionSelection()},
-          new Object[]{"name", "minimumCollections", "value", configuration.getMinimumCollections()},
+          new Object[]{"name", "collectionSelection", "value",
+              configuration.getCollectionSelection()},
+          new Object[]{"name", "minimumCollections", "value",
+              configuration.getMinimumCollections()},
           new Object[]{"name", "conflictStrategy", "value", configuration.getConflictStrategy()});
       json.endCollection();
 

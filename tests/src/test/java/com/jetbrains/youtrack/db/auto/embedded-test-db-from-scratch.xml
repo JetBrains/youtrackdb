@@ -20,12 +20,12 @@
   <test name="Security">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.SecurityTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.RestrictedTest"/>-->
     </classes>
   </test>
   <test name="Hook">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.HookTxTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.hooks.HookOnIndexedMapTest"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30Test"/>
       <class name="com.jetbrains.youtrack.db.auto.LiveQuery30TxTest"/>
     </classes>
@@ -64,7 +64,7 @@
       <class name="com.jetbrains.youtrack.db.auto.SQLDropSchemaPropertyIndexTest"/>
 
       <class name="com.jetbrains.youtrack.db.auto.SchemaIndexTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.ClassIndexTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.ClassIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SchemaPropertyIndexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollectionIndexTest"/>
 
@@ -92,16 +92,17 @@
       <class name="com.jetbrains.youtrack.db.auto.BetweenConversionTest"/>
       <class name="com.jetbrains.youtrack.db.auto.PreparedStatementTest"/>
       <class name="com.jetbrains.youtrack.db.auto.QueryLocalCacheIntegrationTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.PolymorphicQueryTest"/>
     </classes>
   </test>
   <test name="Parsing">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.JSONTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.JSONTest"/>
     </classes>
   </test>
   <test name="Graph">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.GraphDatabaseTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.GraphDatabaseTest"/>
     </classes>
   </test>
   <test name="GEO">
@@ -121,21 +122,21 @@
   </test>
   <test name="sql-commands">
     <classes>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLCommandsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLCommandsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDropClassTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLInsertTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLInsertTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.SQLSelectTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLMetadataTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLSelectProjectionsTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectGroupByTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>-->
-      <!--      <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLFunctionsTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.SQLUpdateTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateVertexTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLDeleteEdgeTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLBatchTest"/>
-<!--      <class name="com.jetbrains.youtrack.db.auto.SQLCombinationFunctionTests"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.SQLCombinationFunctionTests"/>
     </classes>
   </test>
   <test name="other-commands">
@@ -149,7 +150,7 @@
       <class name="com.jetbrains.youtrack.db.auto.DateTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>
-      <!--      <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>-->
+      <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentQueriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentCommandAndOpenTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollateTest"/>

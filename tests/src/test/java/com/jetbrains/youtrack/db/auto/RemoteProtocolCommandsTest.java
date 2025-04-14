@@ -5,7 +5,7 @@ import static org.testng.AssertJUnit.assertTrue;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.Arrays;
 import java.util.Random;
 import org.testng.Assert;
@@ -62,7 +62,7 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
   // available
   public void testRawCreateWithoutIDTest() {
     var clazz = this.session.getMetadata().getSchema().createClass("RidCreationTestClass");
-    var storage = (AbstractPaginatedStorage) this.session.getStorage();
+    var storage = (AbstractStorage) this.session.getStorage();
     var doc = ((EntityImpl) session.newEntity("RidCreationTestClass"));
     doc.setProperty("test", "test");
     var bad = new RecordId(-1, -1);

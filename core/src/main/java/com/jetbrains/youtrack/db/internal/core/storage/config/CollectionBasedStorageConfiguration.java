@@ -26,8 +26,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -128,7 +128,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private final BTree<String> btree;
   private final PaginatedCollection collection;
 
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
   private final HashMap<String, Object> cache = new HashMap<>();
@@ -142,7 +142,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return writeCache.exists(COMPONENT_NAME + DATA_FILE_EXTENSION);
   }
 
-  public CollectionBasedStorageConfiguration(final AbstractPaginatedStorage storage) {
+  public CollectionBasedStorageConfiguration(final AbstractStorage storage) {
     collection =
         StorageCollectionFactory.createCollection(
             COMPONENT_NAME,
@@ -1062,8 +1062,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   @Override
   @Nullable
   public String getDirectory() {
-    if (storage instanceof LocalPaginatedStorage) {
-      return ((LocalPaginatedStorage) storage).getStoragePath().toString();
+    if (storage instanceof LocalStorage) {
+      return ((LocalStorage) storage).getStoragePath().toString();
     } else {
       return null;
     }
@@ -1106,14 +1106,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true)) {
       properties =
           stream
-              .filter((pair) -> pair.first.startsWith(PROPERTY_PREFIX_PROPERTY))
+              .filter((pair) -> pair.first().startsWith(PROPERTY_PREFIX_PROPERTY))
               .map(
                   (entry) -> {
                     final RawBuffer buffer;
                     try {
-                      buffer = collection.readRecord(entry.second.getCollectionPosition());
+                      buffer = collection.readRecord(entry.second().getCollectionPosition());
                       return new RawPair<>(
-                          entry.first.substring(PROPERTY_PREFIX_PROPERTY.length()),
+                          entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
                           deserializeStringValue(buffer.buffer, 0));
                     } catch (IOException e) {
                       throw BaseException.wrapException(
@@ -1121,7 +1121,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                               "Can not preload configuration properties"), e, storage.getName());
                     }
                   })
-              .collect(Collectors.toMap((pair) -> pair.first, (pair) -> pair.second));
+              .collect(Collectors.toMap(RawPair::first, RawPair::second));
     }
 
     cache.put(PROPERTIES, properties);
@@ -1175,11 +1175,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         ridsToRemove = new ArrayList<>(8);
 
         stream
-            .filter((entry) -> entry.first.startsWith(PROPERTY_PREFIX_PROPERTY))
+            .filter((entry) -> entry.first().startsWith(PROPERTY_PREFIX_PROPERTY))
             .forEach(
                 (entry) -> {
-                  keysToRemove.add(entry.first);
-                  ridsToRemove.add(entry.second);
+                  keysToRemove.add(entry.first());
+                  ridsToRemove.add(entry.second());
                 });
       }
 
@@ -1248,8 +1248,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       try (var stream =
           btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
         return stream
-            .filter((entry) -> entry.first.startsWith(ENGINE_PREFIX_PROPERTY))
-            .map((entry) -> entry.first.substring(ENGINE_PREFIX_PROPERTY.length()))
+            .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
+            .map((entry) -> entry.first().substring(ENGINE_PREFIX_PROPERTY.length()))
             .collect(Collectors.toSet());
       }
     } finally {
@@ -1261,16 +1261,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     try (var stream =
         btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
       return stream
-          .filter((entry) -> entry.first.startsWith(ENGINE_PREFIX_PROPERTY))
+          .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
           .map(
               (entry) -> {
                 String name = null;
                 try {
-                  name = entry.first.substring(ENGINE_PREFIX_PROPERTY.length());
+                  name = entry.first().substring(ENGINE_PREFIX_PROPERTY.length());
                   final var buffer =
-                      collection.readRecord(entry.second.getCollectionPosition());
+                      collection.readRecord(entry.second().getCollectionPosition());
                   return deserializeIndexEngineProperty(
-                      name, buffer.buffer, Integer.MIN_VALUE, entry.second.getCollectionId());
+                      name, buffer.buffer, Integer.MIN_VALUE, entry.second().getCollectionId());
                 } catch (IOException e) {
                   throw BaseException.wrapException(
                       new StorageException(storage.getName(),
@@ -1347,15 +1347,15 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true)) {
 
       stream
-          .filter((entry) -> entry.first.startsWith(COLLECTIONS_PREFIX_PROPERTY))
+          .filter((entry) -> entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY))
           .forEach(
               (entry) -> {
                 final var id =
-                    Integer.parseInt(entry.first.substring(COLLECTIONS_PREFIX_PROPERTY.length()));
+                    Integer.parseInt(entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
 
                 try {
                   final var buffer =
-                      collection.readRecord(entry.second.getCollectionPosition());
+                      collection.readRecord(entry.second().getCollectionPosition());
 
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();

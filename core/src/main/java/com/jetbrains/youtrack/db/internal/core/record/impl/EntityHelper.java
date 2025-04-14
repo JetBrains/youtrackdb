@@ -68,13 +68,14 @@ public class EntityHelper {
   public static final String ATTRIBUTE_RID_POS = "@rid_pos";
   public static final String ATTRIBUTE_VERSION = "@version";
   public static final String ATTRIBUTE_CLASS = "@class";
-  public static final String ATTRIBUTE_INTERNAL_SCHEMA = "@internalSchema";
-  public static final String ATTRIBUTE_INTERNAL_INDEX_MANAGER = "@internalIndexManager";
+  public static final String ATTRIBUTE_INTERNAL_ENTITY = "@internal";
+  public static final String ATTRIBUTE_INDEX_MANAGER_ENTITY = "@indexManager";
+  public static final String ATTRIBUTE_SCHEMA_MANAGER_ENTITY = "@schemaManager";
   public static final String ATTRIBUTE_TYPE = "@type";
   public static final String ATTRIBUTE_EMBEDDED = "@embedded";
   public static final String ATTRIBUTE_SIZE = "@size";
   public static final String ATTRIBUTE_FIELDS = "@fields";
-  public static final String ATTRIBUTE_FIELS_TYPES = "@fieldtypes";
+  public static final String ATTRIBUTE_FIELD_TYPES = "@fieldtypes";
   public static final String ATTRIBUTE_RAW = "@raw";
 
   public interface RIDMapper {
@@ -94,7 +95,7 @@ public class EntityHelper {
     retSet.add(ATTRIBUTE_SIZE);
     retSet.add(ATTRIBUTE_FIELDS);
     retSet.add(ATTRIBUTE_RAW);
-    retSet.add(ATTRIBUTE_FIELS_TYPES);
+    retSet.add(ATTRIBUTE_FIELD_TYPES);
     return retSet;
   }
 
@@ -1053,7 +1054,7 @@ public class EntityHelper {
         }
       } else if (myFieldValue instanceof RidBag && otherFieldValue instanceof RidBag) {
         if (!compareBags(
-            iMyDb, (RidBag) myFieldValue, iOtherDb, (RidBag) otherFieldValue, ridMapper)) {
+            (RidBag) myFieldValue, (RidBag) otherFieldValue, ridMapper)) {
           return false;
         }
       } else if (myFieldValue instanceof Map && otherFieldValue instanceof Map) {
@@ -1175,9 +1176,7 @@ public class EntityHelper {
   }
 
   public static boolean compareBags(
-      DatabaseSessionInternal iMyDb,
       RidBag myFieldValue,
-      DatabaseSessionInternal iOtherDb,
       RidBag otherFieldValue,
       RIDMapper ridMapper) {
     final var mySize = myFieldValue.size();

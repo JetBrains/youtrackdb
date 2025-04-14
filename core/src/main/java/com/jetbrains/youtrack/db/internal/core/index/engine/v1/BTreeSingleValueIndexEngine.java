@@ -12,7 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -28,10 +28,10 @@ public final class BTreeSingleValueIndexEngine
   private final CellBTreeSingleValue<Object> sbTree;
   private final String name;
   private final int id;
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
 
   public BTreeSingleValueIndexEngine(
-      int id, String name, AbstractPaginatedStorage storage, int version) {
+      int id, String name, AbstractStorage storage, int version) {
     this.name = name;
     this.id = id;
     this.storage = storage;
@@ -51,7 +51,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void init(DatabaseSessionInternal db, IndexMetadata metadata) {
+  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
   }
 
   @Override

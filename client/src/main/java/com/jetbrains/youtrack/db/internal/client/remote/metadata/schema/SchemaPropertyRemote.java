@@ -297,7 +297,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
   public void dropIndexes(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-    final var indexManager = session.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
     final var relatedIndexes = new ArrayList<Index>();
     for (final var index : indexManager.getClassIndexes(session, owner.getName(session))) {
@@ -319,7 +319,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
 
     for (final var index : relatedIndexes) {
-      session.getMetadata().getIndexManagerInternal().dropIndex(session, index.getName());
+      indexManager.dropIndex(session, index.getName());
     }
   }
 

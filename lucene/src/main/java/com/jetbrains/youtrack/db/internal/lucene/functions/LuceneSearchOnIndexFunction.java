@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.lucene.functions;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -44,7 +43,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
       Object iCurrentResult,
       Object[] params,
       CommandContext ctx) {
-    var result = (Result) iThis ;
+    var result = (Result) iThis;
 
     var indexName = (String) params[0];
 
@@ -75,9 +74,10 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     return memoryIndex.search(index.buildQuery(keyAndMetadata, ctx.getDatabaseSession())) > 0.0f;
   }
 
-  private Map<String, ?> getMetadata(Object[] params) {
+  private static Map<String, ?> getMetadata(Object[] params) {
 
     if (params.length == 3) {
+      //noinspection unchecked
       return (Map<String, ?>) params[2];
     }
 
@@ -124,8 +124,8 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
       List<Identifiable> luceneResultSet;
       try (var rids =
           index.getRids(ctx.getDatabaseSession(),
-                  new LuceneKeyAndMetadata(
-                      new LuceneCompositeKey(List.of(query)).setContext(ctx), meta))) {
+              new LuceneKeyAndMetadata(
+                  new LuceneCompositeKey(List.of(query)).setContext(ctx), meta))) {
         luceneResultSet = rids.collect(Collectors.toList());
       }
 
@@ -151,7 +151,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   }
 
   @Nullable
-  private LuceneFullTextIndex searchForIndex(
+  private static LuceneFullTextIndex searchForIndex(
       String className, CommandContext ctx, SQLExpression... args) {
 
     var indexName = (String) args[0].execute((Identifiable) null, ctx);
@@ -159,8 +159,8 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     final var database = ctx.getDatabaseSession();
     var index =
         database
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndex(database, className, indexName);
 
     if (index instanceof LuceneFullTextIndex) {
@@ -171,9 +171,9 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   }
 
   @Nullable
-  private LuceneFullTextIndex searchForIndex(CommandContext ctx, String indexName) {
+  private static LuceneFullTextIndex searchForIndex(CommandContext ctx, String indexName) {
     final var database = ctx.getDatabaseSession();
-    var index = database.getMetadata().getIndexManagerInternal().getIndex(database, indexName);
+    var index = database.getSharedContext().getIndexManager().getIndex(database, indexName);
 
     if (index instanceof LuceneFullTextIndex) {
       return (LuceneFullTextIndex) index;

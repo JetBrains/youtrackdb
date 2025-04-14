@@ -18,7 +18,6 @@
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="youtrackdb-community" target="21" />
       <module name="youtrackdb-jdbc" target="21" />
     </bytecodeTargetLevel>
   </component>

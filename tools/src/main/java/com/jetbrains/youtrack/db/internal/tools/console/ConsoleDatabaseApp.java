@@ -74,7 +74,7 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
@@ -474,9 +474,9 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     resultSet.sort((o1, o2) -> {
-      @SuppressWarnings("unchecked") final var o1s = ((Map<String, String>) o1.second).get(
+      @SuppressWarnings("unchecked") final var o1s = ((Map<String, String>) o1.second()).get(
           "LAST_OPERATION_ON");
-      @SuppressWarnings("unchecked") final var o2s = ((Map<String, String>) o2.second).get(
+      @SuppressWarnings("unchecked") final var o2s = ((Map<String, String>) o2.second()).get(
           "LAST_OPERATION_ON");
       return o2s.compareTo(o1s);
     });
@@ -1847,7 +1847,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
       final List<Index> indexes =
           new ArrayList<Index>(
-              currentDatabaseSession.getMetadata().getIndexManagerInternal().getIndexes(
+              currentDatabaseSession.getSharedContext().getIndexManager().getIndexes(
                   currentDatabaseSession));
       indexes.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
 
@@ -2090,7 +2090,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     message("\nChecking storage.");
     try {
-      ((AbstractPaginatedStorage) currentDatabaseSession.getStorage()).check(verbose, this);
+      ((AbstractStorage) currentDatabaseSession.getStorage()).check(verbose, this);
     } catch (DatabaseImportException e) {
       printError(e);
     }

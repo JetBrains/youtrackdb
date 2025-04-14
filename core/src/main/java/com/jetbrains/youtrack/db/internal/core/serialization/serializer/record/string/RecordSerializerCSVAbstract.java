@@ -173,7 +173,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         // REMOVE BEGIN & END MAP CHARACTERS
         var value = iValue.substring(1, iValue.length() - 1);
 
-        @SuppressWarnings("rawtypes") final Map map = new EntityLinkMapIml((EntityImpl) iSourceRecord
+        @SuppressWarnings("rawtypes") final Map map = new EntityLinkMapIml(
+            (EntityImpl) iSourceRecord
         );
 
         if (value.length() == 0) {
@@ -254,11 +255,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           return null;
         }
       case LINKBAG:
-        final var value =
-            iValue.charAt(0) == StringSerializerHelper.BAG_BEGIN
-                ? iValue.substring(1, iValue.length() - 1)
-                : iValue;
-        return RidBag.fromStream(session, value);
+        throw new UnsupportedOperationException();
       default:
         return fieldTypeFromStream(session, (EntityImpl) iSourceRecord, iType, iValue);
     }
@@ -316,7 +313,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                     && isConvertToLinkedMap(map, linkedType)) {
                   // CONVERT IT TO A LAZY MAP
                   map = new EntityLinkMapIml(iSourceDocument);
-                } else if (map instanceof EntityLinkMapIml && linkedType != PropertyTypeInternal.LINK) {
+                } else if (map instanceof EntityLinkMapIml
+                    && linkedType != PropertyTypeInternal.LINK) {
                   map = new EntityEmbeddedMapImpl<Object>(iSourceDocument, map);
                 }
               } else {
@@ -554,12 +552,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         embeddedMapToStream(session, iOutput, iLinkedType, iValue);
         break;
       }
-
       case LINKBAG: {
-        iOutput.append(StringSerializerHelper.BAG_BEGIN);
-        ((RidBag) iValue).toStream(session, iOutput);
-        iOutput.append(StringSerializerHelper.BAG_END);
-        break;
+        throw new UnsupportedOperationException();
       }
 
       default:
@@ -863,7 +857,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(StringSerializerHelper.SET_END);
   }
 
-  private EntityLinkListImpl unserializeList(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private EntityLinkListImpl unserializeList(DatabaseSessionInternal db,
+      final EntityImpl iSourceRecord,
       final String value) {
     final var coll = new EntityLinkListImpl(iSourceRecord);
     final var items =
@@ -887,7 +882,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     return coll;
   }
 
-  private EntityLinkSetImpl unserializeSet(DatabaseSessionInternal db, final EntityImpl iSourceRecord,
+  private EntityLinkSetImpl unserializeSet(DatabaseSessionInternal db,
+      final EntityImpl iSourceRecord,
       final String value) {
     final var coll = new EntityLinkSetImpl(iSourceRecord);
     final var items =

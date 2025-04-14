@@ -59,6 +59,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -627,15 +628,19 @@ public enum PropertyTypeInternal {
       var copy = session.newEmbeddedSet(trackedSet.size());
 
       for (var item : trackedSet) {
-        var type = PropertyTypeInternal.getTypeByValue(item);
+        if (item != null) {
+          var type = PropertyTypeInternal.getTypeByValue(item);
 
-        if (type == null) {
-          throw new DatabaseException(session, "Can not determine type of property : "
-              + item + " in set : " + value);
+          if (type == null) {
+            throw new DatabaseException(session, "Can not determine type of property : "
+                + item + " in set : " + value);
+          }
+
+          var converted = type.copy(item, session);
+          copy.add(converted);
+        } else {
+          copy.add(null);
         }
-
-        var converted = type.copy(item, session);
-        copy.add(converted);
       }
 
       return copy;
@@ -647,7 +652,8 @@ public enum PropertyTypeInternal {
     }
   },
 
-  EMBEDDEDMAP("EmbeddedMap", 12, EntityEmbeddedMapImpl.class, new Class<?>[]{Map.class}) {
+  EMBEDDEDMAP("EmbeddedMap", 12, EntityEmbeddedMapImpl.class,
+      new Class<?>[]{Map.class, MultiCollectionIterator.class}) {
     @Override
     public Map<String, Object> convert(Object value, PropertyTypeInternal linkedType,
         SchemaClass linkedClass,
@@ -695,6 +701,12 @@ public enum PropertyTypeInternal {
             ) {
               //noinspection unchecked
               embeddedMap.putAll((Map<String, ?>) map);
+            } else if (element instanceof Map.Entry<?, ?> entry &&
+                entry.getKey() instanceof String &&
+                !(entry.getValue() instanceof Identifiable)
+            ) {
+              //noinspection unchecked
+              embeddedMap.put((((Entry<String, ?>) entry).getKey()), entry.getValue());
             } else {
               throw new DatabaseException(session.getDatabaseName(),
                   conversionErrorMessage(value, this));
@@ -754,6 +766,12 @@ public enum PropertyTypeInternal {
       var trackedMap = (EntityEmbeddedMapImpl<?>) value;
       var copy = session.newEmbeddedMap(trackedMap.size());
       for (var entry : trackedMap.entrySet()) {
+        var entryValue = entry.getValue();
+        if (entryValue == null) {
+          copy.put(entry.getKey(), null);
+          continue;
+        }
+
         var type = PropertyTypeInternal.getTypeByValue(entry.getValue());
 
         if (type == null) {
@@ -966,7 +984,7 @@ public enum PropertyTypeInternal {
           return linkSet;
         }
         case Collection<?> collection -> {
-          var linkSet = session.newLinkSet(collection.size());
+          var linkSet = session.newLinkSet();
           for (var item : collection) {
             linkSet.add((Identifiable) LINK.convert(item, null, linkedClass, session));
           }
@@ -1023,7 +1041,7 @@ public enum PropertyTypeInternal {
       }
 
       var linkSet = (EntityLinkSetImpl) value;
-      var copy = session.newLinkSet(linkSet.size());
+      var copy = session.newLinkSet();
       copy.addAll(linkSet);
 
       return copy;
@@ -1439,6 +1457,11 @@ public enum PropertyTypeInternal {
   public static PropertyTypeInternal getTypeByValue(Object value) {
     if (value == null) {
       return null;
+    }
+
+    if (value instanceof MultiCollectionIterator<?> it) {
+      // link collections not supported here atm
+      return it.isInMapMode() ? EMBEDDEDMAP : EMBEDDEDLIST;
     }
 
     var clazz = value.getClass();

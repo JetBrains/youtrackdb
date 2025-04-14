@@ -18,7 +18,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.EncryptionKeyAbsentException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.CheckpointRequestListener;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
@@ -103,11 +103,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   static {
     commitExecutor =
         ThreadPoolExecutors.newSingleThreadScheduledPool(
-            "YouTrackDB WAL Flush Task", AbstractPaginatedStorage.storageThreadGroup);
+            "YouTrackDB WAL Flush Task", AbstractStorage.storageThreadGroup);
 
     writeExecutor =
         ThreadPoolExecutors.newSingleThreadPool(
-            "YouTrackDB WAL Write Task Thread", AbstractPaginatedStorage.storageThreadGroup);
+            "YouTrackDB WAL Write Task Thread", AbstractStorage.storageThreadGroup);
   }
 
   private final boolean keepSingleWALSegment;

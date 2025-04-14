@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -95,13 +96,13 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   private Collection<IndexCandidate> normalizeComposite(
       Collection<IndexCandidate> canditates, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
     var propeties = properties();
     Map<String, IndexCandidate> newCanditates = new HashMap<>();
     for (var cand : canditates) {
       if (!newCanditates.containsKey(cand.getName())) {
-        var index = ctx.getDatabaseSession().getMetadata().getIndexManager()
-            .getIndex(cand.getName());
+        var index = session.getSharedContext().getIndexManager()
+            .getIndex(session, cand.getName());
         List<SchemaProperty> foundProps = new ArrayList<>();
         for (var field : index.getDefinition().getFields()) {
           var found = false;

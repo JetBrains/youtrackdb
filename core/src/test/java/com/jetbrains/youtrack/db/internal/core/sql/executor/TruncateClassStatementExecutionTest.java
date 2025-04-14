@@ -69,7 +69,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     try (var stream = index.stream(session)) {
       stream.forEach(
           (entry) -> {
-            Assert.assertTrue(set.contains((Integer) entry.first));
+            Assert.assertTrue(set.contains((Integer) entry.first()));
           });
     }
     session.commit();
@@ -162,7 +162,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.commit();
 
     if (!session.getStorage().isRemote()) {
-      final var indexManager = session.getMetadata().getIndexManagerInternal();
+      final var indexManager = session.getSharedContext().getIndexManager();
       final var indexOne =
           indexManager.getIndex(session, "TestTruncateVertexClassSuperclassWithIndex_index");
       Assert.assertEquals(2, indexOne.size(session));
@@ -184,14 +184,14 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
   }
 
   private Index getOrCreateIndex(SchemaClass testClass) {
-    var index = session.getMetadata().getIndexManagerInternal()
+    var index = session.getSharedContext().getIndexManager()
         .getIndex(session, "test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
       testClass.createIndex("test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
           "data");
     }
-    return session.getMetadata().getIndexManagerInternal().getIndex(session, "test_class_by_data");
+    return session.getSharedContext().getIndexManager().getIndex(session, "test_class_by_data");
   }
 
   private SchemaClass getOrCreateClass(Schema schema) {

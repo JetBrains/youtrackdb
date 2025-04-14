@@ -16,7 +16,16 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import java.util.Collection;
+import java.util.Date;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -35,7 +44,7 @@ public interface Transaction {
   int activeTxCount();
 
   @Nonnull
-  DatabaseSession getSession();
+  DatabaseSession getDatabaseSession();
 
 
   /**
@@ -232,8 +241,6 @@ public interface Transaction {
    */
   @Nonnull
   <RET extends DBRecord> RET load(RID recordId);
-
-
   /**
    * Loads the record by the Record ID, unlike {@link  #load(RID)} method does not throw exception
    * if record not found but returns <code>null</code> instead.
@@ -386,4 +393,118 @@ public interface Transaction {
   @SuppressWarnings("rawtypes")
   void command(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException;
+
+  default <T> EmbeddedList<T> newEmbeddedList() {
+    return getDatabaseSession().newEmbeddedList();
+  }
+
+  default <T> EmbeddedList<T> newEmbeddedList(int size) {
+    return getDatabaseSession().newEmbeddedList(size);
+  }
+
+  default <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    return getDatabaseSession().newEmbeddedList(list);
+  }
+
+  default EmbeddedList<String> newEmbeddedList(String[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Short> newEmbeddedList(short[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Long> newEmbeddedList(long[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Float> newEmbeddedList(float[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Double> newEmbeddedList(double[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    return getDatabaseSession().newEmbeddedList(source);
+  }
+
+  default LinkList newLinkList() {
+    return getDatabaseSession().newLinkList();
+  }
+
+  default LinkList newLinkList(int size) {
+    return getDatabaseSession().newLinkList(size);
+  }
+
+  default LinkList newLinkList(Collection<? extends Identifiable> source) {
+    return getDatabaseSession().newLinkList(source);
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet() {
+    return getDatabaseSession().newEmbeddedSet();
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    return getDatabaseSession().newEmbeddedSet(size);
+  }
+
+  default <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    return getDatabaseSession().newEmbeddedSet(set);
+  }
+
+  default LinkSet newLinkSet() {
+    return getDatabaseSession().newLinkSet();
+  }
+
+  default LinkSet newLinkSet(Collection<? extends Identifiable> source) {
+    return getDatabaseSession().newLinkSet(source);
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap() {
+    return getDatabaseSession().newEmbeddedMap();
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap(int size) {
+    return getDatabaseSession().newEmbeddedMap(size);
+  }
+
+  default <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
+    return getDatabaseSession().newEmbeddedMap(map);
+  }
+
+  default LinkMap newLinkMap() {
+    return getDatabaseSession().newLinkMap();
+  }
+
+  default LinkMap newLinkMap(int size) {
+    return getDatabaseSession().newLinkMap(size);
+  }
+
+  default LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
+    return getDatabaseSession().newLinkMap(source);
+  }
+
+  /**
+   * Returns the schema of the database.
+   *
+   * @return the schema of the database
+   */
+  default Schema getSchema() {
+    return getDatabaseSession().getSchema();
+  }
+
 }

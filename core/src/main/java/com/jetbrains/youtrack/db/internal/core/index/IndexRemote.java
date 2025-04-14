@@ -26,14 +26,14 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -49,9 +49,7 @@ public class IndexRemote implements Index {
   private final RID rid;
   protected IndexDefinition indexDefinition;
   protected String name;
-  protected Map<String, Object> configuration;
 
-  private final int version;
   protected final Map<String, Object> metadata;
   protected Set<String> collectionsToIndex;
 
@@ -61,7 +59,7 @@ public class IndexRemote implements Index {
       final String algorithm,
       final RID iRid,
       final IndexDefinition iIndexDefinition,
-      final Map<String, Object> iConfiguration,
+      final Map<String, Object> metadata,
       final Set<String> collectionsToIndex,
       String database) {
     this.name = iName;
@@ -69,21 +67,15 @@ public class IndexRemote implements Index {
     this.algorithm = algorithm;
     this.rid = iRid;
     this.indexDefinition = iIndexDefinition;
-    this.configuration = iConfiguration;
 
-    @SuppressWarnings("unchecked")
-    var metadata = (Map<String, Object>) iConfiguration.get("metadata");
-    this.metadata = Collections.unmodifiableMap(metadata);
+    if (metadata == null) {
+      this.metadata = Collections.emptyMap();
+    } else {
+      this.metadata = Collections.unmodifiableMap(metadata);
+    }
 
     this.collectionsToIndex = new HashSet<>(collectionsToIndex);
     this.databaseName = database;
-
-    if (configuration == null) {
-      version = -1;
-    } else {
-      final var version = (Integer) configuration.get(Index.INDEX_VERSION);
-      this.version = Objects.requireNonNullElse(version, -1);
-    }
   }
 
   public IndexRemote create(
@@ -92,7 +84,7 @@ public class IndexRemote implements Index {
     return this;
   }
 
-  public IndexRemote delete(DatabaseSessionInternal session) {
+  public IndexRemote delete(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 
@@ -109,23 +101,23 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public IndexRemote put(DatabaseSessionInternal session, final Object key,
+  public IndexRemote put(FrontendTransaction session, final Object key,
       final Identifiable value) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key) {
+  public boolean remove(FrontendTransaction transaction, final Object key) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key,
+  public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public int getVersion() {
-    return version;
+    return -1;
   }
 
   public long rebuild(DatabaseSessionInternal session) {
@@ -159,22 +151,12 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public boolean loadFromConfiguration(DatabaseSessionInternal session, Map<String, ?> config) {
+  public Index addCollection(FrontendTransaction transaction, String collectionName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Map<String, ?> updateConfiguration(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Index addCollection(DatabaseSessionInternal session, String iCollectionName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeCollection(DatabaseSessionInternal session, String iCollectionName) {
+  public void removeCollection(FrontendTransaction transaction, String iCollectionName) {
     throw new UnsupportedOperationException();
   }
 
@@ -189,7 +171,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public IndexMetadata loadMetadata(DatabaseSessionInternal session, Map<String, ?> config) {
+  public IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config) {
     throw new UnsupportedOperationException();
   }
 
@@ -253,30 +235,25 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public boolean isNativeTxSupported() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage, Object key,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
       RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid) throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key,
+  public boolean doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException {
     throw new UnsupportedOperationException();
@@ -288,8 +265,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Index create(DatabaseSessionInternal session, IndexMetadata metadata, boolean rebuild,
-      ProgressListener progressListener) {
+  public Index create(FrontendTransaction transaction, IndexMetadata metadata) {
     throw new UnsupportedOperationException();
   }
 
@@ -314,7 +290,7 @@ public class IndexRemote implements Index {
     return algorithm;
   }
 
-  public Map<String, ?> getConfiguration(DatabaseSessionInternal session) {
+  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
@@ -333,7 +309,7 @@ public class IndexRemote implements Index {
   }
 
   public long rebuild(DatabaseSessionInternal session,
-      final ProgressListener iProgressListener) {
+      final ProgressListener progressListener) {
     return rebuild(session);
   }
 

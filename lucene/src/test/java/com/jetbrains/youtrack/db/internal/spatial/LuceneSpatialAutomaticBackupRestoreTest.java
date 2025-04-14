@@ -232,7 +232,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     assertThat(db.countClass("City")).isEqualTo(1);
 
-    var index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
+    var index = db.getSharedContext().getIndexManager().getIndex(db, "City.location");
 
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.SPATIAL.name());

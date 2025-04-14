@@ -20,10 +20,12 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -75,11 +77,11 @@ public interface IndexDefinition extends IndexCallback {
    * <p>If it is impossible to calculate key value by given parameters <code>null</code> will be
    * returned.
    *
-   * @param session Currently active database session.
-   * @param params  Parameters from which index key will be calculated.
+   * @param transaction Currently active database session.
+   * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  Object createValue(DatabaseSessionInternal session, List<?> params);
+  Object createValue(FrontendTransaction transaction, List<?> params);
 
   /**
    * Calculates key value by passed in parameters.
@@ -87,11 +89,11 @@ public interface IndexDefinition extends IndexCallback {
    * <p>If it is impossible to calculate key value by given parameters <code>null</code> will be
    * returned.
    *
-   * @param session Currently active database session.
-   * @param params  Parameters from which index key will be calculated.
+   * @param transaction Currently active database session.
+   * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  Object createValue(DatabaseSessionInternal session, Object... params);
+  Object createValue(FrontendTransaction transaction, Object... params);
 
   /**
    * Returns amount of parameters that are used to calculate key value. It does not mean that all
@@ -116,7 +118,7 @@ public interface IndexDefinition extends IndexCallback {
    * Serializes internal index state to map.
    */
   @Nonnull
-  Map<String, Object> toMap(DatabaseSessionInternal session);
+  EmbeddedMap<Object> toMap(DatabaseSessionInternal session);
 
   void toJson(@Nonnull JsonGenerator jsonGenerator);
 

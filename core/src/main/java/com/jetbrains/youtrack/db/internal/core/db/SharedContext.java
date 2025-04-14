@@ -16,7 +16,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -24,10 +24,11 @@ import java.util.concurrent.Callable;
 /**
  *
  */
-public abstract class SharedContext extends ListenerManger<MetadataUpdateListener> {
+public abstract class SharedContext<IM extends IndexManagerAbstract> extends
+    ListenerManger<MetadataUpdateListener> {
 
   protected YouTrackDBInternal youtrackDB;
-  protected StorageInfo storage;
+  protected Storage storage;
   protected SchemaShared schema;
   protected SecurityInternal security;
 
@@ -42,7 +43,7 @@ public abstract class SharedContext extends ListenerManger<MetadataUpdateListene
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
   protected StringCache stringCache;
-  protected IndexManagerAbstract indexManager;
+  protected IM indexManager;
 
   public SharedContext() {
     super(true);
@@ -106,7 +107,7 @@ public abstract class SharedContext extends ListenerManger<MetadataUpdateListene
     this.storage = storage;
   }
 
-  public IndexManagerAbstract getIndexManager() {
+  public IM getIndexManager() {
     return indexManager;
   }
 
@@ -130,12 +131,17 @@ public abstract class SharedContext extends ListenerManger<MetadataUpdateListene
     return resource;
   }
 
+
   public synchronized void reInit(
-      AbstractPaginatedStorage storage2, DatabaseSessionInternal database) {
+      AbstractStorage storage2, DatabaseSessionInternal database) {
     throw new UnsupportedOperationException();
   }
 
   public StringCache getStringCache() {
     return this.stringCache;
+  }
+
+  public boolean isLoaded() {
+    return loaded;
   }
 }

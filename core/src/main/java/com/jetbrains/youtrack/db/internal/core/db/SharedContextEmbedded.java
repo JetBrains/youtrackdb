@@ -4,8 +4,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerShared;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Indexes;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -18,13 +17,13 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  *
  */
-public class SharedContextEmbedded extends SharedContext {
+public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
 
   private final ReentrantLock lock = new ReentrantLock();
 
@@ -43,7 +42,7 @@ public class SharedContextEmbedded extends SharedContext {
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
     schema = new SchemaEmbedded();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
-    indexManager = new IndexManagerShared(storage);
+    indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
     sequenceLibrary = new SequenceLibraryImpl();
@@ -65,7 +64,7 @@ public class SharedContextEmbedded extends SharedContext {
     this.registerListener(executionPlanCache);
 
     queryStats = new QueryStats();
-    ((AbstractPaginatedStorage) storage)
+    ((AbstractStorage) storage)
         .setStorageConfigurationUpdateListener(
             update -> {
               for (var listener : browseListeners()) {
@@ -83,11 +82,11 @@ public class SharedContextEmbedded extends SharedContext {
     try {
       database.executeInTx(transaction -> {
         schema.load(database);
-        schema.forceSnapshot(database);
+        schema.forceSnapshot();
         indexManager.load(database);
         // The Immutable snapshot should be after index and schema that require and before
         // everything else that use it
-        schema.forceSnapshot(database);
+        schema.forceSnapshot();
         security.load(database);
         functionLibrary.load(database);
         scheduler.load(database);
@@ -120,6 +119,8 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
+
+
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {
@@ -127,7 +128,7 @@ public class SharedContextEmbedded extends SharedContext {
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       functionLibrary.load(database);
       sequenceLibrary.load(database);
@@ -146,7 +147,7 @@ public class SharedContextEmbedded extends SharedContext {
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
       SchedulerImpl.create(session);
-      schema.forceSnapshot(session);
+      schema.forceSnapshot();
 
       // CREATE BASE VERTEX AND EDGE CLASSES
       schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
@@ -164,7 +165,7 @@ public class SharedContextEmbedded extends SharedContext {
 
       // create geospatial classes
       try {
-        IndexFactory factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
+        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
         if (factory instanceof DatabaseLifecycleListener) {
           ((DatabaseLifecycleListener) factory).onCreate(session);
@@ -179,7 +180,7 @@ public class SharedContextEmbedded extends SharedContext {
     }
   }
 
-  public void reInit(AbstractPaginatedStorage storage2, DatabaseSessionInternal database) {
+  public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
     lock.lock();
     try {
       this.close();

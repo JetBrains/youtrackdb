@@ -449,7 +449,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           return;
         }
 
-        session.getMetadata().getIndexManagerInternal().dropIndex(session, index.getName());
+        session.getSharedContext().getIndexManager().dropIndex(session, index.getName());
 
         iResponse.send(
             HttpUtils.STATUS_OK_CODE,

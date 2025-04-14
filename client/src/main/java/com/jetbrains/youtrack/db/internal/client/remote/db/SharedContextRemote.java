@@ -10,17 +10,17 @@ import com.jetbrains.youtrack.db.internal.core.db.StringCache;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  *
  */
-public class SharedContextRemote extends SharedContext {
+public class SharedContextRemote extends SharedContext<IndexManagerRemote> {
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  public SharedContextRemote(StorageInfo storage, YouTrackDBRemote youTrackDbRemote) {
+  public SharedContextRemote(Storage storage, YouTrackDBRemote youTrackDbRemote) {
     stringCache =
         new StringCache(
             youTrackDbRemote
@@ -51,7 +51,7 @@ public class SharedContextRemote extends SharedContext {
       indexManager.load(database);
       // The Immutable snapshot should be after index and schema that require and before
       // everything else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       sequenceLibrary.load(database);
       loaded = true;
@@ -82,7 +82,7 @@ public class SharedContextRemote extends SharedContext {
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
-      schema.forceSnapshot(database);
+      schema.forceSnapshot();
       security.load(database);
       scheduler.load(database);
       sequenceLibrary.load(database);

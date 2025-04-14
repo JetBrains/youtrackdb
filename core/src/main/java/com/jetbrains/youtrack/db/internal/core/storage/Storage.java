@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.Backupable;
@@ -102,13 +103,16 @@ public interface Storage extends Backupable, StorageInfo {
    *
    * @param iCollectionName name of the collection
    */
-  int addCollection(DatabaseSessionInternal database, String iCollectionName, Object... iParameters);
+  int addCollection(DatabaseSessionInternal database, String iCollectionName,
+      Object... iParameters);
+
+  int getAbsoluteLinkBagCounter(RID ownerId, String fieldName,  RID key);
 
   /**
    * Add a new collection into the storage.
    *
    * @param iCollectionName name of the collection
-   * @param iRequestedId requested id of the collection
+   * @param iRequestedId    requested id of the collection
    */
   int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
 
@@ -116,7 +120,8 @@ public interface Storage extends Backupable, StorageInfo {
 
   String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
-  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute, Object value);
+  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute,
+      Object value);
 
   /**
    * Drops a collection.
@@ -149,6 +154,9 @@ public interface Storage extends Backupable, StorageInfo {
    * Returns the size of the database.
    */
   long getSize(DatabaseSessionInternal session);
+
+  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid);
 
   /**
    * Returns the total number of records.

@@ -50,10 +50,15 @@ import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -74,6 +79,7 @@ import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedExce
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
@@ -100,12 +106,13 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -122,10 +129,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -134,7 +137,8 @@ import javax.annotation.Nullable;
  * Entity API entrypoint.
  */
 @SuppressWarnings("unchecked")
-public abstract class DatabaseSessionAbstract extends ListenerManger<SessionListener>
+public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> extends
+    ListenerManger<SessionListener>
     implements DatabaseSessionInternal {
 
   protected final HashMap<String, Object> properties = new HashMap<>();
@@ -154,13 +158,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   protected boolean initialized = false;
   protected FrontendTransaction currentTx;
 
-  protected SharedContext sharedContext;
+  protected SharedContext<IM> sharedContext;
 
   private boolean prefetchRecords;
 
   protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
-  private Map<UUID, BonsaiCollectionPointer> collectionsChanges;
+  private Map<UUID, ObjectIntPair<LinkBagPointer>> collectionsChanges;
 
   // database stats!
   protected long loadedRecordsCount;
@@ -620,7 +624,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   @Override
   public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
-    return getStorageInfo().getCollectionNames().contains(iCollectionName.toLowerCase(Locale.ENGLISH));
+    return getStorageInfo().getCollectionNames()
+        .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
@@ -1245,7 +1250,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return collectionId;
   }
 
-  public Transaction begin() {
+  public FrontendTransaction begin() {
     assert assertIfNotActive();
 
     if (currentTx.isActive()) {
@@ -1927,13 +1932,6 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
   }
 
-  /**
-   * This method is internal, it can be subject to signature change or be removed, do not use.
-   */
-  @Override
-  public DatabaseSession getUnderlying() {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public CurrentStorageComponentsFactory getStorageVersions() {
@@ -2076,7 +2074,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
 
 
   @Override
-  public SharedContext getSharedContext() {
+  public SharedContext<IM> getSharedContext() {
     assert assertIfNotActive();
     return sharedContext;
   }
@@ -2173,7 +2171,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
 
-  public Map<UUID, BonsaiCollectionPointer> getCollectionsChanges() {
+  public Map<UUID, ObjectIntPair<LinkBagPointer>> getCollectionsChanges() {
     assert assertIfNotActive();
 
     if (collectionsChanges == null) {
@@ -2184,12 +2182,13 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public void executeInTx(@Nonnull Consumer<Transaction> code) {
+  public <X extends Exception> void executeInTxInternal(
+      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
     var ok = false;
     assert assertIfNotActive();
-    var tx = begin();
+    begin();
     try {
-      code.accept(tx);
+      code.accept(currentTx);
       ok = true;
     } finally {
       finishTx(ok);
@@ -2197,8 +2196,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
@@ -2222,24 +2221,28 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
     forEachInTx(iterator, (db, t) -> {
       consumer.accept(db, t);
       return true;
     });
   }
 
+
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
   }
 
+
   @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (var s = stream) {
@@ -2247,9 +2250,10 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
   }
 
+
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
 
@@ -2258,6 +2262,7 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
       while (iterator.hasNext()) {
         var cont = consumer.apply(tx, iterator.next());
         commit();
+
         if (!cont) {
           break;
         }
@@ -2271,16 +2276,16 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
     forEachInTx(iterable.iterator(), consumer);
   }
 
   @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<Transaction, T, Boolean> consumer) {
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2303,16 +2308,17 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      @Nonnull Iterator<T> iterator, int batchSize, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     var ok = false;
     assert assertIfNotActive();
     var counter = 0;
 
-    var tx = begin();
+    begin();
     try {
       while (iterator.hasNext()) {
-        consumer.accept(tx, iterator.next());
+        consumer.accept(currentTx, iterator.next());
         counter++;
 
         if (counter % batchSize == 0) {
@@ -2328,21 +2334,20 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterator<T> iterator, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
-    executeInTxBatches(
+    executeInTxBatchesInternal(
         iterator,
         getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
         consumer);
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
-
     executeInTxBatches(
         iterable,
         getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
@@ -2350,8 +2355,8 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatches(
+      Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
@@ -2359,22 +2364,26 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     }
   }
 
+
   @Override
-  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<Transaction, T> consumer) {
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
 
     try (stream) {
-      executeInTxBatches(stream.iterator(), consumer);
+      executeInTxBatchesInternal(stream.iterator(), consumer);
     }
   }
 
+
   @Override
-  public <R> R computeInTx(Function<Transaction, R> code) {
+  public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
+      throws X {
     assert assertIfNotActive();
     var ok = false;
-    var tx = begin();
+    begin();
     try {
-      var result = code.apply(tx);
+      var result = code.apply(currentTx);
       ok = true;
       return result;
     } finally {
@@ -2519,25 +2528,21 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
     return new EntityLinkSetImpl(this);
   }
 
-  @Override
-  public LinkSet newLinkSet(int size) {
-    return new EntityLinkSetImpl(size, this);
-  }
 
   @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
-    var linkSet = new EntityLinkSetImpl(source.size(), this);
+    var linkSet = new EntityLinkSetImpl(this);
     linkSet.addAll(source);
     return linkSet;
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap() {
+  public <V> EmbeddedMap<V> newEmbeddedMap() {
     return new EntityEmbeddedMapImpl<>();
   }
 
   @Override
-  public <V> Map<String, V> newEmbeddedMap(int size) {
+  public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
     return new EntityEmbeddedMapImpl<>(size);
   }
 
@@ -2547,24 +2552,24 @@ public abstract class DatabaseSessionAbstract extends ListenerManger<SessionList
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap() {
+  public LinkMap newLinkMap() {
     return new EntityLinkMapIml(this);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(int size) {
+  public LinkMap newLinkMap(int size) {
     return new EntityLinkMapIml(size, this);
   }
 
   @Override
-  public Map<String, Identifiable> newLinkMap(Map<String, ? extends Identifiable> source) {
+  public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
     var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
     return linkMap;
   }
 
   @Override
-  public @Nonnull Transaction getActiveTransaction() {
+  public @Nonnull FrontendTransaction getActiveTransaction() {
     if (currentTx.isActive()) {
       return currentTx;
     }

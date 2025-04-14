@@ -35,10 +35,9 @@ import java.util.List;
 public class DatabaseRepair extends DatabaseTool {
 
   private boolean removeBrokenLinks = true;
-  private final DatabaseSessionInternal db;
 
-  public DatabaseRepair(DatabaseSessionInternal db) {
-    this.db = db;
+  public DatabaseRepair(DatabaseSessionInternal session) {
+    setDatabaseSession(session);
   }
 
   @Override
@@ -57,13 +56,13 @@ public class DatabaseRepair extends DatabaseTool {
     long errors = 0;
 
     if (removeBrokenLinks) {
-      errors += removeBrokenLinks(db);
+      errors += removeBrokenLinks();
     }
 
     message("\nRepair database complete (" + errors + " errors)");
   }
 
-  protected long removeBrokenLinks(DatabaseSessionInternal db) {
+  protected long removeBrokenLinks() {
     var fixedLinks = 0L;
     var modifiedEntities = 0L;
     var errors = 0L;
@@ -81,7 +80,7 @@ public class DatabaseRepair extends DatabaseTool {
               final var fieldValue = entity.getProperty(fieldName);
 
               if (fieldValue instanceof Identifiable) {
-                if (fixLink(fieldValue, db)) {
+                if (fixLink(fieldValue)) {
                   entity.setProperty(fieldName, null);
                   fixedLinks++;
                   changed = true;
@@ -100,7 +99,7 @@ public class DatabaseRepair extends DatabaseTool {
                 final Iterator<Object> it = ((Iterable) fieldValue).iterator();
                 for (var i = 0; it.hasNext(); ++i) {
                   final var v = it.next();
-                  if (fixLink(v, db)) {
+                  if (fixLink(v)) {
                     it.remove();
                     fixedLinks++;
                     changed = true;
@@ -143,10 +142,9 @@ public class DatabaseRepair extends DatabaseTool {
    * Checks if the link must be fixed.
    *
    * @param fieldValue Field containing the Identifiable (RID or Record)
-   * @param db
    * @return true to fix it, otherwise false
    */
-  protected boolean fixLink(final Object fieldValue, DatabaseSessionInternal db) {
+  protected boolean fixLink(final Object fieldValue) {
     if (fieldValue instanceof Identifiable) {
       final var id = ((Identifiable) fieldValue).getIdentity();
 
@@ -157,7 +155,7 @@ public class DatabaseRepair extends DatabaseTool {
       if (((RecordId) id).isValidPosition()) {
         if (id.isPersistent()) {
           try {
-            var transaction = db.getActiveTransaction();
+            var transaction = session.getActiveTransaction();
             transaction.load(((Identifiable) fieldValue));
           } catch (RecordNotFoundException rnf) {
             return true;

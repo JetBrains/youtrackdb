@@ -404,30 +404,29 @@ public class TraverseTestNew extends BaseDBTest {
             "select *, $depth as d from ( traverse out_married  from "
                 + tomCruise.getIdentity()
                 + " while $depth < 2)");
-    Integer i = 0;
+    var i = 0;
     while (result1.hasNext()) {
       var doc = result1.next();
       Integer depth = doc.getProperty("d");
       Assert.assertEquals(depth, i++);
     }
-    Assert.assertEquals(i.intValue(), 2);
+    Assert.assertEquals((int) i, 2);
     result1.close();
   }
 
   @Test
   public void traverseAndCheckReturn() {
-
     var q = "traverse in('married')  from " + nicoleKidman.getIdentity();
     var db = this.session.copy();
     var result1 = db.query(q);
     Assert.assertTrue(result1.hasNext());
-    Integer i = 0;
+    var i = 0;
     Result doc;
     while (result1.hasNext()) {
       doc = result1.next();
       i++;
     }
-    Assert.assertEquals(i.intValue(), 2);
+    Assert.assertEquals((int) i, 2);
     result1.close();
   }
 }

@@ -58,6 +58,7 @@ public interface FrontendTransaction extends Transaction {
 
   void rollbackInternal(boolean force, int commitLevelDiff);
 
+  @Nonnull
   DatabaseSessionInternal getDatabaseSession();
 
   @Deprecated

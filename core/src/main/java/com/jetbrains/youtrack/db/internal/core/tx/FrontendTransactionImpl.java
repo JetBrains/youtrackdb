@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -57,7 +56,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -257,7 +256,7 @@ public class FrontendTransactionImpl implements
       final Object key,
       final Identifiable value) {
     // index changes are tracked on server in case of client-server deployment
-    assert session.getStorage() instanceof AbstractPaginatedStorage;
+    assert session.getStorage() instanceof AbstractStorage;
 
     try {
       var indexEntry = indexEntries.get(iIndexName);
@@ -701,18 +700,18 @@ public class FrontendTransactionImpl implements
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterCreate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterCreate(entityImpl, this);
             }
             session.beforeCreateOperations(record, collectionName);
           } else {
             if (className != null && !session.isRemote()) {
-              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+              ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
             }
             session.beforeUpdateOperations(record, collectionName);
           }
         } else {
           if (className != null) {
-            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, session);
+            ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
           }
           session.beforeUpdateOperations(record, collectionName);
         }
@@ -738,7 +737,7 @@ public class FrontendTransactionImpl implements
       recordOperation.record.processingInCallback = true;
       try {
         if (className != null && !session.isRemote()) {
-          ClassIndexManager.checkIndexesAfterDelete(entityImpl, session);
+          ClassIndexManager.checkIndexesAfterDelete(entityImpl, this);
         }
         session.beforeDeleteOperations(record, collectionName);
       } finally {
@@ -822,7 +821,7 @@ public class FrontendTransactionImpl implements
     }
     final var database = session;
     if (!database.isRemote()) {
-      final var indexManager = database.getMetadata().getIndexManagerInternal();
+      final var indexManager = database.getSharedContext().getIndexManager();
       for (var entry : indexEntries.entrySet()) {
         final var index = indexManager.getIndex(database, entry.getKey());
         if (index == null) {
@@ -1249,12 +1248,6 @@ public class FrontendTransactionImpl implements
 
   public void setSession(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
-  }
-
-  @Override
-  public @Nonnull DatabaseSession getSession() {
-    checkIfActive();
-    return session;
   }
 
   @Nonnull

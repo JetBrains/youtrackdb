@@ -14,7 +14,7 @@ public interface BaseIndexEngine {
 
   int getId();
 
-  void init(DatabaseSessionInternal db, IndexMetadata metadata);
+  void init(DatabaseSessionInternal session, IndexMetadata metadata);
 
   void flush();
 

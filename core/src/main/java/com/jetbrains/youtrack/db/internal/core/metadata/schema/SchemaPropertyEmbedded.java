@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -153,7 +154,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       if ((this.collate != null && !this.collate.equals(oldCollate))
           || (this.collate == null && oldCollate != null)) {
         final var indexes = owner.getClassIndexesInternal(session);
-        final List<Index> indexesToRecreate = new ArrayList<Index>();
+        final List<Index> indexesToRecreate = new ArrayList<>();
 
         for (var index : indexes) {
           var definition = index.getDefinition();
@@ -171,13 +172,12 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                   "Collate value was changed, following indexes will be rebuilt %s",
                   indexesToRecreate);
 
-          final var indexManager =
-              session.getMetadata().getIndexManagerInternal();
-
+          final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+              .getIndexManager();
           for (var indexToRecreate : indexesToRecreate) {
-            final var indexMetadata =
+            final var indexMetadata = session.computeInTxInternal(transaction ->
                 indexToRecreate
-                    .loadMetadata(session, indexToRecreate.getConfiguration(session));
+                    .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
             final var fields = indexMetadata.getIndexDefinition().getFields();
             final var fieldsToIndex = fields.toArray(new String[0]);

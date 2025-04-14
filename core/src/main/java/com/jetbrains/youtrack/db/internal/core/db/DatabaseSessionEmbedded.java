@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
@@ -52,6 +53,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
@@ -85,7 +87,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
@@ -107,17 +109,18 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
+public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManagerEmbedded>
     implements QueryLifecycleListener {
 
   private YouTrackDBConfigImpl config;
   private final Storage storage; // todo: make this final when "removeStorage" is removed
 
-
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
 
   private final TransactionMeters transactionMeters;
+
+  private boolean ensureLinkConsistency = true;
 
   public DatabaseSessionEmbedded(final Storage storage) {
     activateOnCurrentThread();
@@ -157,7 +160,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     throw new UnsupportedOperationException("Use YouTrackDB");
   }
 
-  public void init(YouTrackDBConfigImpl config, SharedContext sharedContext) {
+  public void init(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> sharedContext) {
     this.sharedContext = sharedContext;
     activateOnCurrentThread();
     this.config = config;
@@ -304,7 +307,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   /**
    * {@inheritDoc}
    */
-  public void internalCreate(YouTrackDBConfigImpl config, SharedContext ctx) {
+  public void internalCreate(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> ctx) {
     var serializer = RecordSerializerFactory.instance().getDefaultRecordSerializer();
     if (serializer.toString().equals("ORecordDocument2csv")) {
       throw new DatabaseException(getDatabaseName(),
@@ -335,7 +338,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     }
   }
 
-  protected void createMetadata(SharedContext shared) {
+  protected void createMetadata(SharedContext<IndexManagerEmbedded> shared) {
     assert assertIfNotActive();
     metadata.init(shared);
     ((SharedContextEmbedded) shared).create(this);
@@ -490,7 +493,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   public DatabaseSessionInternal copy() {
     assertIfNotActive();
     var storage = (Storage) getSharedContext().getStorage();
-    storage.open(this, null, null, config.getConfiguration());
+    storage.open(this, null, null, getConfiguration());
     String user;
     if (getCurrentUser() != null) {
       user = getCurrentUser().getName(this);
@@ -519,8 +522,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   public void rebuildIndexes() {
     assert assertIfNotActive();
-    if (metadata.getIndexManagerInternal().autoRecreateIndexesAfterCrash(this)) {
-      metadata.getIndexManagerInternal().recreateIndexes(this);
+    var indexManager = sharedContext.getIndexManager();
+    if (indexManager.autoRecreateIndexesAfterCrash(this)) {
+      indexManager.recreateIndexes(this);
     }
   }
 
@@ -576,7 +580,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet query(String query, Map args) {
+  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
+    return query(query, true, args);
+  }
+
+  @Override
+  public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
@@ -588,7 +598,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     beginReadOnly();
     try {
-      currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      if (syncTx) {
+        currentTx.preProcessRecordsAndExecuteCallCallbacks();
+      }
       getSharedContext().getYouTrackDB().startCommand(Optional.empty());
       preQueryStart();
       try {
@@ -597,6 +609,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
           throw new CommandExecutionException(getDatabaseName(),
               "Cannot execute query on non idempotent statement: " + query);
         }
+        @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -654,7 +667,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   @Override
-  public ResultSet execute(String query, Map args) {
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -671,6 +684,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         preQueryStart();
 
         var statement = SQLEngine.parse(query, this);
+        @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
         LocalResultSetLifecycleDecorator result;
         if (!statement.isIdempotent()) {
@@ -723,12 +737,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 .getCommandManager()
                 .getScriptExecutor(language);
 
-        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
         ResultSet original;
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
         }
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -790,11 +804,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 .getScriptExecutor(language);
         ResultSet original;
 
-        ((AbstractPaginatedStorage) this.storage).pauseConfigurationUpdateNotifications();
+        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractPaginatedStorage) this.storage).fireConfigurationUpdateNotifications();
+          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
         }
 
         var result = new LocalResultSetLifecycleDecorator(original);
@@ -1121,12 +1135,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             var schema = sharedContext.getSchema();
             for (var listener : sharedContext.browseListeners()) {
               listener.onSchemaUpdate(this, getDatabaseName(), schema);
-            }
-          } else if (record.getIdentity()
-              .equals(metadata.getIndexManagerInternal().getIdentity())) {
-            var indexManager = sharedContext.getIndexManager();
-            for (var listener : sharedContext.browseListeners()) {
-              listener.onIndexManagerUpdate(this, getDatabaseName(), indexManager);
             }
           }
         }
@@ -1460,8 +1468,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
     var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
-          + "' because it is mapped to class '" + clazz.getName() + "'");
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
     if (schema.getBlobCollections().contains(collectionId)) {
       schema.removeBlobCollection(iCollectionName);
@@ -1480,13 +1489,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     assert assertIfNotActive();
 
     checkSecurity(
-        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, getCollectionNameById(collectionId));
+        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
+        getCollectionNameById(collectionId));
 
     var schema = metadata.getSchema();
     final var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      throw new DatabaseException(this, "Cannot drop collection '" + getCollectionNameById(collectionId)
-          + "' because it is mapped to class '" + clazz.getName() + "'");
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
     getLocalCache().freeCollection(collectionId);
@@ -1727,12 +1738,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
 
   public void startExclusiveMetadataChange() {
     assert assertIfNotActive();
-    ((AbstractPaginatedStorage) storage).startDDL();
+    ((AbstractStorage) storage).startDDL();
   }
 
   public void endExclusiveMetadataChange() {
     assert assertIfNotActive();
-    ((AbstractPaginatedStorage) storage).endDDL();
+    ((AbstractStorage) storage).endDDL();
   }
 
   @Override
@@ -1805,11 +1816,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
   }
 
   private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
+    if (!ensureLinkConsistency) {
+      return;
+    }
     var properties = entity.getPropertyNamesInternal(true, false);
+    var clazz = entity.getImmutableSchemaClass(this);
 
+    var linksToUpdateMap = new HashMap<RecordId, int[]>();
     for (var propertyName : properties) {
+      linksToUpdateMap.clear();
+
       if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
-        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName);
+        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName, false);
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
@@ -1874,9 +1892,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
             case RidBag ridBag -> {
               assert ridBag.contains(entity.getIdentity());
-              do {
-                ridBag.remove(entity.getIdentity());
-              } while (ridBag.contains(entity.getIdentity()));
+              var removed = ridBag.remove(entity.getIdentity());
+              if (!removed) {
+                throw new IllegalStateException(
+                    "Cannot remove link " + linkName + ":" + entity.getIdentity()
+                        + " from opposite entity because it does not exist in link bag");
+              }
             }
             default -> {
               throw new IllegalStateException("Unexpected type of link property: "
@@ -1884,12 +1905,31 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
             }
           }
         }
+      } else {
+        if (clazz != null) {
+          if (clazz.isVertexType()) {
+            if (VertexEntityImpl.isEdgeProperty(propertyName)) {
+              continue;
+            }
+          } else if (clazz.isEdgeType()) {
+            if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+              continue;
+            }
+          }
+        }
+
+        var currentPropertyValue = entity.getPropertyInternal(propertyName);
+        subtractFromLinksContainer(currentPropertyValue, linksToUpdateMap);
+        updateOppositeLinks(entity, propertyName, linksToUpdateMap);
       }
     }
   }
 
   private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity,
       @Nullable SchemaImmutableClass clazz) {
+    if (!ensureLinkConsistency) {
+      return;
+    }
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
     if (clazz != null) {
@@ -1905,13 +1945,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
       linksToUpdateMap.clear();
 
       var originalValue = entity.getOriginalValue(propertyName);
-      var currentPropertyValue = entity.getPropertyInternal(propertyName);
+      var currentPropertyValue = entity.getPropertyInternal(propertyName, false);
 
       if (originalValue == null) {
         var timeLine = entity.getCollectionTimeLine(propertyName);
         if (timeLine != null) {
           if (currentPropertyValue instanceof EntityLinkListImpl
-              || currentPropertyValue instanceof EntityLinkSetImpl) {
+              || currentPropertyValue instanceof EntityLinkSetImpl ||
+              currentPropertyValue instanceof RidBag
+              || currentPropertyValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
                 case ADD -> {
@@ -1930,19 +1972,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
                 }
               }
             }
-          } else if (currentPropertyValue instanceof EntityLinkMapIml) {
-            for (var event : timeLine.getMultiValueChangeEvents()) {
-              switch (event.getChangeType()) {
-                case ADD -> {
-                  assert event.getValue() != null;
-                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
-                }
-                case REMOVE -> {
-                  assert event.getOldValue() != null;
-                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
-                }
-              }
-            }
           }
         } else {
           subtractFromLinksContainer(originalValue, linksToUpdateMap);
@@ -1953,57 +1982,62 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
         addToLinksContainer(currentPropertyValue, linksToUpdateMap);
       }
 
-      var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
-      for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
-        var oppositeLink = entitiesToUpdate.getKey();
-        var diff = entitiesToUpdate.getValue()[0];
+      updateOppositeLinks(entity, propertyName, linksToUpdateMap);
+    }
+  }
 
-        if (currentTx.isDeletedInTx(oppositeLink)) {
-          if (diff > 0) {
-            throw new IllegalStateException("Cannot add link " + entity.getIdentity()
-                + " to opposite entity because it was deleted in transaction");
-          }
-          continue;
+  private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
+      HashMap<RecordId, int[]> linksToUpdateMap) {
+    var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+    for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
+      var oppositeLink = entitiesToUpdate.getKey();
+      var diff = entitiesToUpdate.getValue()[0];
+
+      if (currentTx.isDeletedInTx(oppositeLink)) {
+        if (diff > 0) {
+          throw new IllegalStateException("Cannot add link " + entity.getIdentity()
+              + " to opposite entity because it was deleted in transaction");
         }
+        continue;
+      }
 
-        var oppositeRecord = load(oppositeLink);
-        if (!oppositeRecord.isEntity()) {
-          continue;
+      var oppositeRecord = load(oppositeLink);
+      if (!oppositeRecord.isEntity()) {
+        continue;
+      }
+
+      var oppositeEntity = (EntityImpl) oppositeRecord;
+      //skip self-links
+      if (oppositeEntity.equals(entity)) {
+        continue;
+      }
+      var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+
+      if (linkBag == null) {
+        if (diff < 0) {
+          throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
+              + " from opposite entity " + oppositeEntity + " because it does not exist");
         }
+        linkBag = new RidBag(this);
+        oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
+      }
 
-        var oppositeEntity = (EntityImpl) oppositeRecord;
-        //skip self-links
-        if (oppositeEntity.equals(entity)) {
-          continue;
-        }
-        var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
-
-        if (linkBag == null) {
-          if (diff < 0) {
-            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+      var rid = entity.getIdentity();
+      for (var i = 0; i < Math.abs(diff); i++) {
+        if (diff > 0) {
+          linkBag.add(rid);
+          assert linkBag.contains(rid);
+        } else {
+          var removed = linkBag.remove(entity.getIdentity());
+          if (!removed) {
+            throw new IllegalStateException("Cannot remove link " + rid
                 + " from opposite entity because it does not exist");
           }
-          linkBag = new RidBag(this);
-          oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
         }
+      }
 
-        var rid = entity.getIdentity();
-        for (var i = 0; i < Math.abs(diff); i++) {
-          if (diff > 0) {
-            linkBag.add(rid);
-            assert linkBag.contains(rid);
-          } else {
-            if (!linkBag.contains(rid)) {
-              throw new IllegalStateException("Cannot remove link " + rid
-                  + " from opposite entity because it does not exist");
-            }
-            linkBag.remove(entity.getIdentity());
-          }
-        }
-
-        if (linkBag.isEmpty()) {
-          oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
-        }
+      if (linkBag.isEmpty()) {
+        oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
       }
     }
   }
@@ -2144,4 +2178,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract
     return result;
   }
 
+  public void disableLinkConsistencyCheck() {
+    this.ensureLinkConsistency = false;
+  }
+
+  public void enableLinkConsistencyCheck() {
+    this.ensureLinkConsistency = true;
+  }
 }

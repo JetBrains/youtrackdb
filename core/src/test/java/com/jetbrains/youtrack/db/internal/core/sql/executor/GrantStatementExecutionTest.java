@@ -40,8 +40,8 @@ public class GrantStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     session.execute("GRANT POLICY testPolicy ON database.class.Person TO reader").close();
     session.commit();
@@ -52,7 +52,7 @@ public class GrantStatementExecutionTest extends DbTestBase {
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(session));
+            .getName());
     session.commit();
   }
 }

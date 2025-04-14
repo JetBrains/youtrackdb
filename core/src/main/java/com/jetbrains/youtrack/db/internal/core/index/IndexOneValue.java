@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.DescComparator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxBetweenIndexBackwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.index.iterator.PureTxBetweenIndexForwardSpliterator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -51,8 +53,13 @@ import javax.annotation.Nullable;
  */
 public abstract class IndexOneValue extends IndexAbstract {
 
-  public IndexOneValue(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public IndexOneValue(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexOneValue(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Nullable
@@ -79,14 +86,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     try {
       while (true) {
         try {
-          if (apiVersion == 0) {
-            final var rid = (RID) storage.getIndexValue(session, indexId, key);
-            stream = Stream.ofNullable(rid);
-          } else if (apiVersion == 1) {
-            stream = storage.getIndexValues(indexId, key);
-          } else {
-            throw new IllegalStateException("Unknown version of index API " + apiVersion);
-          }
+          stream = storage.getIndexValues(indexId, key);
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -125,7 +125,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       return Stream.empty();
     }
 
-    return IndexStreamSecurityDecorator.decorateRidStream(this, Stream.of(txIndexEntry.second),
+    return IndexStreamSecurityDecorator.decorateRidStream(this, Stream.of(txIndexEntry.second()),
         session);
   }
 
@@ -156,21 +156,9 @@ public abstract class IndexOneValue extends IndexAbstract {
                       try {
                         while (true) {
                           try {
-                            if (apiVersion == 0) {
-                              final var rid = (RID) storage.getIndexValue(session, indexId,
-                                  collatedKey);
-                              if (rid == null) {
-                                return Stream.empty();
-                              }
-                              return Stream.of(new RawPair<>(collatedKey, rid));
-                            } else if (apiVersion == 1) {
-                              return storage
-                                  .getIndexValues(indexId, collatedKey)
-                                  .map((rid) -> new RawPair<>(collatedKey, rid));
-                            } else {
-                              throw new IllegalStateException(
-                                  "Invalid version of index API - " + apiVersion);
-                            }
+                            return storage
+                                .getIndexValues(indexId, collatedKey)
+                                .map((rid) -> new RawPair<>(collatedKey, rid));
                           } catch (InvalidIndexEngineIdException ignore) {
                             doReloadIndexEngine();
                           }
@@ -516,13 +504,13 @@ public abstract class IndexOneValue extends IndexAbstract {
             .map(
                 (entry) ->
                     calculateTxIndexEntry(
-                        getCollatingValue(entry.first), entry.second, indexChanges))
+                        getCollatingValue(entry.first()), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         comparator);
   }
 
   @Override
-  public IndexOneValue put(DatabaseSessionInternal db, Object key,
+  public IndexOneValue put(FrontendTransaction transaction, Object key,
       final Identifiable value) {
     final var rid = (RecordId) value.getIdentity();
 
@@ -536,8 +524,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
     key = getCollatingValue(key);
 
-    var singleTx = db.getTransactionInternal();
-    singleTx.addIndexEntry(
+    transaction.addIndexEntry(
         this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, key,
         value.getIdentity());
     return this;

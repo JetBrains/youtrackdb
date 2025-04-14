@@ -19,19 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Collection;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Interface that indicates that collection will send notifications about operations that are
@@ -45,10 +38,11 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   /**
    * Reverts all operations that were performed on collection and return original collection state.
    *
+   * @param transaction
    * @param changeEvents List of operations that were performed on collection.
    * @return Original collection state.
    */
-  Object returnOriginalState(DatabaseSessionInternal session,
+  Object returnOriginalState(FrontendTransaction transaction,
       List<MultiValueChangeEvent<K, V>> changeEvents);
 
   void enableTracking(RecordElement parent);
@@ -59,7 +53,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   boolean isTransactionModified();
 
-  MultiValueChangeTimeLine<K, V> getTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTimeLine();
 
   boolean isEmbeddedContainer();
 
@@ -96,9 +90,8 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   void transactionClear();
 
-  boolean addInternal(final V e);
 
-  MultiValueChangeTimeLine<K, V> getTransactionTimeLine();
+  MultiValueChangeTimeLine<? extends K, ? extends V> getTransactionTimeLine();
 
   default void addOwner(V e) {
     if (isEmbeddedContainer()) {
@@ -121,5 +114,21 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
     if (oldValue instanceof RecordElement recordElement) {
       recordElement.setOwner(null);
     }
+  }
+
+  default boolean assertIfNotActive() {
+    var owner = getOwnerEntity();
+    assert owner == null
+        || !owner.isUnloaded() : "Data container is unloaded please acquire new one from entity";
+    DatabaseSessionInternal session = null;
+
+    if (owner != null) {
+      session = owner.getSession();
+    }
+    assert session == null
+        || session.assertIfNotActive() : "Data container is unloaded please acquire new one from entity";
+    ;
+
+    return true;
   }
 }

@@ -68,7 +68,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
     var doc = ((EntityImpl) session.newVertex("c1"));
     doc.setProperty("p1", "abc");
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
 
     var query = "select from C1 where search_fields(['p1'], 'abc' )=true ";
 
@@ -135,7 +135,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
   @Test
   public void txUpdateTest() {
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
     var c1 = session.getMetadata().getSchema().getClassInternal("C1");
     c1.truncate();
 
@@ -211,7 +211,7 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
   @Test
   public void txUpdateTestComplex() {
 
-    var index = session.getMetadata().getIndexManagerInternal().getIndex(session, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "C1.p1");
     var c1 = session.getMetadata().getSchema().getClassInternal("C1");
     c1.truncate();
 

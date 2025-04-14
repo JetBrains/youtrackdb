@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -17,8 +18,14 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
 
   @Before
   public void beforeMethod() {
+    session.begin();
     simpleKeyIndexDefinition = new SimpleKeyIndexDefinition(PropertyTypeInternal.INTEGER,
         PropertyTypeInternal.STRING);
+  }
+
+  @After
+  public void afterMethod() {
+    session.rollback();
   }
 
   @Test
@@ -35,13 +42,14 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   public void testCreateValueSimpleKey() {
     final var keyIndexDefinition =
         new SimpleKeyIndexDefinition(PropertyTypeInternal.INTEGER);
-    final var result = keyIndexDefinition.createValue(session, "2");
+    final var result = keyIndexDefinition.createValue(session.getActiveTransaction(), "2");
     Assert.assertEquals(2, result);
   }
 
   @Test
   public void testCreateValueCompositeKeyListParam() {
-    final var result = simpleKeyIndexDefinition.createValue(session, Arrays.asList("2", "3"));
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList("2", "3"));
 
     final var compositeKey = new CompositeKey(Arrays.asList(2, "3"));
     Assert.assertEquals(result, compositeKey);
@@ -50,26 +58,29 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   @Test
   public void testCreateValueCompositeKeyNullListParam() {
     final var result =
-        simpleKeyIndexDefinition.createValue(session, Collections.singletonList(null));
+        simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+            Collections.singletonList(null));
 
     Assert.assertNull(result);
   }
 
   @Test
   public void testNullParamListItem() {
-    final var result = simpleKeyIndexDefinition.createValue(session, Arrays.asList("2", null));
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList("2", null));
 
     Assert.assertNull(result);
   }
 
   @Test(expected = NumberFormatException.class)
   public void testWrongParamTypeListItem() {
-    simpleKeyIndexDefinition.createValue(session, Arrays.asList("a", "3"));
+    simpleKeyIndexDefinition.createValue(session.getActiveTransaction(), Arrays.asList("a", "3"));
   }
 
   @Test
   public void testCreateValueCompositeKey() {
-    final var result = simpleKeyIndexDefinition.createValue(session, "2", "3");
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(), "2",
+        "3");
 
     final var compositeKey = new CompositeKey(Arrays.asList(2, "3"));
     Assert.assertEquals(result, compositeKey);
@@ -77,35 +88,39 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
 
   @Test
   public void testCreateValueCompositeKeyNullParamList() {
-    final var result = simpleKeyIndexDefinition.createValue(session, (List<?>) null);
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+        (List<?>) null);
 
     Assert.assertNull(result);
   }
 
   @Test
   public void testCreateValueCompositeKeyNullParam() {
-    final var result = simpleKeyIndexDefinition.createValue(session, (Object) null);
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+        (Object) null);
 
     Assert.assertNull(result);
   }
 
   @Test
   public void testCreateValueCompositeKeyEmptyList() {
-    final var result = simpleKeyIndexDefinition.createValue(session, Collections.emptyList());
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(),
+        Collections.emptyList());
 
     Assert.assertNull(result);
   }
 
   @Test
   public void testNullParamItem() {
-    final var result = simpleKeyIndexDefinition.createValue(session, "2", null);
+    final var result = simpleKeyIndexDefinition.createValue(session.getActiveTransaction(), "2",
+        null);
 
     Assert.assertNull(result);
   }
 
   @Test(expected = NumberFormatException.class)
   public void testWrongParamType() {
-    simpleKeyIndexDefinition.createValue(session, "a", "3");
+    simpleKeyIndexDefinition.createValue(session.getActiveTransaction(), "a", "3");
   }
 
   @Test
@@ -149,7 +164,8 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   @Test(expected = IndexException.class)
   public void testGetDocumentValueToIndex() {
     session.begin();
-    simpleKeyIndexDefinition.getDocumentValueToIndex(session, (EntityImpl) session.newEntity());
+    simpleKeyIndexDefinition.getDocumentValueToIndex(session.getActiveTransaction(),
+        (EntityImpl) session.newEntity());
     session.rollback();
   }
 }

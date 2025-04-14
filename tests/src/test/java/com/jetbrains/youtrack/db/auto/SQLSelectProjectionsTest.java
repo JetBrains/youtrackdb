@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -184,16 +185,19 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   }
 
   @Test
-  public void queryProjectionJSON() {
-    var result = executeQuery("select @this.toJson() as json from Profile");
+  public void queryProjectionJSON() throws JsonProcessingException {
+    final var tx = session.begin();
+    var result = executeQuery("select @rid, @this.toJson() as json from Profile");
     Assert.assertFalse(result.isEmpty());
 
     for (var r : result) {
-      Assert.assertTrue(r.getPropertyNames().size() <= 1);
-      Assert.assertNotNull(r.getProperty("json"));
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      final var jsonStr = r.getString("json");
+      Assert.assertNotNull(jsonStr);
 
-      new EntityImpl(session).updateFromJSON((String) r.getProperty("json"));
+      tx.loadEntity(r.getProperty("@rid")).updateFromJSON(jsonStr);
     }
+    session.commit();
   }
 
   public void queryProjectionRid() {
@@ -231,7 +235,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   public void queryProjectionContextArray() {
     session.begin();
     var result =
-        executeQuery("select $a[0] as a0, $a as a from V let $a = outE() where outE().size() > 0");
+        executeQuery("select $a[0] as a0, $a as a, @class from GraphCar let $a = outE() where outE().size() > 0");
     Assert.assertFalse(result.isEmpty());
 
     for (var r : result) {
@@ -239,10 +243,9 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(r.hasProperty("a0"));
 
       final var a0doc = (EntityImpl) session.loadEntity(r.getProperty("a0"));
-      Identifiable identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
-      var transaction = session.getActiveTransaction();
-      final EntityImpl firstADoc =
-          transaction.load(identifiable);
+      final var identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
+      final var transaction = session.getActiveTransaction();
+      final EntityImpl firstADoc = transaction.load(identifiable);
 
       Assert.assertTrue(
           EntityHelper.hasSameContentOf(a0doc, session, firstADoc, session, null));
@@ -330,7 +333,6 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNotNull(res.getFirst().getProperty("a"));
       Assert.assertNotNull(res.getFirst().getProperty("b"));
 
-
       final var child = res.getFirst().getResult("child");
 
       Assert.assertNotNull(child.getProperty("c"));
@@ -383,35 +385,6 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       session.commit();
       session.execute("drop class A").close();
       session.execute("drop class B").close();
-    }
-  }
-
-  @Test
-  public void testTempRIDsAreNotRecycledInResultSet() {
-    var resultset =
-        executeQuery("select name, $l as l from OUser let $l = (select name from OuSer)");
-
-    Assert.assertNotNull(resultset);
-
-    Set<RID> rids = new HashSet<>();
-    for (var d : resultset) {
-      final var rid = d.getIdentity();
-      Assert.assertFalse(rids.contains(rid));
-
-      rids.add(rid);
-
-      final List<Identifiable> embeddedList = d.getProperty("l");
-      Assert.assertNotNull(embeddedList);
-      Assert.assertFalse(embeddedList.isEmpty());
-
-      for (var embedded : embeddedList) {
-        if (embedded != null) {
-          final var embeddedRid = embedded.getIdentity();
-
-          Assert.assertFalse(rids.contains(embeddedRid));
-          rids.add(rid);
-        }
-      }
     }
   }
 }

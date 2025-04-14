@@ -81,8 +81,8 @@ public class RevokeStatementExecutionTest {
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
-    policy.setActive(session, true);
-    policy.setReadRule(session, "name = 'foo'");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
     security.saveSecurityPolicy(session, policy);
     security.setSecurityPolicy(session, security.getRole(session, "reader"),
         "database.class.Person", policy);
@@ -94,7 +94,7 @@ public class RevokeStatementExecutionTest {
         security
             .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(session));
+            .getName());
 
     session.execute("REVOKE POLICY ON database.class.Person FROM reader").close();
     session.commit();

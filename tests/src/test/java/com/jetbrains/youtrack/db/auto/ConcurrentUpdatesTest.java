@@ -150,17 +150,17 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
 
     var database = acquireSession();
 
+    database.begin();
     EntityImpl doc1 = database.newInstance();
     doc1.setProperty("INIT", "ok");
-    database.begin();
     database.commit();
 
     RID rid1 = doc1.getIdentity();
 
+    database.begin();
     EntityImpl doc2 = database.newInstance();
     doc2.setProperty("INIT", "ok");
 
-    database.begin();
     database.commit();
 
     RID rid2 = doc2.getIdentity();
@@ -185,6 +185,7 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
 
     Assert.assertEquals(counter.get(), OPTIMISTIC_CYCLES * THREADS);
 
+    database.begin();
     doc1 = database.load(rid1);
 
     for (var i = 0; i < THREADS; ++i) {
@@ -203,6 +204,7 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
 
     doc2.toJSON();
     System.out.println(doc2.toJSON());
+    database.commit();
 
     database.close();
   }
@@ -221,10 +223,10 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     counter.set(0);
 
     var database = acquireSession();
+    database.begin();
     EntityImpl doc1 = database.newInstance();
     doc1.setProperty("total", 0);
 
-    database.begin();
     database.commit();
 
     RID rid1 = doc1.getIdentity();
@@ -249,8 +251,10 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
 
     Assert.assertEquals(counter.get(), PESSIMISTIC_CYCLES * THREADS);
 
+    database.begin();
     doc1 = database.load(rid1);
     Assert.assertEquals(doc1.<Object>getProperty("total"), PESSIMISTIC_CYCLES * THREADS);
+    database.commit();
 
     database.close();
   }

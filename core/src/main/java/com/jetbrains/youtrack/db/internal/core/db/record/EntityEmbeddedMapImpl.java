@@ -20,10 +20,9 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
@@ -105,11 +104,6 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
   @Override
   public RecordElement getOwner() {
     return sourceRecord;
-  }
-
-  @Override
-  public boolean addInternal(T e) {
-    throw new UnsupportedOperationException();
   }
 
   public void putInternal(final String key, final T value) {
@@ -202,10 +196,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
 
     var sourceRecord = this.sourceRecord;
     if (sourceRecord != null) {
-      if (!(sourceRecord instanceof RecordAbstract)
-          || !((RecordAbstract) sourceRecord).isDirty()) {
-        sourceRecord.setDirty();
-      }
+      sourceRecord.setDirty();
     }
   }
 
@@ -218,7 +209,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
   }
 
   public Map<Object, T> returnOriginalState(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final List<MultiValueChangeEvent<String, T>> multiValueChangeEvents) {
     final Map<Object, T> reverted = new HashMap<Object, T>(this);
 

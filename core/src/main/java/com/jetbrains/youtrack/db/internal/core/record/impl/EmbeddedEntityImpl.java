@@ -1,11 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import java.lang.ref.WeakReference;
+import javax.annotation.Nullable;
 
 public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
+
   public EmbeddedEntityImpl(String clazz, DatabaseSessionInternal session) {
     super(session, clazz);
     checkEmbeddable();
@@ -30,6 +34,21 @@ public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
     }
 
     this.owner = new WeakReference<>(iOwner);
+  }
+
+  @Nullable
+  @Override
+  protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
+
+    if (propertyValue instanceof Identifiable && !(propertyValue instanceof EmbeddedEntity)) {
+      return "Links can only be used in high-level entities";
+    }
+
+    if (propertyValue instanceof TrackedMultiValue<?, ?> mv && !mv.isEmbeddedContainer()) {
+      return "Link-based collections can only be used in high-level entities";
+    }
+
+    return super.checkPropertyValue(propertyName, propertyValue);
   }
 
   @Override

@@ -92,6 +92,6 @@ public class PureTxBetweenIndexBackwardSpliterator implements Spliterator<RawPai
   @Override
   public Comparator<? super RawPair<Object, RID>> getComparator() {
     return (entryOne, entryTwo) ->
-        -DefaultComparator.INSTANCE.compare(entryOne.first, entryTwo.first);
+        -DefaultComparator.INSTANCE.compare(entryOne.first(), entryTwo.first());
   }
 }
