@@ -65,18 +65,23 @@ public class ZIPCompressionUtil {
   public static void uncompressDirectory(
       final InputStream in, final String out, final CommandOutputListener iListener)
       throws IOException {
-    final var outdir = new File(out);
-    final var targetDirPath = outdir.getCanonicalPath() + File.separator;
+    final var outdir = Paths.get(out).toAbsolutePath().normalize();
+    final var targetDirPath = outdir.toString() + File.separator;
 
     try (var zin = new ZipInputStream(in)) {
       ZipEntry entry;
-      String name;
-      String dir;
       while ((entry = zin.getNextEntry()) != null) {
-        name = entry.getName();
+        final var name = entry.getName();
 
-        final var file = new File(outdir, name);
-        if (!file.getCanonicalPath().startsWith(targetDirPath)) {
+        // Validate the name to prevent path traversal
+        if (name.contains("..") ||
+            !name.isEmpty() && name.charAt(0) == '/' ||
+            !name.isEmpty() && name.charAt(0) == '\\'
+        ) {
+          throw new IOException("Invalid entry name: " + name);
+        }
+        final var file = outdir.resolve(name).normalize();
+        if (!file.startsWith(outdir)) {
           throw new IOException(
               "Expanding '"
                   + entry.getName()
@@ -93,7 +98,7 @@ public class ZIPCompressionUtil {
         /*
          * this part is necessary because file entry can come before directory entry where is file located i.e.: /foo/foo.txt /foo/
          */
-        dir = getDirectoryPart(name);
+        final var dir = getDirectoryPart(name);
         if (dir != null) {
           mkdirs(outdir, dir);
         }
@@ -105,7 +110,7 @@ public class ZIPCompressionUtil {
 
   private static void extractFile(
       final ZipInputStream in,
-      final File outdir,
+      final Path outdir,
       final String name,
       final CommandOutputListener iListener)
       throws IOException {
@@ -113,14 +118,32 @@ public class ZIPCompressionUtil {
       iListener.onMessage("\n- Uncompressing file " + name + "...");
     }
 
+    // Validate the name to prevent path traversal
+    if (name.contains("..") ||
+        !name.isEmpty() && name.charAt(0) == '/' ||
+        !name.isEmpty() && name.charAt(0) == '\\'
+    ) {
+      throw new IOException("Invalid entry name: " + name);
+    }
+    final var file = outdir.resolve(name).normalize();
+    if (!file.startsWith(outdir)) {
+      throw new IOException(
+          "Expanding '" + name + "' would create file outside of directory '" + outdir + "'");
+    }
+
     try (var out =
-        new BufferedOutputStream(new FileOutputStream(new File(outdir, name)))) {
+        new BufferedOutputStream(new FileOutputStream(file.toFile()))) {
       IOUtils.copyStream(in, out);
     }
   }
 
-  private static void mkdirs(final File outdir, final String path) {
-    final var d = new File(outdir, path);
+  private static void mkdirs(final Path outdir, final String path) throws IOException {
+    final var dir = outdir.resolve(path).normalize();
+    if (!dir.startsWith(outdir)) {
+      throw new IOException(
+          "Creating directory '" + path + "' would create directory outside of '" + outdir + "'");
+    }
+    final var d = dir.toFile();
     if (!d.exists()) {
       d.mkdirs();
     }
