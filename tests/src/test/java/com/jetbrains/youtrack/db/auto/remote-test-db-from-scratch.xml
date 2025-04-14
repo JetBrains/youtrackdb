@@ -126,8 +126,8 @@
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentQueriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollateTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.EmbeddedRidBagTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.BTreeBasedRidBagTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.EmbeddedLinkBagTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.BTreeBasedLinkBagTest"/>
       <class name="com.jetbrains.youtrack.db.auto.RemoteProtocolCommandsTest"/>
     </classes>
   </test>

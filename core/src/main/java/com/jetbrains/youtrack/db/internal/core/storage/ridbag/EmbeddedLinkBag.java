@@ -98,8 +98,8 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
-    return null;
+  protected boolean isEmbedded() {
+    return true;
   }
 
   @Override

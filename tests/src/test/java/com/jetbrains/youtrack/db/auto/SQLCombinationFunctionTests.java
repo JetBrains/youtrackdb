@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -268,8 +268,8 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         r -> r.<RecordId>getProperty("@rid"),
         r -> {
 
-          final var ins = ((EntityImpl) r).<RidBag>getPropertyInternal("in_");
-          final var outs = ((EntityImpl) r).<RidBag>getPropertyInternal("out_");
+          final var ins = ((EntityImpl) r).<LinkBag>getPropertyInternal("in_");
+          final var outs = ((EntityImpl) r).<LinkBag>getPropertyInternal("out_");
 
           return new RawPair<>(ins, outs);
         }

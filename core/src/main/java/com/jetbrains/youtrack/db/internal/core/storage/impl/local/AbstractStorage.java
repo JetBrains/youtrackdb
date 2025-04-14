@@ -66,7 +66,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDeleter;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDeleter;
 import com.jetbrains.youtrack.db.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
@@ -3919,12 +3919,12 @@ public abstract class AbstractStorage
     }
   }
 
-  public void deleteTreeRidBag(final BTreeBasedLinkBag ridBag) {
+  public void deleteTreeLinkBag(final BTreeBasedLinkBag ridBag) {
     try {
       checkOpennessAndMigration();
 
       assert transaction.get() != null;
-      deleteTreeRidBag(ridBag, atomicOperationsManager.getCurrentOperation());
+      deleteTreeLinkBag(ridBag, atomicOperationsManager.getCurrentOperation());
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3934,7 +3934,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private void deleteTreeRidBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
+  private void deleteTreeLinkBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
     final var collectionPointer = ridBag.getCollectionPointer();
     checkOpennessAndMigration();
 
@@ -4908,7 +4908,7 @@ public abstract class AbstractStorage
         }
         case RecordOperation.DELETED: {
           if (rec instanceof EntityImpl entity) {
-            RidBagDeleter.deleteAllRidBags(entity);
+            LinkBagDeleter.deleteAllRidBags(entity);
           }
           doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(), collection);
           break;

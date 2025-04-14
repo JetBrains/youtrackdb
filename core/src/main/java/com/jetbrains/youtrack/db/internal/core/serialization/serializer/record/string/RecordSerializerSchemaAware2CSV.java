@@ -28,7 +28,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
@@ -420,7 +420,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
             type = PropertyTypeInternal.DOUBLE;
           } else if (fieldValue instanceof BigDecimal) {
             type = PropertyTypeInternal.DECIMAL;
-          } else if (fieldValue instanceof RidBag) {
+          } else if (fieldValue instanceof LinkBag) {
             type = PropertyTypeInternal.LINKBAG;
           }
 

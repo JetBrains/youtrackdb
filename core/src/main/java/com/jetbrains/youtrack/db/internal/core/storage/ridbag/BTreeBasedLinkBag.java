@@ -26,9 +26,9 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RidBagDeleteSerializationOperation;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.LinkBagDeleteSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.LinkBagUpdateSerializationOperation;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
@@ -105,7 +105,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   public void requestDelete() {
     final var context = RecordSerializationContext.getContext();
     if (context != null && collectionPointer != null) {
-      context.push(new RidBagDeleteSerializationOperation(this));
+      context.push(new LinkBagDeleteSerializationOperation(this));
     }
   }
 
@@ -189,16 +189,8 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
-    Spliterator<ObjectIntPair<RID>> btreeRecordsSpliterator = null;
-
-    var tree = loadTree();
-    if (tree != null) {
-      btreeRecordsSpliterator = tree.spliteratorEntriesBetween(after,
-          false,
-          new RecordId(Integer.MAX_VALUE, Integer.MAX_VALUE), true, true);
-    }
-
-    return btreeRecordsSpliterator;
+  protected boolean isEmbedded() {
+    return true;
   }
+
 }
