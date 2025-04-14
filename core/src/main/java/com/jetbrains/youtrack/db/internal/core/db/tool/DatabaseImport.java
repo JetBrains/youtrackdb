@@ -101,7 +101,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private final Map<SchemaProperty, String> linkedClasses = new HashMap<>();
   private final Map<SchemaClass, List<String>> superClasses = new HashMap<>();
   private JSONReader jsonReader;
-  private boolean schemaImported = false;
   private int exporterVersion = -1;
   private RID schemaRecordId;
   private RID indexMgrRecordId;
@@ -124,6 +123,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       final CommandOutputListener outputListener)
       throws IOException {
     super(database, fileName, outputListener);
+    validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(-2);
     // TODO: check unclosed stream?
     final var bufferedInputStream =
@@ -145,8 +145,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       final CommandOutputListener outputListener)
       throws IOException {
     super(database, "streaming", outputListener);
+    validateSessionImpl();
     collectionToCollectionMapping.defaultReturnValue(-2);
     createJsonReaderDefaultListenerAndDeclareIntent(outputListener, inputStream);
+  }
+
+  private void validateSessionImpl() {
+    if (!(session instanceof DatabaseSessionEmbedded)) {
+      throw new DatabaseImportException(
+          "Session is not an embedded session, cannot import database with this utility.");
+    }
   }
 
   private void createJsonReaderDefaultListenerAndDeclareIntent(
@@ -690,7 +698,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
 
       listener.onMessage("OK (" + classImported + " classes)");
-      schemaImported = true;
       jsonReader.readNext(JSONReader.END_OBJECT);
       jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
     } catch (final Exception e) {
@@ -705,7 +712,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         final var superClass = session.getMetadata().getSchema().getClass(superClassName);
 
         if (!entry.getKey().getSuperClasses().contains(superClass)) {
-          entry.getKey().addSuperClass(superClass);
+          final var schemaClass =
+              ((SchemaClassEmbedded) ((SchemaClassInternal) entry.getKey()).getImplementation());
+          schemaClass.addSuperClassInternal(
+              session,
+              ((SchemaClassInternal) superClass).getImplementation(),
+              true
+          );
         }
       }
     }
@@ -1054,7 +1067,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       if (recordJson.isEmpty()) {
         return null;
       }
-      RawPair<RecordAbstract, RecordMetadata> parsed = null;
+      RawPair<RecordAbstract, RecordMetadata> parsed;
       parsed = JSONSerializerJackson.fromStringWithMetadata(session, recordJson, null, true);
       final var record = parsed.first();
       final var metadata = parsed.second();
@@ -1557,14 +1570,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
 
   protected static void rewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
-    entity = doRewriteLinksInDocument(session, entity, brokenRids);
+    doRewriteLinksInDocument(session, entity, brokenRids);
   }
 
-  protected static EntityImpl doRewriteLinksInDocument(
+  protected static void doRewriteLinksInDocument(
       DatabaseSessionInternal session, EntityImpl entity, Set<RID> brokenRids) {
     final var rewriter = new LinksRewriter(new ConverterData(session, brokenRids));
     final var entityFieldWalker = new EntityFieldWalker();
-    return entityFieldWalker.walkDocument(session, entity, rewriter);
+    entityFieldWalker.walkDocument(session, entity, rewriter);
   }
 
   @SuppressWarnings("unused")

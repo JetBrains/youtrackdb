@@ -25,6 +25,8 @@ public class DatabaseImportTest {
     final var output = new ByteArrayOutputStream();
     try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
       db.getSchema().createClass("SimpleClass");
+      db.getSchema().createVertexClass("SimpleVertexClass");
+      db.getSchema().createEdgeClass("SimpleEdgeClass");
 
       final var export =
           new DatabaseExport((DatabaseSessionInternal) db, output, iText -> {
@@ -49,7 +51,12 @@ public class DatabaseImportTest {
               iText -> {
               });
       importer.importDatabase();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("SimpleClass"));
+      final var schema = db.getMetadata().getSchema();
+      Assert.assertTrue(schema.existsClass("SimpleClass"));
+      Assert.assertTrue(schema.existsClass("SimpleVertexClass"));
+      Assert.assertTrue(schema.existsClass("SimpleEdgeClass"));
+      Assert.assertTrue(schema.getClass("SimpleVertexClass").isVertexType());
+      Assert.assertTrue(schema.getClass("SimpleEdgeClass").isEdgeType());
     }
     youTrackDB.drop(databaseName);
     youTrackDB.close();
