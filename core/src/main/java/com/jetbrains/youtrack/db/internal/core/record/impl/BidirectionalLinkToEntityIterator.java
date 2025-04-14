@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import java.util.Iterator;
 
 public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iterator<T> {

@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Map;
 import javax.annotation.Nonnull;

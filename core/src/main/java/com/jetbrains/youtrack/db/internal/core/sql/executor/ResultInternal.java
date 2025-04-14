@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -22,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -261,6 +261,12 @@ public class ResultInternal implements Result {
         return res;
       }
       case Result result -> {
+        var resultSession = result.getBoundedToSession();
+        if (resultSession != null && resultSession != session) {
+          throw new DatabaseException(
+              "Result is bound to different session, cannot use it as property value");
+        }
+
         if (result.isEntity()) {
           return convertPropertyValue(result.asEntity());
         } else if (result.isBlob()) {
@@ -273,14 +279,8 @@ public class ResultInternal implements Result {
 
           return convertPropertyValue(result.asStatefulEdge());
         }
-        if (result instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
-          return resultInternal.asRelation();
-        }
-
-        var resultSession = result.getBoundedToSession();
-        if (resultSession != null && resultSession != session) {
-          throw new DatabaseException(
-              "Result is bound to different session, cannot use it as property value");
+        if (result.isRelation()) {
+          return result.asRelation();
         }
 
         return result;
@@ -1005,7 +1005,8 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+        var cls = schemaSnapshot.getClassByCollectionId(
+            identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isEdgeType();
       }
@@ -1027,7 +1028,8 @@ public class ResultInternal implements Result {
         checkSessionForRecords();
 
         var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByCollectionId(identifiable.getIdentity().getCollectionId());
+        var cls = schemaSnapshot.getClassByCollectionId(
+            identifiable.getIdentity().getCollectionId());
 
         return cls != null && !cls.isAbstract() && cls.isVertexType();
       }

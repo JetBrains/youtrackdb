@@ -63,6 +63,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
+  @Nonnull
   default Result findFirst() {
     try {
       if (hasNext()) {
@@ -101,6 +102,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
+  @Nonnull
   default Entity findFirstEntity() {
     try {
       if (hasNext()) {
@@ -145,18 +147,6 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
-  default Result findFirst() {
-    try {
-      if (hasNext()) {
-        return next();
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
   @Nonnull
   default <R> R findFirstVertex(@Nonnull Function<Vertex, R> function) {
     try {
@@ -170,6 +160,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
+  @Nonnull
   default Vertex findFirstVertex() {
     try {
       if (hasNext()) {
@@ -200,6 +191,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
+  @Nonnull
   default Edge findFirstEdge() {
     try {
       if (hasNext()) {
@@ -342,6 +334,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     entityStream().forEach(action);
   }
 
+  @Nonnull
   default List<Entity> toEntityList() {
     return entityStream().toList();
   }
@@ -392,6 +385,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     vertexStream().forEach(action);
   }
 
+  @Nonnull
   default List<Vertex> vertexList() {
     return vertexStream().toList();
   }
@@ -489,10 +483,12 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     statefulEdgeStream().forEach(action);
   }
 
+  @Nonnull
   default List<StatefulEdge> toStatefulEdgeList() {
     return statefulEdgeStream().toList();
   }
 
+  @Nonnull
   default Stream<Edge> edgeStream() {
     return StreamSupport.stream(
             new Spliterator<Edge>() {
@@ -532,6 +528,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     edgeStream().forEach(action);
   }
 
+  @Nonnull
   default List<Edge> toEdgeList() {
     return edgeStream().toList();
   }

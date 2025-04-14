@@ -426,4 +426,19 @@ public interface Entity extends DBRecord, Result {
   default boolean isRecord() {
     return true;
   }
+
+  @Override
+  default boolean isRelation() {
+    return false;
+  }
+
+  @Override
+  default Relation<?> asRelation() {
+    throw new IllegalStateException("Entity is not a Relation");
+  }
+
+  @Override
+  default Relation<?> asRelationOrNull() {
+    return null;
+  }
 }

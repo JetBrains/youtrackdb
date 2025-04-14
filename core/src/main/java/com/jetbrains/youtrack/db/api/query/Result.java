@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
@@ -420,6 +421,13 @@ public interface Result {
     }
     return entity.asVertexOrNull();
   }
+
+  boolean isRelation();
+
+  Relation<?> asRelation();
+
+  @Nullable
+  Relation<?> asRelationOrNull();
 
   boolean isEdge();
 
