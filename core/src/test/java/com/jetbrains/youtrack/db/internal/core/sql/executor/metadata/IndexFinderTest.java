@@ -2,19 +2,17 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,19 +37,19 @@ public class IndexFinderTest {
 
   @Test
   public void testFindSimpleMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    SchemaProperty prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var cl = this.session.createClass("cl");
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var ctx = new BasicCommandContext(session);
+    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
 
     assertEquals("cl.name", result.get().getName());
 
-    Optional<IndexCandidate> result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
         ctx);
 
     assertEquals("cl.surname", result1.get().getName());
@@ -59,19 +57,19 @@ public class IndexFinderTest {
 
   @Test
   public void testFindSimpleMatchHashIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE_HASH_INDEX);
-    SchemaProperty prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE_HASH_INDEX);
+    var cl = this.session.createClass("cl");
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var ctx = new BasicCommandContext(session);
+    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
 
     assertEquals("cl.name", result.get().getName());
 
-    Optional<IndexCandidate> result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
         ctx);
 
     assertEquals("cl.surname", result1.get().getName());
@@ -79,20 +77,20 @@ public class IndexFinderTest {
 
   @Test
   public void testFindRangeMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    SchemaProperty prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE);
+    var cl = this.session.createClass("cl");
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result =
+    var ctx = new BasicCommandContext(session);
+    var result =
         finder.findAllowRangeIndex(new MetadataPath("name"), Operation.Ge, null, ctx);
 
     assertEquals("cl.name", result.get().getName());
 
-    Optional<IndexCandidate> result1 =
+    var result1 =
         finder.findAllowRangeIndex(new MetadataPath("surname"), Operation.Ge, null, ctx);
 
     assertEquals("cl.surname", result1.get().getName());
@@ -100,27 +98,29 @@ public class IndexFinderTest {
 
   @Test
   public void testFindRangeNotMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE_HASH_INDEX);
-    SchemaProperty prop1 = cl.createProperty(session, "surname", PropertyType.STRING);
-    prop1.createIndex(session, INDEX_TYPE.UNIQUE_HASH_INDEX);
-    SchemaProperty prop2 = cl.createProperty(session, "third", PropertyType.STRING);
-    prop2.createIndex(session, INDEX_TYPE.FULLTEXT);
+    var cl = this.session.createClass("cl");
+
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+
+    var prop1 = cl.createProperty("surname", PropertyType.STRING);
+    prop1.createIndex(INDEX_TYPE.UNIQUE);
+
+    cl.createProperty("third", PropertyType.STRING);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result =
+    var ctx = new BasicCommandContext(session);
+    var result =
         finder.findAllowRangeIndex(new MetadataPath("name"), Operation.Ge, null, ctx);
 
-    assertFalse(result.isPresent());
+    assertTrue(result.isPresent());
 
-    Optional<IndexCandidate> result1 =
+    var result1 =
         finder.findAllowRangeIndex(new MetadataPath("surname"), Operation.Ge, null, ctx);
 
-    assertFalse(result1.isPresent());
+    assertTrue(result1.isPresent());
 
-    Optional<IndexCandidate> result2 =
+    var result2 =
         finder.findAllowRangeIndex(new MetadataPath("third"), Operation.Ge, null, ctx);
 
     assertFalse(result2.isPresent());
@@ -128,143 +128,112 @@ public class IndexFinderTest {
 
   @Test
   public void testFindByKey() {
-    SchemaClass cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP);
-    this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
+    var cl = this.session.createClass("cl");
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP);
+    this.session.execute("create index cl.map on cl(map by key) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findByKeyIndex(new MetadataPath("map"), null, ctx);
+    var ctx = new BasicCommandContext(session);
+    var result = finder.findByKeyIndex(new MetadataPath("map"), null, ctx);
 
     assertEquals("cl.map", result.get().getName());
   }
 
   @Test
   public void testFindByValue() {
-    SchemaClass cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
+    var cl = this.session.createClass("cl");
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    this.session.execute("create index cl.map on cl(map by value) NOTUNIQUE").close();
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findByValueIndex(new MetadataPath("map"), null, ctx);
+    var ctx = new BasicCommandContext(session);
+    var result = finder.findByValueIndex(new MetadataPath("map"), null, ctx);
 
     assertEquals("cl.map", result.get().getName());
   }
 
   @Test
-  public void testFindFullTextMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.FULLTEXT);
-
-    IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findFullTextIndex(new MetadataPath("name"), null, ctx);
-
-    assertEquals("cl.name", result.get().getName());
-  }
-
-  @Test
   public void testFindChainMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    SchemaProperty prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var cl = this.session.createClass("cl");
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    MetadataPath path = new MetadataPath("name");
+    var ctx = new BasicCommandContext(session);
+    var path = new MetadataPath("name");
     path.addPre("friend");
     path.addPre("friend");
-    Optional<IndexCandidate> result = finder.findExactIndex(path, null, ctx);
+    var result = finder.findExactIndex(path, null, ctx);
     assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
   }
 
   @Test
   public void testFindChainRangeIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-    SchemaProperty prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var cl = this.session.createClass("cl");
+    var prop = cl.createProperty("name", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    MetadataPath path = new MetadataPath("name");
+    var ctx = new BasicCommandContext(session);
+    var path = new MetadataPath("name");
     path.addPre("friend");
     path.addPre("friend");
-    Optional<IndexCandidate> result = finder.findAllowRangeIndex(path, Operation.Ge, null, ctx);
+    var result = finder.findAllowRangeIndex(path, Operation.Ge, null, ctx);
     assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
   }
 
   @Test
   public void testFindChainByKeyIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by key) NOTUNIQUE").close();
-    SchemaProperty prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var cl = this.session.createClass("cl");
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    this.session.execute("create index cl.map on cl(map by key) NOTUNIQUE").close();
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    MetadataPath path = new MetadataPath("map");
+    var ctx = new BasicCommandContext(session);
+    var path = new MetadataPath("map");
     path.addPre("friend");
     path.addPre("friend");
-    Optional<IndexCandidate> result = finder.findByKeyIndex(path, null, ctx);
+    var result = finder.findByKeyIndex(path, null, ctx);
     assertEquals("cl.friend->cl.friend->cl.map->", result.get().getName());
   }
 
   @Test
   public void testFindChainByValueIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    cl.createProperty(session, "map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    this.session.command("create index cl.map on cl(map by value) NOTUNIQUE").close();
-    SchemaProperty prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
+    var cl = this.session.createClass("cl");
+    cl.createProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    this.session.execute("create index cl.map on cl(map by value) NOTUNIQUE").close();
+    var prop1 = cl.createProperty("friend", PropertyType.LINK, cl);
+    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    MetadataPath path = new MetadataPath("map");
+    var ctx = new BasicCommandContext(session);
+    var path = new MetadataPath("map");
     path.addPre("friend");
     path.addPre("friend");
-    Optional<IndexCandidate> result = finder.findByValueIndex(path, null, ctx);
+    var result = finder.findByValueIndex(path, null, ctx);
     assertEquals("cl.friend->cl.friend->cl.map->", result.get().getName());
   }
 
   @Test
-  public void testFindChainFullTextMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    SchemaProperty prop = cl.createProperty(session, "name", PropertyType.STRING);
-    prop.createIndex(session, INDEX_TYPE.FULLTEXT);
-    SchemaProperty prop1 = cl.createProperty(session, "friend", PropertyType.LINK, cl);
-    prop1.createIndex(session, INDEX_TYPE.NOTUNIQUE);
-
-    IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    MetadataPath path = new MetadataPath("name");
-    path.addPre("friend");
-    path.addPre("friend");
-
-    Optional<IndexCandidate> result = finder.findFullTextIndex(path, null, ctx);
-    assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
-  }
-
-  @Test
   public void testFindMultivalueMatchIndex() {
-    SchemaClass cl = this.session.createClass("cl");
-    cl.createProperty(session, "name", PropertyType.STRING);
-    cl.createProperty(session, "surname", PropertyType.STRING);
-    cl.createIndex(session, "cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    var cl = this.session.createClass("cl");
+    cl.createProperty("name", PropertyType.STRING);
+    cl.createProperty("surname", PropertyType.STRING);
+    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
 
     IndexFinder finder = new ClassIndexFinder("cl");
-    BasicCommandContext ctx = new BasicCommandContext(session);
-    Optional<IndexCandidate> result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var ctx = new BasicCommandContext(session);
+    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
 
     assertEquals("cl.name_surname", result.get().getName());
 
-    Optional<IndexCandidate> result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
         ctx);
 
     assertEquals("cl.name_surname", result1.get().getName());

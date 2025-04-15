@@ -93,8 +93,8 @@ class EtlComponent implements OnDestroy {
 
     this.configName = "";
 
-    this.protocols = ["plocal", "memory"];
-    this.connectionProtocol = "plocal";
+    this.protocols = ["disk", "memory"];
+    this.connectionProtocol = "disk";
 
     // todo: levelName2levelNumber map
     this.level2levelCode = {
@@ -540,7 +540,7 @@ class EtlComponent implements OnDestroy {
           mandatory: false,
           value: undefined
         },
-        cluster: {
+        collection: {
           mandatory: false,
           value: undefined
         },
@@ -555,7 +555,7 @@ class EtlComponent implements OnDestroy {
               mandatory: false,
               value:undefined
             },
-            clusters: {
+            collections: {
               mandatory: false,
               value: 1,
               number: true
@@ -688,7 +688,7 @@ class EtlComponent implements OnDestroy {
       },
       loader: {
         connectionProtocol: "The protocol to use during the migration in order to connect to OrientDB:<br>" +
-        "<li><b>plocal</b>: the dabase will run locally in the same JVM of your application.</li>" +
+          "<li><b>disk</b>: the dabase will run locally in the same JVM of your application.</li>" +
         "<li><b>remote</b>: the database will be accessed via TCP/IP connection.</li>",
         dbURL: "Defines the database URL",
         dbUser: "Defines the user name",
@@ -703,14 +703,14 @@ class EtlComponent implements OnDestroy {
         wal: "Defines whether it uses write ahead logging. disable to achieve better performance",
         batchCommit: "When using tansactions, defines the batch of entries it commits. Helps avoid having one large transaction in memory",
         dbType: "Defines the database type, graph or document",
-        cluster: "Defines the cluster in which to store the new record",
+        collection: "Defines the collection in which to store the new record",
         classes: "Defines whether it creates classes, if not defined already in the database",
         indexes: "Defines indexes to use on the ETL process. Before starting, it creates any declared indexes not present in the database. Indexes must have 'type', 'class' and 'fields'",
         useLightweightEdges: "Defines whether it changes the default setting for Lightweight Edges",
         standardElementConstraints: "Defines whether it changes the default setting for TinkerPop Blueprint constraints. Value cannot be null and you cannot use id as a property name",
         name: "Defines the name",
         extends: "Defines the super-class name",
-        clusters: "Defines the number of cluster to create under the class",
+        collections: "Defines the number of collection to create under the class",
         metadata: "Defines additional index metadata",
         fields: "Defines an array of fields to index. To specify the field type, use the syntax: field.type, separing the fields with a comma",
         type: "Defines the index type",
@@ -1010,7 +1010,7 @@ class EtlComponent implements OnDestroy {
           batchCommit: this.loaderPrototype.orientdb.batchCommit.value,
           dbType: this.loaderPrototype.orientdb.dbType.value,
           class: this.loaderPrototype.orientdb.class.value,
-          cluster: this.loaderPrototype.orientdb.cluster.value,
+          collection: this.loaderPrototype.orientdb.collection.value,
           classes: [], // Empty arrays. The default value of the related object is pushed and modified when the user click on the add button
           indexes: [],
           useLightweightEdges: this.loaderPrototype.orientdb.useLightweightEdges.value,
@@ -1021,7 +1021,7 @@ class EtlComponent implements OnDestroy {
       this.classes = {
         name: this.loaderPrototype.orientdb.classes.value.name.value,
         extends: this.loaderPrototype.orientdb.classes.value.extends.value,
-        clusters: this.loaderPrototype.orientdb.classes.value.clusters.value
+        collections: this.loaderPrototype.orientdb.classes.value.collections.value
       };
 
       this.indexes = {
@@ -1167,7 +1167,7 @@ class EtlComponent implements OnDestroy {
       this.classes = {
         name: this.loaderPrototype.orientdb.classes.value.name.value,
         extends: this.loaderPrototype.orientdb.classes.value.extends.value,
-        clusters: this.loaderPrototype.orientdb.classes.value.clusters.value
+        collections: this.loaderPrototype.orientdb.classes.value.collections.value
       };
       this.indexes = {
         name: this.loaderPrototype.orientdb.indexes.value.name.value,
@@ -1192,7 +1192,7 @@ class EtlComponent implements OnDestroy {
       }
       if(this.sourcePrototype.source.value == "file") {
         this.sourcePrototype.filePath = etl.source.file.path;
-        this.sourcePrototype.fileLock = etl.source.file.lock;
+        this.sourcePrototype.fileLock = etl.source.youtrackdb.file.lock;
       }
 
       if(direct) {
@@ -1610,7 +1610,7 @@ class EtlComponent implements OnDestroy {
       this.classes = {
         name: this.loaderPrototype.orientdb.classes.value.name.value,
         extends: this.loaderPrototype.orientdb.classes.value.extends.value,
-        clusters: this.loaderPrototype.orientdb.classes.value.clusters.value
+        collections: this.loaderPrototype.orientdb.classes.value.collections.value
       };
       this.classReady = false;
     }

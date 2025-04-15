@@ -51,13 +51,13 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
   }
 
   public Pair<V, SV> setValue(final Pair<V, SV> iValue) {
-    final Pair<V, SV> oldValue = value;
+    final var oldValue = value;
     value = iValue;
     return oldValue;
   }
 
   public void setSubValue(final SV iSubValue) {
-    final Pair<V, SV> oldValue = value;
+    final var oldValue = value;
     value.setValue(iSubValue);
   }
 
@@ -68,8 +68,8 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
+    final var prime = 31;
+    var result = 1;
     result = prime * result + ((key == null) ? 0 : key.hashCode());
     return result;
   }
@@ -85,7 +85,7 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
     if (getClass() != obj.getClass()) {
       return false;
     }
-    Triple<?, ?, ?> other = (Triple<?, ?, ?>) obj;
+    var other = (Triple<?, ?, ?>) obj;
     if (key == null) {
       return other.key == null;
     } else {

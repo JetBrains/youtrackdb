@@ -41,23 +41,23 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
   }
 
   @Override
-  public Function getFunction(final String iName) {
-    return delegate.getFunction(iName);
+  public Function getFunction(DatabaseSessionInternal db, final String iName) {
+    return delegate.getFunction(db, iName);
   }
 
   @Override
   public Function createFunction(final String iName) {
-    return delegate.createFunction(database, iName);
+    return delegate.createFunction(session, iName);
   }
 
   @Override
   public void create() {
-    delegate.create(database);
+    FunctionLibraryImpl.create(session);
   }
 
   @Override
   public void load() {
-    delegate.load(database);
+    delegate.load(session);
   }
 
   @Override

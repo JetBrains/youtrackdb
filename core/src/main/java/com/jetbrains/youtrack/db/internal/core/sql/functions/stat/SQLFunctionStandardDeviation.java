@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.stat;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import java.util.List;
 
 /**
  * Compute the standard deviation for a given field.
@@ -36,11 +35,6 @@ public class SQLFunctionStandardDeviation extends SQLFunctionVariance {
   @Override
   public Object getResult() {
     return this.evaluate(super.getResult());
-  }
-
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    return this.evaluate(super.mergeDistributedResult(resultsToMerge));
   }
 
   @Override

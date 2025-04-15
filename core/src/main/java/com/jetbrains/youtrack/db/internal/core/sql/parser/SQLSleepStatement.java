@@ -22,7 +22,7 @@ public class SQLSleepStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    ResultInternal item = new ResultInternal(ctx.getDatabase());
+    var item = new ResultInternal(ctx.getDatabaseSession());
     item.setProperty("operation", "sleep");
     try {
       Thread.sleep(millis.getValue().intValue());
@@ -50,7 +50,7 @@ public class SQLSleepStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLSleepStatement copy() {
-    SQLSleepStatement result = new SQLSleepStatement(-1);
+    var result = new SQLSleepStatement(-1);
     result.millis = millis == null ? null : millis.copy();
     return result;
   }
@@ -64,7 +64,7 @@ public class SQLSleepStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLSleepStatement that = (SQLSleepStatement) o;
+    var that = (SQLSleepStatement) o;
 
     return Objects.equals(millis, that.millis);
   }

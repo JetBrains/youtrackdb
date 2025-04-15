@@ -8,5 +8,5 @@ public interface EnterpriseEndpoint {
 
   void haSetRole(DatabaseSession db, String nodeName, String role);
 
-  void haSetOwner(DatabaseSession db, String clusterName, String owner);
+  void haSetOwner(DatabaseSession db, String collectionName, String owner);
 }

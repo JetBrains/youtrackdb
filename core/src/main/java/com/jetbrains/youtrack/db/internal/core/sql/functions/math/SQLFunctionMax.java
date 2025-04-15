@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
-import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Compute the maximum value for a field. Uses the context to save the last maximum number. When
@@ -40,10 +40,11 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
     super(NAME, 1, -1);
   }
 
+  @Nullable
   @SuppressWarnings({"unchecked", "rawtypes"})
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -51,16 +52,16 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
     // calculate max value for current record
     // consider both collection of parameters and collection in each parameter
     Object max = null;
-    for (Object item : iParams) {
+    for (var item : iParams) {
       if (item instanceof Collection<?>) {
-        for (Object subitem : ((Collection<?>) item)) {
+        for (var subitem : ((Collection<?>) item)) {
           if (max == null || subitem != null && ((Comparable) subitem).compareTo(max) > 0) {
             max = subitem;
           }
         }
       } else {
         if ((item instanceof Number) && (max instanceof Number)) {
-          Number[] converted = PropertyType.castComparableNumber((Number) item, (Number) max);
+          var converted = PropertyTypeInternal.castComparableNumber((Number) item, (Number) max);
           item = converted[0];
           max = converted[1];
         }
@@ -79,7 +80,8 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
         context = max;
       } else {
         if (context instanceof Number && max instanceof Number) {
-          final Number[] casted = PropertyType.castComparableNumber((Number) context, (Number) max);
+          final var casted = PropertyTypeInternal.castComparableNumber((Number) context,
+              (Number) max);
           context = casted[0];
           max = casted[1];
         }
@@ -109,26 +111,6 @@ public class SQLFunctionMax extends SQLFunctionMathAbstract {
 
   @Override
   public Object getResult() {
-    return context;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    Comparable<Object> context = null;
-    for (Object iParameter : resultsToMerge) {
-      final Comparable<Object> value = (Comparable<Object>) iParameter;
-
-      if (context == null)
-      // FIRST TIME
-      {
-        context = value;
-      } else if (context.compareTo(value) < 0)
-      // BIGGER
-      {
-        context = value;
-      }
-    }
     return context;
   }
 }

@@ -16,8 +16,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import java.util.List;
 
 /**
  * Splits a string using a delimiter.
@@ -33,7 +34,7 @@ public class SQLMethodSplit extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iRecord,
+      Result iRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -41,6 +42,6 @@ public class SQLMethodSplit extends AbstractSQLMethod {
       return iThis;
     }
 
-    return iThis.toString().split(iParams[0].toString());
+    return List.of(iThis.toString().split(iParams[0].toString()));
   }
 }

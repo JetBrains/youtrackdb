@@ -17,7 +17,7 @@ public class InsertStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -42,23 +42,6 @@ public class InsertStatementTest {
     checkRightSyntax("insert into Foo (a,b) values (1, 2)");
     checkRightSyntax("insert into Foo (a,b) values ('1', '2')");
     checkRightSyntax("insert into Foo (a,b) values (\"1\", \"2\")");
-  }
-
-  @Test
-  public void testInsertIntoCluster() {
-    checkRightSyntax(
-        "insert into cluster:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-    checkRightSyntax(
-        "insert into CLUSTER:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-
-    checkRightSyntax(
-        "insert into Foo cluster foo1 (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-    checkRightSyntax(
-        "insert into Foo CLUSTER foo1 (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
   }
 
   @Test
@@ -119,7 +102,7 @@ public class InsertStatementTest {
   }
 
   private void printTree(String s) {
-    YouTrackDBSql osql = getParserFor(s);
+    var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
     } catch (ParseException e) {
@@ -129,7 +112,7 @@ public class InsertStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

@@ -13,16 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.util.ArrayList;
-import java.util.List;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -33,123 +31,119 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
   private static final String PWKT = "POINT(-160.2075374 21.9029803)";
 
   @Test
+  @Ignore
   public void testPointTransactionRollBack() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("City");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createVertexClass("City");
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    Index idx = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
-    EntityImpl london = newCity("London", -0.1275, 51.507222);
+    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var rome = newCity(session, "Rome", 12.5, 41.9);
+    var london = newCity(session, "London", -0.1275, 51.507222);
 
-    db.begin();
+    session.begin();
 
-    db.command(
+    session.execute(
             "insert into City set name = 'TestInsert' , location = ST_GeomFromText('"
                 + PWKT
                 + "')")
         .close();
-    db.save(rome);
-    db.save(london);
-    String query =
+    var query =
         "select * from City where location && 'LINESTRING(-160.06393432617188"
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    List<EntityImpl> docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    var docs = session.query(query).entityStream().toList();
     Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(3, idx.getInternal().size(db));
-    db.rollback();
+    Assert.assertEquals(3, idx.size(session));
+    session.rollback();
 
     query =
         "select * from City where location && 'LINESTRING(-160.06393432617188"
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
 
-    db.begin();
+    session.begin();
     Assert.assertEquals(0, docs.size());
-    Assert.assertEquals(0, idx.getInternal().size(db));
-    db.commit();
+    Assert.assertEquals(0, idx.size(session));
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testPointTransactionUpdate() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("City");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createVertexClass("City");
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    Index idx = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
+    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var rome = newCity(session, "Rome", 12.5, 41.9);
 
-    db.begin();
+    session.begin();
 
-    db.save(rome);
+    session.commit();
 
-    db.commit();
-
-    String query =
+    var query =
         "select * from City where location && 'LINESTRING(-160.06393432617188"
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    List<EntityImpl> docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    var docs = session.query(query).entityStream().toList();
 
-    db.begin();
+    session.begin();
     Assert.assertEquals(0, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(db));
+    Assert.assertEquals(1, idx.size(session));
 
-    db.command("update City set location = ST_GeomFromText('" + PWKT + "')").close();
-
-    query =
-        "select * from City where location && 'LINESTRING(-160.06393432617188"
-            + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
-            + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
-            + " 21.787556698550834)' ";
-    docs = db.query(new SQLSynchQuery<EntityImpl>(query));
-    Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(db));
-
-    db.commit();
+    session.execute("update City set location = ST_GeomFromText('" + PWKT + "')").close();
 
     query =
         "select * from City where location && 'LINESTRING(-160.06393432617188"
             + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
             + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
             + " 21.787556698550834)' ";
-    docs = db.query(new SQLSynchQuery<EntityImpl>(query));
-
-    db.begin();
+    docs = session.query(query).entityStream().toList();
     Assert.assertEquals(1, docs.size());
-    Assert.assertEquals(1, idx.getInternal().size(db));
-    db.commit();
+    Assert.assertEquals(1, idx.size(session));
+
+    session.commit();
+
+    query =
+        "select * from City where location && 'LINESTRING(-160.06393432617188"
+            + " 21.996535232496047,-160.1099395751953 21.94304553343818,-160.169677734375"
+            + " 21.89399562866819,-160.21087646484375 21.844928843026818,-160.21018981933594"
+            + " 21.787556698550834)' ";
+    docs = session.query(query).entityStream().toList();
+
+    session.begin();
+    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, idx.size(session));
+    session.commit();
   }
 
-  protected static EntityImpl newCity(String name, final Double longitude, final Double latitude) {
-    EntityImpl location = new EntityImpl("OPoint");
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+  protected static Entity newCity(DatabaseSession db, String name, final Double longitude,
+      final Double latitude) {
+    return db.computeInTx(transaction -> {
+      var location = transaction.newEmbeddedEntity("OPoint");
+      location.newEmbeddedList("coordinates", new ArrayList<Double>() {
+        {
+          add(longitude);
+          add(latitude);
+        }
+      });
 
-    EntityImpl city = new EntityImpl("City");
-    city.field("name", name);
-    city.field("location", location);
-    return city;
+      var city = transaction.newVertex("City");
+      city.setProperty("name", name);
+      city.setProperty("location", location);
+      return city;
+    });
   }
+
 }

@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.common.concur.resource.ReentrantResourcePool;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
+import com.jetbrains.youtrack.db.internal.common.concur.resource.ReentrantResourcePool;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.util.Map;
 
 /**
@@ -107,11 +107,12 @@ public abstract class DatabasePoolBase extends Thread {
                           .open(session,
                               (String) iAdditionalArgs[0],
                               (String) iAdditionalArgs[1], new ContextConfiguration());
-                    } else if (!iValue.geCurrentUser()
+                    } else if (!session.getCurrentUser()
                         .checkPassword(session, (String) iAdditionalArgs[1])) {
                       throw new SecurityAccessException(
-                          iValue.getName(),
-                          "User or password not valid for database: '" + iValue.getName() + "'");
+                          iValue.getDatabaseName(),
+                          "User or password not valid for database: '" + iValue.getDatabaseName()
+                              + "'");
                     }
 
                     return true;

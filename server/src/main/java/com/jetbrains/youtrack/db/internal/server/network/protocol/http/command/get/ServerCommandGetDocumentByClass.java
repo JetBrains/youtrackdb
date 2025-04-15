@@ -21,11 +21,10 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandGetDocumentByClass extends ServerCommandAuthenticatedDbAbstract {
@@ -33,23 +32,23 @@ public class ServerCommandGetDocumentByClass extends ServerCommandAuthenticatedD
   private static final String[] NAMES = {"GET|documentbyclass/*", "HEAD|documentbyclass/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             4,
             "Syntax error: documentbyclass/<database>/<class-name>/<record-position>[/fetchPlan]");
 
-    final String fetchPlan = urlParts.length > 4 ? urlParts[4] : null;
+    final var fetchPlan = urlParts.length > 4 ? urlParts[4] : null;
 
     iRequest.getData().commandInfo = "Load entity";
 
     final DBRecord rec;
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
       if (db.getMetadata().getImmutableSchemaSnapshot().getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
-      final String rid = db.getClusterIdByName(urlParts[2]) + ":" + urlParts[3];
+      final var rid = db.getCollectionIdByName(urlParts[2]) + ":" + urlParts[3];
       try {
         rec = db.load(new RecordId(rid));
       } catch (RecordNotFoundException e) {

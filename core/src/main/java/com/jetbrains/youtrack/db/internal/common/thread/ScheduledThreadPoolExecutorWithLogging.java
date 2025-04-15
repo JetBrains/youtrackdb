@@ -44,7 +44,7 @@ public class ScheduledThreadPoolExecutorWithLogging extends ScheduledThreadPoolE
     }
 
     if (t != null) {
-      final Thread thread = Thread.currentThread();
+      final var thread = Thread.currentThread();
       LogManager.instance().error(this, "Exception in thread '%s'", t, thread.getName());
     }
   }

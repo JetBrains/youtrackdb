@@ -15,7 +15,7 @@ package com.jetbrains.youtrack.db.internal.spatial.shape.legacy;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Collection;
 import java.util.List;
 import org.locationtech.spatial4j.context.SpatialContext;
@@ -31,23 +31,23 @@ public class RectangleLegacyBuilder implements ShapeBuilderLegacy<Rectangle> {
   public Rectangle makeShape(DatabaseSessionInternal session, CompositeKey key,
       SpatialContext ctx) {
 
-    Point[] points = new Point[2];
-    int i = 0;
+    var points = new Point[2];
+    var i = 0;
 
-    for (Object o : key.getKeys()) {
-      List<Number> numbers = (List<Number>) o;
-      double lat = ((Double) PropertyType.convert(session, numbers.get(0),
+    for (var o : key.getKeys()) {
+      var numbers = (List<Number>) o;
+      var lat = ((Double) PropertyTypeInternal.convert(session, numbers.get(0),
           Double.class)).doubleValue();
-      double lng = ((Double) PropertyType.convert(session, numbers.get(1),
+      var lng = ((Double) PropertyTypeInternal.convert(session, numbers.get(1),
           Double.class)).doubleValue();
       points[i] = ctx.makePoint(lng, lat);
       i++;
     }
 
-    Point lowerLeft = points[0];
-    Point topRight = points[1];
+    var lowerLeft = points[0];
+    var topRight = points[1];
     if (lowerLeft.getX() > topRight.getX()) {
-      double x = lowerLeft.getX();
+      var x = lowerLeft.getX();
       lowerLeft = ctx.makePoint(topRight.getX(), lowerLeft.getY());
       topRight = ctx.makePoint(x, topRight.getY());
     }
@@ -56,8 +56,8 @@ public class RectangleLegacyBuilder implements ShapeBuilderLegacy<Rectangle> {
 
   @Override
   public boolean canHandle(CompositeKey key) {
-    boolean canHandle = key.getKeys().size() == 2;
-    for (Object o : key.getKeys()) {
+    var canHandle = key.getKeys().size() == 2;
+    for (var o : key.getKeys()) {
       if (!(o instanceof Collection)) {
         canHandle = false;
         break;

@@ -23,11 +23,10 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerEntryConfiguration;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerCommandConfiguration;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -39,9 +38,9 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPOutputStream;
+import javax.annotation.Nullable;
 
 public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbstract {
 
@@ -92,14 +91,14 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     super(iConfiguration.pattern);
 
     // LOAD HTTP CACHE CONFIGURATION
-    for (ServerEntryConfiguration par : iConfiguration.parameters) {
+    for (var par : iConfiguration.parameters) {
       if (par.name.startsWith(CONFIG_HTTP_CACHE)) {
-        final String filter = par.name.substring(CONFIG_HTTP_CACHE.length());
+        final var filter = par.name.substring(CONFIG_HTTP_CACHE.length());
         if (filter.equalsIgnoreCase("default")) {
           cacheHttpDefault = par.value;
         } else if (filter.length() > 0) {
-          final String[] filters = filter.split(" ");
-          for (String f : filters) {
+          final var filters = filter.split(" ");
+          for (var f : filters) {
             cacheHttp.put(f, par.value);
           }
         }
@@ -112,17 +111,17 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
   }
 
   @Override
-  public boolean beforeExecute(OHttpRequest iRequest, HttpResponse iResponse) throws IOException {
-    String header = cacheHttpDefault;
+  public boolean beforeExecute(HttpRequest iRequest, HttpResponse iResponse) throws IOException {
+    var header = cacheHttpDefault;
 
     if (cacheHttp.size() > 0) {
-      final String resource = getResource(iRequest);
+      final var resource = getResource(iRequest);
 
       // SEARCH IN CACHE IF ANY
-      for (Entry<String, String> entry : cacheHttp.entrySet()) {
-        final int wildcardPos = entry.getKey().indexOf('*');
-        final String partLeft = entry.getKey().substring(0, wildcardPos);
-        final String partRight = entry.getKey().substring(wildcardPos + 1);
+      for (var entry : cacheHttp.entrySet()) {
+        final var wildcardPos = entry.getKey().indexOf('*');
+        final var partLeft = entry.getKey().substring(0, wildcardPos);
+        final var partRight = entry.getKey().substring(wildcardPos + 1);
 
         if (resource.startsWith(partLeft) && resource.endsWith(partRight)) {
           // FOUND
@@ -137,7 +136,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, final HttpResponse iResponse)
+  public boolean execute(final HttpRequest iRequest, final HttpResponse iResponse)
       throws Exception {
     iRequest.getData().commandInfo = "Get static content";
     iRequest.getData().commandDetail = iRequest.getUrl();
@@ -152,12 +151,12 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
       }
 
       if (staticContent.is != null && staticContent.contentSize < 0) {
-        ByteArrayOutputStream bytesOutput = new ByteArrayOutputStream();
-        GZIPOutputStream stream = new GZIPOutputStream(bytesOutput, 16384);
+        var bytesOutput = new ByteArrayOutputStream();
+        var stream = new GZIPOutputStream(bytesOutput, 16384);
         try {
           IOUtils.copyStream(staticContent.is, stream);
           stream.finish();
-          byte[] compressedBytes = bytesOutput.toByteArray();
+          var compressedBytes = bytesOutput.toByteArray();
           iResponse.sendStream(
               HttpUtils.STATUS_OK_CODE,
               HttpUtils.STATUS_OK_DESCRIPTION,
@@ -209,12 +208,12 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     virtualFolders.remove(iName);
   }
 
-  protected String getResource(final OHttpRequest iRequest) {
+  protected String getResource(final HttpRequest iRequest) {
     final String url;
     if (HttpUtils.URL_SEPARATOR.equals(iRequest.getUrl())) {
       url = "/www/index.htm";
     } else {
-      int pos = iRequest.getUrl().indexOf('?');
+      var pos = iRequest.getUrl().indexOf('?');
       if (pos > -1) {
         url = iRequest.getUrl().substring(0, pos);
       } else {
@@ -224,19 +223,20 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     return url;
   }
 
-  protected StaticContent getVirtualFolderContent(final OHttpRequest iRequest) {
+  @Nullable
+  protected StaticContent getVirtualFolderContent(final HttpRequest iRequest) {
     if (iRequest.getUrl() != null) {
-      final int beginPos = iRequest.getUrl().startsWith("/") ? 1 : 0;
-      final int endPos = iRequest.getUrl().indexOf('/', beginPos);
-      final String firstFolderName =
+      final var beginPos = iRequest.getUrl().startsWith("/") ? 1 : 0;
+      final var endPos = iRequest.getUrl().indexOf('/', beginPos);
+      final var firstFolderName =
           endPos > -1
               ? iRequest.getUrl().substring(beginPos, endPos)
               : iRequest.getUrl().substring(beginPos);
-      final CallableFunction<Object, String> virtualFolderCallback = virtualFolders.get(
+      final var virtualFolderCallback = virtualFolders.get(
           firstFolderName);
       if (virtualFolderCallback != null) {
         // DELEGATE TO THE CALLBACK
-        final Object content =
+        final var content =
             virtualFolderCallback.call(endPos > -1 ? iRequest.getUrl().substring(endPos + 1) : "");
         if (content == null) {
           return null;
@@ -245,7 +245,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
         if (content instanceof StaticContent) {
           return (StaticContent) content;
         } else if (content instanceof String contentString) {
-          final StaticContent sc = new StaticContent();
+          final var sc = new StaticContent();
           sc.is = new ByteArrayInputStream(contentString.getBytes());
           sc.contentSize = contentString.length();
           sc.type = "text/html";
@@ -256,7 +256,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
   }
 
   private void loadStaticContent(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final StaticContent staticContent)
       throws IOException {
@@ -276,7 +276,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
 
     if (filePath == null) {
       // CHECK DIRECTORY
-      final File wwwPathDirectory = new File(rootPath);
+      final var wwwPathDirectory = new File(rootPath);
       if (!wwwPathDirectory.exists()) {
         LogManager.instance()
             .warn(this, "path variable points to '%s' but it doesn't exists", rootPath);
@@ -294,7 +294,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
       path = filePath;
     } else {
       // GET FROM A DIRECTORY
-      final String url = getResource(iRequest);
+      final var url = getResource(iRequest);
       if (url.startsWith("/www")) {
         path = rootPath + url.substring("/www".length());
       } else {
@@ -312,7 +312,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     if (server
         .getContextConfiguration()
         .getValueAsBoolean(GlobalConfiguration.SERVER_CACHE_FILE_STATIC)) {
-      final StaticContentCachedEntry cachedEntry = cacheContents.get(path);
+      final var cachedEntry = cacheContents.get(path);
       if (cachedEntry != null) {
         staticContent.is = new ByteArrayInputStream(cachedEntry.content);
         staticContent.contentSize = cachedEntry.size;
@@ -321,7 +321,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     }
 
     if (staticContent.is == null) {
-      File inputFile = new File(path);
+      var inputFile = new File(path);
       if (!inputFile.exists()) {
         LogManager.instance().debug(this, "Static resource not found: %s", path);
 
@@ -350,12 +350,12 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
           .getContextConfiguration()
           .getValueAsBoolean(GlobalConfiguration.SERVER_CACHE_FILE_STATIC)) {
         // READ THE ENTIRE STREAM AND CACHE IT IN MEMORY
-        final byte[] buffer = new byte[(int) staticContent.contentSize];
-        for (int i = 0; i < staticContent.contentSize; ++i) {
+        final var buffer = new byte[(int) staticContent.contentSize];
+        for (var i = 0; i < staticContent.contentSize; ++i) {
           buffer[i] = (byte) staticContent.is.read();
         }
 
-        StaticContentCachedEntry cachedEntry = new StaticContentCachedEntry();
+        var cachedEntry = new StaticContentCachedEntry();
         cachedEntry.content = buffer;
         cachedEntry.size = staticContent.contentSize;
         cachedEntry.type = staticContent.type;

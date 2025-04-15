@@ -19,9 +19,6 @@
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,12 +34,12 @@ public class GraphEmbeddedTest extends BaseLuceneTest {
   @Before
   public void init() {
 
-    SchemaClass type = db.createVertexClass("City");
-    type.createProperty(db, "latitude", PropertyType.DOUBLE);
-    type.createProperty(db, "longitude", PropertyType.DOUBLE);
-    type.createProperty(db, "name", PropertyType.STRING);
+    var type = session.createVertexClass("City");
+    type.createProperty("latitude", PropertyType.DOUBLE);
+    type.createProperty("longitude", PropertyType.DOUBLE);
+    type.createProperty("name", PropertyType.STRING);
 
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test
@@ -50,51 +47,48 @@ public class GraphEmbeddedTest extends BaseLuceneTest {
 
     // THIS WON'T USE LUCENE INDEXES!!!! see #6997
 
-    db.begin();
-    Vertex city = db.newVertex("City");
+    session.begin();
+    var city = session.newVertex("City");
     city.setProperty("name", "London / a");
-    db.save(city);
 
-    city = db.newVertex("City");
+    city = session.newVertex("City");
     city.setProperty("name", "Rome");
-    db.save(city);
-    db.commit();
+    session.commit();
 
-    db.begin();
+    session.begin();
 
-    ResultSet resultSet = db.query("SELECT from City where name = 'London / a' ");
+    var resultSet = session.query("SELECT from City where name = 'London / a' ");
 
     Assertions.assertThat(resultSet).hasSize(1);
 
-    resultSet = db.query("SELECT from City where name = 'Rome' ");
+    resultSet = session.query("SELECT from City where name = 'Rome' ");
 
     Assertions.assertThat(resultSet).hasSize(1);
   }
 
   @Test
   public void testGetVericesFilterClass() {
-    SchemaClass v = db.getClass("V");
-    v.createProperty(db, "name", PropertyType.STRING);
-    db.command("CREATE INDEX V.name ON V(name) NOTUNIQUE");
+    var v = session.getClass("V");
+    v.createProperty("name", PropertyType.STRING);
+    session.execute("CREATE INDEX V.name ON V(name) NOTUNIQUE");
 
-    SchemaClass oneClass = db.createVertexClass("One");
-    SchemaClass twoClass = db.createVertexClass("Two");
+    var oneClass = session.createVertexClass("One");
+    var twoClass = session.createVertexClass("Two");
 
-    Vertex one = db.newVertex(oneClass);
+    session.begin();
+    var one = session.newVertex(oneClass);
     one.setProperty("name", "Same");
+    session.commit();
 
-    db.begin();
-    db.save(one);
-    db.commit();
-
-    Vertex two = db.newVertex(twoClass);
+    session.begin();
+    var two = session.newVertex(twoClass);
     two.setProperty("name", "Same");
-    db.begin();
-    db.save(two);
-    db.commit();
+    session.commit();
 
-    ResultSet resultSet = db.query("SELECT from One where name = 'Same' ");
+    session.begin();
+    var resultSet = session.query("SELECT from One where name = 'Same' ");
 
     Assertions.assertThat(resultSet).hasSize(1);
+    session.commit();
   }
 }

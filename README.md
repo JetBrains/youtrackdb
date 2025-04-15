@@ -8,20 +8,31 @@
 
 [Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Slack for contributors](https://youtrack.jetbrains.com/articles/YTDB-A-5/Slack-with-developers-for-contributors) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Short-term-roadmap)
 
-
 ### What is YouTrackDB?
-YouTrackDB is an object-oriented graph database that supports documents, full-text search, reactivity, and geospatial concepts.\
-YouTrackDB has been supported and developed by [YouTrack](https://www.jetbrains.com/youtrack) project from JetBrains.
+
+YouTrackDB is an object-oriented graph database that supports documents, full-text search,
+reactivity, and geospatial concepts.\
+YouTrackDB has been supported and developed by [YouTrack](https://www.jetbrains.com/youtrack)
+project from JetBrains.
 
 YouTrackDB's key features are:
-1. **Fast data processing**: Links traversal is processed with O(1) complexity. There are no expensive run-time JOINs.
-2. **Universal API**: Implements rich graph and object-oriented data models. Rich API is the same for all types of deployments (both embedded and server).
-3. **SQL-like query language**: Uses a dialect of SQL query language enriched by graph and object-oriented functions and commands.
-4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full modes. The universal API allows you to port your database to any supported deployment type with zero development efforts.
-5. **Strong security**: A strong security profiling system based on user, role, and predicate security.
+
+1. **Fast data processing**: Links traversal is processed with O(1) complexity. There are no
+   expensive run-time JOINs.
+2. **Universal API**: Implements rich graph and object-oriented data models. Rich API is the same
+   for all types of deployments (both embedded and server).
+3. **SQL-like query language**: Uses a dialect of SQL query language enriched by graph and
+   object-oriented functions and commands.
+4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
+   modes. The universal API allows you to port your database to any supported deployment type with
+   zero development efforts.
+5. **Strong security**: A strong security profiling system based on user, role, and predicate
+   security.
 6. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
-7. **Binary compatibility with OrientDB**: Databases created with OrientDB can be used in YouTrackDB.
- 
+7. **Binary compatibility with OrientDB**: Databases created with OrientDB can be used in
+   YouTrackDB.
+
 ### Easy to install and use
+
 YouTrackDB can run on any platform without configuration and installation.
 The full Server distribution is a few MBs without the demo database.

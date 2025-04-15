@@ -71,7 +71,7 @@ public class TTYConsoleReader implements ConsoleReader {
   private static int cachedConsoleWidth = -1; // -1 for no cached value, -2 to indicate the error
 
   static {
-    final Signal signal = new Signal("WINCH");
+    final var signal = new Signal("WINCH");
     Signal.handle(
         signal,
         new SignalHandler() {
@@ -100,12 +100,12 @@ public class TTYConsoleReader implements ConsoleReader {
 
   public TTYConsoleReader(boolean historyEnabled) {
     this.historyEnabled = historyEnabled;
-    File file = getHistoryFile(true);
+    var file = getHistoryFile(true);
     BufferedReader reader;
     try {
       reader = new BufferedReader(new FileReader(file));
       if (historyEnabled) {
-        String historyEntry = reader.readLine();
+        var historyEntry = reader.readLine();
         while (historyEntry != null) {
           history.add(historyEntry);
           historyEntry = reader.readLine();
@@ -135,17 +135,17 @@ public class TTYConsoleReader implements ConsoleReader {
   }
 
   public String readLine() throws IOException {
-    String consoleInput = "";
+    var consoleInput = "";
 
-    StringBuffer buffer = new StringBuffer();
+    var buffer = new StringBuffer();
     cursorPosition = 0;
     historyBuffer = null;
-    int historyNum = history.size();
-    boolean hintedHistory = false;
+    var historyNum = history.size();
+    var hintedHistory = false;
     while (true) {
-      boolean escape = false;
-      boolean ctrl = false;
-      int next = inStream.read();
+      var escape = false;
+      var ctrl = false;
+      var next = inStream.read();
       if (next == ESC) {
         escape = true;
         inStream.read();
@@ -285,7 +285,7 @@ public class TTYConsoleReader implements ConsoleReader {
 
     if (consoleInput.equals("clear")) {
       outStream.flush();
-      for (int i = 0; i < 150; i++) {
+      for (var i = 0; i < 150; i++) {
         outStream.println();
       }
       outStream.print("\r");
@@ -310,9 +310,9 @@ public class TTYConsoleReader implements ConsoleReader {
 
       if (cachedConsoleWidth == -1) { // no cached value
         try {
-          final Process process =
+          final var process =
               Runtime.getRuntime().exec(new String[]{"sh", "-c", "tput cols 2> /dev/tty"});
-          final String line =
+          final var line =
               new BufferedReader(new InputStreamReader(process.getInputStream())).readLine();
           process.waitFor();
 
@@ -337,10 +337,10 @@ public class TTYConsoleReader implements ConsoleReader {
       return;
     }
     if (historyNum <= MAX_HISTORY_ENTRIES) {
-      File historyFile = getHistoryFile(false);
-      BufferedWriter writer = new BufferedWriter(new FileWriter(historyFile));
+      var historyFile = getHistoryFile(false);
+      var writer = new BufferedWriter(new FileWriter(historyFile));
       try {
-        for (String historyEntry : history) {
+        for (var historyEntry : history) {
           writer.write(historyEntry);
           writer.newLine();
         }
@@ -349,10 +349,10 @@ public class TTYConsoleReader implements ConsoleReader {
         writer.close();
       }
     } else {
-      File historyFile = getHistoryFile(false);
-      BufferedWriter writer = new BufferedWriter(new FileWriter(historyFile));
+      var historyFile = getHistoryFile(false);
+      var writer = new BufferedWriter(new FileWriter(historyFile));
       try {
-        for (String historyEntry :
+        for (var historyEntry :
             history.subList(historyNum - MAX_HISTORY_ENTRIES - 1, historyNum - 1)) {
           writer.write(historyEntry);
           writer.newLine();
@@ -366,20 +366,20 @@ public class TTYConsoleReader implements ConsoleReader {
 
   private StringBuffer writeHint(StringBuffer buffer) {
     List<String> suggestions = new ArrayList<String>();
-    for (Method method : console.getConsoleMethods().keySet()) {
-      String command = ConsoleApplication.getClearName(method.getName());
+    for (var method : console.getConsoleMethods().keySet()) {
+      var command = ConsoleApplication.getClearName(method.getName());
       if (command.startsWith(buffer.toString())) {
         suggestions.add(command);
       }
     }
     if (suggestions.size() > 1) {
-      StringBuffer hintBuffer = new StringBuffer();
-      String[] bufferComponents = buffer.toString().split(" ");
+      var hintBuffer = new StringBuffer();
+      var bufferComponents = buffer.toString().split(" ");
       String[] suggestionComponents;
       Set<String> bufferPart = new HashSet<String>();
       StringBuilder suggestionPart = null;
-      boolean appendSpace = true;
-      for (String suggestion : suggestions) {
+      var appendSpace = true;
+      for (var suggestion : suggestions) {
         suggestionComponents = suggestion.split(" ");
         hintBuffer.append("* " + suggestion + " ");
         hintBuffer.append("\n");
@@ -397,7 +397,7 @@ public class TTYConsoleReader implements ConsoleReader {
         } else {
           bufferPart.add(suggestionComponents[bufferComponents.length - 1]);
           if (bufferPart.size() > 1) {
-            for (int i = 0; i < bufferComponents.length; i++) {
+            for (var i = 0; i < bufferComponents.length; i++) {
               suggestionPart.append(bufferComponents[i]);
               if (i < (bufferComponents.length - 1)) {
                 suggestionPart.append(" ");
@@ -405,7 +405,7 @@ public class TTYConsoleReader implements ConsoleReader {
               appendSpace = false;
             }
           } else {
-            for (int i = 0; i < suggestionComponents.length; i++) {
+            for (var i = 0; i < suggestionComponents.length; i++) {
               suggestionPart.append(suggestionComponents[i]);
               suggestionPart.append(" ");
             }
@@ -430,10 +430,10 @@ public class TTYConsoleReader implements ConsoleReader {
   }
 
   private void updatePrompt(StringBuffer newText) {
-    final int consoleWidth = getConsoleWidth();
-    final String newPrompt = console.getPrompt();
-    final int newTotalLength = newPrompt.length() + newText.length();
-    final int oldTotalLength = oldPromptLength + oldTextLength;
+    final var consoleWidth = getConsoleWidth();
+    final var newPrompt = console.getPrompt();
+    final var newTotalLength = newPrompt.length() + newText.length();
+    final var oldTotalLength = oldPromptLength + oldTextLength;
 
     // 1. Hide the stream to reduce flickering.
 
@@ -451,9 +451,9 @@ public class TTYConsoleReader implements ConsoleReader {
 
     // 4. Clear the remaining ending part of the old prompt, if any.
 
-    final StringBuilder spaces = new StringBuilder();
-    final int promptLengthDelta = oldTotalLength - newTotalLength;
-    for (int i = 0; i < promptLengthDelta; i++) {
+    final var spaces = new StringBuilder();
+    final var promptLengthDelta = oldTotalLength - newTotalLength;
+    for (var i = 0; i < promptLengthDelta; i++) {
       spaces.append(' ');
     }
     outStream.print(spaces);
@@ -491,8 +491,8 @@ public class TTYConsoleReader implements ConsoleReader {
   }
 
   private void erasePrompt() {
-    final int consoleWidth = getConsoleWidth();
-    final int oldTotalLength = oldPromptLength + oldTextLength;
+    final var consoleWidth = getConsoleWidth();
+    final var oldTotalLength = oldPromptLength + oldTextLength;
 
     // 1. Hide the stream to reduce flickering.
 
@@ -505,8 +505,8 @@ public class TTYConsoleReader implements ConsoleReader {
 
     // 3. Clear the prompt.
 
-    final StringBuilder spaces = new StringBuilder();
-    for (int i = 0; i < oldTotalLength; i++) {
+    final var spaces = new StringBuilder();
+    for (var i = 0; i < oldTotalLength; i++) {
       spaces.append(' ');
     }
     outStream.print(spaces);
@@ -564,7 +564,7 @@ public class TTYConsoleReader implements ConsoleReader {
 
   private int getHintedHistoryIndexUp(int historyNum) {
     if (historyBuffer != null && !historyBuffer.equals("")) {
-      for (int i = (historyNum - 1); i >= 0; i--) {
+      for (var i = (historyNum - 1); i >= 0; i--) {
         if (history.get(i).startsWith(historyBuffer)) {
           return i;
         }
@@ -576,7 +576,7 @@ public class TTYConsoleReader implements ConsoleReader {
 
   private int getHintedHistoryIndexDown(int historyNum) throws IOException {
     if (historyBuffer != null && !historyBuffer.equals("")) {
-      for (int i = historyNum + 1; i < history.size(); i++) {
+      for (var i = historyNum + 1; i < history.size(); i++) {
         if (history.get(i).startsWith(historyBuffer)) {
           return i;
         }
@@ -588,14 +588,14 @@ public class TTYConsoleReader implements ConsoleReader {
 
   private File getHistoryFile(boolean read) {
 
-    final Path youTrackDBDir = Paths.get(System.getProperty("user.home"), YOUTRACKDB_HOME_DIR);
+    final var youTrackDBDir = Paths.get(System.getProperty("user.home"), YOUTRACKDB_HOME_DIR);
     try {
       Files.createDirectories(youTrackDBDir);
     } catch (IOException e) {
       LogManager.instance().error(this, "Error creating YouTrackDB directory", e);
     }
 
-    Path history = youTrackDBDir.resolve(HISTORY_FILE_NAME);
+    var history = youTrackDBDir.resolve(HISTORY_FILE_NAME);
     try {
 
       if (!read) {

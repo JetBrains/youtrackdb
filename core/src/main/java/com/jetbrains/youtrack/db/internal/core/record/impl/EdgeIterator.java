@@ -20,138 +20,79 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Direction;
-import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.iterator.LazyWrapperIterator;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Iterator;
+import javax.annotation.Nonnull;
 
 /**
  *
  */
-public class EdgeIterator extends LazyWrapperIterator<Edge> {
-
-  private final Vertex sourceVertex;
-  private final Vertex targetVertex;
-  private final Pair<Direction, String> connection;
-  private final String[] labels;
+public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal> {
 
   public EdgeIterator(
-      final Vertex iSourceVertex,
+      @Nonnull final Vertex iSourceVertex,
       final Object iMultiValue,
-      final Iterator<?> iterator,
+      final Iterator<? extends Identifiable> iterator,
       final Pair<Direction, String> connection,
       final String[] iLabels,
-      final int iSize) {
-    this(iSourceVertex, null, iMultiValue, iterator, connection, iLabels, iSize);
+      final int iSize, @Nonnull DatabaseSessionInternal session) {
+    super(iSourceVertex, iMultiValue, iterator, connection, iLabels, iSize, session);
   }
 
-  public EdgeIterator(
-      final Vertex iSourceVertex,
-      final Vertex iTargetVertex,
-      final Object iMultiValue,
-      final Iterator<?> iterator,
-      final Pair<Direction, String> connection,
-      final String[] iLabels,
-      final int iSize) {
-    super(iterator, iSize, iMultiValue);
-    this.sourceVertex = iSourceVertex;
-    this.targetVertex = iTargetVertex;
-    this.connection = connection;
-    this.labels = iLabels;
-  }
 
-  public Edge createGraphElement(final Object iObject) {
-    if (iObject instanceof Entity && ((Entity) iObject).isEdge()) {
-      return ((Entity) iObject).asEdge().get();
-    }
-
-    final Identifiable rec = (Identifiable) iObject;
-
-    if (rec == null) {
-      // SKIP IT
+  @Override
+  protected EdgeInternal createBidirectionalLink(Identifiable identifiable) {
+    if (identifiable == null) {
       return null;
     }
 
-    final DBRecord record;
+    if (identifiable instanceof Entity entity && entity.isStatefulEdge()) {
+      return (EdgeInternal) entity.asStatefulEdge();
+    }
+
+    final Entity entity;
     try {
-      record = rec.getRecord();
+      var transaction = session.getActiveTransaction();
+      entity = transaction.loadEntity(identifiable);
     } catch (RecordNotFoundException rnf) {
       // SKIP IT
-      LogManager.instance().warn(this, "Record (%s) is null", rec);
+      LogManager.instance().warn(this, "Record (%s) is null", identifiable);
       return null;
     }
 
-    if (!(record instanceof Entity value)) {
-      // SKIP IT
-      LogManager.instance()
-          .warn(
-              this,
-              "Found a record (%s) that is not an edge. Source vertex : %s, Target vertex : %s,"
-                  + " Database : %s",
-              rec,
-              sourceVertex != null ? sourceVertex.getIdentity() : null,
-              targetVertex != null ? targetVertex.getIdentity() : null,
-              ((RecordAbstract) record).getSession().getURL());
-      return null;
-    }
-
-    final Edge edge;
-    if (value.isVertex()) {
+    final EdgeInternal edge;
+    if (entity.isVertex()) {
       // DIRECT VERTEX, CREATE DUMMY EDGE
-      DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
       SchemaImmutableClass clazz = null;
-      if (db != null && connection.getValue() != null) {
+      if (connection.getValue() != null) {
         clazz =
             (SchemaImmutableClass)
-                db.getMetadata().getImmutableSchemaSnapshot().getClass(connection.getValue());
+                session.getMetadata().getImmutableSchemaSnapshot().getClass(connection.getValue());
       }
       if (connection.getKey() == Direction.OUT) {
         edge =
-            new EdgeDelegate(
-                this.sourceVertex, value.asVertex().get(), clazz, connection.getValue());
+            new EdgeImpl(session,
+                this.sourceEntity, entity.asVertex(), clazz);
       } else {
         edge =
-            new EdgeDelegate(
-                value.asVertex().get(), this.sourceVertex, clazz, connection.getValue());
+            new EdgeImpl(session,
+                entity.asVertex(), this.sourceEntity, clazz);
       }
-    } else if (value.isEdge()) {
+    } else if (entity.isStatefulEdge()) {
       // EDGE
-      edge = value.asEdge().get();
+      edge = (EdgeInternal) entity.asStatefulEdge();
     } else {
       throw new IllegalStateException(
-          "Invalid content found while iterating edges, value '" + value + "' is not an edge");
+          "Invalid content found while iterating edges, value '" + entity + "' is not an edge");
     }
 
     return edge;
-  }
-
-  @Override
-  public Edge next() {
-    return createGraphElement(super.next());
-  }
-
-  @Override
-  public boolean filter(final Edge iObject) {
-    if (targetVertex != null
-        && !targetVertex.equals(iObject.getVertex(connection.getKey().opposite()))) {
-      return false;
-    }
-
-    return iObject.isLabeled(labels);
-  }
-
-  @Override
-  public boolean canUseMultiValueDirectly() {
-    return true;
   }
 }

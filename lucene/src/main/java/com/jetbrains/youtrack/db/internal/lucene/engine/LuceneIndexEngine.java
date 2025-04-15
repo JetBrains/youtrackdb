@@ -19,12 +19,13 @@
 package com.jetbrains.youtrack.db.internal.lucene.engine;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngine;
-import com.jetbrains.youtrack.db.internal.lucene.query.LuceneQueryContext;
-import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngine;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
+import com.jetbrains.youtrack.db.internal.lucene.query.LuceneQueryContext;
+import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
 import java.util.Set;
 import org.apache.lucene.analysis.Analyzer;
@@ -46,28 +47,28 @@ public interface LuceneIndexEngine extends IndexEngine, FreezableStorageComponen
 
   Document buildDocument(DatabaseSessionInternal session, Object key, Identifiable value);
 
-  Query buildQuery(Object query);
+  Query buildQuery(Object query, DatabaseSessionInternal session);
 
   Analyzer indexAnalyzer();
 
   Analyzer queryAnalyzer();
 
-  boolean remove(Object key, Identifiable value);
+  boolean remove(Storage storage, Object key, Identifiable value);
 
-  boolean remove(Object key);
+  boolean remove(Storage storage, Object key);
 
-  IndexSearcher searcher();
+  IndexSearcher searcher(Storage storage);
 
-  void release(IndexSearcher searcher);
+  void release(Storage storage, IndexSearcher searcher);
 
   Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
       LuceneTxChanges changes);
 
-  long sizeInTx(LuceneTxChanges changes);
+  long sizeInTx(LuceneTxChanges changes, Storage storage);
 
   LuceneTxChanges buildTxChanges() throws IOException;
 
-  Query deleteQuery(Object key, Identifiable value);
+  Query deleteQuery(Storage storage, Object key, Identifiable value);
 
   boolean isCollectionIndex();
 }

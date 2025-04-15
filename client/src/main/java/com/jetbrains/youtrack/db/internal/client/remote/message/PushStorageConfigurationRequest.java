@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 public class PushStorageConfigurationRequest implements BinaryPushRequest<BinaryPushResponse> {
 
@@ -29,7 +30,7 @@ public class PushStorageConfigurationRequest implements BinaryPushRequest<Binary
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network) throws IOException {
+  public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
     payload.read(network);
   }
 
@@ -39,6 +40,7 @@ public class PushStorageConfigurationRequest implements BinaryPushRequest<Binary
     return pushHandler.executeUpdateStorageConfig(this);
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

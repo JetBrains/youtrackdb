@@ -1,0 +1,208 @@
+package com.jetbrains.youtrack.db.auto;
+
+import static org.testng.Assert.assertTrue;
+
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
+import java.io.IOException;
+import java.util.HashSet;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
+import org.testng.annotations.Parameters;
+import org.testng.annotations.Test;
+
+public class EmbeddedLinkSetTest extends AbstractLinkSetTest {
+
+  private int topThreshold;
+  private int bottomThreshold;
+
+  @Parameters(value = "remote")
+  public EmbeddedLinkSetTest(@Optional Boolean remote) {
+    super(remote != null && remote);
+  }
+
+  @BeforeMethod
+  public void beforeMethod() throws Exception {
+    topThreshold =
+        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValueAsInteger();
+    bottomThreshold =
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
+
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(Integer.MAX_VALUE);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(Integer.MAX_VALUE);
+
+    if (session.isRemote()) {
+      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, Integer.MAX_VALUE);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, Integer.MAX_VALUE);
+      server.close();
+    }
+    super.beforeMethod();
+  }
+
+  @AfterMethod
+  public void afterMethod() throws Exception {
+    super.afterMethod();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
+
+    if (session.isRemote()) {
+      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
+      server.close();
+    }
+  }
+
+  @Test
+  public void testFromEmbeddedToBTreeAndBack() throws IOException {
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
+    GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
+
+    if (session.getStorage() instanceof StorageProxy) {
+      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
+      server.setGlobalConfiguration(
+          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
+      server.close();
+    }
+
+    session.begin();
+    var linkSet = (EntityLinkSetImpl) session.newLinkSet();
+    var entity = session.newEntity();
+    entity.setProperty("linkSet", linkSet);
+
+    assertIsEmbedded(linkSet);
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    assertIsEmbedded(linkSet);
+
+    var addedItems = new HashSet<RID>();
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var entityToAdd = session.newEntity();
+
+      linkSet = entity.getProperty("linkSet");
+      linkSet.add(entityToAdd.getIdentity());
+      addedItems.add(entityToAdd.getIdentity());
+      session.commit();
+    }
+
+    session.commit();
+
+    addedItems = new HashSet<>(addedItems);
+    session.begin();
+
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    assertIsEmbedded(linkSet);
+    session.rollback();
+
+    session.begin();
+    var entityToAdd = session.newEntity();
+
+    session.commit();
+    session.begin();
+
+    activeTx = session.getActiveTransaction();
+    entityToAdd = activeTx.loadEntity(entityToAdd);
+
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    linkSet.add(entityToAdd.getIdentity());
+    addedItems.add(entityToAdd.getIdentity());
+
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+
+    Assert.assertFalse(linkSet.isEmbedded());
+
+    var addedItemsCopy = new HashSet<>(addedItems);
+    for (var id : linkSet) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+
+    entity = activeTx.loadEntity(entity);
+    linkSet = entity.getProperty("linkSet");
+    Assert.assertFalse(linkSet.isEmbedded());
+
+    addedItems.addAll(addedItemsCopy);
+    for (var id : linkSet) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+
+    addedItems.addAll(addedItemsCopy);
+
+    for (var i = 0; i < 3; i++) {
+      var toRemove = addedItems.iterator().next();
+      addedItems.remove(toRemove.getIdentity());
+      linkSet.remove(toRemove.getIdentity());
+    }
+
+    addedItemsCopy.clear();
+    addedItemsCopy.addAll(addedItems);
+
+    session.commit();
+
+    session.begin();
+    activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    linkSet = entity.getProperty("linkSet");
+    Assert.assertFalse(linkSet.isEmbedded());
+
+    for (var id : linkSet) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+
+    linkSet = entity.getProperty("linkSet");
+    Assert.assertFalse(linkSet.isEmbedded());
+
+    addedItems.addAll(addedItemsCopy);
+    for (var id : linkSet) {
+      assertTrue(addedItems.remove(id.getIdentity()));
+    }
+
+    assertTrue(addedItems.isEmpty());
+    session.commit();
+  }
+
+
+  @Override
+  protected void assertIsEmbedded(LinkSet set) {
+    assertTrue(((EntityLinkSetImpl) set).isEmbedded());
+  }
+}

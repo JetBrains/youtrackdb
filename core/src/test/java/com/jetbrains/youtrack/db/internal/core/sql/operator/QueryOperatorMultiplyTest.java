@@ -32,7 +32,7 @@ public class QueryOperatorMultiplyTest {
 
   @Test
   public void test() {
-    QueryOperatorMultiply operator = new QueryOperatorMultiply();
+    var operator = new QueryOperatorMultiply();
     Assert.assertEquals(
         operator.evaluateRecord(
             null,

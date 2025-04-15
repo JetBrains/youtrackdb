@@ -48,8 +48,8 @@ public class UnsafeBinaryConverter implements BinaryConverter {
                 new PrivilegedAction<Object>() {
                   public Object run() {
                     try {
-                      Field f = Unsafe.class.getDeclaredField("theUnsafe");
-                      boolean wasAccessible = f.isAccessible();
+                      var f = Unsafe.class.getDeclaredField("theUnsafe");
+                      var wasAccessible = f.isAccessible();
                       f.setAccessible(true);
                       try {
                         return f.get(null);
@@ -87,7 +87,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
   public short getShort(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
-      short result = theUnsafe.getShort(buffer, index + BYTE_ARRAY_OFFSET);
+      var result = theUnsafe.getShort(buffer, index + BYTE_ARRAY_OFFSET);
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
         result = Short.reverseBytes(result);
       }
@@ -108,7 +108,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
   public void putInt(byte[] buffer, int pointer, int value, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
-      final long position = pointer + BYTE_ARRAY_OFFSET;
+      final var position = pointer + BYTE_ARRAY_OFFSET;
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
         value = Integer.reverseBytes(value);
       }
@@ -131,8 +131,8 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
   public int getInt(byte[] buffer, int pointer, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
-      final long position = pointer + BYTE_ARRAY_OFFSET;
-      int result = theUnsafe.getInt(buffer, position);
+      final var position = pointer + BYTE_ARRAY_OFFSET;
+      var result = theUnsafe.getInt(buffer, position);
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
         result = Integer.reverseBytes(result);
       }
@@ -185,7 +185,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
   public long getLong(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
-      long result = theUnsafe.getLong(buffer, index + BYTE_ARRAY_OFFSET);
+      var result = theUnsafe.getLong(buffer, index + BYTE_ARRAY_OFFSET);
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
         result = Long.reverseBytes(result);
       }
@@ -234,7 +234,7 @@ public class UnsafeBinaryConverter implements BinaryConverter {
 
   public char getChar(byte[] buffer, int index, ByteOrder byteOrder) {
     if (!useOnlyAlignedAccess) {
-      char result = theUnsafe.getChar(buffer, index + BYTE_ARRAY_OFFSET);
+      var result = theUnsafe.getChar(buffer, index + BYTE_ARRAY_OFFSET);
       if (!byteOrder.equals(ByteOrder.nativeOrder())) {
         result = Character.reverseBytes(result);
       }

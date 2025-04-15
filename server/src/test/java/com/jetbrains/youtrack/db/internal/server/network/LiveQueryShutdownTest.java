@@ -11,10 +11,12 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
 import org.junit.Test;
 
 public class LiveQueryShutdownTest {
@@ -26,7 +28,7 @@ public class LiveQueryShutdownTest {
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
     server.activate();
 
-    ServerAdmin server = new ServerAdmin("remote:localhost");
+    var server = new ServerAdmin("remote:localhost");
     server.connect("root", "root");
     server.createDatabase(LiveQueryShutdownTest.class.getSimpleName(), "graph", "memory");
   }
@@ -41,39 +43,41 @@ public class LiveQueryShutdownTest {
   @Test
   public void testShutDown() throws Exception {
     bootServer();
-    final CountDownLatch end = new CountDownLatch(1);
-    try (var youTrackDbManager = YourTracks.remote("remote:localhost", "root", "root")) {
-      youTrackDbManager.createIfNotExists(LiveQueryShutdownTest.class.getSimpleName(),
+    final var end = new CountDownLatch(1);
+    try (var youTrackDd = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDd.createIfNotExists(LiveQueryShutdownTest.class.getSimpleName(),
           DatabaseType.MEMORY, "admin", "admin", "admin");
-      try (var db = youTrackDbManager.open(
+      try (var db = youTrackDd.open(
           LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin")) {
         db.getSchema().createClass("Test");
-        db.live(
+        youTrackDd.live(LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin",
             "live select from Test",
             new LiveQueryResultListener() {
 
               @Override
-              public void onCreate(DatabaseSession database, Result data) {
+              public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
 
               }
 
               @Override
-              public void onUpdate(DatabaseSession database, Result before, Result after) {
+              public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+                  @Nonnull Result after) {
 
               }
 
               @Override
-              public void onDelete(DatabaseSession database, Result data) {
+              public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
 
               }
 
               @Override
-              public void onError(DatabaseSession database, BaseException exception) {
+              public void onError(@Nonnull DatabaseSession session,
+                  @Nonnull BaseException exception) {
 
               }
 
               @Override
-              public void onEnd(DatabaseSession database) {
+              public void onEnd(@Nonnull DatabaseSession session) {
                 end.countDown();
               }
             });

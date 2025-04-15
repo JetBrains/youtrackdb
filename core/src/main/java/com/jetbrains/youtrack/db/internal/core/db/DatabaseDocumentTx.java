@@ -3,8 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import static com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal.closeAllOnShutdown;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
@@ -18,34 +18,44 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.dictionary.Dictionary;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceAction;
-import com.jetbrains.youtrack.db.internal.core.query.Query;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -53,33 +63,27 @@ import com.jetbrains.youtrack.db.internal.core.shutdown.ShutdownHandler;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
-import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -132,7 +136,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public static void closeAll() {
     embeddedLock.lock();
     try {
-      for (YouTrackDBInternal factory : embedded.values()) {
+      for (var factory : embedded.values()) {
         factory.close();
       }
       embedded.clear();
@@ -142,7 +146,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
     remoteLock.lock();
     try {
-      for (YouTrackDBInternal factory : remote.values()) {
+      for (var factory : remote.values()) {
         factory.close();
       }
       remote.clear();
@@ -173,7 +177,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public boolean executeExists(RID rid) {
+  public boolean executeExists(@Nonnull RID rid) {
     return false;
   }
 
@@ -207,7 +211,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   protected DatabaseDocumentTx(String url, boolean ownerProtection) {
 
-    DatabaseURLConnection connection = URLHelper.parse(url);
+    var connection = URLHelper.parse(url);
     this.url = connection.getUrl();
     baseUrl = connection.getPath();
     dbName = connection.getDbName();
@@ -217,25 +221,34 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public DatabaseDocumentTx(DatabaseSessionInternal ref, String baseUrl) {
     url = ref.getURL();
     this.baseUrl = baseUrl;
-    dbName = ref.getName();
+    dbName = ref.getDatabaseName();
     internal = ref;
     this.ownerProtection = true;
   }
 
   @Override
   public CurrentStorageComponentsFactory getStorageVersions() {
-    if (internal == null) {
-      return null;
-    }
     return internal.getStorageVersions();
   }
 
   @Override
-  public SBTreeCollectionManager getSbTreeCollectionManager() {
-    if (internal == null) {
-      return null;
-    }
-    return internal.getSbTreeCollectionManager();
+  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
+    return internal.newEmbeddedEntity(schemaClass);
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
+    return internal.newEmbeddedEntity(schemaClass);
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity() {
+    return internal.newEmbeddedEntity();
+  }
+
+  @Override
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
+    return internal.getBTreeCollectionManager();
   }
 
   @Override
@@ -256,13 +269,13 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public int begin(TransactionOptimistic tx) {
+  public int begin(FrontendTransactionImpl tx) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public int assignAndCheckCluster(DBRecord record, String clusterName) {
-    return internal.assignAndCheckCluster(record, clusterName);
+  public int assignAndCheckCollection(DBRecord record) {
+    return internal.assignAndCheckCollection(record);
   }
 
   @Override
@@ -272,17 +285,50 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public RecordHook.RESULT callbackHooks(RecordHook.TYPE type, Identifiable id) {
+  public void callbackHooks(TYPE type, RecordAbstract record) {
     checkOpenness();
-    return internal.callbackHooks(type, id);
+    internal.callbackHooks(type, record);
   }
 
   @Nonnull
   @Override
-  public <RET extends RecordAbstract> RET executeReadRecord(RecordId rid) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId) {
+    checkOpenness();
+    return internal.loadFirstRecordAndNextRidInCollection(collectionId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId) {
+    checkOpenness();
+    return internal.loadLastRecordAndPreviousRidInCollection(collectionId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
+      @Nonnull RecordId recordId) {
+    checkOpenness();
+    return internal.loadRecordAndNextRidInCollection(recordId);
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
+      @Nonnull RecordId recordId) {
+    checkOpenness();
+    return internal.loadRecordAndPreviousRidInCollection(recordId);
+  }
+
+  @Nonnull
+  @Override
+  public LoadRecordResult executeReadRecord(@Nonnull RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwIfNotFound) {
     checkOpenness();
 
-    return internal.executeReadRecord(rid);
+    return internal.executeReadRecord(rid, fetchPreviousRid, fetchNextRid, throwIfNotFound);
   }
 
   @Override
@@ -320,25 +366,22 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void registerHook(RecordHook iHookImpl) {
+  public RecordHook registerHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.registerHook(iHookImpl);
+
+    return iHookImpl;
   }
 
-  @Override
-  public void registerHook(RecordHook iHookImpl, RecordHook.HOOK_POSITION iPosition) {
-    checkOpenness();
-    internal.registerHook(iHookImpl, iPosition);
-  }
 
   @Override
-  public Map<RecordHook, RecordHook.HOOK_POSITION> getHooks() {
+  public List<RecordHook> getHooks() {
     checkOpenness();
     return internal.getHooks();
   }
 
   @Override
-  public void unregisterHook(RecordHook iHookImpl) {
+  public void unregisterHook(@Nonnull RecordHook iHookImpl) {
     checkOpenness();
     internal.unregisterHook(iHookImpl);
   }
@@ -355,7 +398,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public DatabaseSession setMVCC(boolean iValue) {
-    return null;
+    return this;
   }
 
   @Override
@@ -391,14 +434,20 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public DatabaseDocumentTx copy() {
-    checkOpenness();
-    return new DatabaseDocumentTx(this.internal.copy(), this.baseUrl);
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    return internal.live(query, listener, args);
   }
 
   @Override
-  public void checkIfActive() {
-    internal.checkIfActive();
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
+    return internal.live(query, listener, args);
+  }
+
+  @Override
+  public DatabaseDocumentTx copy() {
+    checkOpenness();
+    return new DatabaseDocumentTx(this.internal.copy(), this.baseUrl);
   }
 
   @Override
@@ -408,7 +457,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   protected void checkOpenness() {
     if (internal == null) {
-      throw new DatabaseException("Database '" + url + "' is closed");
+      throw new DatabaseException(url, "Database '" + url + "' is closed");
     }
   }
 
@@ -438,10 +487,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.setUser(user);
   }
 
-  @Override
-  public void replaceStorage(Storage iNewStorage) {
-    internal.replaceStorage(iNewStorage);
-  }
 
   @Override
   public void resetInitialization() {
@@ -452,7 +497,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public DatabaseSessionInternal getDatabaseOwner() {
-    DatabaseSessionInternal current = databaseOwner;
+    var current = databaseOwner;
 
     while (current != null && current != this && current.getDatabaseOwner() != current) {
       current = current.getDatabaseOwner();
@@ -473,11 +518,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public DatabaseSession getUnderlying() {
-    return internal.getUnderlying();
-  }
-
-  @Override
   public void setInternal(ATTRIBUTES attribute, Object iValue) {
     checkOpenness();
     internal.setInternal(attribute, iValue);
@@ -490,22 +530,33 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public SharedContext getSharedContext() {
-    if (internal == null) {
-      return null;
-    }
     return internal.getSharedContext();
   }
 
   @Override
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName) {
+  public RecordIteratorClass browseClass(@Nonnull String className) {
     checkOpenness();
-    return internal.browseClass(iClassName);
+    return internal.browseClass(className);
   }
 
   @Override
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName, boolean iPolymorphic) {
+  public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
     checkOpenness();
-    return internal.browseClass(iClassName, iPolymorphic);
+    return internal.browseClass(clz);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className,
+      boolean iPolymorphic) {
+    checkOpenness();
+    return internal.browseClass(className, iPolymorphic);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection) {
+    checkOpenness();
+    return internal.browseClass(className, iPolymorphic, forwardDirection);
   }
 
   @Override
@@ -526,6 +577,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.freeze(throwException);
   }
 
+  @Override
+  public String getCurrentUserName() {
+    return internal.getCurrentUserName();
+  }
+
   public Vertex newVertex(final String iClassName) {
     checkOpenness();
     return internal.newVertex(iClassName);
@@ -538,9 +594,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Edge newRegularEdge(Vertex from, Vertex to, String type) {
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
     checkOpenness();
-    return internal.newRegularEdge(from, to, type);
+    return internal.newStatefulEdge(from, to, type);
   }
 
   @Override
@@ -550,9 +606,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Edge newRegularEdge(Vertex from, Vertex to, SchemaClass type) {
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     checkOpenness();
-    return internal.newRegularEdge(from, to, type);
+    return internal.newStatefulEdge(from, to, type);
   }
 
   @Override
@@ -562,9 +618,27 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Entity newEntity() {
+  public EntityImpl newEntity() {
     checkOpenness();
     return internal.newInstance();
+  }
+
+  @Override
+  public EntityImpl newInternalInstance() {
+    checkOpenness();
+    return internal.newInternalInstance();
+  }
+
+  @Override
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
+    checkOpenness();
+    return internal.createOrLoadRecordFromJson(json);
+  }
+
+  @Override
+  public Entity createOrLoadEntityFromJson(String json) {
+    checkOpenness();
+    return internal.createOrLoadEntityFromJson(json);
   }
 
   @Override
@@ -573,8 +647,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.newEntity(className);
   }
 
-  public void setUseLightweightEdges(boolean b) {
-    internal.setUseLightweightEdges(b);
+  @Override
+  public Entity newEntity(SchemaClass cls) {
+    return internal.newEntity(cls);
   }
 
   @Override
@@ -583,22 +658,10 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.newInstance();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  @Deprecated
-  public Dictionary<DBRecord> getDictionary() {
+  public SecurityUser getCurrentUser() {
     checkOpenness();
-    return internal.getDictionary();
-  }
-
-  @Override
-  public SecurityUser geCurrentUser() {
-    if (internal != null) {
-      return internal.geCurrentUser();
-    }
-    return null;
+    return internal.getCurrentUser();
   }
 
 
@@ -610,35 +673,11 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <RET extends DBRecord> RET save(DBRecord record) {
-    checkOpenness();
-    return internal.save(record);
-  }
-
-  @Override
-  public <RET extends DBRecord> RET save(DBRecord iObject, String iClusterName) {
-    checkOpenness();
-    return internal.save(iObject, iClusterName);
-  }
-
-  @Override
-  public void delete(DBRecord record) {
+  public void delete(@Nonnull DBRecord record) {
     checkOpenness();
     internal.delete(record);
   }
 
-  @Override
-  public void delete(RID iRID) {
-    checkOpenness();
-    internal.delete(iRID);
-  }
-
-  @Override
-  public DatabaseSessionInternal cleanOutRecord(RID rid, int version) {
-    checkOpenness();
-    internal.cleanOutRecord(rid, version);
-    return this;
-  }
 
   @Override
   public void startExclusiveMetadataChange() {
@@ -653,13 +692,13 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public FrontendTransaction getTransaction() {
+  public FrontendTransaction getTransactionInternal() {
     checkOpenness();
-    return internal.getTransaction();
+    return internal.getTransactionInternal();
   }
 
   @Override
-  public int begin() {
+  public FrontendTransaction begin() {
     checkOpenness();
     return internal.begin();
   }
@@ -683,62 +722,9 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <RET extends List<?>> RET query(Query<?> iCommand, Object... iArgs) {
+  public RecordIteratorCollection<EntityImpl> browseCollection(String iCollectionName) {
     checkOpenness();
-    return internal.query(iCommand, iArgs);
-  }
-
-  @Override
-  public <RET extends CommandRequest> RET command(CommandRequest iCommand) {
-    checkOpenness();
-    return internal.command(iCommand);
-  }
-
-  @Override
-  public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
-    checkOpenness();
-    return internal.browseCluster(iClusterName);
-  }
-
-  @Override
-  public RecordIteratorCluster<EntityImpl> browseCluster(
-      String iClusterName,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, startClusterPosition, endClusterPosition, loadTombstones);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName, Class<REC> iRecordClass) {
-    checkOpenness();
-    return internal.browseCluster(iClusterName, iRecordClass);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, iRecordClass, startClusterPosition, endClusterPosition);
-  }
-
-  @Override
-  public <REC extends DBRecord> RecordIteratorCluster<REC> browseCluster(
-      String iClusterName,
-      Class<REC> iRecordClass,
-      long startClusterPosition,
-      long endClusterPosition,
-      boolean loadTombstones) {
-    checkOpenness();
-    return internal.browseCluster(
-        iClusterName, iRecordClass, startClusterPosition, endClusterPosition, loadTombstones);
+    return internal.browseCollection(iCollectionName);
   }
 
   @Override
@@ -771,6 +757,12 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
       Rule.ResourceGeneric iResourceGeneric, int iOperation, Object iResourceSpecific) {
     checkOpenness();
     internal.checkSecurity(iResourceGeneric, iOperation, iResourceSpecific);
+  }
+
+  @Override
+  public void checkSecurity(int operation, Identifiable record, String collection) {
+    checkOpenness();
+    internal.checkSecurity(operation, record, collection);
   }
 
   @Override
@@ -819,8 +811,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
       return;
     }
 
-    final Thread current = Thread.currentThread();
-    final Thread o = owner.get();
+    final var current = Thread.currentThread();
+    final var o = owner.get();
 
     if (o != null || !owner.compareAndSet(null, current)) {
       throw new IllegalStateException(
@@ -875,7 +867,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   @Override
   public void drop() {
     checkOpenness();
-    DatabaseRecordThreadLocal.instance().remove();
     factory.drop(this.dbName, null, null);
     this.internal = null;
     clearOwner();
@@ -922,7 +913,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public String getName() {
+  public String getDatabaseName() {
     return dbName;
   }
 
@@ -937,52 +928,53 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     return internal.getLocalCache();
   }
 
+  @Nonnull
   @Override
-  public int getDefaultClusterId() {
+  public RID refreshRid(@Nonnull RID rid) {
     checkOpenness();
-    return internal.getDefaultClusterId();
+    return internal.refreshRid(rid);
   }
 
   @Override
-  public int getClusters() {
+  public int getCollections() {
     checkOpenness();
-    return internal.getClusters();
+    return internal.getCollections();
   }
 
   @Override
-  public boolean existsCluster(String iClusterName) {
+  public boolean existsCollection(String iCollectionName) {
     checkOpenness();
-    return internal.existsCluster(iClusterName);
+    return internal.existsCollection(iCollectionName);
   }
 
   @Override
-  public Collection<String> getClusterNames() {
+  public Collection<String> getCollectionNames() {
     checkOpenness();
-    return internal.getClusterNames();
+    return internal.getCollectionNames();
   }
 
   @Override
-  public int getClusterIdByName(String iClusterName) {
+  public int getCollectionIdByName(String iCollectionName) {
     checkOpenness();
-    return internal.getClusterIdByName(iClusterName);
+    return internal.getCollectionIdByName(iCollectionName);
   }
 
   @Override
-  public String getClusterNameById(int iClusterId) {
+  public String getCollectionNameById(int iCollectionId) {
     checkOpenness();
-    return internal.getClusterNameById(iClusterId);
+    return internal.getCollectionNameById(iCollectionId);
   }
 
   @Override
-  public long getClusterRecordSizeByName(String iClusterName) {
+  public long getCollectionRecordSizeByName(String iCollectionName) {
     checkOpenness();
-    return internal.getClusterRecordSizeByName(iClusterName);
+    return internal.getCollectionRecordSizeByName(iCollectionName);
   }
 
   @Override
-  public long getClusterRecordSizeById(int iClusterId) {
+  public long getCollectionRecordSizeById(int iCollectionId) {
     checkOpenness();
-    return internal.getClusterRecordSizeById(iClusterId);
+    return internal.getCollectionRecordSizeById(iCollectionId);
   }
 
   @Override
@@ -991,75 +983,75 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void truncateCluster(String clusterName) {
+  public void truncateCollection(String collectionName) {
     checkOpenness();
-    internal.truncateCluster(clusterName);
+    internal.truncateCollection(collectionName);
   }
 
   @Override
-  public long countClusterElements(int iCurrentClusterId) {
+  public long countCollectionElements(int iCurrentCollectionId) {
     checkOpenness();
-    return internal.countClusterElements(iCurrentClusterId);
+    return internal.countCollectionElements(iCurrentCollectionId);
   }
 
   @Override
-  public long countClusterElements(int iCurrentClusterId, boolean countTombstones) {
+  public long countCollectionElements(int iCurrentCollectionId, boolean countTombstones) {
     checkOpenness();
-    return internal.countClusterElements(iCurrentClusterId, countTombstones);
+    return internal.countCollectionElements(iCurrentCollectionId, countTombstones);
   }
 
   @Override
-  public long countClusterElements(int[] iClusterIds) {
+  public long countCollectionElements(int[] iCollectionIds) {
     checkOpenness();
-    return internal.countClusterElements(iClusterIds);
+    return internal.countCollectionElements(iCollectionIds);
   }
 
   @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
+  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     checkOpenness();
-    return internal.countClusterElements(iClusterIds, countTombstones);
+    return internal.countCollectionElements(iCollectionIds, countTombstones);
   }
 
   @Override
-  public long countClusterElements(String iClusterName) {
+  public long countCollectionElements(String iCollectionName) {
     checkOpenness();
-    return internal.countClusterElements(iClusterName);
+    return internal.countCollectionElements(iCollectionName);
   }
 
   @Override
-  public int addCluster(String iClusterName, Object... iParameters) {
+  public int addCollection(String iCollectionName, Object... iParameters) {
     checkOpenness();
-    return internal.addCluster(iClusterName, iParameters);
+    return internal.addCollection(iCollectionName, iParameters);
   }
 
   @Override
-  public int addBlobCluster(String iClusterName, Object... iParameters) {
+  public int addBlobCollection(String iCollectionName, Object... iParameters) {
     checkOpenness();
-    return internal.addBlobCluster(iClusterName, iParameters);
+    return internal.addBlobCollection(iCollectionName, iParameters);
   }
 
   @Override
-  public int[] getBlobClusterIds() {
+  public int[] getBlobCollectionIds() {
     checkOpenness();
-    return internal.getBlobClusterIds();
+    return internal.getBlobCollectionIds();
   }
 
   @Override
-  public int addCluster(String iClusterName, int iRequestedId) {
+  public int addCollection(String iCollectionName, int iRequestedId) {
     checkOpenness();
-    return internal.addCluster(iClusterName, iRequestedId);
+    return internal.addCollection(iCollectionName, iRequestedId);
   }
 
   @Override
-  public boolean dropCluster(String iClusterName) {
+  public boolean dropCollection(String iCollectionName) {
     checkOpenness();
-    return internal.dropCluster(iClusterName);
+    return internal.dropCollection(iCollectionName);
   }
 
   @Override
-  public boolean dropCluster(int iClusterId) {
+  public boolean dropCollection(int iCollectionId) {
     checkOpenness();
-    return internal.dropCluster(iClusterId);
+    return internal.dropCollection(iCollectionId);
   }
 
   @Override
@@ -1105,6 +1097,174 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
+  public @Nonnull FrontendTransaction getActiveTransaction() {
+    checkOpenness();
+    return internal.getActiveTransaction();
+  }
+
+  @Nullable
+  @Override
+  public Transaction getActiveTransactionOrNull() {
+    return internal.getActiveTransactionOrNull();
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList() {
+    checkOpenness();
+    return internal.newEmbeddedList();
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList(int size) {
+    checkOpenness();
+    return internal.newEmbeddedList(size);
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    checkOpenness();
+    return internal.newEmbeddedList(list);
+  }
+
+  @Override
+  public EmbeddedList<String> newEmbeddedList(String[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Short> newEmbeddedList(short[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Long> newEmbeddedList(long[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Float> newEmbeddedList(float[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Double> newEmbeddedList(double[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    checkOpenness();
+    return internal.newEmbeddedList(source);
+  }
+
+  @Override
+  public LinkList newLinkList() {
+    checkOpenness();
+    return internal.newLinkList();
+  }
+
+  @Override
+  public LinkList newLinkList(int size) {
+    checkOpenness();
+    return internal.newLinkList(size);
+  }
+
+  @Override
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkList(source);
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet() {
+    checkOpenness();
+    return internal.newEmbeddedSet();
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    checkOpenness();
+    return internal.newEmbeddedSet(size);
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    checkOpenness();
+    return internal.newEmbeddedSet(set);
+  }
+
+  @Override
+  public LinkSet newLinkSet() {
+    checkOpenness();
+    return internal.newLinkSet();
+  }
+
+  @Override
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkSet(source);
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap() {
+    checkOpenness();
+    return internal.newEmbeddedMap();
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
+    checkOpenness();
+    return internal.newEmbeddedMap(size);
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
+    checkOpenness();
+    return internal.newEmbeddedMap(map);
+  }
+
+  @Override
+  public LinkMap newLinkMap() {
+    checkOpenness();
+    return internal.newLinkMap();
+  }
+
+  @Override
+  public LinkMap newLinkMap(int size) {
+    checkOpenness();
+    return internal.newLinkMap(size);
+  }
+
+  @Override
+  public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
+    checkOpenness();
+    return internal.newLinkMap(source);
+  }
+
+  @Override
   public void registerListener(SessionListener iListener) {
     if (internal != null) {
       internal.registerListener(iListener);
@@ -1126,7 +1286,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public Entity newInstance(String className) {
+  public EntityImpl newInstance(String className) {
     checkOpenness();
     return internal.newInstance(className);
   }
@@ -1139,7 +1299,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
 
   @Override
   public Blob newBlob() {
-    return new RecordBytes();
+    return new RecordBytes(this);
   }
 
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
@@ -1150,12 +1310,6 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     checkOpenness();
     return internal.newRegularEdge(iClassName, from, to);
-  }
-
-  @Override
-  public VertexInternal newVertex(RecordId rid) {
-    checkOpenness();
-    return internal.newVertex(rid);
   }
 
   @Override
@@ -1192,16 +1346,53 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public ResultSet command(String query, Object... args)
+  public ResultSet query(String query, boolean syncTx, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
-    checkOpenness();
-    return internal.command(query, args);
+    return internal.query(query, syncTx, args);
   }
 
-  public ResultSet command(String query, Map args)
+  @Override
+  public ResultSet execute(String query, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
-    return internal.command(query, args);
+    return internal.execute(query, args);
+  }
+
+  public ResultSet execute(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkOpenness();
+    return internal.execute(query, args);
+  }
+
+  @Override
+  public <X extends Exception> void executeInTxInternal(
+      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  @Override
+  public <R, X extends Exception> R computeInTxInternal(
+      TxFunction<FrontendTransaction, R, X> supplier) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Iterator<T> iterator,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(@Nonnull Iterator<T> iterator,
+      int batchSize, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1220,36 +1411,19 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
     internal.setPrefetchRecords(prefetchRecords);
   }
 
-  public void checkForClusterPermissions(String name) {
-    checkOpenness();
-    internal.checkForClusterPermissions(name);
-  }
 
   @Override
-  public ResultSet execute(String language, String script, Object... args)
+  public ResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    return internal.execute(language, script, args);
+    return internal.runScript(language, script, args);
   }
 
   @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args)
+  public ResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    return internal.execute(language, script, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    checkOpenness();
-    return internal.live(query, listener, args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    checkOpenness();
-    return internal.live(query, listener, args);
+    return internal.runScript(language, script, args);
   }
 
   @Override
@@ -1259,59 +1433,68 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void internalCommit(TransactionOptimistic transaction) {
+  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     internal.internalCommit(transaction);
   }
 
   @Override
-  public boolean isClusterVertex(int cluster) {
+  public boolean isCollectionVertex(int collection) {
     checkOpenness();
-    return internal.isClusterVertex(cluster);
+    return internal.isCollectionVertex(collection);
   }
 
   @Override
-  public boolean isClusterEdge(int cluster) {
+  public boolean isCollectionEdge(int collection) {
     checkOpenness();
-    return internal.isClusterEdge(cluster);
+    return internal.isCollectionEdge(collection);
   }
 
   @Override
-  public Identifiable beforeCreateOperations(Identifiable id, String iClusterName) {
-    return internal.beforeCreateOperations(id, iClusterName);
+  public void deleteInternal(@Nonnull DBRecord record) {
+    checkOpenness();
+    internal.deleteInternal(record);
+  }
+
+
+  @Override
+  public void beforeCreateOperations(RecordAbstract recordAbstract, String collectionName) {
+    internal.beforeCreateOperations(recordAbstract, collectionName);
   }
 
   @Override
-  public Identifiable beforeUpdateOperations(Identifiable id, String iClusterName) {
-    return internal.beforeUpdateOperations(id, iClusterName);
+  public void afterCreateOperations(RecordAbstract recordAbstract) {
+    internal.afterCreateOperations(recordAbstract);
   }
 
   @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
-    internal.beforeDeleteOperations(id, iClusterName);
+  public void beforeDeleteOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
+    internal.beforeDeleteOperations(recordAbstract, collectionName);
   }
 
   @Override
-  public void afterCreateOperations(Identifiable id) {
-    internal.afterCreateOperations(id);
+  public void afterDeleteOperations(RecordAbstract recordAbstract) {
+    internal.afterDeleteOperations(recordAbstract);
   }
 
   @Override
-  public void afterDeleteOperations(Identifiable id) {
-    internal.afterDeleteOperations(id);
+  public void beforeUpdateOperations(RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
+    internal.beforeUpdateOperations(recordAbstract, collectionName);
   }
 
   @Override
-  public void afterUpdateOperations(Identifiable id) {
-    internal.afterUpdateOperations(id);
+  public void afterUpdateOperations(RecordAbstract recordAbstract) {
+    internal.afterUpdateOperations(recordAbstract);
   }
 
   @Override
-  public void afterReadOperations(Identifiable identifiable) {
+  public void afterReadOperations(RecordAbstract identifiable) {
     internal.afterReadOperations(identifiable);
   }
 
   @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
+  public boolean beforeReadOperations(RecordAbstract identifiable) {
     return internal.beforeReadOperations(identifiable);
   }
 
@@ -1321,20 +1504,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public String getClusterName(DBRecord record) {
-    return internal.getClusterName(record);
-  }
-
-  @Override
-  public <T> T sendSequenceAction(SequenceAction action)
-      throws ExecutionException, InterruptedException {
-    throw new UnsupportedOperationException(
-        "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
-  }
-
-  @Override
-  public Map<UUID, BonsaiCollectionPointer> getCollectionsChanges() {
-    return internal.getCollectionsChanges();
+  public String getCollectionName(@Nonnull DBRecord record) {
+    return internal.getCollectionName(record);
   }
 
   @Override
@@ -1348,33 +1519,18 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public boolean dropClusterInternal(int clusterId) {
-    return internal.dropClusterInternal(clusterId);
+  public boolean dropCollectionInternal(int collectionId) {
+    return internal.dropCollectionInternal(collectionId);
   }
 
   @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    return internal.getClusterDataRange(currentClusterId);
+  public String getCollectionRecordConflictStrategy(int collectionId) {
+    return internal.getCollectionRecordConflictStrategy(collectionId);
   }
 
   @Override
-  public long getLastClusterPosition(int clusterId) {
-    return internal.getLastClusterPosition(clusterId);
-  }
-
-  @Override
-  public void setDefaultClusterId(int addCluster) {
-    internal.setDefaultClusterId(addCluster);
-  }
-
-  @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
-    return internal.getClusterRecordConflictStrategy(clusterId);
-  }
-
-  @Override
-  public int[] getClustersIds(Set<String> filterClusters) {
-    return internal.getClustersIds(filterClusters);
+  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
+    return internal.getCollectionsIds(filterCollections);
   }
 
   @Override
@@ -1383,13 +1539,8 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public long truncateClusterInternal(String name) {
-    return internal.truncateClusterInternal(name);
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    return internal.getNonTxReadMode();
+  public long truncateCollectionInternal(String name) {
+    return internal.truncateCollectionInternal(name);
   }
 
   @Override
@@ -1398,53 +1549,57 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void executeInTx(Runnable runnable) {
-    internal.executeInTx(runnable);
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable, int batchSize,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterator<T> iterator, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(iterator, batchSize, consumer);
+  public <T, X extends Exception> void executeInTxBatches(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(iterator, consumer);
+  public <T, X extends Exception> void executeInTxBatches(Stream<T> stream, int batchSize,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(iterable, batchSize, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(iterable, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(
-      Stream<T> stream, int batchSize, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(stream, batchSize, consumer);
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> void executeInTxBatches(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
-    internal.executeInTxBatches(stream, consumer);
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T> T computeInTx(Supplier<T> supplier) {
-    return internal.computeInTx(supplier);
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public <T extends Identifiable> T bindToSession(T identifiable) {
-    return internal.bindToSession(identifiable);
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -1458,35 +1613,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public <T> void forEachInTx(Iterator<T> iterator,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream,
-      BiFunction<DatabaseSession, T, Boolean> consumer) {
-    internal.forEachInTx(stream, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterator<T> iterator, BiConsumer<DatabaseSession, T> consumer) {
-    internal.forEachInTx(iterator, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Iterable<T> iterable, BiConsumer<DatabaseSession, T> consumer) {
-    internal.forEachInTx(iterable, consumer);
-  }
-
-  @Override
-  public <T> void forEachInTx(Stream<T> stream, BiConsumer<DatabaseSession, T> consumer) {
-    internal.forEachInTx(stream, consumer);
+  public void closeActiveQueries() {
+    internal.closeActiveQueries();
   }
 }

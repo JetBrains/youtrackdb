@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.iterator;
 
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class EmptyMapEntryIterator<K, V> implements Iterator<Map.Entry<K, V>> {
 
@@ -30,6 +31,7 @@ public class EmptyMapEntryIterator<K, V> implements Iterator<Map.Entry<K, V>> {
     return false;
   }
 
+  @Nullable
   public Map.Entry<K, V> next() {
     return null;
   }

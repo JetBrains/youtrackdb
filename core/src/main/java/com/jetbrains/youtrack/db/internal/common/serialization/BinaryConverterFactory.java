@@ -30,10 +30,10 @@ public class BinaryConverterFactory {
   private static final boolean unsafeWasDetected;
 
   static {
-    boolean unsafeDetected = false;
+    var unsafeDetected = false;
 
     try {
-      Class<?> sunClass = Class.forName("sun.misc.Unsafe");
+      var sunClass = Class.forName("sun.misc.Unsafe");
       unsafeDetected = sunClass != null;
     } catch (ClassNotFoundException ignore) {
       // Ignore
@@ -43,7 +43,7 @@ public class BinaryConverterFactory {
   }
 
   public static BinaryConverter getConverter() {
-    boolean useUnsafe = GlobalConfiguration.MEMORY_USE_UNSAFE.getValueAsBoolean();
+    var useUnsafe = GlobalConfiguration.MEMORY_USE_UNSAFE.getValueAsBoolean();
 
     if (useUnsafe && unsafeWasDetected) {
       return UnsafeBinaryConverter.INSTANCE;

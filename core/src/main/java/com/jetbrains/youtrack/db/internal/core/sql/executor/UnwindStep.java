@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
@@ -34,11 +34,12 @@ public class UnwindStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new CommandExecutionException("Cannot expand without a target");
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Cannot expand without a target");
     }
 
-    ExecutionStream resultSet = prev.start(ctx);
-    var db = ctx.getDatabase();
+    var resultSet = prev.start(ctx);
+    var db = ctx.getDatabaseSession();
     return resultSet.flatMap((res, res2) -> fetchNextResults(db, res));
   }
 
@@ -53,10 +54,10 @@ public class UnwindStep extends AbstractExecutionStep {
     if (unwindFields.isEmpty()) {
       result.add(entity);
     } else {
-      String firstField = unwindFields.get(0);
-      final List<String> nextFields = unwindFields.subList(1, unwindFields.size());
+      var firstField = unwindFields.get(0);
+      final var nextFields = unwindFields.subList(1, unwindFields.size());
 
-      Object fieldValue = entity.getProperty(firstField);
+      var fieldValue = entity.getProperty(firstField);
       if (fieldValue == null || fieldValue instanceof EntityImpl) {
         result.addAll(unwind(db, entity, nextFields));
         return result;
@@ -74,15 +75,15 @@ public class UnwindStep extends AbstractExecutionStep {
         iterator = ((Iterable<?>) fieldValue).iterator();
       }
       if (!iterator.hasNext()) {
-        ResultInternal unwindedDoc = new ResultInternal(db);
+        var unwindedDoc = new ResultInternal(db);
         copy(entity, unwindedDoc);
 
         unwindedDoc.setProperty(firstField, null);
         result.addAll(unwind(db, unwindedDoc, nextFields));
       } else {
         do {
-          Object o = iterator.next();
-          ResultInternal unwindedDoc = new ResultInternal(db);
+          var o = iterator.next();
+          var unwindedDoc = new ResultInternal(db);
           copy(entity, unwindedDoc);
           unwindedDoc.setProperty(firstField, o);
           result.addAll(unwind(db, unwindedDoc, nextFields));
@@ -94,14 +95,14 @@ public class UnwindStep extends AbstractExecutionStep {
   }
 
   private static void copy(Result from, ResultInternal to) {
-    for (String prop : from.getPropertyNames()) {
+    for (var prop : from.getPropertyNames()) {
       to.setProperty(prop, from.getProperty(prop));
     }
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ " + unwind;
   }
 }

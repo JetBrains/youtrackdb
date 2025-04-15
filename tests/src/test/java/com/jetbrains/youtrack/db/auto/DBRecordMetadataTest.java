@@ -4,7 +4,6 @@ import static org.testng.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -21,26 +20,31 @@ public class DBRecordMetadataTest extends BaseDBTest {
   }
 
   private static void assetORIDEquals(RID actual, RID expected) {
-    assertEquals(actual.getClusterId(), expected.getClusterId());
-    assertEquals(actual.getClusterPosition(), expected.getClusterPosition());
+    assertEquals(actual.getCollectionId(), expected.getCollectionId());
+    assertEquals(actual.getCollectionPosition(), expected.getCollectionPosition());
   }
 
   public void testGetRecordMetadata() {
 
-    EntityImpl doc = new EntityImpl();
-    for (int i = 0; i < 5; i++) {
-      database.begin();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    session.commit();
+    for (var i = 0; i < 5; i++) {
+      session.begin();
       if (!doc.getIdentity().isNew()) {
-        doc = database.bindToSession(doc);
+        var activeTx = session.getActiveTransaction();
+        doc = activeTx.load(doc);
       }
 
-      doc.field("field", i);
-      database.save(doc, database.getClusterNameById(database.getDefaultClusterId()));
-      database.commit();
+      doc.setProperty("field", i);
+      session.commit();
 
-      final RecordMetadata metadata = database.getRecordMetadata(doc.getIdentity());
+      session.begin();
+      final var metadata = session.getRecordMetadata(doc.getIdentity());
       assetORIDEquals(doc.getIdentity(), metadata.getRecordId());
-      assertEquals(database.bindToSession(doc).getVersion(), metadata.getVersion());
+      var activeTx = session.getActiveTransaction();
+      assertEquals(activeTx.<EntityImpl>load(doc).getVersion(), metadata.getVersion());
+      session.commit();
     }
   }
 }

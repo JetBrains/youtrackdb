@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -44,10 +43,10 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
 
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
-    YouTrackDBInternal server = ctx.getServer();
-    ResultInternal result = new ResultInternal(ctx.getDatabase());
+    var server = ctx.getServer();
+    var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("operation", "create database");
-    String dbName =
+    var dbName =
         name != null
             ? name.getStringValue()
             : String.valueOf(nameParam.getValue(ctx.getInputParameters()));
@@ -58,14 +57,15 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
 
       dbType = DatabaseType.valueOf(type.getStringValue().toUpperCase(Locale.ENGLISH));
     } catch (IllegalArgumentException ex) {
-      throw new CommandExecutionException("Invalid db type: " + type.getStringValue());
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Invalid db type: " + type.getStringValue());
     }
     if (ifNotExists && server.exists(dbName, null, null)) {
       result.setProperty("created", false);
       result.setProperty("existing", true);
     } else {
       try {
-        YouTrackDBConfigBuilderImpl configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
+        var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
 
         if (config != null) {
           configBuilder = mapYouTrackDbConfig(this.config, ctx, configBuilder);
@@ -86,8 +86,8 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
             (session) -> {
               if (!users.isEmpty()) {
                 session.executeInTx(
-                    () -> {
-                      for (SQLDatabaseUserData user : users) {
+                    transaction -> {
+                      for (var user : users) {
                         user.executeCreate(session, ctx);
                       }
                     });
@@ -97,20 +97,20 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
         result.setProperty("created", true);
       } catch (Exception e) {
         throw BaseException.wrapException(
-            new CommandExecutionException(
+            new CommandExecutionException(ctx.getDatabaseSession(),
                 "Could not create database " + type.getStringValue() + ":" + e.getMessage()),
-            e);
+            e, ctx.getDatabaseSession());
       }
     }
 
-    return ExecutionStream.singleton(result);
+    return ExecutionStream.singleton(result.detach());
   }
 
   private YouTrackDBConfigBuilderImpl mapYouTrackDbConfig(
       SQLJson config, ServerCommandContext ctx, YouTrackDBConfigBuilderImpl builder) {
-    Map<String, Object> configMap = config.toMap(new ResultInternal(ctx.getDatabase()), ctx);
+    var configMap = config.toMap(new ResultInternal(ctx.getDatabaseSession()), ctx);
 
-    Object globalConfig = configMap.get("config");
+    var globalConfig = configMap.get("config");
     if (globalConfig != null && globalConfig instanceof Map) {
       ((Map<String, Object>) globalConfig)
           .entrySet().stream()
@@ -139,8 +139,8 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
 
     if (!users.isEmpty()) {
       builder.append(" USERS (");
-      boolean first = true;
-      for (SQLDatabaseUserData user : users) {
+      var first = true;
+      for (var user : users) {
         if (!first) {
           builder.append(", ");
         }

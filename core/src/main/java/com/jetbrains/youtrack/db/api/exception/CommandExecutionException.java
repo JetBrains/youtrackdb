@@ -19,17 +19,23 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class CommandExecutionException extends CoreException {
-
-  private static final long serialVersionUID = -7430575036316163711L;
-
   public CommandExecutionException(CommandExecutionException exception) {
     super(exception);
   }
 
   public CommandExecutionException(String message) {
     super(message);
+  }
+
+  public CommandExecutionException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public CommandExecutionException(DatabaseSession session, String message) {
+    super(session, message);
   }
 }

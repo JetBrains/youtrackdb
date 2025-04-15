@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrderBy;
 import java.util.ArrayList;
@@ -54,21 +54,21 @@ public class OrderByStep extends AbstractExecutionStep {
   }
 
   private List<Result> init(ExecutionStepInternal p, CommandContext ctx) {
-    long timeoutBegin = System.currentTimeMillis();
+    var timeoutBegin = System.currentTimeMillis();
     List<Result> cachedResult = new ArrayList<>();
-    final long maxElementsAllowed =
+    final var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
-    boolean sorted = true;
-    ExecutionStream lastBatch = p.start(ctx);
+    var sorted = true;
+    var lastBatch = p.start(ctx);
     while (lastBatch.hasNext(ctx)) {
       if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
         sendTimeout();
       }
 
-      Result item = lastBatch.next(ctx);
+      var item = lastBatch.next(ctx);
       cachedResult.add(item);
       if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
                 + maxElementsAllowed
                 + ") . You can set "
@@ -78,7 +78,7 @@ public class OrderByStep extends AbstractExecutionStep {
       sorted = false;
       // compact, only at twice as the buffer, to avoid to do it at each add
       if (this.maxResults != null) {
-        long compactThreshold = 2L * maxResults;
+        var compactThreshold = 2L * maxResults;
         if (compactThreshold < cachedResult.size()) {
           cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
           cachedResult = new ArrayList<>(cachedResult.subList(0, maxResults));
@@ -101,7 +101,7 @@ public class OrderByStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result = ExecutionStepInternal.getIndent(depth, indent) + "+ " + orderBy;
+    var result = ExecutionStepInternal.getIndent(depth, indent) + "+ " + orderBy;
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

@@ -256,7 +256,7 @@ public class SyslogMessage {
    */
   public String toRfc5424SyslogMessage() {
 
-    StringWriter sw = new StringWriter(msg == null ? 32 : msg.size() + 32);
+    var sw = new StringWriter(msg == null ? 32 : msg.size() + 32);
     try {
       toRfc5424SyslogMessage(sw);
     } catch (IOException e) {
@@ -270,7 +270,7 @@ public class SyslogMessage {
    */
   public void toRfc5424SyslogMessage(Writer out) throws IOException {
 
-    int pri = facility.numericalCode() + severity.numericalCode();
+    var pri = facility.numericalCode() + severity.numericalCode();
 
     out.write('<');
     out.write(String.valueOf(pri));
@@ -302,7 +302,7 @@ public class SyslogMessage {
    */
   public String toRfc3164SyslogMessage() {
 
-    StringWriter sw = new StringWriter(msg == null ? 32 : msg.size() + 32);
+    var sw = new StringWriter(msg == null ? 32 : msg.size() + 32);
     try {
       toRfc3164SyslogMessage(sw);
     } catch (IOException e) {
@@ -316,7 +316,7 @@ public class SyslogMessage {
    */
   public void toRfc3164SyslogMessage(Writer out) throws IOException {
 
-    int pri = facility.numericalCode() + severity.numericalCode();
+    var pri = facility.numericalCode() + severity.numericalCode();
 
     out.write('<');
     out.write(Integer.toString(pri));

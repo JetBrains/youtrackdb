@@ -4,9 +4,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/**
- *
- */
 public class PatternNode {
 
   public String alias;
@@ -16,7 +13,7 @@ public class PatternNode {
   public boolean optional = false;
 
   public int addEdge(SQLMatchPathItem item, PatternNode to) {
-    PatternEdge edge = new PatternEdge();
+    var edge = new PatternEdge();
     edge.item = item;
     edge.out = this;
     edge.in = to;

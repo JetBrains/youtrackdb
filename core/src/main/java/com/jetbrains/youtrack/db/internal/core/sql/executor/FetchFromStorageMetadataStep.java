@@ -8,8 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageEntryConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -33,13 +32,12 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
   }
 
   private Result produce(CommandContext ctx) {
-    DatabaseSessionInternal db = ctx.getDatabase();
-    ResultInternal result = new ResultInternal(db);
+    var db = ctx.getDatabaseSession();
+    var result = new ResultInternal(db);
 
-    Storage storage = db.getStorage();
-    result.setProperty("clusters", toResult(db, storage.getClusterInstances()));
-    result.setProperty("defaultClusterId", storage.getDefaultClusterId());
-    result.setProperty("totalClusters", storage.getClusters());
+    var storage = db.getStorage();
+    result.setProperty("collections", toResult(db, storage.getCollectionInstances()));
+    result.setProperty("totalCollections", storage.getCollections());
     result.setProperty("configuration", toResult(db, storage.getConfiguration()));
     result.setProperty(
         "conflictStrategy",
@@ -47,7 +45,7 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
             ? null
             : storage.getRecordConflictStrategy().getName());
     result.setProperty("name", storage.getName());
-    result.setProperty("size", storage.getSize(ctx.getDatabase()));
+    result.setProperty("size", storage.getSize(ctx.getDatabaseSession()));
     result.setProperty("type", storage.getType());
     result.setProperty("version", storage.getVersion());
     result.setProperty("createdAtVersion", storage.getCreatedAtVersion());
@@ -56,9 +54,9 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
 
   private static Object toResult(DatabaseSessionInternal db,
       StorageConfiguration configuration) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("charset", configuration.getCharset());
-    result.setProperty("clusterSelection", configuration.getClusterSelection());
+    result.setProperty("collectionSelection", configuration.getCollectionSelection());
     result.setProperty("conflictStrategy", configuration.getConflictStrategy());
     result.setProperty("dateFormat", configuration.getDateFormat());
     result.setProperty("dateTimeFormat", configuration.getDateTimeFormat());
@@ -74,8 +72,8 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
       List<StorageEntryConfiguration> properties) {
     List<Result> result = new ArrayList<>();
     if (properties != null) {
-      for (StorageEntryConfiguration entry : properties) {
-        ResultInternal item = new ResultInternal(db);
+      for (var entry : properties) {
+        var item = new ResultInternal(db);
         item.setProperty("name", entry.name);
         item.setProperty("value", entry.value);
         result.add(item);
@@ -85,21 +83,21 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
   }
 
   private List<Result> toResult(DatabaseSessionInternal db,
-      Collection<? extends StorageCluster> clusterInstances) {
+      Collection<? extends StorageCollection> collectionInstances) {
     List<Result> result = new ArrayList<>();
-    if (clusterInstances != null) {
-      for (StorageCluster cluster : clusterInstances) {
-        ResultInternal item = new ResultInternal(db);
-        item.setProperty("name", cluster.getName());
-        item.setProperty("fileName", cluster.getFileName());
-        item.setProperty("id", cluster.getId());
-        item.setProperty("entries", cluster.getEntries());
+    if (collectionInstances != null) {
+      for (var collection : collectionInstances) {
+        var item = new ResultInternal(db);
+        item.setProperty("name", collection.getName());
+        item.setProperty("fileName", collection.getFileName());
+        item.setProperty("id", collection.getId());
+        item.setProperty("entries", collection.getEntries());
         item.setProperty(
             "conflictStrategy",
-            cluster.getRecordConflictStrategy() == null
+            collection.getRecordConflictStrategy() == null
                 ? null
-                : cluster.getRecordConflictStrategy().getName());
-        item.setProperty("tombstonesCount", cluster.getTombstonesCount());
+                : collection.getRecordConflictStrategy().getName());
+        item.setProperty("tombstonesCount", collection.getTombstonesCount());
         result.add(item);
       }
     }
@@ -108,8 +106,8 @@ public class FetchFromStorageMetadataStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ FETCH STORAGE METADATA";
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ FETCH STORAGE METADATA";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

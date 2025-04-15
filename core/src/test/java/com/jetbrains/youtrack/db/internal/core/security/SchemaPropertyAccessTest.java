@@ -10,12 +10,11 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 
@@ -23,128 +22,151 @@ public class SchemaPropertyAccessTest extends DbTestBase {
 
   @Test
   public void testNotAccessible() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     assertEquals("one value", doc.getProperty("name"));
-    assertEquals("one value", doc.field("name"));
-    assertTrue(doc.containsField("name"));
+    assertEquals("one value", doc.getProperty("name"));
+    assertTrue(doc.hasProperty("name"));
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc.getProperty("name"));
-    assertNull(doc.field("name"));
-    assertNull(doc.field("name", PropertyType.STRING));
-    assertNull(doc.field("name", String.class));
-    assertFalse(doc.containsField("name"));
-    assertNull(doc.fieldType("name"));
+    assertNull(doc.getProperty("name"));
+    assertNull(doc.getString("name"));
+    assertNull(doc.getString("name"));
+    assertFalse(doc.hasProperty("name"));
+    assertNull(doc.getPropertyType("name"));
+    session.rollback();
   }
 
   @Test
   public void testNotAccessibleAfterConvert() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
-    EntityImpl doc1 = new EntityImpl();
-    RecordInternal.unsetDirty(doc1);
+    var doc1 = (EntityImpl) session.newEntity();
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(doc.toStream());
     assertEquals("one value", doc1.getProperty("name"));
-    assertEquals("one value", doc1.field("name"));
-    assertTrue(doc1.containsField("name"));
-    assertEquals(PropertyType.STRING, doc1.fieldType("name"));
+    assertEquals("one value", doc1.getProperty("name"));
+    assertTrue(doc1.hasProperty("name"));
+    assertEquals(PropertyType.STRING, doc1.getPropertyType("name"));
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc1, new PropertyAccess(toHide));
+    doc1.propertyAccess = new PropertyAccess(toHide);
     assertNull(doc1.getProperty("name"));
-    assertNull(doc1.field("name"));
-    assertFalse(doc1.containsField("name"));
-    assertNull(doc1.fieldType("name"));
+    assertNull(doc1.getProperty("name"));
+    assertFalse(doc1.hasProperty("name"));
+    assertNull(doc1.getPropertyType("name"));
+    session.rollback();
   }
 
   @Test
   public void testNotAccessiblePropertyListing() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     assertArrayEquals(new String[]{"name"}, doc.getPropertyNames().toArray());
     assertArrayEquals(
         new String[]{"one value"},
         doc.getPropertyNames().stream().map(doc::getProperty).toArray());
-    assertEquals(new HashSet<String>(List.of("name")), doc.getPropertyNames());
-    for (Map.Entry<String, Object> e : doc) {
-      assertEquals("name", e.getKey());
+    assertEquals(List.of("name"), doc.getPropertyNames());
+    for (var propertyName : doc.getPropertyNames()) {
+      assertEquals("name", propertyName);
     }
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
-    assertArrayEquals(new String[]{}, doc.fieldNames());
-    assertArrayEquals(new String[]{}, doc.fieldValues());
-    assertEquals(new HashSet<String>(), doc.getPropertyNames());
-    for (Map.Entry<String, Object> e : doc) {
-      assertNotEquals("name", e.getKey());
+    doc.propertyAccess = new PropertyAccess(toHide);
+    assertArrayEquals(new String[]{}, doc.propertyNames());
+    assertArrayEquals(new String[]{}, doc.propertyValues());
+    assertEquals(Collections.emptyList(), doc.getPropertyNames());
+    for (var propertyName : doc.getPropertyNames()) {
+      assertNotEquals("name", propertyName);
     }
+    session.rollback();
   }
 
   @Test
   public void testNotAccessiblePropertyListingSer() {
-    EntityImpl docPre = new EntityImpl();
+    session.begin();
+    var docPre = (EntityImpl) session.newEntity();
     docPre.setProperty("name", "one value");
     assertArrayEquals(new String[]{"name"}, docPre.getPropertyNames().toArray());
     assertArrayEquals(
         new String[]{"one value"},
         docPre.getPropertyNames().stream().map(docPre::getProperty).toArray());
-    assertEquals(new HashSet<String>(List.of("name")), docPre.getPropertyNames());
-    for (Map.Entry<String, Object> e : docPre) {
-      assertEquals("name", e.getKey());
+    assertEquals(List.of("name"), docPre.getPropertyNames());
+    for (var propertyName : docPre.getPropertyNames()) {
+      assertEquals("name", propertyName);
     }
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityImpl doc = new EntityImpl();
-    RecordInternal.unsetDirty(doc);
+    var doc = (EntityImpl) session.newEntity();
+    final var rec = (RecordAbstract) doc;
+    rec.unsetDirty();
     doc.fromStream(docPre.toStream());
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertArrayEquals(new String[]{}, doc.getPropertyNames().toArray());
     assertArrayEquals(
         new String[]{}, doc.getPropertyNames().stream().map(doc::getProperty).toArray());
-    assertEquals(new HashSet<String>(), doc.getPropertyNames());
-    for (Map.Entry<String, Object> e : doc) {
-      assertNotEquals("name", e.getKey());
+    assertEquals(Collections.emptyList(), doc.getPropertyNames());
+
+    for (var propertyName : doc.getPropertyNames()) {
+      assertNotEquals("name", propertyName);
     }
+    session.rollback();
   }
 
   @Test
   public void testJsonSerialization() {
-    EntityImpl doc = new EntityImpl();
-    doc.setProperty("name", "one value");
-    assertTrue(doc.toJSON().contains("name"));
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "one value");
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    assertTrue(entity.toJSON().contains("name"));
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
-    assertFalse(doc.toJSON().contains("name"));
+    entity.propertyAccess = new PropertyAccess(toHide);
+    assertFalse(entity.toJSON().contains("name"));
+    entity.delete();
+    session.commit();
   }
 
   @Test
   public void testToMap() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     assertTrue(doc.toMap().containsKey("name"));
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertFalse(doc.toMap().containsKey("name"));
+    session.rollback();
   }
 
   @Test
   public void testStringSerialization() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
     doc.setProperty("name", "one value");
     assertTrue(doc.toString().contains("name"));
 
     Set<String> toHide = new HashSet<>();
     toHide.add("name");
-    EntityInternalUtils.setPropertyAccess(doc, new PropertyAccess(toHide));
+    doc.propertyAccess = new PropertyAccess(toHide);
     assertFalse(doc.toString().contains("name"));
+    session.rollback();
   }
 }

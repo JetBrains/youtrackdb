@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 
 public class ServerCommandGetServerVersion extends ServerCommandGetConnections {
 
@@ -39,7 +39,7 @@ public class ServerCommandGetServerVersion extends ServerCommandGetConnections {
 
   @Override
   public boolean authenticate(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final boolean iAskForAuthentication) {
     // return always true, as authentication is not needed
@@ -47,12 +47,12 @@ public class ServerCommandGetServerVersion extends ServerCommandGetConnections {
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 1, "Syntax error: server");
 
     iRequest.getData().commandInfo = "Server status";
 
-    final String result = YouTrackDBConstants.getRawVersion();
+    final var result = YouTrackDBConstants.getRawVersion();
 
     iResponse.send(
         HttpUtils.STATUS_OK_CODE,

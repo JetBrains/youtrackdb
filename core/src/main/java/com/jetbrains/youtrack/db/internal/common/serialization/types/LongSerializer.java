@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverter;
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverterFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -43,16 +44,19 @@ public class LongSerializer implements BinarySerializer<Long> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final LongSerializer INSTANCE = new LongSerializer();
 
-  public int getObjectSize(final Long object, final Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final Long object,
+      final Object... hints) {
     return LONG_SIZE;
   }
 
   public void serialize(
-      final Long object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Long object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     serializeLiteral(object, stream, startPosition);
   }
 
-  public void serializeLiteral(final long value, final byte[] stream, final int startPosition) {
+  public static void serializeLiteral(final long value, final byte[] stream,
+      final int startPosition) {
     stream[startPosition] = (byte) ((value >>> 56) & 0xFF);
     stream[startPosition + 1] = (byte) ((value >>> 48) & 0xFF);
     stream[startPosition + 2] = (byte) ((value >>> 40) & 0xFF);
@@ -63,11 +67,12 @@ public class LongSerializer implements BinarySerializer<Long> {
     stream[startPosition + 7] = (byte) ((value) & 0xFF);
   }
 
-  public Long deserialize(final byte[] stream, final int startPosition) {
+  public Long deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return deserializeLiteral(stream, startPosition);
   }
 
-  public long deserializeLiteral(final byte[] stream, final int startPosition) {
+  public static long deserializeLiteral(final byte[] stream, final int startPosition) {
     return ((0xff & stream[startPosition + 7])
         | (0xff & stream[startPosition + 6]) << 8
         | (0xff & stream[startPosition + 5]) << 16
@@ -78,7 +83,8 @@ public class LongSerializer implements BinarySerializer<Long> {
         | (long) (0xff & stream[startPosition]) << 56);
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return LONG_SIZE;
   }
 
@@ -86,20 +92,23 @@ public class LongSerializer implements BinarySerializer<Long> {
     return ID;
   }
 
-  public int getObjectSizeNative(final byte[] stream, final int startPosition) {
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return LONG_SIZE;
   }
 
   @Override
   public void serializeNativeObject(
-      final Long object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Long object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     checkBoundaries(stream, startPosition);
 
     CONVERTER.putLong(stream, startPosition, object, ByteOrder.nativeOrder());
   }
 
   @Override
-  public Long deserializeNativeObject(final byte[] stream, final int startPosition) {
+  public Long deserializeNativeObject(BinarySerializerFactory serializerFactory,
+      final byte[] stream, final int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder());
@@ -126,7 +135,8 @@ public class LongSerializer implements BinarySerializer<Long> {
   }
 
   @Override
-  public Long preprocess(final Long value, final Object... hints) {
+  public Long preprocess(BinarySerializerFactory serializerFactory, final Long value,
+      final Object... hints) {
     return value;
   }
 
@@ -134,7 +144,8 @@ public class LongSerializer implements BinarySerializer<Long> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Long object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, Long object,
+      ByteBuffer buffer, Object... hints) {
     buffer.putLong(object);
   }
 
@@ -142,12 +153,14 @@ public class LongSerializer implements BinarySerializer<Long> {
    * {@inheritDoc}
    */
   @Override
-  public Long deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Long deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return buffer.getLong();
   }
 
   @Override
-  public Long deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Long deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return buffer.getLong(offset);
   }
 
@@ -155,12 +168,14 @@ public class LongSerializer implements BinarySerializer<Long> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return LONG_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return LONG_SIZE;
   }
 
@@ -169,7 +184,8 @@ public class LongSerializer implements BinarySerializer<Long> {
    */
   @Override
   public Long deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return walChanges.getLongValue(buffer, offset);
   }
 

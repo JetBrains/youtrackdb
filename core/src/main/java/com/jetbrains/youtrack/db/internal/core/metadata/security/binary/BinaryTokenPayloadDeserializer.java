@@ -12,18 +12,18 @@ public class BinaryTokenPayloadDeserializer implements TokenPayloadDeserializer 
   @Override
   public BinaryTokenPayload deserialize(DataInputStream input, TokenMetaInfo base)
       throws IOException {
-    BinaryTokenPayloadImpl payload = new BinaryTokenPayloadImpl();
+    var payload = new BinaryTokenPayloadImpl();
 
     payload.setDatabase(BinaryTokenSerializer.readString(input));
-    byte pos = input.readByte();
+    var pos = input.readByte();
     if (pos >= 0) {
       payload.setDatabaseType(base.getDbType(pos));
     }
 
-    short cluster = input.readShort();
-    long position = input.readLong();
-    if (cluster != -1 && position != -1) {
-      payload.setUserRid(new RecordId(cluster, position));
+    var collection = input.readShort();
+    var position = input.readLong();
+    if (collection != -1 && position != -1) {
+      payload.setUserRid(new RecordId(collection, position));
     }
     payload.setExpiry(input.readLong());
     payload.setServerUser(input.readBoolean());

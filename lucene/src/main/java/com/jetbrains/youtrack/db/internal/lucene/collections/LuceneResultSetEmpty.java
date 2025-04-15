@@ -28,7 +28,7 @@ import java.util.Iterator;
 public class LuceneResultSetEmpty extends LuceneResultSet {
 
   public LuceneResultSetEmpty() {
-    super();
+    super(null);
   }
 
   @Override

@@ -4,7 +4,6 @@ import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.binary.BinaryToken;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.binary.BinaryTokenPayloadImpl;
@@ -19,19 +18,19 @@ public class BinaryTokenSerializerTest {
 
   private final BinaryTokenSerializer ser =
       new BinaryTokenSerializer(
-          new String[]{"plocal", "memory"},
+          new String[]{"disk", "memory"},
           new String[]{"key"},
           new String[]{"HmacSHA256"},
           new String[]{"YouTrackDB"});
 
   @Test
   public void testSerializerDeserializeToken() throws IOException {
-    BinaryToken token = new BinaryToken();
-    BinaryTokenPayloadImpl payload = new BinaryTokenPayloadImpl();
+    var token = new BinaryToken();
+    var payload = new BinaryTokenPayloadImpl();
     payload.setDatabase("test");
-    payload.setDatabaseType("plocal");
+    payload.setDatabaseType("disk");
     payload.setUserRid(new RecordId(43, 234));
-    YouTrackDBJwtHeader header = new YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setKeyId("key");
     header.setAlgorithm("HmacSHA256");
     header.setType("YouTrackDB");
@@ -42,15 +41,15 @@ public class BinaryTokenSerializerTest {
     payload.setDriverName("aa");
     payload.setDriverVersion("aa");
     token.setPayload(payload);
-    ByteArrayOutputStream bas = new ByteArrayOutputStream();
+    var bas = new ByteArrayOutputStream();
     ser.serialize(token, bas);
-    ByteArrayInputStream input = new ByteArrayInputStream(bas.toByteArray());
-    BinaryToken tok = ser.deserialize(input);
+    var input = new ByteArrayInputStream(bas.toByteArray());
+    var tok = ser.deserialize(input);
 
-    assertEquals("test", token.getDatabase());
-    assertEquals("plocal", token.getDatabaseType());
-    RID id = token.getUserId();
-    assertEquals(43, id.getClusterId());
+    assertEquals("test", token.getDatabaseName());
+    assertEquals("disk", token.getDatabaseType());
+    var id = token.getUserId();
+    assertEquals(43, id.getCollectionId());
     assertEquals(20L, tok.getExpiry());
 
     assertEquals("YouTrackDB", tok.getHeader().getType());
@@ -65,12 +64,12 @@ public class BinaryTokenSerializerTest {
 
   @Test
   public void testSerializerDeserializeServerUserToken() throws IOException {
-    BinaryToken token = new BinaryToken();
-    BinaryTokenPayloadImpl payload = new BinaryTokenPayloadImpl();
+    var token = new BinaryToken();
+    var payload = new BinaryTokenPayloadImpl();
     payload.setDatabase("test");
-    payload.setDatabaseType("plocal");
+    payload.setDatabaseType("disk");
     payload.setUserRid(new RecordId(43, 234));
-    YouTrackDBJwtHeader header = new YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setKeyId("key");
     header.setAlgorithm("HmacSHA256");
     header.setType("YouTrackDB");
@@ -83,15 +82,15 @@ public class BinaryTokenSerializerTest {
     payload.setDriverName("aa");
     payload.setDriverVersion("aa");
     token.setPayload(payload);
-    ByteArrayOutputStream bas = new ByteArrayOutputStream();
+    var bas = new ByteArrayOutputStream();
     ser.serialize(token, bas);
-    ByteArrayInputStream input = new ByteArrayInputStream(bas.toByteArray());
-    BinaryToken tok = ser.deserialize(input);
+    var input = new ByteArrayInputStream(bas.toByteArray());
+    var tok = ser.deserialize(input);
 
-    assertEquals("test", token.getDatabase());
-    assertEquals("plocal", token.getDatabaseType());
-    RID id = token.getUserId();
-    assertEquals(43, id.getClusterId());
+    assertEquals("test", token.getDatabaseName());
+    assertEquals("disk", token.getDatabaseType());
+    var id = token.getUserId();
+    assertEquals(43, id.getCollectionId());
     assertEquals(20L, tok.getExpiry());
     assertTrue(token.isServerUser());
     assertEquals("aaa", tok.getUserName());
@@ -108,12 +107,12 @@ public class BinaryTokenSerializerTest {
 
   @Test
   public void testSerializerDeserializeNullInfoUserToken() throws IOException {
-    BinaryToken token = new BinaryToken();
-    BinaryTokenPayloadImpl payload = new BinaryTokenPayloadImpl();
+    var token = new BinaryToken();
+    var payload = new BinaryTokenPayloadImpl();
     payload.setDatabase(null);
     payload.setDatabaseType(null);
     payload.setUserRid(null);
-    YouTrackDBJwtHeader header = new YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setKeyId("key");
     header.setAlgorithm("HmacSHA256");
     header.setType("YouTrackDB");
@@ -126,14 +125,14 @@ public class BinaryTokenSerializerTest {
     payload.setDriverName("aa");
     payload.setDriverVersion("aa");
     token.setPayload(payload);
-    ByteArrayOutputStream bas = new ByteArrayOutputStream();
+    var bas = new ByteArrayOutputStream();
     ser.serialize(token, bas);
-    ByteArrayInputStream input = new ByteArrayInputStream(bas.toByteArray());
-    BinaryToken tok = ser.deserialize(input);
+    var input = new ByteArrayInputStream(bas.toByteArray());
+    var tok = ser.deserialize(input);
 
-    assertNull(token.getDatabase());
+    assertNull(token.getDatabaseName());
     assertNull(token.getDatabaseType());
-    RID id = token.getUserId();
+    var id = token.getUserId();
     assertNull(id);
     assertEquals(20L, tok.getExpiry());
     assertTrue(token.isServerUser());

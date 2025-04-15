@@ -25,26 +25,20 @@ public class CommandScriptException extends CoreException {
 
   private String text;
   private int position;
-  private static final long serialVersionUID = -7430575036316163711L;
 
   private static String makeMessage(String message, int position, String text) {
     if (text == null) {
       return message;
     }
 
-    final StringBuilder buffer = new StringBuilder();
-    buffer.append("Error on parsing script at position #");
-    buffer.append(position);
-    buffer.append(": " + message);
-    buffer.append("\nScript: ");
-    buffer.append(text);
-    buffer.append("\n------");
-    for (int i = 0; i < position - 1; ++i) {
-      buffer.append("-");
-    }
-
-    buffer.append("^");
-    return buffer.toString();
+    return "Error on parsing script at position #"
+        + position
+        + ": " + message
+        + "\nScript: "
+        + text
+        + "\n------"
+        + "-".repeat(Math.max(0, position - 1))
+        + "^";
   }
 
   public CommandScriptException(CommandScriptException exception) {
@@ -54,13 +48,14 @@ public class CommandScriptException extends CoreException {
     this.position = exception.position;
   }
 
-  public CommandScriptException(String iMessage) {
-    super(iMessage);
+  public CommandScriptException(String dbName, String iMessage) {
+    super(dbName, iMessage);
   }
 
-  public CommandScriptException(String iMessage, String iText, int iPosition) {
-    super(makeMessage(iMessage, iPosition < 0 ? 0 : iPosition, iText));
+  public CommandScriptException(String dbName, String iMessage, String iText,
+      int iPosition) {
+    super(dbName, makeMessage(iMessage, Math.max(iPosition, 0), iText));
     text = iText;
-    position = iPosition < 0 ? 0 : iPosition;
+    position = Math.max(iPosition, 0);
   }
 }

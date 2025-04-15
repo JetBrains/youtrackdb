@@ -26,18 +26,12 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -46,7 +40,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
@@ -70,24 +63,22 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testDuplicatedIndexOnUnique() {
-    var jayMiner = database.newEntity("Profile");
+    session.begin();
+    var jayMiner = session.newEntity("Profile");
     jayMiner.setProperty("nick", "Jay");
     jayMiner.setProperty("name", "Jay");
     jayMiner.setProperty("surname", "Miner");
 
-    database.begin();
-    database.save(jayMiner);
-    database.commit();
+    session.commit();
 
-    var jacobMiner = database.newEntity("Profile");
+    session.begin();
+    var jacobMiner = session.newEntity("Profile");
     jacobMiner.setProperty("nick", "Jay");
     jacobMiner.setProperty("name", "Jacob");
     jacobMiner.setProperty("surname", "Miner");
 
     try {
-      database.begin();
-      database.save(jacobMiner);
-      database.commit();
+      session.commit();
 
       // IT SHOULD GIVE ERROR ON DUPLICATED KEY
       Assert.fail();
@@ -100,12 +91,13 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInUniqueIndex() {
     checkEmbeddedDB();
+    session.begin();
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClassInternal("Profile")
-            .getInvolvedIndexesInternal(database, "nick").iterator().next().getType(),
+        session.getMetadata().getSchema().getClassInternal("Profile")
+            .getInvolvedIndexesInternal(session, "nick").iterator().next().getType(),
         SchemaClass.INDEX_TYPE.UNIQUE.toString());
     try (var resultSet =
-        database.query(
+        session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
                 + " ,'ZZZJayLongNickIndex1', 'ZZZJayLongNickIndex2']")) {
       assertIndexUsage(resultSet);
@@ -115,72 +107,74 @@ public class IndexTest extends BaseDBTest {
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (final Entity profile : result) {
+      for (final var profile : result) {
         expectedSurnames.remove(profile.<String>getProperty("surname"));
       }
 
       Assert.assertEquals(expectedSurnames.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testUseOfIndex() {
-    final List<EntityImpl> result = executeQuery("select * from Profile where nick = 'Jay'");
+    session.begin();
+    var resultSet = executeQuery("select * from Profile where nick = 'Jay'");
 
-    Assert.assertFalse(result.isEmpty());
+    Assert.assertFalse(resultSet.isEmpty());
 
     Entity record;
-    for (EntityImpl entries : result) {
-      record = entries;
+    for (var entries : resultSet) {
+      record = entries.asEntityOrNull();
       Assert.assertTrue(record.<String>getProperty("name").equalsIgnoreCase("Jay"));
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexEntries() {
     checkEmbeddedDB();
 
-    List<EntityImpl> result = executeQuery("select * from Profile where nick is not null");
+    var resultSet = executeQuery("select * from Profile where nick is not null");
 
-    Index idx =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, "Profile.nick");
+    var idx =
+        session.getSharedContext().getIndexManager().getIndex(session, "Profile.nick");
 
-    Assert.assertEquals(idx.getInternal().size(database), result.size());
+    Assert.assertEquals(idx.size(session), resultSet.size());
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexSize() {
     checkEmbeddedDB();
 
-    List<EntityImpl> result = executeQuery("select * from Profile where nick is not null");
+    var resultSet = executeQuery("select * from Profile where nick is not null");
 
-    int profileSize = result.size();
+    var profileSize = resultSet.size();
 
     Assert.assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "Profile.nick")
-            .getInternal()
-            .size(database),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "Profile.nick")
+
+            .size(session),
         profileSize);
-    for (int i = 0; i < 10; i++) {
-      database.begin();
-      Entity profile = database.newEntity("Profile");
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var profile = session.newEntity("Profile");
       profile.setProperty("nick", "Yay-" + i);
       profile.setProperty("name", "Jay");
       profile.setProperty("surname", "Miner");
-      database.save(profile);
-      database.commit();
+      session.commit();
 
       profileSize++;
-      try (Stream<RID> stream =
-          database
-              .getMetadata()
-              .getIndexManagerInternal()
-              .getIndex(database, "Profile.nick")
-              .getInternal()
-              .getRids(database, "Yay-" + i)) {
+      try (var stream =
+          session
+              .getSharedContext()
+              .getIndexManager()
+              .getIndex(session, "Profile.nick")
+
+              .getRids(session, "Yay-" + i)) {
         Assert.assertTrue(stream.findAny().isPresent());
       }
     }
@@ -188,45 +182,48 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testUseOfIndex")
   public void testChangeOfIndexToNotUnique() {
-    dropIndexes("Profile", "nick");
+    dropIndexes();
 
-    database
+    session
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(database, "nick")
-        .createIndex(database, INDEX_TYPE.NOTUNIQUE);
+        .getProperty("nick")
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
   }
 
-  private void dropIndexes(String className, String propertyName) {
-    for (var indexName : database.getMetadata().getSchema().getClassInternal(className)
-        .getPropertyInternal(database, propertyName).getAllIndexes(database)) {
-      database.getMetadata().getIndexManagerInternal().dropIndex(database, indexName);
+  private void dropIndexes() {
+    if (remoteDB) {
+      session.execute("drop index " + "Profile" + "." + "nick").close();
+    } else {
+      for (var indexName : session.getMetadata().getSchema().getClassInternal("Profile")
+          .getPropertyInternal("nick").getAllIndexes()) {
+        session.getSharedContext().getIndexManager().dropIndex(session, indexName);
+      }
     }
   }
 
   @Test(dependsOnMethods = "testChangeOfIndexToNotUnique")
   public void testDuplicatedIndexOnNotUnique() {
-    database.begin();
-    Entity nickNolte = database.newEntity("Profile");
+    session.begin();
+    var nickNolte = session.newEntity("Profile");
     nickNolte.setProperty("nick", "Jay");
     nickNolte.setProperty("name", "Nick");
     nickNolte.setProperty("surname", "Nolte");
 
-    database.save(nickNolte);
-    database.commit();
+    session.commit();
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnNotUnique")
   public void testChangeOfIndexToUnique() {
     try {
-      dropIndexes("Profile", "nick");
-      database
+      dropIndexes();
+      session
           .getMetadata()
           .getSchema()
           .getClass("Profile")
-          .getProperty(database, "nick")
-          .createIndex(database, INDEX_TYPE.UNIQUE);
+          .getProperty("nick")
+          .createIndex(INDEX_TYPE.UNIQUE);
       Assert.fail();
     } catch (RecordDuplicatedException e) {
       Assert.assertTrue(true);
@@ -235,34 +232,37 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMajorSelect() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
+    session.begin();
     try (var resultSet =
-        database.query("select * from Profile where nick > 'ZZZJayLongNickIndex3'")) {
+        session.query("select * from Profile where nick > 'ZZZJayLongNickIndex3'")) {
       assertIndexUsage(resultSet);
       final List<String> expectedNicks =
           new ArrayList<>(Arrays.asList("ZZZJayLongNickIndex4", "ZZZJayLongNickIndex5"));
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 2);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMajorEqualsSelect() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
+    session.begin();
     try (var resultSet =
-        database.query("select * from Profile where nick >= 'ZZZJayLongNickIndex3'")) {
+        session.query("select * from Profile where nick >= 'ZZZJayLongNickIndex3'")) {
       assertIndexUsage(resultSet);
       final List<String> expectedNicks =
           new ArrayList<>(
@@ -271,67 +271,72 @@ public class IndexTest extends BaseDBTest {
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMinorSelect() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
-    try (var resultSet = database.query("select * from Profile where nick < '002'")) {
+    session.begin();
+    try (var resultSet = session.query("select * from Profile where nick < '002'")) {
       assertIndexUsage(resultSet);
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("000", "001"));
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 2);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMinorEqualsSelect() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
-    try (var resultSet = database.query("select * from Profile where nick <= '002'")) {
+    session.begin();
+    try (var resultSet = session.query("select * from Profile where nick <= '002'")) {
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("000", "001", "002"));
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
       Assert.assertEquals(expectedNicks.size(), 0);
     }
+    session.commit();
   }
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexBetweenSelect() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
     var query = "select * from Profile where nick between '001' and '004'";
-    try (var resultSet = database.query(query)) {
+    try (var resultSet = session.query(query)) {
       assertIndexUsage(resultSet);
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("001", "002", "003", "004"));
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 4);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
@@ -341,12 +346,12 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexInComplexSelectOne() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
     try (var resultSet =
-        database.query(
+        session.query(
             "select * from Profile where (name = 'Giuseppe' OR name <> 'Napoleone') AND"
                 + " (nick is not null AND (name = 'Giuseppe' OR name <> 'Napoleone') AND"
                 + " (nick >= 'ZZZJayLongNickIndex3'))")) {
@@ -359,7 +364,7 @@ public class IndexTest extends BaseDBTest {
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
@@ -369,12 +374,12 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexInComplexSelectTwo() {
-    if (database.isRemote()) {
+    if (session.isRemote()) {
       return;
     }
 
     try (var resultSet =
-        database.query(
+        session.query(
             "select * from Profile where ((name = 'Giuseppe' OR name <> 'Napoleone') AND"
                 + " (nick is not null AND (name = 'Giuseppe' OR name <> 'Napoleone') AND"
                 + " (nick >= 'ZZZJayLongNickIndex3' OR nick >= 'ZZZJayLongNickIndex4')))")) {
@@ -386,7 +391,7 @@ public class IndexTest extends BaseDBTest {
                   "ZZZJayLongNickIndex3", "ZZZJayLongNickIndex4", "ZZZJayLongNickIndex5"));
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (Entity profile : result) {
+      for (var profile : result) {
         expectedNicks.remove(profile.<String>getProperty("nick"));
       }
 
@@ -395,84 +400,89 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void populateIndexDocuments() {
-    for (int i = 0; i <= 5; i++) {
-      database.begin();
-      final Entity profile = database.newEntity("Profile");
+    for (var i = 0; i <= 5; i++) {
+      session.begin();
+      final var profile = session.newEntity("Profile");
       profile.setProperty("nick", "ZZZJayLongNickIndex" + i);
       profile.setProperty("name", "NickIndex" + i);
       profile.setProperty("surname", "NolteIndex" + i);
-      database.save(profile);
-      database.commit();
+      session.commit();
     }
 
-    for (int i = 0; i <= 5; i++) {
-      database.begin();
-      final Entity profile = database.newEntity("Profile");
+    for (var i = 0; i <= 5; i++) {
+      session.begin();
+      final var profile = session.newEntity("Profile");
       profile.setProperty("nick", "00" + i);
       profile.setProperty("name", "NickIndex" + i);
       profile.setProperty("surname", "NolteIndex" + i);
-      database.save(profile);
-      database.commit();
+      session.commit();
     }
   }
 
   @Test(dependsOnMethods = "testChangeOfIndexToUnique")
   public void removeNotUniqueIndexOnNick() {
-    dropIndexes("Profile", "nick");
+    if (remoteDB) {
+      return;
+    }
+
+    dropIndexes();
   }
 
   @Test(dependsOnMethods = "removeNotUniqueIndexOnNick")
   public void testQueryingWithoutNickIndex() {
-    Assert.assertFalse(
-        database.getMetadata().getSchema().getClass("Profile")
-            .getInvolvedIndexes(database, "name").isEmpty());
-    Assert.assertTrue(
-        database.getMetadata().getSchema().getClass("Profile").getInvolvedIndexes(database, "nick")
-            .isEmpty());
+    if (!remoteDB) {
+      Assert.assertFalse(
+          session.getMetadata().getSchema().getClassInternal("Profile")
+              .getInvolvedIndexes(session, "name").isEmpty());
 
-    List<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("SELECT FROM Profile WHERE nick = 'Jay'"))
-            .execute(database);
+      Assert.assertTrue(
+          session.getMetadata().getSchema().getClassInternal("Profile")
+              .getInvolvedIndexes(session, "nick")
+              .isEmpty());
+    }
+
+    var result =
+        session
+            .query("SELECT FROM Profile WHERE nick = 'Jay'").toList();
     Assert.assertEquals(result.size(), 2);
 
     result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Jay'"))
-            .execute(database);
+        session
+            .query(
+                "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Jay'").toList();
     Assert.assertEquals(result.size(), 1);
 
     result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Nick'"))
-            .execute(database);
+        session
+            .query(
+                "SELECT FROM Profile WHERE nick = 'Jay' AND name = 'Nick'").toList();
     Assert.assertEquals(result.size(), 1);
   }
 
   @Test(dependsOnMethods = "testQueryingWithoutNickIndex")
   public void createNotUniqueIndexOnNick() {
-    database
+    session
         .getMetadata()
         .getSchema()
         .getClass("Profile")
-        .getProperty(database, "nick")
-        .createIndex(database, INDEX_TYPE.NOTUNIQUE);
+        .getProperty("nick")
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
   }
 
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
   public void testIndexInNotUniqueIndex() {
-    Assert.assertEquals(
-        database.getClassInternal("Profile").
-            getInvolvedIndexesInternal(database, "nick").iterator()
-            .next().getType(),
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
+    if (!remoteDB) {
+      Assert.assertEquals(
+          session.getClassInternal("Profile").
+              getInvolvedIndexesInternal(session, "nick").iterator()
+              .next().getType(),
+          SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
+    }
+
+    session.begin();
 
     try (var resultSet =
-        database.query(
+        session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
                 + " ,'ZZZJayLongNickIndex1', 'ZZZJayLongNickIndex2']")) {
       final List<String> expectedSurnames =
@@ -480,138 +490,136 @@ public class IndexTest extends BaseDBTest {
 
       var result = resultSet.entityStream().toList();
       Assert.assertEquals(result.size(), 3);
-      for (final Entity profile : result) {
+      for (final var profile : result) {
         expectedSurnames.remove(profile.<String>getProperty("surname"));
       }
 
       Assert.assertEquals(expectedSurnames.size(), 0);
     }
+    session.commit();
   }
 
   @Test
   public void indexLinks() {
     checkEmbeddedDB();
 
-    database
+    session
         .getMetadata()
         .getSchema()
         .getClass("Whiz")
-        .getProperty(database, "account")
-        .createIndex(database, INDEX_TYPE.NOTUNIQUE);
+        .getProperty("account")
+        .createIndex(INDEX_TYPE.NOTUNIQUE);
 
-    final List<EntityImpl> result = executeQuery("select * from Account limit 1");
-    final Index idx =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, "Whiz.account");
+    session.begin();
+    var resultSet = executeQuery("select * from Account limit 1");
+    final var idx =
+        session.getSharedContext().getIndexManager().getIndex(session, "Whiz.account");
 
-    for (int i = 0; i < 5; i++) {
-      database.begin();
-      final EntityImpl whiz = new EntityImpl("Whiz");
+    for (var i = 0; i < 5; i++) {
+      final var whiz = ((EntityImpl) session.newEntity("Whiz"));
 
-      whiz.field("id", i);
-      whiz.field("text", "This is a test");
-      whiz.field("account", result.get(0).getIdentity());
+      whiz.setProperty("id", i);
+      whiz.setProperty("text", "This is a test");
+      whiz.setPropertyInChain("account", resultSet.getFirst().asEntityOrNull().getIdentity());
 
-      whiz.save();
-      database.commit();
     }
+    session.commit();
 
-    Assert.assertEquals(idx.getInternal().size(database), 5);
+    Assert.assertEquals(idx.size(session), 5);
 
-    final List<EntityImpl> indexedResult =
-        executeQuery("select * from Whiz where account = ?", result.get(0).getIdentity());
+    session.begin();
+    var indexedResult =
+        executeQuery("select * from Whiz where account = ?",
+            resultSet.getFirst().getIdentity());
     Assert.assertEquals(indexedResult.size(), 5);
 
-    database.begin();
-    for (final EntityImpl resDoc : indexedResult) {
-      database.bindToSession(resDoc).delete();
+    for (var res : indexedResult) {
+      res.asEntityOrNull().delete();
     }
 
-    Entity whiz = new EntityImpl("Whiz");
+    var whiz = session.newEntity("Whiz");
     whiz.setProperty("id", 100);
     whiz.setProperty("text", "This is a test!");
-    whiz.setProperty("account", new EntityImpl("Company").field("id", 9999));
-    whiz.save();
-    database.commit();
+    whiz.setProperty("account",
+        ((EntityImpl) session.newEntity("Company")).setPropertyInChain("id", 9999));
+    session.commit();
 
-    database.begin();
-    whiz = database.bindToSession(whiz);
-    Assert.assertTrue(((EntityImpl) whiz.getProperty("account")).getIdentity().isValid());
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    whiz = activeTx.load(whiz);
+    Assert.assertTrue(((EntityImpl) whiz.getProperty("account")).getIdentity().isValidPosition());
     ((EntityImpl) whiz.getProperty("account")).delete();
     whiz.delete();
-    database.commit();
+    session.commit();
   }
 
   public void linkedIndexedProperty() {
-    try (DatabaseSessionInternal db = acquireSession()) {
+    try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("TestClass")) {
-        SchemaClass testClass =
-            db.getMetadata().getSchema().createClass("TestClass", 1, (SchemaClass[]) null);
-        SchemaClass testLinkClass =
-            db.getMetadata().getSchema().createClass("TestLinkClass", 1, (SchemaClass[]) null);
+        var testClass =
+            db.getMetadata().getSchema().createClass("TestClass", 1);
+        var testLinkClass =
+            db.getMetadata().getSchema().createClass("TestLinkClass", 1);
         testClass
-            .createProperty(db, "testLink", PropertyType.LINK, testLinkClass)
-            .createIndex(db, INDEX_TYPE.NOTUNIQUE);
-        testClass.createProperty(db, "name", PropertyType.STRING)
-            .createIndex(db, INDEX_TYPE.UNIQUE);
-        testLinkClass.createProperty(db, "testBoolean", PropertyType.BOOLEAN);
-        testLinkClass.createProperty(db, "testString", PropertyType.STRING);
+            .createProperty("testLink", PropertyType.LINK, testLinkClass)
+            .createIndex(INDEX_TYPE.NOTUNIQUE);
+        testClass.createProperty("name", PropertyType.STRING)
+            .createIndex(INDEX_TYPE.UNIQUE);
+        testLinkClass.createProperty("testBoolean", PropertyType.BOOLEAN);
+        testLinkClass.createProperty("testString", PropertyType.STRING);
       }
-      EntityImpl testClassDocument = db.newInstance("TestClass");
+
       db.begin();
-      testClassDocument.field("name", "Test Class 1");
-      EntityImpl testLinkClassDocument = new EntityImpl("TestLinkClass");
-      testLinkClassDocument.field("testString", "Test Link Class 1");
-      testLinkClassDocument.field("testBoolean", true);
-      testClassDocument.field("testLink", testLinkClassDocument);
-      testClassDocument.save();
+      var testClassDocument = db.newInstance("TestClass");
+      testClassDocument.setProperty("name", "Test Class 1");
+      var testLinkClassDocument = ((EntityImpl) db.newEntity("TestLinkClass"));
+      testLinkClassDocument.setProperty("testString", "Test Link Class 1");
+      testLinkClassDocument.setProperty("testBoolean", true);
+      testClassDocument.setProperty("testLink", testLinkClassDocument);
+
       db.commit();
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.Boolean
-      List<EntityImpl> result =
-          db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testBoolean = true"));
+      var result =
+          db.query("select from TestClass where testLink.testBoolean = true").toList();
       Assert.assertEquals(result.size(), 1);
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.String
       result =
-          db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testString = 'Test Link Class 1'"));
+          db.query("select from TestClass where testLink.testString = 'Test Link Class 1'")
+              .toList();
       Assert.assertEquals(result.size(), 1);
     }
   }
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
   public void testLinkedIndexedPropertyInTx() {
-    try (DatabaseSessionInternal db = acquireSession()) {
+    try (var db = acquireSession()) {
       db.begin();
-      EntityImpl testClassDocument = db.newInstance("TestClass");
-      testClassDocument.field("name", "Test Class 2");
-      EntityImpl testLinkClassDocument = new EntityImpl("TestLinkClass");
-      testLinkClassDocument.field("testString", "Test Link Class 2");
-      testLinkClassDocument.field("testBoolean", true);
-      testClassDocument.field("testLink", testLinkClassDocument);
-      testClassDocument.save();
+      var testClassDocument = db.newInstance("TestClass");
+      testClassDocument.setProperty("name", "Test Class 2");
+      var testLinkClassDocument = ((EntityImpl) db.newEntity("TestLinkClass"));
+      testLinkClassDocument.setProperty("testString", "Test Link Class 2");
+      testLinkClassDocument.setProperty("testBoolean", true);
+      testClassDocument.setProperty("testLink", testLinkClassDocument);
+
       db.commit();
 
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.Boolean
-      List<EntityImpl> result =
+      var result =
           db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testBoolean = true"));
+              "select from TestClass where testLink.testBoolean = true").toList();
       Assert.assertEquals(result.size(), 2);
       // THIS WILL THROW A java.lang.ClassCastException:
       // com.orientechnologies.core.id.RecordId cannot be cast to
       // java.lang.String
       result =
           db.query(
-              new SQLSynchQuery<EntityImpl>(
-                  "select from TestClass where testLink.testString = 'Test Link Class 2'"));
+              "select from TestClass where testLink.testString = 'Test Link Class 2'").toList();
       Assert.assertEquals(result.size(), 1);
     }
   }
@@ -619,40 +627,39 @@ public class IndexTest extends BaseDBTest {
   public void testConcurrentRemoveDelete() {
     checkEmbeddedDB();
 
-    try (DatabaseSessionInternal db = acquireSession()) {
+    try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("MyFruit")) {
-        SchemaClass fruitClass = db.getMetadata().getSchema()
-            .createClass("MyFruit", 1, (SchemaClass[]) null);
-        fruitClass.createProperty(db, "name", PropertyType.STRING);
-        fruitClass.createProperty(db, "color", PropertyType.STRING);
+        var fruitClass = db.getMetadata().getSchema().createClass("MyFruit", 1);
+        fruitClass.createProperty("name", PropertyType.STRING);
+        fruitClass.createProperty("color", PropertyType.STRING);
 
         db.getMetadata()
             .getSchema()
             .getClass("MyFruit")
-            .getProperty(database, "name")
-            .createIndex(db, INDEX_TYPE.UNIQUE);
+            .getProperty("name")
+            .createIndex(INDEX_TYPE.UNIQUE);
 
         db.getMetadata()
             .getSchema()
             .getClass("MyFruit")
-            .getProperty(database, "color")
-            .createIndex(db, INDEX_TYPE.NOTUNIQUE);
+            .getProperty("color")
+            .createIndex(INDEX_TYPE.NOTUNIQUE);
       }
 
       long expectedIndexSize = 0;
 
-      final int passCount = 10;
-      final int chunkSize = 10;
+      final var passCount = 10;
+      final var chunkSize = 10;
 
-      for (int pass = 0; pass < passCount; pass++) {
+      for (var pass = 0; pass < passCount; pass++) {
         List<EntityImpl> recordsToDelete = new ArrayList<>();
         db.begin();
-        for (int i = 0; i < chunkSize; i++) {
-          EntityImpl d =
-              new EntityImpl("MyFruit")
-                  .field("name", "ABC" + pass + 'K' + i)
-                  .field("color", "FOO" + pass);
-          d.save();
+        for (var i = 0; i < chunkSize; i++) {
+          var d =
+              ((EntityImpl) db.newEntity("MyFruit"))
+                  .setPropertyInChain("name", "ABC" + pass + 'K' + i)
+                  .setPropertyInChain("color", "FOO" + pass);
+
           if (i < chunkSize / 2) {
             recordsToDelete.add(d);
           }
@@ -661,27 +668,28 @@ public class IndexTest extends BaseDBTest {
 
         expectedIndexSize += chunkSize;
         Assert.assertEquals(
-            db.getMetadata()
-                .getIndexManagerInternal()
+            db.getSharedContext()
+                .getIndexManager()
                 .getClassIndex(db, "MyFruit", "MyFruit.color")
-                .getInternal()
+
                 .size(db),
             expectedIndexSize,
             "After add");
 
         // do delete
         db.begin();
-        for (final EntityImpl recordToDelete : recordsToDelete) {
-          db.delete(db.bindToSession(recordToDelete));
+        for (final var recordToDelete : recordsToDelete) {
+          var activeTx = db.getActiveTransaction();
+          db.delete(activeTx.<EntityImpl>load(recordToDelete));
         }
         db.commit();
 
         expectedIndexSize -= recordsToDelete.size();
         Assert.assertEquals(
-            db.getMetadata()
-                .getIndexManagerInternal()
+            db.getSharedContext()
+                .getIndexManager()
                 .getClassIndex(db, "MyFruit", "MyFruit.color")
-                .getInternal()
+
                 .size(db),
             expectedIndexSize,
             "After delete");
@@ -694,12 +702,12 @@ public class IndexTest extends BaseDBTest {
 
     final EntityImpl doc;
     final RecordId result;
-    try (DatabaseSessionInternal db = acquireSession()) {
+    try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("IndexTestTerm")) {
-        final SchemaClass termClass =
-            db.getMetadata().getSchema().createClass("IndexTestTerm", 1, (SchemaClass[]) null);
-        termClass.createProperty(db, "label", PropertyType.STRING);
-        termClass.createIndex(db,
+        final var termClass =
+            db.getMetadata().getSchema().createClass("IndexTestTerm", 1);
+        termClass.createProperty("label", PropertyType.STRING);
+        termClass.createIndex(
             "idxTerm",
             INDEX_TYPE.UNIQUE.toString(),
             null,
@@ -707,16 +715,16 @@ public class IndexTest extends BaseDBTest {
       }
 
       db.begin();
-      doc = new EntityImpl("IndexTestTerm");
-      doc.field("label", "42");
-      doc.save();
+      doc = ((EntityImpl) db.newEntity("IndexTestTerm"));
+      doc.setProperty("label", "42");
+
       db.commit();
 
-      try (Stream<RID> stream =
-          db.getMetadata()
-              .getIndexManagerInternal()
+      try (var stream =
+          db.getSharedContext()
+              .getIndexManager()
               .getIndex(db, "idxTerm")
-              .getInternal()
+
               .getRids(db, "42")) {
         result = (RecordId) stream.findAny().orElse(null);
       }
@@ -728,14 +736,14 @@ public class IndexTest extends BaseDBTest {
   public void testTransactionUniqueIndexTestOne() {
     checkEmbeddedDB();
 
-    DatabaseSessionInternal db = acquireSession();
+    var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexTest")) {
-      final SchemaClass termClass =
+      final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexTest", 1, (SchemaClass[]) null);
-      termClass.createProperty(db, "label", PropertyType.STRING);
-      termClass.createIndex(db,
+              .createClass("TransactionUniqueIndexTest", 1);
+      termClass.createProperty("label", PropertyType.STRING);
+      termClass.createIndex(
           "idxTransactionUniqueIndexTest",
           INDEX_TYPE.UNIQUE.toString(),
           null,
@@ -743,100 +751,97 @@ public class IndexTest extends BaseDBTest {
     }
 
     db.begin();
-    EntityImpl docOne = new EntityImpl("TransactionUniqueIndexTest");
-    docOne.field("label", "A");
-    docOne.save();
+    var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
+    docOne.setProperty("label", "A");
+
     db.commit();
 
-    final Index index =
-        db.getMetadata().getIndexManagerInternal().getIndex(db, "idxTransactionUniqueIndexTest");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    final var index =
+        db.getSharedContext().getIndexManager().getIndex(db, "idxTransactionUniqueIndexTest");
+    Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
     try {
-      EntityImpl docTwo = new EntityImpl("TransactionUniqueIndexTest");
-      docTwo.field("label", "A");
-      docTwo.save();
+      var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexTest"));
+      docTwo.setProperty("label", "A");
 
       db.commit();
       Assert.fail();
     } catch (RecordDuplicatedException ignored) {
     }
 
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestOne")
   public void testTransactionUniqueIndexTestTwo() {
     checkEmbeddedDB();
 
-    DatabaseSessionInternal db = acquireSession();
-    if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexTest")) {
-      final SchemaClass termClass =
-          db.getMetadata()
+    var session = acquireSession();
+    if (!session.getMetadata().getSchema().existsClass("TransactionUniqueIndexTest")) {
+      final var termClass =
+          session.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexTest", 1, (SchemaClass[]) null);
+              .createClass("TransactionUniqueIndexTest", 1);
 
-      termClass.createProperty(db, "label", PropertyType.STRING);
-      termClass.createIndex(db,
+      termClass.createProperty("label", PropertyType.STRING);
+      termClass.createIndex(
           "idxTransactionUniqueIndexTest",
           INDEX_TYPE.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"label"});
     }
-    final Index index =
-        db.getMetadata().getIndexManagerInternal().getIndex(db, "idxTransactionUniqueIndexTest");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    final var index =
+        session.getSharedContext().getIndexManager()
+            .getIndex(session, "idxTransactionUniqueIndexTest");
+    Assert.assertEquals(index.size(this.session), 1);
 
-    db.begin();
+    session.begin();
     try {
-      EntityImpl docOne = new EntityImpl("TransactionUniqueIndexTest");
-      docOne.field("label", "B");
-      docOne.save();
+      var docOne = ((EntityImpl) session.newEntity("TransactionUniqueIndexTest"));
+      docOne.setProperty("label", "B");
 
-      EntityImpl docTwo = new EntityImpl("TransactionUniqueIndexTest");
-      docTwo.field("label", "B");
-      docTwo.save();
+      var docTwo = ((EntityImpl) session.newEntity("TransactionUniqueIndexTest"));
+      docTwo.setProperty("label", "B");
 
-      db.commit();
+      session.commit();
       Assert.fail();
     } catch (RecordDuplicatedException oie) {
-      db.rollback();
+      session.rollback();
     }
 
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
     checkEmbeddedDB();
 
-    DatabaseSessionInternal db = acquireSession();
+    var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
-      final SchemaClass termClass =
+      final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1, (SchemaClass[]) null);
-      termClass.createProperty(db, "label", PropertyType.STRING).createIndex(db, INDEX_TYPE.UNIQUE);
+              .createClass("TransactionUniqueIndexWithDotTest", 1);
+      termClass.createProperty("label", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
     }
 
     db.begin();
-    EntityImpl docOne = new EntityImpl("TransactionUniqueIndexWithDotTest");
-    docOne.field("label", "A");
-    docOne.save();
+    var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
+    docOne.setProperty("label", "A");
+
     db.commit();
 
-    final Index index =
-        db.getMetadata()
-            .getIndexManagerInternal()
+    final var index =
+        db.getSharedContext()
+            .getIndexManager()
             .getIndex(db, "TransactionUniqueIndexWithDotTest.label");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
-    long countClassBefore = db.countClass("TransactionUniqueIndexWithDotTest");
+    var countClassBefore = db.countClass("TransactionUniqueIndexWithDotTest");
     db.begin();
     try {
-      EntityImpl docTwo = new EntityImpl("TransactionUniqueIndexWithDotTest");
-      docTwo.field("label", "A");
-      docTwo.save();
+      var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
+      docTwo.setProperty("label", "A");
 
       db.commit();
       Assert.fail();
@@ -844,44 +849,40 @@ public class IndexTest extends BaseDBTest {
     }
 
     Assert.assertEquals(
-        ((List<EntityImpl>)
-            db.command(new CommandSQL("select from TransactionUniqueIndexWithDotTest"))
-                .execute(db))
+        db.query("select from TransactionUniqueIndexWithDotTest").toList()
             .size(),
         countClassBefore);
 
-    Assert.assertEquals(index.getInternal().size(db), 1);
+    Assert.assertEquals(index.size(db), 1);
   }
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestWithDotNameOne")
   public void testTransactionUniqueIndexTestWithDotNameTwo() {
     checkEmbeddedDB();
 
-    DatabaseSessionInternal db = acquireSession();
+    var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
-      final SchemaClass termClass =
+      final var termClass =
           db.getMetadata()
               .getSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1, (SchemaClass[]) null);
-      termClass.createProperty(db, "label", PropertyType.STRING)
-          .createIndex(database, INDEX_TYPE.UNIQUE);
+              .createClass("TransactionUniqueIndexWithDotTest", 1);
+      termClass.createProperty("label", PropertyType.STRING)
+          .createIndex(INDEX_TYPE.UNIQUE);
     }
 
-    final Index index =
-        db.getMetadata()
-            .getIndexManagerInternal()
+    final var index =
+        db.getSharedContext()
+            .getIndexManager()
             .getIndex(db, "TransactionUniqueIndexWithDotTest.label");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    Assert.assertEquals(index.size(this.session), 1);
 
     db.begin();
     try {
-      EntityImpl docOne = new EntityImpl("TransactionUniqueIndexWithDotTest");
-      docOne.field("label", "B");
-      docOne.save();
+      var docOne = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
+      docOne.setProperty("label", "B");
 
-      EntityImpl docTwo = new EntityImpl("TransactionUniqueIndexWithDotTest");
-      docTwo.field("label", "B");
-      docTwo.save();
+      var docTwo = ((EntityImpl) db.newEntity("TransactionUniqueIndexWithDotTest"));
+      docTwo.setProperty("label", "B");
 
       db.commit();
       Assert.fail();
@@ -889,172 +890,173 @@ public class IndexTest extends BaseDBTest {
       db.rollback();
     }
 
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    Assert.assertEquals(index.size(this.session), 1);
   }
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
   public void testIndexRemoval() {
     checkEmbeddedDB();
 
-    final Index index = getIndex("Profile.nick");
+    final var index = getIndex("Profile.nick");
 
     Iterator<RawPair<Object, RID>> streamIterator;
     Object key;
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
+    try (var stream = index.stream(session)) {
       streamIterator = stream.iterator();
       Assert.assertTrue(streamIterator.hasNext());
 
-      RawPair<Object, RID> pair = streamIterator.next();
-      key = pair.first;
+      var pair = streamIterator.next();
+      key = pair.first();
 
-      database.begin();
-      pair.second.getRecord().delete();
-      database.commit();
+      session.begin();
+      var transaction = session.getActiveTransaction();
+      transaction.load(pair.second()).delete();
+      session.commit();
     }
 
-    try (Stream<RID> stream = index.getInternal().getRids(database, key)) {
+    try (var stream = index.getRids(session, key)) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
 
   public void createInheritanceIndex() {
-    try (DatabaseSessionInternal db = acquireSession()) {
+    try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("BaseTestClass")) {
-        SchemaClass baseClass =
-            db.getMetadata().getSchema().createClass("BaseTestClass", 1, (SchemaClass[]) null);
-        SchemaClass childClass =
-            db.getMetadata().getSchema().createClass("ChildTestClass", 1, (SchemaClass[]) null);
-        SchemaClass anotherChildClass =
-            db.getMetadata().getSchema()
-                .createClass("AnotherChildTestClass", 1, (SchemaClass[]) null);
+        var baseClass =
+            db.getMetadata().getSchema().createClass("BaseTestClass", 1);
+        var childClass =
+            db.getMetadata().getSchema().createClass("ChildTestClass", 1);
+        var anotherChildClass =
+            db.getMetadata().getSchema().createClass("AnotherChildTestClass", 1);
 
-        if (!baseClass.isSuperClassOf(db, childClass)) {
-          childClass.setSuperClass(db, baseClass);
+        if (!baseClass.isSuperClassOf(childClass)) {
+          childClass.addSuperClass(baseClass);
         }
-        if (!baseClass.isSuperClassOf(db, anotherChildClass)) {
-          anotherChildClass.setSuperClass(db, baseClass);
+        if (!baseClass.isSuperClassOf(anotherChildClass)) {
+          anotherChildClass.addSuperClass(baseClass);
         }
 
         baseClass
-            .createProperty(db, "testParentProperty", PropertyType.LONG)
-            .createIndex(db, INDEX_TYPE.NOTUNIQUE);
+            .createProperty("testParentProperty", PropertyType.LONG)
+            .createIndex(INDEX_TYPE.NOTUNIQUE);
       }
 
       db.begin();
-      EntityImpl childClassDocument = db.newInstance("ChildTestClass");
-      childClassDocument.field("testParentProperty", 10L);
-      childClassDocument.save();
+      var childClassDocument = db.newInstance("ChildTestClass");
+      childClassDocument.setProperty("testParentProperty", 10L);
 
-      EntityImpl anotherChildClassDocument = db.newInstance("AnotherChildTestClass");
-      anotherChildClassDocument.field("testParentProperty", 11L);
-      anotherChildClassDocument.save();
+      var anotherChildClassDocument = db.newInstance("AnotherChildTestClass");
+      anotherChildClassDocument.setProperty("testParentProperty", 11L);
+
       db.commit();
 
       Assert.assertNotEquals(
-          childClassDocument.getIdentity(), new RecordId(-1, RID.CLUSTER_POS_INVALID));
+          childClassDocument.getIdentity(), new RecordId(-1, RID.COLLECTION_POS_INVALID));
       Assert.assertNotEquals(
-          anotherChildClassDocument.getIdentity(), new RecordId(-1, RID.CLUSTER_POS_INVALID));
+          anotherChildClassDocument.getIdentity(), new RecordId(-1, RID.COLLECTION_POS_INVALID));
     }
   }
 
   @Test(dependsOnMethods = "createInheritanceIndex")
   public void testIndexReturnOnlySpecifiedClass() {
 
-    try (ResultSet result =
-        database.command("select * from ChildTestClass where testParentProperty = 10")) {
+    session.begin();
+    try (var result =
+        session.execute("select * from ChildTestClass where testParentProperty = 10")) {
 
-      Assert.assertEquals(10L, result.next().<Object>getProperty("testParentProperty"));
+      Assert.assertEquals(result.next().<Object>getProperty("testParentProperty"), 10L);
       Assert.assertFalse(result.hasNext());
     }
 
-    try (ResultSet result =
-        database.command("select * from AnotherChildTestClass where testParentProperty = 11")) {
-      Assert.assertEquals(11L, result.next().<Object>getProperty("testParentProperty"));
+    try (var result =
+        session.execute("select * from AnotherChildTestClass where testParentProperty = 11")) {
+      Assert.assertEquals(result.next().<Object>getProperty("testParentProperty"), 11L);
       Assert.assertFalse(result.hasNext());
     }
+    session.commit();
   }
 
   public void testNotUniqueIndexKeySize() {
     checkEmbeddedDB();
 
-    final Schema schema = database.getMetadata().getSchema();
-    SchemaClass cls = schema.createClass("IndexNotUniqueIndexKeySize");
-    cls.createProperty(database, "value", PropertyType.INTEGER);
-    cls.createIndex(database, "IndexNotUniqueIndexKeySizeIndex", INDEX_TYPE.NOTUNIQUE, "value");
+    final Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("IndexNotUniqueIndexKeySize");
+    cls.createProperty("value", PropertyType.INTEGER);
+    cls.createIndex("IndexNotUniqueIndexKeySizeIndex", INDEX_TYPE.NOTUNIQUE, "value");
 
-    IndexManagerAbstract idxManager = database.getMetadata().getIndexManagerInternal();
+    var idxManager = session.getSharedContext().getIndexManager();
 
-    final Index idx = idxManager.getIndex(database, "IndexNotUniqueIndexKeySizeIndex");
+    final var idx = idxManager.getIndex(session, "IndexNotUniqueIndexKeySizeIndex");
 
     final Set<Integer> keys = new HashSet<>();
-    for (int i = 1; i < 100; i++) {
+    for (var i = 1; i < 100; i++) {
       final Integer key = (int) Math.log(i);
 
-      database.begin();
-      final EntityImpl doc = new EntityImpl("IndexNotUniqueIndexKeySize");
-      doc.field("value", key);
-      doc.save();
-      database.commit();
+      session.begin();
+      final var doc = ((EntityImpl) session.newEntity("IndexNotUniqueIndexKeySize"));
+      doc.setProperty("value", key);
+
+      session.commit();
 
       keys.add(key);
     }
 
-    try (Stream<RawPair<Object, RID>> stream = idx.getInternal().stream(database)) {
-      Assert.assertEquals(stream.map((pair) -> pair.first).distinct().count(), keys.size());
+    try (var stream = idx.stream(session)) {
+      Assert.assertEquals(stream.map((pair) -> pair.first()).distinct().count(), keys.size());
     }
   }
 
   public void testNotUniqueIndexSize() {
     checkEmbeddedDB();
 
-    final Schema schema = database.getMetadata().getSchema();
-    SchemaClass cls = schema.createClass("IndexNotUniqueIndexSize");
-    cls.createProperty(database, "value", PropertyType.INTEGER);
-    cls.createIndex(database, "IndexNotUniqueIndexSizeIndex", INDEX_TYPE.NOTUNIQUE, "value");
+    final Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("IndexNotUniqueIndexSize");
+    cls.createProperty("value", PropertyType.INTEGER);
+    cls.createIndex("IndexNotUniqueIndexSizeIndex", INDEX_TYPE.NOTUNIQUE, "value");
 
-    IndexManagerAbstract idxManager = database.getMetadata().getIndexManagerInternal();
-    final Index idx = idxManager.getIndex(database, "IndexNotUniqueIndexSizeIndex");
+    var idxManager = session.getSharedContext().getIndexManager();
+    final var idx = idxManager.getIndex(session, "IndexNotUniqueIndexSizeIndex");
 
-    for (int i = 1; i < 100; i++) {
+    for (var i = 1; i < 100; i++) {
       final Integer key = (int) Math.log(i);
 
-      database.begin();
-      final EntityImpl doc = new EntityImpl("IndexNotUniqueIndexSize");
-      doc.field("value", key);
-      doc.save();
-      database.commit();
+      session.begin();
+      final var doc = ((EntityImpl) session.newEntity("IndexNotUniqueIndexSize"));
+      doc.setProperty("value", key);
+
+      session.commit();
     }
 
-    Assert.assertEquals(idx.getInternal().size(database), 99);
+    Assert.assertEquals(idx.size(session), 99);
   }
 
   @Test
   public void testIndexRebuildDuringNonProxiedObjectDelete() {
     checkEmbeddedDB();
 
-    database.begin();
-    Entity profile = database.newEntity("Profile");
+    session.begin();
+    var profile = session.newEntity("Profile");
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = database.save(profile);
-    database.commit();
+    profile = profile;
+    session.commit();
 
-    IndexManagerAbstract idxManager = database.getMetadata().getIndexManagerInternal();
-    Index nickIndex = idxManager.getIndex(database, "Profile.nick");
+    var idxManager = session.getSharedContext().getIndexManager();
+    var nickIndex = idxManager.getIndex(session, "Profile.nick");
 
-    try (Stream<RID> stream = nickIndex.getInternal()
-        .getRids(database, "NonProxiedObjectToDelete")) {
+    try (var stream = nickIndex
+        .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    database.begin();
-    final Entity loadedProfile = database.load(profile.getIdentity());
-    database.delete(loadedProfile);
-    database.commit();
+    session.begin();
+    final Entity loadedProfile = session.load(profile.getIdentity());
+    session.delete(loadedProfile);
+    session.commit();
 
-    try (Stream<RID> stream = nickIndex.getInternal()
-        .getRids(database, "NonProxiedObjectToDelete")) {
+    try (var stream = nickIndex
+        .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
@@ -1063,259 +1065,247 @@ public class IndexTest extends BaseDBTest {
   public void testIndexRebuildDuringDetachAllNonProxiedObjectDelete() {
     checkEmbeddedDB();
 
-    database.begin();
-    Entity profile = database.newEntity("Profile");
+    session.begin();
+    var profile = session.newEntity("Profile");
     profile.setProperty("nick", "NonProxiedObjectToDelete");
     profile.setProperty("name", "NonProxiedObjectToDelete");
     profile.setProperty("surname", "NonProxiedObjectToDelete");
-    profile = database.save(profile);
-    database.commit();
+    profile = profile;
+    session.commit();
 
-    IndexManagerAbstract idxManager = database.getMetadata().getIndexManagerInternal();
-    Index nickIndex = idxManager.getIndex(database, "Profile.nick");
+    session.begin();
+    var idxManager = session.getSharedContext().getIndexManager();
+    var nickIndex = idxManager.getIndex(session, "Profile.nick");
 
-    try (Stream<RID> stream = nickIndex.getInternal()
-        .getRids(database, "NonProxiedObjectToDelete")) {
+    try (var stream = nickIndex
+        .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    final Entity loadedProfile = database.load(profile.getIdentity());
-    database.begin();
-    database.delete(database.bindToSession(loadedProfile));
-    database.commit();
+    final Entity loadedProfile = session.load(profile.getIdentity());
+    session.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Entity>load(loadedProfile));
+    session.commit();
 
-    try (Stream<RID> stream = nickIndex.getInternal()
-        .getRids(database, "NonProxiedObjectToDelete")) {
+    try (var stream = nickIndex
+        .getRids(session, "NonProxiedObjectToDelete")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
   }
 
   @Test(dependsOnMethods = "testIndexRebuildDuringDetachAllNonProxiedObjectDelete")
   public void testRestoreUniqueIndex() {
-    dropIndexes("Profile", "nick");
-    database
-        .command(
+    dropIndexes();
+    session
+        .execute(
             "CREATE INDEX Profile.nick on Profile (nick) UNIQUE METADATA {ignoreNullValues: true}")
         .close();
-    database.getMetadata().reload();
+    session.getMetadata().reload();
   }
 
   @Test
   public void testIndexInCompositeQuery() {
-    SchemaClass classOne =
-        database.getMetadata().getSchema()
-            .createClass("CompoundSQLIndexTest1", 1, (SchemaClass[]) null);
-    SchemaClass classTwo =
-        database.getMetadata().getSchema()
-            .createClass("CompoundSQLIndexTest2", 1, (SchemaClass[]) null);
+    var classOne =
+        session.getMetadata().getSchema()
+            .createClass("CompoundSQLIndexTest1", 1);
+    var classTwo =
+        session.getMetadata().getSchema()
+            .createClass("CompoundSQLIndexTest2", 1);
 
-    classTwo.createProperty(database, "address", PropertyType.LINK, classOne);
+    classTwo.createProperty("address", PropertyType.LINK, classOne);
 
-    classTwo.createIndex(database, "CompoundSQLIndexTestIndex", INDEX_TYPE.UNIQUE, "address");
+    classTwo.createIndex("CompoundSQLIndexTestIndex", INDEX_TYPE.UNIQUE, "address");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("CompoundSQLIndexTest1");
-    docOne.field("city", "Montreal");
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("CompoundSQLIndexTest1"));
+    docOne.setProperty("city", "Montreal");
 
-    docOne.save();
+    var docTwo = ((EntityImpl) session.newEntity("CompoundSQLIndexTest2"));
+    docTwo.setProperty("address", docOne);
 
-    EntityImpl docTwo = new EntityImpl("CompoundSQLIndexTest2");
-    docTwo.field("address", docOne);
-    docTwo.save();
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select from CompoundSQLIndexTest2 where address in (select from"
                 + " CompoundSQLIndexTest1 where city='Montreal')");
     Assert.assertEquals(result.size(), 1);
-
-    Assert.assertEquals(result.get(0).getIdentity(), docTwo.getIdentity());
+    Assert.assertEquals(result.getFirst().getIdentity(), docTwo.getIdentity());
   }
 
   public void testIndexWithLimitAndOffset() {
-    final Schema schema = database.getSchema();
-    final SchemaClass indexWithLimitAndOffset =
-        schema.createClass("IndexWithLimitAndOffsetClass", 1, (SchemaClass[]) null);
-    indexWithLimitAndOffset.createProperty(database, "val", PropertyType.INTEGER);
-    indexWithLimitAndOffset.createProperty(database, "index", PropertyType.INTEGER);
+    final var schema = session.getMetadata().getSchema();
+    final var indexWithLimitAndOffset =
+        schema.createClass("IndexWithLimitAndOffsetClass", 1);
+    indexWithLimitAndOffset.createProperty("val", PropertyType.INTEGER);
+    indexWithLimitAndOffset.createProperty("index", PropertyType.INTEGER);
 
-    database
-        .command(
+    session
+        .execute(
             "create index IndexWithLimitAndOffset on IndexWithLimitAndOffsetClass (val) notunique")
         .close();
 
-    for (int i = 0; i < 30; i++) {
-      database.begin();
-      final EntityImpl document = new EntityImpl("IndexWithLimitAndOffsetClass");
-      document.field("val", i / 10);
-      document.field("index", i);
-      document.save();
-      database.commit();
+    for (var i = 0; i < 30; i++) {
+      session.begin();
+      final var document = ((EntityImpl) session.newEntity("IndexWithLimitAndOffsetClass"));
+      document.setProperty("val", i / 10);
+      document.setProperty("index", i);
+
+      session.commit();
     }
 
-    final List<EntityImpl> result =
+    var tx = session.begin();
+    var resultSet =
         executeQuery("select from IndexWithLimitAndOffsetClass where val = 1 offset 5 limit 2");
-    Assert.assertEquals(result.size(), 2);
+    Assert.assertEquals(resultSet.size(), 2);
 
-    for (int i = 0; i < 2; i++) {
-      final EntityImpl document = result.get(i);
-      Assert.assertEquals(document.<Object>field("val"), 1);
-      Assert.assertEquals(document.<Object>field("index"), 15 + i);
+    for (var i = 0; i < 2; i++) {
+      var result = resultSet.get(i);
+      Assert.assertEquals(result.<Object>getProperty("val"), 1);
+      Assert.assertEquals(result.<Object>getProperty("index"), 15 + i);
     }
+    tx.commit();
   }
 
   public void testNullIndexKeysSupport() {
-    final Schema schema = database.getSchema();
-    final SchemaClass clazz = schema.createClass("NullIndexKeysSupport", 1, (SchemaClass[]) null);
-    clazz.createProperty(database, "nullField", PropertyType.STRING);
+    final var schema = session.getMetadata().getSchema();
+    final var clazz = schema.createClass("NullIndexKeysSupport", 1);
+    clazz.createProperty("nullField", PropertyType.STRING);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(database,
+    clazz.createIndex(
         "NullIndexKeysSupportIndex",
         INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
-    for (int i = 0; i < 20; i++) {
-      database.begin();
+    for (var i = 0; i < 20; i++) {
+      session.begin();
       if (i % 5 == 0) {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupport");
-        document.field("nullField", (Object) null);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupport"));
+        document.setProperty("nullField", null);
+
       } else {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupport");
-        document.field("nullField", "val" + i);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupport"));
+        document.setProperty("nullField", "val" + i);
+
       }
-      database.commit();
+      session.commit();
     }
 
-    List<EntityImpl> result =
+    session.begin();
+    var resultSet =
         executeQuery("select from NullIndexKeysSupport where nullField = 'val3'");
-    Assert.assertEquals(result.size(), 1);
+    Assert.assertEquals(resultSet.size(), 1);
 
-    Assert.assertEquals(result.get(0).field("nullField"), "val3");
+    Assert.assertEquals(resultSet.getFirst().getProperty("nullField"), "val3");
 
-    final String query = "select from NullIndexKeysSupport where nullField is null";
-    result = executeQuery("select from NullIndexKeysSupport where nullField is null");
+    final var query = "select from NullIndexKeysSupport where nullField is null";
+    resultSet = executeQuery("select from NullIndexKeysSupport where nullField is null");
 
-    Assert.assertEquals(result.size(), 4);
-    for (EntityImpl document : result) {
-      Assert.assertNull(document.field("nullField"));
+    Assert.assertEquals(resultSet.size(), 4);
+    for (var result : resultSet) {
+      Assert.assertNull(result.getProperty("nullField"));
     }
-
-    final EntityImpl explain = database.command(new CommandSQL("explain " + query))
-        .execute(database);
-    Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullIndexKeysSupportIndex"));
+    session.commit();
   }
 
   public void testNullHashIndexKeysSupport() {
-    final Schema schema = database.getSchema();
-    final SchemaClass clazz = schema.createClass("NullHashIndexKeysSupport", 1,
-        (SchemaClass[]) null);
-    clazz.createProperty(database, "nullField", PropertyType.STRING);
+    final var schema = session.getMetadata().getSchema();
+    final var clazz = schema.createClass("NullHashIndexKeysSupport", 1);
+    clazz.createProperty("nullField", PropertyType.STRING);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(database,
+    clazz.createIndex(
         "NullHashIndexKeysSupportIndex",
         INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
-    for (int i = 0; i < 20; i++) {
-      database.begin();
+    for (var i = 0; i < 20; i++) {
+      session.begin();
       if (i % 5 == 0) {
-        EntityImpl document = new EntityImpl("NullHashIndexKeysSupport");
-        document.field("nullField", (Object) null);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
+        document.setProperty("nullField", null);
+
       } else {
-        EntityImpl document = new EntityImpl("NullHashIndexKeysSupport");
-        document.field("nullField", "val" + i);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullHashIndexKeysSupport"));
+        document.setProperty("nullField", "val" + i);
+
       }
-      database.commit();
+      session.commit();
     }
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullHashIndexKeysSupport where nullField = 'val3'"));
+    session.begin();
+    var result =
+        session.query(
+            "select from NullHashIndexKeysSupport where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.get(0).field("nullField"), "val3");
+    var entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final String query = "select from NullHashIndexKeysSupport where nullField is null";
+    final var query = "select from NullHashIndexKeysSupport where nullField is null";
     result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullHashIndexKeysSupport where nullField is null"));
+        session.query("select from NullHashIndexKeysSupport where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
-    for (EntityImpl document : result) {
-      Assert.assertNull(document.field("nullField"));
+    for (var document : result) {
+      Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final EntityImpl explain = database.command(new CommandSQL("explain " + query))
-        .execute(database);
-    Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullHashIndexKeysSupportIndex"));
+    session.commit();
   }
 
   public void testNullIndexKeysSupportInTx() {
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass clazz = schema.createClass("NullIndexKeysSupportInTx", 1,
-        (SchemaClass[]) null);
-    clazz.createProperty(database, "nullField", PropertyType.STRING);
+    final var schema = session.getMetadata().getSchema();
+    final var clazz = schema.createClass("NullIndexKeysSupportInTx", 1);
+    clazz.createProperty("nullField", PropertyType.STRING);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(database,
+    clazz.createIndex(
         "NullIndexKeysSupportInTxIndex",
         INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
 
-    database.begin();
+    session.begin();
 
-    for (int i = 0; i < 20; i++) {
+    for (var i = 0; i < 20; i++) {
       if (i % 5 == 0) {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupportInTx");
-        document.field("nullField", (Object) null);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInTx"));
+        document.setProperty("nullField", null);
+
       } else {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupportInTx");
-        document.field("nullField", "val" + i);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInTx"));
+        document.setProperty("nullField", "val" + i);
+
       }
     }
 
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInTx where nullField = 'val3'"));
+    session.begin();
+    var result = session.query(
+        "select from NullIndexKeysSupportInTx where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.get(0).field("nullField"), "val3");
+    var entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final String query = "select from NullIndexKeysSupportInTx where nullField is null";
+    final var query = "select from NullIndexKeysSupportInTx where nullField is null";
     result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInTx where nullField is null"));
+        session.query(
+            "select from NullIndexKeysSupportInTx where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
-    for (EntityImpl document : result) {
-      Assert.assertNull(document.field("nullField"));
+    for (var document : result) {
+      Assert.assertNull(document.getProperty("nullField"));
     }
-
-    final EntityImpl explain = database.command(new CommandSQL("explain " + query))
-        .execute(database);
-    Assert.assertTrue(
-        explain.<Set<String>>field("involvedIndexes").contains("NullIndexKeysSupportInTxIndex"));
+    session.commit();
   }
 
   public void testNullIndexKeysSupportInMiddleTx() {
@@ -1323,109 +1313,96 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
-    final Schema schema = database.getSchema();
-    final SchemaClass clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1,
-        (SchemaClass[]) null);
-    clazz.createProperty(database, "nullField", PropertyType.STRING);
+    final var schema = session.getMetadata().getSchema();
+    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1);
+    clazz.createProperty("nullField", PropertyType.STRING);
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    clazz.createIndex(database,
+    clazz.createIndex(
         "NullIndexKeysSupportInMiddleTxIndex",
         INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
 
-    database.begin();
+    session.begin();
 
-    for (int i = 0; i < 20; i++) {
+    for (var i = 0; i < 20; i++) {
       if (i % 5 == 0) {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupportInMiddleTx");
-        document.field("nullField", (Object) null);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInMiddleTx"));
+        document.setProperty("nullField", null);
+
       } else {
-        EntityImpl document = new EntityImpl("NullIndexKeysSupportInMiddleTx");
-        document.field("nullField", "val" + i);
-        document.save();
+        var document = ((EntityImpl) session.newEntity("NullIndexKeysSupportInMiddleTx"));
+        document.setProperty("nullField", "val" + i);
+
       }
     }
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInMiddleTx where nullField = 'val3'"));
+    var result =
+        session.query(
+
+            "select from NullIndexKeysSupportInMiddleTx where nullField = 'val3'").toList();
     Assert.assertEquals(result.size(), 1);
 
-    Assert.assertEquals(result.get(0).field("nullField"), "val3");
+    var entity = result.getFirst();
+    Assert.assertEquals(entity.getProperty("nullField"), "val3");
 
-    final String query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
+    final var query = "select from NullIndexKeysSupportInMiddleTx where nullField is null";
     result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from NullIndexKeysSupportInMiddleTx where nullField is null"));
+        session.query(
+            "select from NullIndexKeysSupportInMiddleTx where nullField is null").toList();
 
     Assert.assertEquals(result.size(), 4);
-    for (EntityImpl document : result) {
-      Assert.assertNull(document.field("nullField"));
+    for (var document : result) {
+      Assert.assertNull(document.getProperty("nullField"));
     }
 
-    final EntityImpl explain = database.command(new CommandSQL("explain " + query))
-        .execute(database);
-    Assert.assertTrue(
-        explain
-            .<Set<String>>field("involvedIndexes")
-            .contains("NullIndexKeysSupportInMiddleTxIndex"));
-
-    database.commit();
+    session.commit();
   }
 
   public void testCreateIndexAbstractClass() {
-    final Schema schema = database.getSchema();
+    final var schema = session.getSchema();
 
-    SchemaClass abstractClass = schema.createAbstractClass("TestCreateIndexAbstractClass");
+    var abstractClass = schema.createAbstractClass("TestCreateIndexAbstractClass");
     abstractClass
-        .createProperty(database, "value", PropertyType.STRING)
-        .setMandatory(database, true)
-        .createIndex(database, INDEX_TYPE.UNIQUE);
+        .createProperty("value", PropertyType.STRING)
+        .setMandatory(true)
+        .createIndex(INDEX_TYPE.UNIQUE);
 
     schema.createClass("TestCreateIndexAbstractClassChildOne", abstractClass);
     schema.createClass("TestCreateIndexAbstractClassChildTwo", abstractClass);
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("TestCreateIndexAbstractClassChildOne");
-    docOne.field("value", "val1");
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("TestCreateIndexAbstractClassChildOne"));
+    docOne.setProperty("value", "val1");
 
-    EntityImpl docTwo = new EntityImpl("TestCreateIndexAbstractClassChildTwo");
-    docTwo.field("value", "val2");
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("TestCreateIndexAbstractClassChildTwo"));
+    docTwo.setProperty("value", "val2");
 
-    final String queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
+    session.commit();
 
-    List<EntityImpl> resultOne = executeQuery(queryOne);
+    var tx = session.begin();
+    final var queryOne = "select from TestCreateIndexAbstractClass where value = 'val1'";
+
+    var resultOne = executeQuery(queryOne);
     Assert.assertEquals(resultOne.size(), 1);
-    Assert.assertEquals(resultOne.get(0).getIdentity(), docOne.getIdentity());
+    Assert.assertEquals(resultOne.getFirst().getIdentity(), docOne.getIdentity());
 
-    try (var result = database.command("explain " + queryOne)) {
-      var explain = result.next().toEntity();
+    try (var result = session.execute("explain " + queryOne)) {
+      var explain = result.next();
       Assert.assertTrue(
           explain
               .<String>getProperty("executionPlanAsString")
               .contains("FETCH FROM INDEX TestCreateIndexAbstractClass.value"));
 
-      final String queryTwo = "select from TestCreateIndexAbstractClass where value = 'val2'";
+      final var queryTwo = "select from TestCreateIndexAbstractClass where value = 'val2'";
 
-      List<EntityImpl> resultTwo = executeQuery(queryTwo);
+      var resultTwo = executeQuery(queryTwo);
       Assert.assertEquals(resultTwo.size(), 1);
-      Assert.assertEquals(resultTwo.get(0).getIdentity(), docTwo.getIdentity());
-
-      explain = database.command(new CommandSQL("explain " + queryTwo)).execute(database);
-      Assert.assertTrue(
-          explain
-              .<Collection<String>>getProperty("involvedIndexes")
-              .contains("TestCreateIndexAbstractClass.value"));
+      Assert.assertEquals(resultTwo.getFirst().getIdentity(), docTwo.getIdentity());
     }
+    session.commit();
   }
 
   @Test(enabled = false)
@@ -1434,181 +1411,176 @@ public class IndexTest extends BaseDBTest {
       return;
     }
 
-    final Schema schema = database.getMetadata().getSchema();
-    SchemaClass clazz =
-        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1,
-            (SchemaClass[]) null);
-    clazz.createProperty(database, "val", PropertyType.STRING);
+    final var schema = session.getMetadata().getSchema();
+    var clazz =
+        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1);
+    clazz.createProperty("val", PropertyType.STRING);
 
-    database
-        .command(
+    session
+        .execute(
             "create index ValuesContainerIsRemovedIfIndexIsRemovedIndex on"
                 + " ValuesContainerIsRemovedIfIndexIsRemovedClass (val) notunique")
         .close();
 
-    for (int i = 0; i < 10; i++) {
-      for (int j = 0; j < 100; j++) {
-        database.begin();
-        EntityImpl document = new EntityImpl("ValuesContainerIsRemovedIfIndexIsRemovedClass");
-        document.field("val", "value" + i);
-        document.save();
-        database.commit();
+    for (var i = 0; i < 10; i++) {
+      for (var j = 0; j < 100; j++) {
+        session.begin();
+        var document = ((EntityImpl) session.newEntity(
+            "ValuesContainerIsRemovedIfIndexIsRemovedClass"));
+        document.setProperty("val", "value" + i);
+
+        session.commit();
       }
     }
 
-    final AbstractPaginatedStorage storageLocalAbstract =
-        (AbstractPaginatedStorage)
-            ((DatabaseSessionInternal) database.getUnderlying()).getStorage();
+    final var storageLocalAbstract = (AbstractStorage) session.getStorage();
 
-    final WriteCache writeCache = storageLocalAbstract.getWriteCache();
+    final var writeCache = storageLocalAbstract.getWriteCache();
     Assert.assertTrue(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
-    database.command("drop index ValuesContainerIsRemovedIfIndexIsRemovedIndex").close();
+    session.execute("drop index ValuesContainerIsRemovedIfIndexIsRemovedIndex").close();
     Assert.assertFalse(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
   }
 
   public void testPreservingIdentityInIndexTx() {
     checkEmbeddedDB();
-    if (!database.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxParent")) {
-      database.createVertexClass("PreservingIdentityInIndexTxParent");
+    if (!session.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxParent")) {
+      session.createVertexClass("PreservingIdentityInIndexTxParent");
     }
-    if (!database.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxEdge")) {
-      database.createEdgeClass("PreservingIdentityInIndexTxEdge");
+    if (!session.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxEdge")) {
+      session.createEdgeClass("PreservingIdentityInIndexTxEdge");
     }
-    var fieldClass = (SchemaClassInternal) database.getClass("PreservingIdentityInIndexTxChild");
+    var fieldClass = (SchemaClassInternal) session.getClass("PreservingIdentityInIndexTxChild");
     if (fieldClass == null) {
-      fieldClass = (SchemaClassInternal) database.createVertexClass(
+      fieldClass = (SchemaClassInternal) session.createVertexClass(
           "PreservingIdentityInIndexTxChild");
-      fieldClass.createProperty(database, "name", PropertyType.STRING);
-      fieldClass.createProperty(database, "in_field", PropertyType.LINK);
-      fieldClass.createIndex(database, "nameParentIndex", INDEX_TYPE.NOTUNIQUE, "in_field", "name");
+      fieldClass.createProperty("name", PropertyType.STRING);
+      fieldClass.createProperty("in_field", PropertyType.LINK);
+      fieldClass.createIndex("nameParentIndex", INDEX_TYPE.NOTUNIQUE, "in_field", "name");
     }
 
-    database.begin();
-    Vertex parent = database.newVertex("PreservingIdentityInIndexTxParent");
-    database.save(parent);
-    Vertex child = database.newVertex("PreservingIdentityInIndexTxChild");
-    database.save(child);
-    database.save(database.newRegularEdge(parent, child, "PreservingIdentityInIndexTxEdge"));
+    session.begin();
+    var parent = session.newVertex("PreservingIdentityInIndexTxParent");
+    var child = session.newVertex("PreservingIdentityInIndexTxChild");
+    session.newStatefulEdge(parent, child, "PreservingIdentityInIndexTxEdge");
     child.setProperty("name", "pokus");
-    database.save(child);
 
-    Vertex parent2 = database.newVertex("PreservingIdentityInIndexTxParent");
-    database.save(parent2);
-    Vertex child2 = database.newVertex("PreservingIdentityInIndexTxChild");
-    database.save(child2);
-    database.save(database.newRegularEdge(parent2, child2, "preservingIdentityInIndexTxEdge"));
+    var parent2 = session.newVertex("PreservingIdentityInIndexTxParent");
+    var child2 = session.newVertex("PreservingIdentityInIndexTxChild");
+    session.newStatefulEdge(parent2, child2, "preservingIdentityInIndexTxEdge");
     child2.setProperty("name", "pokus2");
-    database.save(child2);
-    database.commit();
+    session.commit();
 
     {
-      fieldClass = database.getClassInternal("PreservingIdentityInIndexTxChild");
-      Index index = fieldClass.getClassIndex(database, "nameParentIndex");
-      CompositeKey key = new CompositeKey(parent.getIdentity(), "pokus");
+      fieldClass = session.getClassInternal("PreservingIdentityInIndexTxChild");
+      var index = fieldClass.getClassIndex(session, "nameParentIndex");
+      var key = new CompositeKey(parent.getIdentity(), "pokus");
 
       Collection<RID> h;
-      try (Stream<RID> stream = index.getInternal().getRids(database, key)) {
+      try (var stream = index.getRids(session, key)) {
         h = stream.toList();
       }
-      for (RID o : h) {
-        Assert.assertNotNull(database.load(o));
+      for (var o : h) {
+        Assert.assertNotNull(session.load(o));
       }
     }
 
     {
-      fieldClass = (SchemaClassInternal) database.getClass("PreservingIdentityInIndexTxChild");
-      Index index = fieldClass.getClassIndex(database, "nameParentIndex");
-      CompositeKey key = new CompositeKey(parent2.getIdentity(), "pokus2");
+      fieldClass = (SchemaClassInternal) session.getClass("PreservingIdentityInIndexTxChild");
+      var index = fieldClass.getClassIndex(session, "nameParentIndex");
+      var key = new CompositeKey(parent2.getIdentity(), "pokus2");
 
       Collection<RID> h;
-      try (Stream<RID> stream = index.getInternal().getRids(database, key)) {
+      try (var stream = index.getRids(session, key)) {
         h = stream.toList();
       }
-      for (RID o : h) {
-        Assert.assertNotNull(database.load(o));
+      for (var o : h) {
+        Assert.assertNotNull(session.load(o));
       }
     }
 
-    database.begin();
-    database.delete(database.bindToSession(parent));
-    database.delete(database.bindToSession(child));
+    session.begin();
+    var activeTx3 = session.getActiveTransaction();
+    session.delete(activeTx3.<Vertex>load(parent));
+    var activeTx2 = session.getActiveTransaction();
+    session.delete(activeTx2.<Vertex>load(child));
 
-    database.delete(database.bindToSession(parent2));
-    database.delete(database.bindToSession(child2));
-    database.commit();
+    var activeTx1 = session.getActiveTransaction();
+    session.delete(activeTx1.<Vertex>load(parent2));
+    var activeTx = session.getActiveTransaction();
+    session.delete(activeTx.<Vertex>load(child2));
+    session.commit();
   }
 
   public void testEmptyNotUniqueIndex() {
     checkEmbeddedDB();
 
-    SchemaClass emptyNotUniqueIndexClazz =
-        database
+    var emptyNotUniqueIndexClazz =
+        session
             .getMetadata()
             .getSchema()
-            .createClass("EmptyNotUniqueIndexTest", 1, (SchemaClass[]) null);
-    emptyNotUniqueIndexClazz.createProperty(database, "prop", PropertyType.STRING);
+            .createClass("EmptyNotUniqueIndexTest", 1);
+    emptyNotUniqueIndexClazz.createProperty("prop", PropertyType.STRING);
 
-    emptyNotUniqueIndexClazz.createIndex(database,
-        "EmptyNotUniqueIndexTestIndex", INDEX_TYPE.NOTUNIQUE_HASH_INDEX, "prop");
-    final Index notUniqueIndex = database.getIndex("EmptyNotUniqueIndexTestIndex");
+    emptyNotUniqueIndexClazz.createIndex(
+        "EmptyNotUniqueIndexTestIndex", INDEX_TYPE.NOTUNIQUE, "prop");
+    final var notUniqueIndex = session.getIndex("EmptyNotUniqueIndexTestIndex");
 
-    database.begin();
-    EntityImpl document = new EntityImpl("EmptyNotUniqueIndexTest");
-    document.field("prop", "keyOne");
-    document.save();
+    session.begin();
+    var document = ((EntityImpl) session.newEntity("EmptyNotUniqueIndexTest"));
+    document.setProperty("prop", "keyOne");
 
-    document = new EntityImpl("EmptyNotUniqueIndexTest");
-    document.field("prop", "keyTwo");
-    document.save();
-    database.commit();
+    document = ((EntityImpl) session.newEntity("EmptyNotUniqueIndexTest"));
+    document.setProperty("prop", "keyTwo");
 
-    try (Stream<RID> stream = notUniqueIndex.getInternal().getRids(database, "RandomKeyOne")) {
+    session.commit();
+
+    try (var stream = notUniqueIndex.getRids(session, "RandomKeyOne")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (Stream<RID> stream = notUniqueIndex.getInternal().getRids(database, "keyOne")) {
+    try (var stream = notUniqueIndex.getRids(session, "keyOne")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
 
-    try (Stream<RID> stream = notUniqueIndex.getInternal().getRids(database, "RandomKeyTwo")) {
+    try (var stream = notUniqueIndex.getRids(session, "RandomKeyTwo")) {
       Assert.assertFalse(stream.findAny().isPresent());
     }
-    try (Stream<RID> stream = notUniqueIndex.getInternal().getRids(database, "keyTwo")) {
+    try (var stream = notUniqueIndex.getRids(session, "keyTwo")) {
       Assert.assertTrue(stream.findAny().isPresent());
     }
   }
 
   public void testNullIteration() {
-    SchemaClass v = database.getSchema().getClass("V");
-    SchemaClass testNullIteration =
-        database.getMetadata().getSchema().createClass("NullIterationTest", v);
-    testNullIteration.createProperty(database, "name", PropertyType.STRING);
-    testNullIteration.createProperty(database, "birth", PropertyType.DATETIME);
+    var v = session.getSchema().getClass("V");
+    var testNullIteration =
+        session.getMetadata().getSchema().createClass("NullIterationTest", v);
+    testNullIteration.createProperty("name", PropertyType.STRING);
+    testNullIteration.createProperty("birth", PropertyType.DATETIME);
 
-    database.begin();
-    database
-        .command("CREATE VERTEX NullIterationTest SET name = 'Andrew', birth = sysdate()")
+    session.begin();
+    session
+        .execute("CREATE VERTEX NullIterationTest SET name = 'Andrew', birth = sysdate()")
         .close();
-    database
-        .command("CREATE VERTEX NullIterationTest SET name = 'Marcel', birth = sysdate()")
+    session
+        .execute("CREATE VERTEX NullIterationTest SET name = 'Marcel', birth = sysdate()")
         .close();
-    database.command("CREATE VERTEX NullIterationTest SET name = 'Olivier'").close();
-    database.commit();
+    session.execute("CREATE VERTEX NullIterationTest SET name = 'Olivier'").close();
+    session.commit();
 
-    var metadata = Map.of("ignoreNullValues", false);
+    var metadata = Map.<String, Object>of("ignoreNullValues", false);
 
-    testNullIteration.createIndex(database,
+    testNullIteration.createIndex(
         "NullIterationTestIndex",
         INDEX_TYPE.NOTUNIQUE.name(),
         null,
         metadata, new String[]{"birth"});
 
-    ResultSet result = database.query("SELECT FROM NullIterationTest ORDER BY birth ASC");
+    var result = session.query("SELECT FROM NullIterationTest ORDER BY birth ASC");
     Assert.assertEquals(result.stream().count(), 3);
 
-    result = database.query("SELECT FROM NullIterationTest ORDER BY birth DESC");
+    result = session.query("SELECT FROM NullIterationTest ORDER BY birth DESC");
     Assert.assertEquals(result.stream().count(), 3);
 
-    result = database.query("SELECT FROM NullIterationTest");
+    result = session.query("SELECT FROM NullIterationTest");
     Assert.assertEquals(result.stream().count(), 3);
   }
 
@@ -1616,64 +1588,63 @@ public class IndexTest extends BaseDBTest {
     checkEmbeddedDB();
 
     // generates stubs for index
-    database.begin();
-    EntityImpl doc1 = new EntityImpl();
-    doc1.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc2 = new EntityImpl();
-    doc2.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc3 = new EntityImpl();
-    doc3.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc4 = new EntityImpl();
-    doc4.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity());
+
+    var doc2 = ((EntityImpl) session.newEntity());
+
+    var doc3 = ((EntityImpl) session.newEntity());
+
+    var doc4 = ((EntityImpl) session.newEntity());
+
+    session.commit();
 
     final RID rid1 = doc1.getIdentity();
     final RID rid2 = doc2.getIdentity();
     final RID rid3 = doc3.getIdentity();
     final RID rid4 = doc4.getIdentity();
-    final Schema schema = database.getMetadata().getSchema();
-    SchemaClass clazz = schema.createClass("TestMultikeyWithoutField");
+    final Schema schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("TestMultikeyWithoutField");
 
-    clazz.createProperty(database, "state", PropertyType.BYTE);
-    clazz.createProperty(database, "users", PropertyType.LINKSET);
-    clazz.createProperty(database, "time", PropertyType.LONG);
-    clazz.createProperty(database, "reg", PropertyType.LONG);
-    clazz.createProperty(database, "no", PropertyType.INTEGER);
+    clazz.createProperty("state", PropertyType.BYTE);
+    clazz.createProperty("users", PropertyType.LINKSET);
+    clazz.createProperty("time", PropertyType.LONG);
+    clazz.createProperty("reg", PropertyType.LONG);
+    clazz.createProperty("no", PropertyType.INTEGER);
 
-    var mt = Map.of("ignoreNullValues", false);
-    clazz.createIndex(database,
+    var mt = Map.<String, Object>of("ignoreNullValues", false);
+    clazz.createIndex(
         "MultikeyWithoutFieldIndex",
         INDEX_TYPE.UNIQUE.toString(),
         null,
         mt, new String[]{"state", "users", "time", "reg", "no"});
 
-    database.begin();
-    EntityImpl document = new EntityImpl("TestMultikeyWithoutField");
-    document.field("state", (byte) 1);
+    session.begin();
+    var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutField"));
+    document.setProperty("state", (byte) 1);
 
-    Set<RID> users = new HashSet<>();
+    var users = session.newLinkSet();
     users.add(rid1);
     users.add(rid2);
 
-    document.field("users", users);
-    document.field("time", 12L);
-    document.field("reg", 14L);
-    document.field("no", 12);
+    document.setProperty("users", users);
+    document.setProperty("time", 12L);
+    document.setProperty("reg", 14L);
+    document.setProperty("no", 12);
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1682,113 +1653,115 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         }
       }
-      try (Stream<RawPair<Object, RID>> descStream = index.getInternal().descStream(database)) {
+      try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
         }
       }
     }
 
     final RID rid = document.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.load(rid);
+    session.begin();
+    document = session.load(rid);
 
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid1);
-    document.save();
-    database.commit();
+
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(database), 1);
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
+    Assert.assertEquals(index.size(session), 1);
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    document = database.load(rid);
+    session.begin();
+    document = session.load(rid);
 
-    database.begin();
-    document = database.bindToSession(document);
-    users = document.field("users");
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    users = document.getProperty("users");
     users.remove(rid2);
     Assert.assertTrue(users.isEmpty());
-    document.save();
-    database.commit();
+
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
 
-    Assert.assertEquals(index.getInternal().size(database), 1);
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStreamAsc = index.getInternal().keyStream()) {
+    Assert.assertEquals(index.size(session), 1);
+    if (!(session.isRemote())) {
+      try (var keyStreamAsc = index.keyStream()) {
         Assert.assertEquals(
             keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.load(rid);
-    users = document.field("users");
+    session.begin();
+    document = session.load(rid);
+    users = document.getProperty("users");
     users.add(rid3);
-    document.save();
-    database.commit();
+
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
 
-    Assert.assertEquals(index.getInternal().size(database), 1);
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    Assert.assertEquals(index.size(session), 1);
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.bindToSession(document);
-    users = document.field("users");
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    users = document.getProperty("users");
     users.add(rid4);
-    document.save();
-    database.commit();
+
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
+    Assert.assertEquals(index.size(session), 2);
 
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1797,35 +1770,36 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         }
       }
-      try (Stream<RawPair<Object, RID>> descStream = index.getInternal().descStream(database)) {
+      try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
         }
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.bindToSession(document);
-    document.removeField("users");
-    document.save();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    document.removeProperty("users");
+
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndex");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndex");
+    Assert.assertEquals(index.size(session), 1);
 
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
       }
@@ -1836,64 +1810,63 @@ public class IndexTest extends BaseDBTest {
     checkEmbeddedDB();
 
     // generates stubs for index
-    database.begin();
-    EntityImpl doc1 = new EntityImpl();
-    doc1.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc2 = new EntityImpl();
-    doc2.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc3 = new EntityImpl();
-    doc3.save(database.getClusterNameById(database.getDefaultClusterId()));
-    EntityImpl doc4 = new EntityImpl();
-    doc4.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity());
+
+    var doc2 = ((EntityImpl) session.newEntity());
+
+    var doc3 = ((EntityImpl) session.newEntity());
+
+    var doc4 = ((EntityImpl) session.newEntity());
+
+    session.commit();
 
     final RID rid1 = doc1.getIdentity();
     final RID rid2 = doc2.getIdentity();
     final RID rid3 = doc3.getIdentity();
     final RID rid4 = doc4.getIdentity();
 
-    final Schema schema = database.getMetadata().getSchema();
-    SchemaClass clazz = schema.createClass("TestMultikeyWithoutFieldNoNullSupport");
+    final Schema schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("TestMultikeyWithoutFieldNoNullSupport");
 
-    clazz.createProperty(database, "state", PropertyType.BYTE);
-    clazz.createProperty(database, "users", PropertyType.LINKSET);
-    clazz.createProperty(database, "time", PropertyType.LONG);
-    clazz.createProperty(database, "reg", PropertyType.LONG);
-    clazz.createProperty(database, "no", PropertyType.INTEGER);
+    clazz.createProperty("state", PropertyType.BYTE);
+    clazz.createProperty("users", PropertyType.LINKSET);
+    clazz.createProperty("time", PropertyType.LONG);
+    clazz.createProperty("reg", PropertyType.LONG);
+    clazz.createProperty("no", PropertyType.INTEGER);
 
-    clazz.createIndex(database,
+    clazz.createIndex(
         "MultikeyWithoutFieldIndexNoNullSupport",
         INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"state", "users", "time", "reg", "no"});
 
-    EntityImpl document = new EntityImpl("TestMultikeyWithoutFieldNoNullSupport");
-    document.field("state", (byte) 1);
+    session.begin();
+    var document = ((EntityImpl) session.newEntity("TestMultikeyWithoutFieldNoNullSupport"));
+    document.setProperty("state", (byte) 1);
 
-    Set<RID> users = new HashSet<>();
+    var users = session.newLinkSet();
     users.add(rid1);
     users.add(rid2);
 
-    document.field("users", users);
-    document.field("time", 12L);
-    document.field("reg", 14L);
-    document.field("no", 12);
+    document.setProperty("users", users);
+    document.setProperty("time", 12L);
+    document.setProperty("reg", 14L);
+    document.setProperty("no", 12);
 
-    database.begin();
-    document.save();
-    database.commit();
+    session.commit();
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1902,109 +1875,106 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         }
       }
-      try (Stream<RawPair<Object, RID>> descStream = index.getInternal().descStream(database)) {
+      try (var descStream = index.descStream(session)) {
         if (rid1.compareTo(rid2) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
         }
       }
     }
 
     final RID rid = document.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.load(rid);
-    users = document.field("users");
+    session.begin();
+    document = session.load(rid);
+    users = document.getProperty("users");
     users.remove(rid1);
 
-    document.save();
-    database.commit();
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 1);
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 1);
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.load(rid);
+    session.begin();
+    document = session.load(rid);
 
-    users = document.field("users");
+    users = document.getProperty("users");
     users.remove(rid2);
     Assert.assertTrue(users.isEmpty());
 
-    document.save();
-    database.commit();
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 0);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 0);
 
-    database.close();
-    database = acquireSession();
-    database.begin();
+    session.close();
+    session = acquireSession();
+    session.begin();
 
-    document = database.load(rid);
-    users = document.field("users");
+    document = session.load(rid);
+    users = document.getProperty("users");
     users.add(rid3);
 
-    document.save();
-    database.commit();
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 1);
 
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
+    session.begin();
 
-    document = database.bindToSession(document);
-    users = document.field("users");
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    users = document.getProperty("users");
     users.add(rid4);
 
-    document.save();
-    database.commit();
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 2);
 
-    if (!(database.isRemote())) {
-      try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    if (!(session.isRemote())) {
+      try (var keyStream = index.keyStream()) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -2013,63 +1983,62 @@ public class IndexTest extends BaseDBTest {
               keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         }
       }
-      try (Stream<RawPair<Object, RID>> descStream = index.getInternal().descStream(database)) {
+      try (var descStream = index.descStream(session)) {
         if (rid3.compareTo(rid4) < 0) {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
         } else {
           Assert.assertEquals(
-              descStream.iterator().next().first, new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
         }
       }
     }
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    database.begin();
-    document = database.bindToSession(document);
-    document.removeField("users");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    document.removeProperty("users");
 
-    document.save();
-    database.commit();
+    session.commit();
 
     index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "MultikeyWithoutFieldIndexNoNullSupport");
-    Assert.assertEquals(index.getInternal().size(database), 0);
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testNullValuesCountSBTreeUnique() {
     checkEmbeddedDB();
 
-    SchemaClass nullSBTreeClass = database.getSchema().createClass("NullValuesCountSBTreeUnique");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database, "NullValuesCountSBTreeUniqueIndex", INDEX_TYPE.UNIQUE,
+    var nullSBTreeClass = session.getSchema().createClass("NullValuesCountSBTreeUnique");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex("NullValuesCountSBTreeUniqueIndex", INDEX_TYPE.UNIQUE,
         "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountSBTreeUnique");
-    docOne.field("field", 1);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeUnique"));
+    docOne.setProperty("field", 1);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountSBTreeUnique");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeUnique"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountSBTreeUniqueIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountSBTreeUniqueIndex");
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2077,32 +2046,31 @@ public class IndexTest extends BaseDBTest {
   public void testNullValuesCountSBTreeNotUniqueOne() {
     checkEmbeddedDB();
 
-    SchemaClass nullSBTreeClass =
-        database.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueOne");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database,
+    var nullSBTreeClass =
+        session.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueOne");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex(
         "NullValuesCountSBTreeNotUniqueOneIndex", INDEX_TYPE.NOTUNIQUE, "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountSBTreeNotUniqueOne");
-    docOne.field("field", 1);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
+    docOne.setProperty("field", 1);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountSBTreeNotUniqueOne");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountSBTreeNotUniqueOneIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountSBTreeNotUniqueOneIndex");
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2110,65 +2078,63 @@ public class IndexTest extends BaseDBTest {
   public void testNullValuesCountSBTreeNotUniqueTwo() {
     checkEmbeddedDB();
 
-    SchemaClass nullSBTreeClass =
-        database.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueTwo");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database,
+    var nullSBTreeClass =
+        session.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueTwo");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex(
         "NullValuesCountSBTreeNotUniqueTwoIndex", INDEX_TYPE.NOTUNIQUE, "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountSBTreeNotUniqueTwo");
-    docOne.field("field", (Integer) null);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
+    docOne.setProperty("field", null);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountSBTreeNotUniqueTwo");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountSBTreeNotUniqueTwoIndex");
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountSBTreeNotUniqueTwoIndex");
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count()
+            stream.map((pair) -> pair.first()).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
     }
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 
   public void testNullValuesCountHashUnique() {
     checkEmbeddedDB();
-    SchemaClass nullSBTreeClass = database.getSchema().createClass("NullValuesCountHashUnique");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database,
-        "NullValuesCountHashUniqueIndex", INDEX_TYPE.UNIQUE_HASH_INDEX, "field");
+    var nullSBTreeClass = session.getSchema().createClass("NullValuesCountHashUnique");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex(
+        "NullValuesCountHashUniqueIndex", INDEX_TYPE.UNIQUE, "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountHashUnique");
-    docOne.field("field", 1);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
+    docOne.setProperty("field", 1);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountHashUnique");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountHashUniqueIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountHashUniqueIndex");
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2176,32 +2142,31 @@ public class IndexTest extends BaseDBTest {
   public void testNullValuesCountHashNotUniqueOne() {
     checkEmbeddedDB();
 
-    SchemaClass nullSBTreeClass = database.getSchema()
+    var nullSBTreeClass = session.getSchema()
         .createClass("NullValuesCountHashNotUniqueOne");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database,
-        "NullValuesCountHashNotUniqueOneIndex", INDEX_TYPE.NOTUNIQUE_HASH_INDEX, "field");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex(
+        "NullValuesCountHashNotUniqueOneIndex", INDEX_TYPE.NOTUNIQUE, "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountHashNotUniqueOne");
-    docOne.field("field", 1);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
+    docOne.setProperty("field", 1);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountHashNotUniqueOne");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountHashNotUniqueOneIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountHashNotUniqueOneIndex");
+    Assert.assertEquals(index.size(session), 2);
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first).distinct().count() + nullStream.count(), 2);
+            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2209,62 +2174,61 @@ public class IndexTest extends BaseDBTest {
   public void testNullValuesCountHashNotUniqueTwo() {
     checkEmbeddedDB();
 
-    SchemaClass nullSBTreeClass =
-        database.getMetadata().getSchema().createClass("NullValuesCountHashNotUniqueTwo");
-    nullSBTreeClass.createProperty(database, "field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex(database,
-        "NullValuesCountHashNotUniqueTwoIndex", INDEX_TYPE.NOTUNIQUE_HASH_INDEX, "field");
+    var nullSBTreeClass =
+        session.getMetadata().getSchema().createClass("NullValuesCountHashNotUniqueTwo");
+    nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
+    nullSBTreeClass.createIndex(
+        "NullValuesCountHashNotUniqueTwoIndex", INDEX_TYPE.NOTUNIQUE, "field");
 
-    database.begin();
-    EntityImpl docOne = new EntityImpl("NullValuesCountHashNotUniqueTwo");
-    docOne.field("field", (Integer) null);
-    docOne.save();
+    session.begin();
+    var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
+    docOne.setProperty("field", null);
 
-    EntityImpl docTwo = new EntityImpl("NullValuesCountHashNotUniqueTwo");
-    docTwo.field("field", (Integer) null);
-    docTwo.save();
-    database.commit();
+    var docTwo = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));
+    docTwo.setProperty("field", null);
 
-    Index index =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "NullValuesCountHashNotUniqueTwoIndex");
-    try (Stream<RawPair<Object, RID>> stream = index.getInternal().stream(database)) {
-      try (Stream<RID> nullStream = index.getInternal().getRids(database, null)) {
+    session.commit();
+
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "NullValuesCountHashNotUniqueTwoIndex");
+    try (var stream = index.stream(session)) {
+      try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(pair -> pair.first).distinct().count()
+            stream.map(pair -> pair.first()).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
     }
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    Assert.assertEquals(index.size(session), 2);
   }
 
   @Test
   public void testParamsOrder() {
-    database.command("CREATE CLASS Task extends V").close();
-    database
-        .command("CREATE PROPERTY Task.projectId STRING (MANDATORY TRUE, NOTNULL, MAX 20)")
+    session.execute("CREATE CLASS Task extends V").close();
+    session
+        .execute("CREATE PROPERTY Task.projectId STRING (MANDATORY TRUE, NOTNULL, MAX 20)")
         .close();
-    database.command("CREATE PROPERTY Task.seq SHORT ( MANDATORY TRUE, NOTNULL, MIN 0)").close();
-    database.command("CREATE INDEX TaskPK ON Task (projectId, seq) UNIQUE").close();
+    session.execute("CREATE PROPERTY Task.seq SHORT ( MANDATORY TRUE, NOTNULL, MIN 0)").close();
+    session.execute("CREATE INDEX TaskPK ON Task (projectId, seq) UNIQUE").close();
 
-    database.begin();
-    database.command("INSERT INTO Task (projectId, seq) values ( 'foo', 2)").close();
-    database.command("INSERT INTO Task (projectId, seq) values ( 'bar', 3)").close();
-    database.commit();
+    session.begin();
+    session.execute("INSERT INTO Task (projectId, seq) values ( 'foo', 2)").close();
+    session.execute("INSERT INTO Task (projectId, seq) values ( 'bar', 3)").close();
+    session.commit();
 
     var results =
-        database
+        session
             .query("select from Task where projectId = 'foo' and seq = 2")
             .vertexStream()
             .toList();
     Assert.assertEquals(results.size(), 1);
   }
 
-  private void assertIndexUsage(ResultSet resultSet) {
-    var executionPlan = resultSet.getExecutionPlan().orElseThrow();
+  private static void assertIndexUsage(ResultSet resultSet) {
+    var executionPlan = resultSet.getExecutionPlan();
     for (var step : executionPlan.getSteps()) {
       if (assertIndexUsage(step, "Profile.nick")) {
         return;
@@ -2274,7 +2238,7 @@ public class IndexTest extends BaseDBTest {
     Assert.fail("Index " + "Profile.nick" + " was not used in the query");
   }
 
-  private boolean assertIndexUsage(ExecutionStep executionStep, String indexName) {
+  private static boolean assertIndexUsage(ExecutionStep executionStep, String indexName) {
     if (executionStep instanceof FetchFromIndexStep fetchFromIndexStep
         && fetchFromIndexStep.getIndexName().equals(indexName)) {
       return true;

@@ -7,7 +7,7 @@ public class GrantStatementTest extends ParserTestAbstract {
   @Test
   public void testPlain() {
     checkRightSyntax("grant UPDATE on database.class.Person to admin");
-    checkRightSyntax("GRANT CREATE on database.cluster.Person to admin");
+    checkRightSyntax("GRANT CREATE on database.collection.Person to admin");
     checkRightSyntax("grant UPDATE on database.class.* to admin");
     checkRightSyntax("grant DELETE on database.class.* to admin");
     checkRightSyntax("grant NONE on database.class.* to admin");

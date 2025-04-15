@@ -13,11 +13,10 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Before;
@@ -33,49 +32,43 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
   @Before
   public void init() {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("City");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var oClass = schema.createVertexClass("City");
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    SchemaClass place = schema.createClass("Place");
-    place.setSuperClass(db, v);
-    place.createProperty(db, "latitude", PropertyType.DOUBLE);
-    place.createProperty(db, "longitude", PropertyType.DOUBLE);
-    place.createProperty(db, "name", PropertyType.STRING);
+    var place = schema.createVertexClass("Place");
+    place.createProperty("latitude", PropertyType.DOUBLE);
+    place.createProperty("longitude", PropertyType.DOUBLE);
+    place.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    db.command("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
-    EntityImpl london = newCity("London", -0.1275, 51.507222);
+    session.begin();
+    newCity(session, "Rome", 12.5, 41.9);
+    newCity(session, "London", -0.1275, 51.507222);
 
-    EntityImpl rome1 = new EntityImpl("Place");
-    rome1.field("name", "Rome");
-    rome1.field("latitude", 41.9);
-    rome1.field("longitude", 12.5);
+    var rome1 = ((EntityImpl) session.newVertex("Place"));
+    rome1.setProperty("name", "Rome");
+    rome1.setProperty("latitude", 41.9);
+    rome1.setProperty("longitude", 12.5);
+    session.commit();
 
-    db.begin();
-    db.save(rome1);
-    db.save(rome);
-    db.save(london);
-    db.commit();
-
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "insert into City set name = 'TestInsert' , location = ST_GeomFromText('" + PWKT + "')")
         .close();
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testPointWithoutIndex() {
 
-    db.command("Drop INDEX City.location").close();
+    session.execute("Drop INDEX City.location").close();
     queryPoint();
   }
 
@@ -87,10 +80,10 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
 
   protected void queryPoint() {
     // TODO remove = true when parser will support index function without expression
-    String query =
+    var query =
         "select * from City where  ST_WITHIN(location,{ 'shape' : { 'type' : 'ORectangle' ,"
             + " 'coordinates' : [12.314015,41.8262816,12.6605063,41.963125]} }) = true";
-    ResultSet docs = db.query(query);
+    var docs = session.query(query);
 
     Assert.assertEquals(1, docs.stream().count());
 
@@ -98,7 +91,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
         "select * from City where  ST_WITHIN(location,'POLYGON ((12.314015 41.8262816, 12.314015"
             + " 41.963125, 12.6605063 41.963125, 12.6605063 41.8262816, 12.314015 41.8262816))') ="
             + " true";
-    docs = db.query(query);
+    docs = session.query(query);
 
     Assert.assertEquals(1, docs.stream().count());
 
@@ -106,7 +99,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
         "select * from City where  ST_WITHIN(location,ST_GeomFromText('POLYGON ((12.314015"
             + " 41.8262816, 12.314015 41.963125, 12.6605063 41.963125, 12.6605063 41.8262816,"
             + " 12.314015 41.8262816))')) = true";
-    docs = db.query(query);
+    docs = session.query(query);
     Assert.assertEquals(1, docs.stream().count());
 
 //    query =
@@ -119,21 +112,21 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
 //    Assert.assertEquals(1, old.size());
   }
 
-  protected static EntityImpl newCity(String name, final Double longitude,
+  protected static EntityImpl newCity(DatabaseSession db, String name, final Double longitude,
       final Double latitude) {
-    EntityImpl location = new EntityImpl("OPoint");
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+    return db.computeInTx(transaction -> {
+      var location = ((EntityImpl) transaction.newEmbeddedEntity("OPoint"));
+      location.newEmbeddedList("coordinates", new ArrayList<Double>() {
+        {
+          add(longitude);
+          add(latitude);
+        }
+      });
 
-    EntityImpl city = new EntityImpl("City");
-    city.field("name", name);
-    city.field("location", location);
-    return city;
+      var city = ((EntityImpl) transaction.newVertex("City"));
+      city.setProperty("name", name);
+      city.setProperty("location", location);
+      return city;
+    });
   }
 }

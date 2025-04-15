@@ -20,12 +20,13 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.string;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import java.io.StringWriter;
 
 public interface StringSerializer {
 
-  StringBuilder toStream(StringBuilder iOutput, Object iSource);
+  StringWriter toStream(DatabaseSessionInternal session, StringWriter iOutput, Object iSource);
 
-  Object fromStream(DatabaseSessionInternal db, String iSource);
+  Object fromStream(DatabaseSessionInternal session, String iSource);
 
   String getName();
 }

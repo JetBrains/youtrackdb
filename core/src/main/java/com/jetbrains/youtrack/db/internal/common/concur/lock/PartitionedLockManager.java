@@ -132,9 +132,9 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     }
 
     if (useSpinLock) {
-      ReadersWriterSpinLock[] lcks = new ReadersWriterSpinLock[concurrencyLevel];
+      var lcks = new ReadersWriterSpinLock[concurrencyLevel];
 
-      for (int i = 0; i < lcks.length; i++) {
+      for (var i = 0; i < lcks.length; i++) {
         lcks[i] = new ReadersWriterSpinLock();
       }
 
@@ -142,8 +142,8 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       locks = null;
       scalableRWLocks = null;
     } else if (useScalableRWLock) {
-      ScalableRWLock[] lcks = new ScalableRWLock[concurrencyLevel];
-      for (int i = 0; i < lcks.length; i++) {
+      var lcks = new ScalableRWLock[concurrencyLevel];
+      for (var i = 0; i < lcks.length; i++) {
         lcks[i] = new ScalableRWLock();
       }
 
@@ -151,8 +151,8 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       locks = null;
       scalableRWLocks = lcks;
     } else {
-      ReadWriteLock[] lcks = new ReadWriteLock[concurrencyLevel];
-      for (int i = 0; i < lcks.length; i++) {
+      var lcks = new ReadWriteLock[concurrencyLevel];
+      for (var i = 0; i < lcks.length; i++) {
         lcks[i] = new ReentrantReadWriteLock();
       }
 
@@ -179,12 +179,12 @@ public class PartitionedLockManager<T> implements LockManager<T> {
   }
 
   public Lock acquireExclusiveLock(long value) {
-    final int hashCode = longHashCode(value);
-    final int index = index(hashCode);
+    final var hashCode = longHashCode(value);
+    final var index = index(hashCode);
 
     if (useSpinLock) {
       assert spinLocks != null;
-      ReadersWriterSpinLock spinLock = spinLocks[index];
+      var spinLock = spinLocks[index];
       spinLock.acquireWriteLock();
       return new SpinLockWrapper(false, spinLock);
     }
@@ -194,9 +194,9 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
 
-    final Lock lock = rwLock.writeLock();
+    final var lock = rwLock.writeLock();
     lock.lock();
 
     return lock;
@@ -204,26 +204,26 @@ public class PartitionedLockManager<T> implements LockManager<T> {
 
   private Lock scalableExclusiveLock(int index) {
     assert scalableRWLocks != null;
-    final ScalableRWLock scalableRWLock = scalableRWLocks[index];
-    final Lock lock = scalableRWLock.writeLock();
+    final var scalableRWLock = scalableRWLocks[index];
+    final var lock = scalableRWLock.writeLock();
     lock.lock();
     return lock;
   }
 
   private Lock scalableSharedLock(int index) {
     assert scalableRWLocks != null;
-    final ScalableRWLock scalableRWLock = scalableRWLocks[index];
-    final Lock lock = scalableRWLock.readLock();
+    final var scalableRWLock = scalableRWLocks[index];
+    final var lock = scalableRWLock.readLock();
     lock.lock();
     return lock;
   }
 
   public Lock acquireExclusiveLock(int value) {
-    final int index = index(value);
+    final var index = index(value);
 
     if (useSpinLock) {
       assert spinLocks != null;
-      final ReadersWriterSpinLock spinLock = spinLocks[index];
+      final var spinLock = spinLocks[index];
       spinLock.acquireWriteLock();
 
       return new SpinLockWrapper(false, spinLock);
@@ -234,9 +234,9 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
 
-    final Lock lock = rwLock.writeLock();
+    final var lock = rwLock.writeLock();
     lock.lock();
     return lock;
   }
@@ -253,7 +253,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     if (useSpinLock) {
       assert spinLocks != null;
 
-      ReadersWriterSpinLock spinLock = spinLocks[index];
+      var spinLock = spinLocks[index];
       spinLock.acquireWriteLock();
 
       return new SpinLockWrapper(false, spinLock);
@@ -264,9 +264,9 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
 
-    final Lock lock = rwLock.writeLock();
+    final var lock = rwLock.writeLock();
 
     lock.lock();
     return lock;
@@ -278,19 +278,19 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       throw new IllegalStateException("Spin lock does not support try lock mode");
     }
 
-    final int index = index(value);
+    final var index = index(value);
 
     if (useScalableRWLock) {
       assert scalableRWLocks != null;
 
-      final ScalableRWLock scalableRWLock = scalableRWLocks[index];
+      final var scalableRWLock = scalableRWLocks[index];
       return scalableRWLock.exclusiveTryLock();
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
 
-    final Lock lock = rwLock.writeLock();
+    final var lock = rwLock.writeLock();
     return lock.tryLock(timeout, TimeUnit.MILLISECONDS);
   }
 
@@ -301,10 +301,10 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return new Lock[0];
     }
 
-    final Lock[] locks = new Lock[value.length];
-    final T[] sortedValues = getOrderedValues(value);
+    final var locks = new Lock[value.length];
+    final var sortedValues = getOrderedValues(value);
 
-    for (int n = 0; n < sortedValues.length; n++) {
+    for (var n = 0; n < sortedValues.length; n++) {
       locks[n] = acquireExclusiveLock(sortedValues[n]);
     }
 
@@ -317,10 +317,10 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return new Lock[0];
     }
 
-    final Lock[] locks = new Lock[value.length];
-    final T[] sortedValues = getOrderedValues(value);
+    final var locks = new Lock[value.length];
+    final var sortedValues = getOrderedValues(value);
 
-    for (int i = 0; i < sortedValues.length; i++) {
+    for (var i = 0; i < sortedValues.length; i++) {
       locks[i] = acquireSharedLock(sortedValues[i]);
     }
 
@@ -332,11 +332,11 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return new Lock[0];
     }
 
-    final Collection<T> valCopy = getOrderedValues(values);
+    final var valCopy = getOrderedValues(values);
 
-    final Lock[] locks = new Lock[values.size()];
-    int i = 0;
-    for (T val : valCopy) {
+    final var locks = new Lock[values.size()];
+    var i = 0;
+    for (var val : valCopy) {
       locks[i++] = acquireExclusiveLock(val);
     }
     return locks;
@@ -347,12 +347,12 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return new Lock[0];
     }
 
-    final int[] orderedValues = new int[values.length];
+    final var orderedValues = new int[values.length];
     Arrays.sort(orderedValues);
 
-    final Lock[] locks = new Lock[orderedValues.length];
-    int i = 0;
-    for (int val : orderedValues) {
+    final var locks = new Lock[orderedValues.length];
+    var i = 0;
+    for (var val : orderedValues) {
       locks[i++] = acquireExclusiveLock(val);
     }
 
@@ -360,8 +360,8 @@ public class PartitionedLockManager<T> implements LockManager<T> {
   }
 
   public Lock acquireSharedLock(long value) {
-    final int hashCode = longHashCode(value);
-    final int index = index(hashCode);
+    final var hashCode = longHashCode(value);
+    final var index = index(hashCode);
 
     return sharedLock(index);
   }
@@ -370,7 +370,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     if (useSpinLock) {
       assert spinLocks != null;
 
-      ReadersWriterSpinLock spinLock = spinLocks[index];
+      var spinLock = spinLocks[index];
       spinLock.acquireReadLock();
 
       return new SpinLockWrapper(true, spinLock);
@@ -381,16 +381,16 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
 
-    final Lock lock = rwLock.readLock();
+    final var lock = rwLock.readLock();
     lock.lock();
 
     return lock;
   }
 
   public Lock acquireSharedLock(int value) {
-    final int index = index(value);
+    final var index = index(value);
     return sharedLock(index);
   }
 
@@ -407,7 +407,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
   }
 
   public void releaseSharedLock(final int value) {
-    final int index = index(value);
+    final var index = index(value);
 
     releaseSLock(index);
   }
@@ -415,7 +415,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
   private void releaseSLock(int index) {
     if (useSpinLock) {
       assert spinLocks != null;
-      ReadersWriterSpinLock spinLock = spinLocks[index];
+      var spinLock = spinLocks[index];
       spinLock.releaseReadLock();
       return;
     }
@@ -423,19 +423,19 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     if (useScalableRWLock) {
       assert scalableRWLocks != null;
 
-      final ScalableRWLock scalableRWLock = scalableRWLocks[index];
+      final var scalableRWLock = scalableRWLocks[index];
       scalableRWLock.sharedLock();
       return;
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
     rwLock.readLock().unlock();
   }
 
   public void releaseSharedLock(final long value) {
-    final int hashCode = longHashCode(value);
-    final int index = index(hashCode);
+    final var hashCode = longHashCode(value);
+    final var index = index(hashCode);
 
     releaseSLock(index);
   }
@@ -452,14 +452,14 @@ public class PartitionedLockManager<T> implements LockManager<T> {
   }
 
   public void releaseExclusiveLock(final int value) {
-    final int index = index(value);
+    final var index = index(value);
     releaseWLock(index);
   }
 
   private void releaseWLock(int index) {
     if (useSpinLock) {
       assert spinLocks != null;
-      ReadersWriterSpinLock spinLock = spinLocks[index];
+      var spinLock = spinLocks[index];
       spinLock.releaseWriteLock();
       return;
     }
@@ -467,19 +467,19 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     if (useScalableRWLock) {
       assert scalableRWLocks != null;
 
-      final ScalableRWLock scalableRWLock = scalableRWLocks[index];
+      final var scalableRWLock = scalableRWLocks[index];
       scalableRWLock.exclusiveUnlock();
       return;
     }
 
     assert locks != null;
-    final ReadWriteLock rwLock = locks[index];
+    final var rwLock = locks[index];
     rwLock.writeLock().unlock();
   }
 
   public void releaseExclusiveLock(final long value) {
-    final int hashCode = longHashCode(value);
-    final int index = index(hashCode);
+    final var hashCode = longHashCode(value);
+    final var index = index(hashCode);
 
     releaseWLock(index);
   }
@@ -501,7 +501,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return values;
     }
 
-    final T[] copy = Arrays.copyOf(values, values.length);
+    final var copy = Arrays.copyOf(values, values.length);
 
     //noinspection unchecked
     Arrays.sort(copy, 0, copy.length, comparator);

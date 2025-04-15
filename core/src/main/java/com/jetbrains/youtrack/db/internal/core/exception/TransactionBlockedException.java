@@ -23,10 +23,12 @@ import com.jetbrains.youtrack.db.api.exception.TransactionException;
 
 public class TransactionBlockedException extends TransactionException {
 
-  private static final long serialVersionUID = 2347493191705052402L;
-
   public TransactionBlockedException(TransactionBlockedException exception) {
     super(exception);
+  }
+
+  public TransactionBlockedException(String dbName, String message) {
+    super(dbName, message);
   }
 
   public TransactionBlockedException(String message) {

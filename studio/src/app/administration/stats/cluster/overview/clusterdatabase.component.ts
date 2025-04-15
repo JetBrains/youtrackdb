@@ -13,11 +13,11 @@ import {
 } from "../../../../core/services";
 
 @Component({
-  selector: "cluster-management-database",
-  templateUrl: "./clusterdatabase.component.html",
+  selector: "collection-management-database",
+  templateUrl: "./collectiondatabase.component.html",
   styles: [""]
 })
-class ClusterDatabaseComponent implements OnInit, OnChanges {
+class CollectionDatabaseComponent implements OnInit, OnChanges {
   @Input()
   private stats;
   handle: any;
@@ -146,9 +146,9 @@ class ClusterDatabaseComponent implements OnInit, OnChanges {
     let quorums = [];
     let uniqueServers = [];
 
-    Object.keys(config.clusters).forEach(function(c) {
-      if (config.clusters[c].servers) {
-        config.clusters[c].servers.forEach(function(s) {
+    Object.keys(config.collections).forEach(function(c) {
+      if (config.collections[c].servers) {
+        config.collections[c].servers.forEach(function(s) {
           if (uniqueServers.indexOf(s) == -1) {
             uniqueServers.push(s);
           }
@@ -183,8 +183,8 @@ class ClusterDatabaseComponent implements OnInit, OnChanges {
     return { quorums, servers };
   }
 
-  getOwnership(cluster, node) {
-    let tmp = this.databaseConfig.clusters[cluster];
+  getOwnership(collection, node) {
+    let tmp = this.databaseConfig.collections[collection];
     if (!tmp.servers) return "";
 
     if (tmp.owner && tmp.owner != "") {
@@ -194,4 +194,4 @@ class ClusterDatabaseComponent implements OnInit, OnChanges {
   }
 }
 
-export { ClusterDatabaseComponent };
+export { CollectionDatabaseComponent };

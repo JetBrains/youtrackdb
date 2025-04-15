@@ -9,15 +9,13 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBaseIdentifier extends SimpleNode {
 
@@ -57,6 +55,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (levelZero != null) {
       return levelZero.execute(iCurrentRecord, ctx);
@@ -67,6 +66,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (levelZero != null) {
       return levelZero.execute(iCurrentRecord, ctx);
@@ -108,6 +108,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -223,10 +224,10 @@ public class SQLBaseIdentifier extends SimpleNode {
 
   public SimpleNode splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SQLBaseIdentifier result = new SQLBaseIdentifier(-1);
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var result = new SQLBaseIdentifier(-1);
       if (levelZero != null) {
-        SimpleNode splitResult = levelZero.splitForAggregation(aggregateProj, ctx);
+        var splitResult = levelZero.splitForAggregation(aggregateProj, ctx);
         if (splitResult instanceof SQLLevelZeroIdentifier) {
           result.levelZero = (SQLLevelZeroIdentifier) splitResult;
         } else {
@@ -244,16 +245,17 @@ public class SQLBaseIdentifier extends SimpleNode {
   }
 
   public AggregationContext getAggregationContext(CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
+    if (isAggregate(ctx.getDatabaseSession())) {
       if (levelZero != null) {
         return levelZero.getAggregationContext(ctx);
       } else if (suffix != null) {
         return suffix.getAggregationContext(ctx);
       } else {
-        throw new CommandExecutionException("cannot aggregate on " + this);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "cannot aggregate on " + this);
       }
     } else {
-      throw new CommandExecutionException("cannot aggregate on " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot aggregate on " + this);
     }
   }
 
@@ -262,7 +264,7 @@ public class SQLBaseIdentifier extends SimpleNode {
   }
 
   public SQLBaseIdentifier copy() {
-    SQLBaseIdentifier result = new SQLBaseIdentifier(-1);
+    var result = new SQLBaseIdentifier(-1);
     result.levelZero = levelZero == null ? null : levelZero.copy();
     result.suffix = suffix == null ? null : suffix.copy();
     return result;
@@ -277,7 +279,7 @@ public class SQLBaseIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLBaseIdentifier that = (SQLBaseIdentifier) o;
+    var that = (SQLBaseIdentifier) o;
 
     if (!Objects.equals(levelZero, that.levelZero)) {
       return false;
@@ -287,7 +289,7 @@ public class SQLBaseIdentifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = levelZero != null ? levelZero.hashCode() : 0;
+    var result = levelZero != null ? levelZero.hashCode() : 0;
     result = 31 * result + (suffix != null ? suffix.hashCode() : 0);
     return result;
   }
@@ -312,12 +314,12 @@ public class SQLBaseIdentifier extends SimpleNode {
     if (suffix != null) {
       suffix.applyRemove(result, ctx);
     } else {
-      throw new CommandExecutionException("cannot apply REMOVE " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot apply REMOVE " + this);
     }
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (levelZero != null) {
       result.setProperty("levelZero", levelZero.serialize(db));
     }
@@ -345,9 +347,9 @@ public class SQLBaseIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (suffix != null) {
-      return suffix.isDefinedFor(currentRecord);
+      return suffix.isDefinedFor(db, currentRecord);
     }
     return true;
   }
@@ -364,6 +366,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return suffix == null ? null : suffix.getCollate(currentRecord, ctx);
   }
@@ -381,14 +384,15 @@ public class SQLBaseIdentifier extends SimpleNode {
   }
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
+    var db = ctx.getDatabaseSession();
     if (suffix != null && suffix.isBaseIdentifier()) {
-      SchemaPropertyInternal prop = clazz.getPropertyInternal(
-          ctx.getDatabase(),
+      var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());
       if (prop == null) {
         return false;
       }
-      Collection<Index> allIndexes = prop.getAllIndexesInternal(ctx.getDatabase());
+
+      var allIndexes = prop.getAllIndexesInternal();
 
       return allIndexes != null
           && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getFields().size() == 1);

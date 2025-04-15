@@ -19,12 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
@@ -32,6 +33,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.Objects;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * The rawest representation of a record. It's schema less. Use this if you need to store Strings or
@@ -39,48 +43,34 @@ import java.util.Arrays;
  * files. The object can be reused across calls to the database by using the reset() at every
  * re-use.
  */
-@SuppressWarnings({"unchecked"})
 public class RecordBytes extends RecordAbstract implements Blob {
 
   private static final byte[] EMPTY_SOURCE = new byte[]{};
 
-  public RecordBytes() {
-    setup(DatabaseRecordThreadLocal.instance().getIfDefined());
-  }
-
-  public RecordBytes(final DatabaseSessionInternal iDatabase) {
-    setup(iDatabase);
-    DatabaseRecordThreadLocal.instance().set(iDatabase);
+  public RecordBytes(DatabaseSessionInternal session) {
+    super(session);
+    source = EMPTY_SOURCE;
   }
 
   public RecordBytes(final DatabaseSessionInternal iDatabase, final byte[] iSource) {
-    this(iSource);
-    DatabaseRecordThreadLocal.instance().set(iDatabase);
+    super(iDatabase, iSource);
+    Objects.requireNonNull(iSource);
   }
 
-  public RecordBytes(final byte[] iSource) {
-    super(iSource);
-    dirty = true;
-    contentChanged = true;
-    setup(DatabaseRecordThreadLocal.instance().getIfDefined());
-  }
+  public RecordBytes(DatabaseSessionInternal session, final RecordId iRecordId) {
+    super(session);
+    assert assertIfAlreadyLoaded(recordId);
 
-  public RecordBytes(final RecordId iRecordId) {
-    recordId = iRecordId.copy();
-    setup(DatabaseRecordThreadLocal.instance().getIfDefined());
-  }
-
-  public RecordBytes copy() {
-    return (RecordBytes) copyTo(new RecordBytes());
+    recordId.setCollectionAndPosition(iRecordId.getCollectionId(), iRecordId.getCollectionPosition());
   }
 
   @Override
   public RecordBytes fromStream(final byte[] iRecordBuffer) {
-    if (dirty) {
-      throw new DatabaseException("Cannot call fromStream() on dirty records");
+    Objects.requireNonNull(iRecordBuffer);
+    if (dirty > 0) {
+      throw new DatabaseException(getSession().getDatabaseName(),
+          "Cannot call fromStream() on dirty records");
     }
-
-    checkForBinding();
 
     source = iRecordBuffer;
     status = RecordElement.STATUS.LOADED;
@@ -89,13 +79,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
   }
 
   @Override
-  public void clear() {
-    clearSource();
-    super.clear();
-  }
-
-  @Override
-  public byte[] toStream() {
+  public @Nonnull byte[] toStream() {
     checkForBinding();
     return source;
   }
@@ -106,42 +90,33 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   /**
    * Reads the input stream in memory. This is less efficient than
-   * {@link #fromInputStream(InputStream, int)} because allocation is made multiple times. If you
-   * already know the input size use {@link #fromInputStream(InputStream, int)}.
+   * {@link Blob#fromInputStream(InputStream, int)} because allocation is made multiple times. If
+   * you already know the input size use {@link Blob#fromInputStream(InputStream, int)}.
    *
    * @param in Input Stream, use buffered input stream wrapper to speed up reading
    * @return Buffer read from the stream. It's also the internal buffer size in bytes
-   * @throws IOException
    */
-  public int fromInputStream(final InputStream in) throws IOException {
-    incrementLoading();
-    try {
-      final MemoryStream out = new MemoryStream();
-      try {
-        final byte[] buffer = new byte[MemoryStream.DEF_SIZE];
-        int readBytesCount;
-        while (true) {
-          readBytesCount = in.read(buffer, 0, buffer.length);
-          if (readBytesCount == -1) {
-            break;
-          }
-          out.write(buffer, 0, readBytesCount);
+  public int fromInputStream(final @Nonnull InputStream in) throws IOException {
+    try (var out = new MemoryStream()) {
+      final var buffer = new byte[MemoryStream.DEF_SIZE];
+      int readBytesCount;
+      while (true) {
+        readBytesCount = in.read(buffer, 0, buffer.length);
+        if (readBytesCount == -1) {
+          break;
         }
-        out.flush();
-        source = out.toByteArray();
-      } finally {
-        out.close();
+        out.write(buffer, 0, readBytesCount);
       }
-      size = source.length;
-      return size;
-    } finally {
-      decrementLoading();
+      out.flush();
+      source = out.toByteArray();
     }
+    size = source.length;
+    return size;
   }
 
   /**
    * Reads the input stream in memory specifying the maximum bytes to read. This is more efficient
-   * than {@link #fromInputStream(InputStream)} because allocation is made only once.
+   * than {@link Blob#fromInputStream(InputStream)} because allocation is made only once.
    *
    * @param in      Input Stream, use buffered input stream wrapper to speed up reading
    * @param maxSize Maximum size to read
@@ -149,41 +124,111 @@ public class RecordBytes extends RecordAbstract implements Blob {
    * in bytes
    * @throws IOException if an I/O error occurs.
    */
-  public int fromInputStream(final InputStream in, final int maxSize) throws IOException {
-    incrementLoading();
-    try {
-      final byte[] buffer = new byte[maxSize];
-      int totalBytesCount = 0;
-      int readBytesCount;
-      while (totalBytesCount < maxSize) {
-        readBytesCount = in.read(buffer, totalBytesCount, buffer.length - totalBytesCount);
-        if (readBytesCount == -1) {
-          break;
-        }
-        totalBytesCount += readBytesCount;
-      }
+  public int fromInputStream(final @Nonnull InputStream in, final int maxSize) throws IOException {
 
-      if (totalBytesCount == 0) {
-        source = EMPTY_SOURCE;
-        size = 0;
-      } else if (totalBytesCount == maxSize) {
-        source = buffer;
-        size = maxSize;
-      } else {
-        source = Arrays.copyOf(buffer, totalBytesCount);
-        size = totalBytesCount;
+    final var buffer = new byte[maxSize];
+    var totalBytesCount = 0;
+    int readBytesCount;
+    while (totalBytesCount < maxSize) {
+      readBytesCount = in.read(buffer, totalBytesCount, buffer.length - totalBytesCount);
+      if (readBytesCount == -1) {
+        break;
       }
-      return size;
-    } finally {
-      decrementLoading();
+      totalBytesCount += readBytesCount;
     }
+
+    if (totalBytesCount == 0) {
+      source = EMPTY_SOURCE;
+      size = 0;
+    } else if (totalBytesCount == maxSize) {
+      source = buffer;
+      size = maxSize;
+    } else {
+      source = Arrays.copyOf(buffer, totalBytesCount);
+      size = totalBytesCount;
+    }
+
+    return size;
   }
 
-  public void toOutputStream(final OutputStream out) throws IOException {
+  public void toOutputStream(final @Nonnull OutputStream out) throws IOException {
     checkForBinding();
 
     if (source.length > 0) {
       out.write(source);
     }
+  }
+
+  @Override
+  public void setOwner(RecordElement owner) {
+    throw new UnsupportedOperationException("RecordBytes cannot be owned by another record");
+  }
+
+  @Override
+  public boolean isBlob() {
+    return true;
+  }
+
+  @Override
+  public boolean isEntity() {
+    return false;
+  }
+
+  @Override
+  public boolean isStatefulEdge() {
+    return false;
+  }
+
+  @Override
+  public boolean isVertex() {
+    return false;
+  }
+
+  @Nonnull
+  @Override
+  public Entity asEntity() {
+    throw new IllegalStateException("Blob is not an Entity");
+  }
+
+  @Nonnull
+  @Override
+  public Blob asBlob() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge asStatefulEdge() {
+    throw new IllegalStateException("Blob is not a StatefulEdge");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex asVertex() {
+    throw new IllegalStateException("Blob is not a Vertex");
+  }
+
+  @Nullable
+  @Override
+  public Entity asEntityOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public Blob asBlobOrNull() {
+    return this;
+  }
+
+  @Nullable
+  @Override
+  public StatefulEdge asStatefulEdgeOrNull() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public Vertex asVertexOrNull() {
+    return null;
   }
 }

@@ -2,12 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlanner;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -15,8 +15,6 @@ import java.util.Objects;
 public class SQLInsertStatement extends SQLStatement {
 
   SQLIdentifier targetClass;
-  SQLIdentifier targetClusterName;
-  SQLCluster targetCluster;
   SQLIndexIdentifier targetIndex;
   SQLInsertBody insertBody;
   SQLProjection returnStatement;
@@ -37,13 +35,6 @@ public class SQLInsertStatement extends SQLStatement {
     builder.append("INSERT INTO ");
     if (targetClass != null) {
       targetClass.toString(params, builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toString(params, builder);
-      }
-    }
-    if (targetCluster != null) {
-      targetCluster.toString(params, builder);
     }
     if (targetIndex != null) {
       targetIndex.toString(params, builder);
@@ -78,13 +69,6 @@ public class SQLInsertStatement extends SQLStatement {
     builder.append("INSERT INTO ");
     if (targetClass != null) {
       targetClass.toGenericStatement(builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toGenericStatement(builder);
-      }
-    }
-    if (targetCluster != null) {
-      targetCluster.toGenericStatement(builder);
     }
     if (targetIndex != null) {
       targetIndex.toGenericStatement(builder);
@@ -117,10 +101,8 @@ public class SQLInsertStatement extends SQLStatement {
 
   @Override
   public SQLInsertStatement copy() {
-    SQLInsertStatement result = new SQLInsertStatement(-1);
+    var result = new SQLInsertStatement(-1);
     result.targetClass = targetClass == null ? null : targetClass.copy();
-    result.targetClusterName = targetClusterName == null ? null : targetClusterName.copy();
-    result.targetCluster = targetCluster == null ? null : targetCluster.copy();
     result.targetIndex = targetIndex == null ? null : targetIndex.copy();
     result.insertBody = insertBody == null ? null : insertBody.copy();
     result.returnStatement = returnStatement == null ? null : returnStatement.copy();
@@ -133,16 +115,16 @@ public class SQLInsertStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -154,17 +136,18 @@ public class SQLInsertStatement extends SQLStatement {
       executionPlan = (InsertExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     InsertExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -173,12 +156,12 @@ public class SQLInsertStatement extends SQLStatement {
       executionPlan = (InsertExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    InsertExecutionPlanner planner = new InsertExecutionPlanner(this);
-    InsertExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling);
+    var planner = new InsertExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling);
     result.setStatement(originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -193,7 +176,7 @@ public class SQLInsertStatement extends SQLStatement {
       return false;
     }
 
-    SQLInsertStatement that = (SQLInsertStatement) o;
+    var that = (SQLInsertStatement) o;
 
     if (selectInParentheses != that.selectInParentheses) {
       return false;
@@ -205,12 +188,6 @@ public class SQLInsertStatement extends SQLStatement {
       return false;
     }
     if (!Objects.equals(targetClass, that.targetClass)) {
-      return false;
-    }
-    if (!Objects.equals(targetClusterName, that.targetClusterName)) {
-      return false;
-    }
-    if (!Objects.equals(targetCluster, that.targetCluster)) {
       return false;
     }
     if (!Objects.equals(targetIndex, that.targetIndex)) {
@@ -227,9 +204,7 @@ public class SQLInsertStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = targetClass != null ? targetClass.hashCode() : 0;
-    result = 31 * result + (targetClusterName != null ? targetClusterName.hashCode() : 0);
-    result = 31 * result + (targetCluster != null ? targetCluster.hashCode() : 0);
+    var result = targetClass != null ? targetClass.hashCode() : 0;
     result = 31 * result + (targetIndex != null ? targetIndex.hashCode() : 0);
     result = 31 * result + (insertBody != null ? insertBody.hashCode() : 0);
     result = 31 * result + (returnStatement != null ? returnStatement.hashCode() : 0);
@@ -242,14 +217,6 @@ public class SQLInsertStatement extends SQLStatement {
 
   public SQLIdentifier getTargetClass() {
     return targetClass;
-  }
-
-  public SQLIdentifier getTargetClusterName() {
-    return targetClusterName;
-  }
-
-  public SQLCluster getTargetCluster() {
-    return targetCluster;
   }
 
   public SQLIndexIdentifier getTargetIndex() {

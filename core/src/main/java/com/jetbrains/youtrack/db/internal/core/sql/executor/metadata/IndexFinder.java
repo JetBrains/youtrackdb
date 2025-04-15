@@ -28,7 +28,4 @@ public interface IndexFinder {
 
   Optional<IndexCandidate> findByValueIndex(MetadataPath fieldName, Object value,
       CommandContext ctx);
-
-  Optional<IndexCandidate> findFullTextIndex(MetadataPath fieldName, Object value,
-      CommandContext ctx);
 }

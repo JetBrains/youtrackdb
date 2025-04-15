@@ -21,8 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.junit.Test;
 
 public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabase {
@@ -30,54 +28,59 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
   @Test
   public void testIndexSqlEmbeddedList() {
 
-    db.command("create class Foo").close();
-    db.command("create property Foo.bar EMBEDDEDLIST STRING").close();
-    db.command("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
-    db.command("insert into Foo set bar = ['yep']").close();
-    ResultSet results = db.query("select from Foo where bar = 'yep'");
-    assertEquals(results.stream().count(), 1);
+    session.execute("create class Foo").close();
+    session.execute("create property Foo.bar EMBEDDEDLIST STRING").close();
+    session.execute("create index Foo.bar on Foo (bar) NOTUNIQUE").close();
+    session.executeInTx(transaction -> {
+      session.execute("insert into Foo set bar = ['yep']").close();
+    });
+    var results = session.query("select from Foo where bar = 'yep'");
+    assertEquals(1, results.stream().count());
 
-    final Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Foo.bar");
-    assertEquals(index.getInternal().size(db), 1);
+    final var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
+    assertEquals(1, index.size(session));
   }
 
   @Test
   public void testIndexOnHierarchyChange() {
     // issue #5743
 
-    db.command("CREATE CLASS Main ABSTRACT").close();
-    db.command("CREATE PROPERTY Main.uuid String").close();
-    db.command("CREATE INDEX Main.uuid UNIQUE_HASH_INDEX").close();
-    db.command("CREATE CLASS Base EXTENDS Main ABSTRACT").close();
-    db.command("CREATE CLASS Derived EXTENDS Main").close();
-    db.command("INSERT INTO Derived SET uuid='abcdef'").close();
-    db.command("ALTER CLASS Derived SUPERCLASSES Base").close();
+    session.execute("CREATE CLASS Main ABSTRACT").close();
+    session.execute("CREATE PROPERTY Main.uuid String").close();
+    session.execute("CREATE INDEX Main.uuid UNIQUE_HASH_INDEX").close();
+    session.execute("CREATE CLASS Base EXTENDS Main ABSTRACT").close();
+    session.execute("CREATE CLASS Derived EXTENDS Main").close();
+    session.execute("INSERT INTO Derived SET uuid='abcdef'").close();
+    session.execute("ALTER CLASS Derived SUPERCLASSES Base").close();
 
-    ResultSet results = db.query("SELECT * FROM Derived WHERE uuid='abcdef'");
-    assertEquals(results.stream().count(), 1);
+    var results = session.query("SELECT * FROM Derived WHERE uuid='abcdef'");
+    assertEquals(1, results.stream().count());
   }
 
   @Test
   public void testListContainsField() {
-    db.command("CREATE CLASS Foo").close();
-    db.command("CREATE PROPERTY Foo.name String").close();
-    db.command("INSERT INTO Foo SET name = 'foo'").close();
+    session.execute("CREATE CLASS Foo").close();
+    session.execute("CREATE PROPERTY Foo.name String").close();
 
-    ResultSet result = db.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
-    assertEquals(result.stream().count(), 1);
+    session.executeInTx(transaction -> {
+      session.execute("INSERT INTO Foo SET name = 'foo'").close();
+    });
 
-    result = db.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
+    assertEquals(1, result.stream().count());
 
-    db.command("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
+    result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
+    assertEquals(1, result.stream().count());
 
-    result = db.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
-    assertEquals(result.stream().count(), 1);
+    session.execute("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
 
-    result = db.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
+    assertEquals(1, result.stream().count());
 
-    result = db.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(result.stream().count(), 1);
+    result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
+    assertEquals(1, result.stream().count());
+
+    result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
+    assertEquals(1, result.stream().count());
   }
 }

@@ -61,7 +61,7 @@ public abstract class AbstractSyslogMessageSender implements SyslogMessageSender
   @Override
   public void sendMessage(CharArrayWriter message) throws IOException {
 
-    SyslogMessage syslogMessage =
+    var syslogMessage =
         new SyslogMessage()
             .withAppName(defaultAppName)
             .withFacility(defaultFacility)
@@ -74,7 +74,7 @@ public abstract class AbstractSyslogMessageSender implements SyslogMessageSender
 
   @Override
   public void sendMessage(CharSequence message) throws IOException {
-    CharArrayWriter writer = new CharArrayWriter();
+    var writer = new CharArrayWriter();
     writer.append(message);
     sendMessage(writer);
   }

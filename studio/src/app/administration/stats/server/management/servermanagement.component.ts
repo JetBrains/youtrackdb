@@ -24,7 +24,7 @@ class ServerManagementComponent implements OnInit, OnChanges {
   @Input()
   private stats;
   handle: any;
-  clusterStats: any;
+  collectionStats: any;
   servers: string[];
   server: any = {};
   selectedServer: string;
@@ -59,11 +59,11 @@ class ServerManagementComponent implements OnInit, OnChanges {
   }
   fetchMetrics() {
     this.metrics.getMetrics().then(data => {
-      this.servers = Object.keys(data.clusterStats);
+      this.servers = Object.keys(data.collectionStats);
       this.selectedServer = data.nodeName;
-      this.clusterStats = data.clusterStats;
-      let gauges = data.clusterStats[this.selectedServer].gauges;
-      this.currentStats = data.clusterStats[this.selectedServer];
+      this.collectionStats = data.collectionStats;
+      let gauges = data.collectionStats[this.selectedServer].gauges;
+      this.currentStats = data.collectionStats[this.selectedServer];
       this.server = {
         status: "ONLINE",
         javaVersion: gauges["server.info.javaVersion"].value,

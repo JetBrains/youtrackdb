@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Configurable stateful factory. New instances are created when newInstance() is called, invoking
@@ -44,24 +45,25 @@ public class ConfigurableStatefulFactory<K, V> {
       throw new IllegalArgumentException("Cannot create implementation for type null");
     }
 
-    final Class<? extends V> cls = registry.get(iKey);
+    final var cls = registry.get(iKey);
     if (cls != null) {
       try {
         return cls.newInstance();
       } catch (Exception e) {
-        final SystemException exception =
+        final var exception =
             new SystemException(
                 String.format(
                     "Error on creating new instance of class '%s' registered in factory with key"
                         + " '%s'",
                     cls, iKey));
-        throw BaseException.wrapException(exception, e);
+        throw BaseException.wrapException(exception, e, (String) null);
       }
     }
 
     return newInstanceOfDefaultClass();
   }
 
+  @Nullable
   public V newInstanceOfDefaultClass() {
     if (defaultClass != null) {
       try {
@@ -71,7 +73,7 @@ public class ConfigurableStatefulFactory<K, V> {
             new SystemException(
                 String.format(
                     "Error on creating new instance of default class '%s'", defaultClass)),
-            e);
+            e, (String) null);
       }
     }
     return null;

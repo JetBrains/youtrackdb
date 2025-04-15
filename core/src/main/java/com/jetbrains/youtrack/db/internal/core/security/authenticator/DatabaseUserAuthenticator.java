@@ -1,25 +1,24 @@
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.UserPasswordAuthInfo;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.TokenSign;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
+import java.util.Map;
+import javax.annotation.Nullable;
 
 public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
 
   private TokenSign tokenSign;
 
   @Override
-  public void config(DatabaseSessionInternal session, EntityImpl jsonConfig,
+  public void config(DatabaseSessionInternal session, Map<String, Object> jsonConfig,
       SecuritySystem security) {
     super.config(session, jsonConfig, security);
     tokenSign = security.getTokenSign();
@@ -33,19 +32,18 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
           ((UserPasswordAuthInfo) info).getUser(),
           ((UserPasswordAuthInfo) info).getPassword());
     } else if (info instanceof TokenAuthInfo) {
-      ParsedToken token = ((TokenAuthInfo) info).getToken();
+      var token = ((TokenAuthInfo) info).getToken();
 
       if (tokenSign != null && !tokenSign.verifyTokenSign(token)) {
-        throw new TokenSecurityException("The token provided is expired");
+        throw new TokenSecurityException(session.getDatabaseName(),
+            "The token provided is expired");
       }
       if (!token.getToken().getIsValid()) {
-        throw new SecurityAccessException(session.getName(), "Token not valid");
+        throw new SecurityAccessException(session.getDatabaseName(), "Token not valid");
       }
 
-      SecurityUserIml user = token.getToken().getUser(session);
+      var user = token.getToken().getUser(session);
       if (user == null && token.getToken().getUserName() != null) {
-        SecurityShared databaseSecurity =
-            (SecurityShared) session.getSharedContext().getSecurity();
         user = SecurityShared.getUserInternal(session, token.getToken().getUserName());
       }
       return user;
@@ -53,6 +51,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
     return super.authenticate(session, info);
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(DatabaseSessionInternal session, String username,
       String password) {
@@ -60,8 +59,8 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
       return null;
     }
 
-    String dbName = session.getName();
-    SecurityUserIml user = SecurityShared.getUserInternal(session, username);
+    var dbName = session.getDatabaseName();
+    var user = SecurityShared.getUserInternal(session, username);
     if (user == null) {
       return null;
     }
@@ -84,6 +83,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
     return user;
   }
 
+  @Nullable
   @Override
   public SecurityUser getUser(String username, DatabaseSessionInternal session) {
     return null;

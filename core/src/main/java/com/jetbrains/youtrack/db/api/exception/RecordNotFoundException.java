@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import java.io.Serial;
@@ -36,13 +37,17 @@ public class RecordNotFoundException extends CoreException implements HighLevelE
     this.rid = exception.rid;
   }
 
-  public RecordNotFoundException(final RID iRID) {
-    super("The record with id '" + iRID + "' was not found");
+  public RecordNotFoundException(DatabaseSession session, final RID iRID) {
+    this(session != null ? session.getDatabaseName() : null, iRID);
+  }
+
+  public RecordNotFoundException(String dbName, final RID iRID) {
+    super(dbName, "The record with id '" + iRID + "' was not found");
     rid = iRID;
   }
 
-  public RecordNotFoundException(final RID iRID, final String message) {
-    super(message);
+  public RecordNotFoundException(String dbName, final RID iRID, final String message) {
+    super(dbName, message);
     rid = iRID;
   }
 
@@ -61,7 +66,7 @@ public class RecordNotFoundException extends CoreException implements HighLevelE
 
   @Override
   public int hashCode() {
-    return Objects.hash(rid);
+    return Objects.hashCode(rid);
   }
 
   public RID getRid() {

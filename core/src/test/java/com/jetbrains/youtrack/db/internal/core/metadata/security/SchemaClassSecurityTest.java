@@ -1,12 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -19,13 +17,13 @@ public class SchemaClassSecurityTest {
 
   private static final String DB_NAME = SchemaClassSecurityTest.class.getSimpleName();
   private static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
     youTrackDB =
         new YouTrackDBImpl(
-            "plocal:.",
+            "disk:.",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -50,40 +48,41 @@ public class SchemaClassSecurityTest {
             + "' role reader, writer identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role writer)");
-    this.db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin",
+    this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
-    this.db.close();
+    this.session.close();
     youTrackDB.drop(DB_NAME);
-    this.db = null;
+    this.session = null;
   }
 
   @Test
   public void testReadWithClassPermissions() {
-    db.createClass("Person");
-    db.begin();
-    Role reader = db.getMetadata().getSecurity().getRole("reader");
-    reader.grant(db, Rule.ResourceGeneric.CLASS, "Person", Role.PERMISSION_NONE);
-    reader.revoke(db, Rule.ResourceGeneric.CLASS, "Person", Role.PERMISSION_READ);
-    reader.save(db);
-    db.commit();
+    session.createClass("Person");
+    session.begin();
+    var reader = session.getMetadata().getSecurity().getRole("reader");
+    reader.grant(session, Rule.ResourceGeneric.CLASS, "Person", Role.PERMISSION_NONE);
+    reader.revoke(session, Rule.ResourceGeneric.CLASS, "Person", Role.PERMISSION_READ);
+    reader.save(session);
+    session.commit();
 
-    db.begin();
-    Entity elem = db.newEntity("Person");
+    session.begin();
+    var elem = session.newEntity("Person");
     elem.setProperty("name", "foo");
     elem.setProperty("surname", "foo");
-    db.save(elem);
-    db.commit();
+    session.commit();
 
-    db.close();
+    session.close();
 
-    db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader",
+    session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "reader",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
-    try (final ResultSet resultSet = db.query("SELECT from Person")) {
+    session.begin();
+    try (final var resultSet = session.query("SELECT from Person")) {
       Assert.assertFalse(resultSet.hasNext());
     }
+    session.commit();
   }
 }

@@ -28,21 +28,21 @@ public class IOUtilsTest {
 
   @Test
   public void shoudGetRightTimeFromString() throws ParseException {
-    Calendar calendar = Calendar.getInstance();
+    var calendar = Calendar.getInstance();
     calendar.set(Calendar.HOUR_OF_DAY, 5);
     calendar.set(Calendar.MINUTE, 10);
     calendar.set(Calendar.SECOND, 0);
     calendar.set(Calendar.MILLISECOND, 0);
-    Date d = IOUtils.getTodayWithTime("05:10:00");
+    var d = IOUtils.getTodayWithTime("05:10:00");
     assertEquals(calendar.getTime(), d);
   }
 
   @Test
   public void shouldReadFileAsString() throws IOException {
     // UTF-8
-    Path path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
+    var path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
 
-    String asString = IOUtils.readFileAsString(path.toFile());
+    var asString = IOUtils.readFileAsString(path.toFile());
 
     assertThat(asString).isEqualToIgnoringCase("utf-8 :: èàòì€");
 
@@ -57,9 +57,9 @@ public class IOUtilsTest {
   @Test
   public void shouldReadFileAsStringWithGivenCharset() throws IOException {
     // UTF-8
-    Path path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
+    var path = Paths.get("./src/test/resources/", getClass().getSimpleName() + "_utf8.txt");
 
-    String asString = IOUtils.readFileAsString(path.toFile(), StandardCharsets.UTF_8);
+    var asString = IOUtils.readFileAsString(path.toFile(), StandardCharsets.UTF_8);
 
     assertThat(asString).isEqualToIgnoringCase("utf-8 :: èàòì€");
 

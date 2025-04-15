@@ -13,15 +13,17 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderContains;
-import org.locationtech.spatial4j.shape.Shape;
+import java.util.Collection;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -36,10 +38,11 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -48,9 +51,16 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
       return null;
     }
 
-    Shape shape = toShape(iParams[0]);
+    var shape = toShape(iParams[0]);
 
-    Shape shape1 = toShape(iParams[1]);
+    Object param1 = null;
+    if (iParams[1] instanceof Collection<?> collection && collection.size() == 1) {
+      param1 = collection.iterator().next();
+    } else {
+      param1 = iParams[1];
+    }
+
+    var shape1 = toShape(param1);
 
     return factory.operation().contains(shape, shape1);
   }
@@ -60,6 +70,7 @@ public class STContainsFunction extends SpatialFunctionAbstractIndexable {
     return true;
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

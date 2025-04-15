@@ -37,8 +37,8 @@ public abstract class IndexAbstractCursor implements IndexCursor {
 
   @Override
   public Set<Identifiable> toValues() {
-    final HashSet<Identifiable> result = new HashSet<Identifiable>();
-    Map.Entry<Object, Identifiable> entry = nextEntry();
+    final var result = new HashSet<Identifiable>();
+    var entry = nextEntry();
 
     while (entry != null) {
       result.add(entry.getValue());
@@ -50,10 +50,10 @@ public abstract class IndexAbstractCursor implements IndexCursor {
 
   @Override
   public Set<Map.Entry<Object, Identifiable>> toEntries() {
-    final HashSet<Map.Entry<Object, Identifiable>> result =
+    final var result =
         new HashSet<Map.Entry<Object, Identifiable>>();
 
-    Map.Entry<Object, Identifiable> entry = nextEntry();
+    var entry = nextEntry();
 
     while (entry != null) {
       result.add(entry);
@@ -65,9 +65,9 @@ public abstract class IndexAbstractCursor implements IndexCursor {
 
   @Override
   public Set<Object> toKeys() {
-    final HashSet<Object> result = new HashSet<Object>();
+    final var result = new HashSet<Object>();
 
-    Map.Entry<Object, Identifiable> entry = nextEntry();
+    var entry = nextEntry();
 
     while (entry != null) {
       result.add(entry.getKey());
@@ -93,7 +93,7 @@ public abstract class IndexAbstractCursor implements IndexCursor {
       throw new NoSuchElementException();
     }
 
-    final Map.Entry<Object, Identifiable> result = nextEntry;
+    final var result = nextEntry;
     nextEntry = nextEntry();
 
     return result.getValue();

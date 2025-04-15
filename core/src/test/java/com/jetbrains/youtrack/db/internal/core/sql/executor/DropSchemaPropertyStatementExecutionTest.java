@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -17,35 +15,35 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testPlain() {
-    String className = "testPlain";
-    String propertyName = "foo";
-    Schema schema = db.getMetadata().getSchema();
-    schema.createClass(className).createProperty(db, propertyName, PropertyType.STRING);
+    var className = "testPlain";
+    var propertyName = "foo";
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass(className).createProperty(propertyName, PropertyType.STRING);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
-    ResultSet result = db.command("drop property " + className + "." + propertyName);
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    var result = session.execute("drop property " + className + "." + propertyName);
     Assert.assertTrue(result.hasNext());
-    Result next = result.next();
+    var next = result.next();
     Assert.assertEquals("drop property", next.getProperty("operation"));
     Assert.assertFalse(result.hasNext());
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(db, propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
   }
 
   @Test
   public void testDropIndexForce() {
-    String className = "testDropIndexForce";
-    String propertyName = "foo";
-    Schema schema = db.getMetadata().getSchema();
+    var className = "testDropIndexForce";
+    var propertyName = "foo";
+    Schema schema = session.getMetadata().getSchema();
     schema
         .createClass(className)
-        .createProperty(db, propertyName, PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty(propertyName, PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
-    ResultSet result = db.command("drop property " + className + "." + propertyName + " force");
-    for (int i = 0; i < 2; i++) {
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    var result = session.execute("drop property " + className + "." + propertyName + " force");
+    for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
       result.next();
     }
@@ -54,23 +52,23 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(db, propertyName));
+    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
   }
 
   @Test
   public void testDropIndex() {
 
-    String className = "testDropIndex";
-    String propertyName = "foo";
-    Schema schema = db.getMetadata().getSchema();
+    var className = "testDropIndex";
+    var propertyName = "foo";
+    Schema schema = session.getMetadata().getSchema();
     schema
         .createClass(className)
-        .createProperty(db, propertyName, PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createProperty(propertyName, PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(db, propertyName));
+    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     try {
-      db.command("drop property " + className + "." + propertyName);
+      session.execute("drop property " + className + "." + propertyName);
       Assert.fail();
     } catch (CommandExecutionException e) {
     } catch (Exception e) {

@@ -9,6 +9,10 @@ public class WriteCacheException extends CoreException {
     super(exception);
   }
 
+  public WriteCacheException(String dbName, String message) {
+    super(dbName, message);
+  }
+
   public WriteCacheException(String message) {
     super(message);
   }

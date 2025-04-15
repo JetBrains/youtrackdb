@@ -20,14 +20,11 @@
 package com.jetbrains.youtrack.db.internal.core.exception;
 
 public class StorageException extends CoreException {
-
-  private static final long serialVersionUID = -2655748565531836968L;
-
   public StorageException(StorageException exception) {
     super(exception);
   }
 
-  public StorageException(String string) {
-    super(string);
+  public StorageException(String dbName, String string) {
+    super(dbName, string);
   }
 }

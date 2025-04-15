@@ -25,7 +25,7 @@ public class SQLUnwind extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("UNWIND ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -35,7 +35,7 @@ public class SQLUnwind extends SimpleNode {
 
   public void toGenericStatement(StringBuilder builder) {
     builder.append("UNWIND ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -44,7 +44,7 @@ public class SQLUnwind extends SimpleNode {
   }
 
   public SQLUnwind copy() {
-    SQLUnwind result = new SQLUnwind(-1);
+    var result = new SQLUnwind(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
     return result;
   }
@@ -58,7 +58,7 @@ public class SQLUnwind extends SimpleNode {
       return false;
     }
 
-    SQLUnwind oUnwind = (SQLUnwind) o;
+    var oUnwind = (SQLUnwind) o;
 
     return Objects.equals(items, oUnwind.items);
   }
@@ -77,7 +77,7 @@ public class SQLUnwind extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (items != null) {
       result.setProperty(
           "items", items.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
@@ -89,8 +89,8 @@ public class SQLUnwind extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLIdentifier exp = SQLIdentifier.deserialize(r);
+      for (var r : ser) {
+        var exp = SQLIdentifier.deserialize(r);
         items.add(exp);
       }
     }

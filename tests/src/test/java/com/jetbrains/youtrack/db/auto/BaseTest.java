@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
@@ -30,7 +29,7 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
 
   public static final String DEFAULT_DB_NAME = "demo";
 
-  protected T database;
+  protected T session;
   protected String dbName;
 
   protected boolean remoteDB = false;
@@ -43,10 +42,10 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
 
   @Parameters(value = "remote")
   public BaseTest(boolean remote) {
-    String config = System.getProperty("youtrackdb.test.env");
+    var config = System.getProperty("youtrackdb.test.env");
 
     if ("ci".equals(config) || "release".equals(config)) {
-      databaseType = DatabaseType.PLOCAL;
+      databaseType = DatabaseType.DISK;
     }
 
     if (databaseType == null) {
@@ -80,7 +79,7 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
               new YouTrackDBImpl("remote:localhost", "root", SERVER_PASSWORD,
                   createConfig(builder));
         } else {
-          final String buildDirectory = System.getProperty("buildDirectory", ".");
+          final var buildDirectory = System.getProperty("buildDirectory", ".");
           youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", createConfig(builder));
         }
       }
@@ -148,13 +147,13 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
 
   private void newSession() {
     try {
-      if (database == null) {
-        database = createSessionInstance();
+      if (session == null) {
+        session = createSessionInstance();
       }
 
-      database.activateOnCurrentThread();
-      if (database.isClosed()) {
-        database = createSessionInstance();
+      session.activateOnCurrentThread();
+      if (session.isClosed()) {
+        session = createSessionInstance();
       }
     } catch (Exception e) {
       throw new IllegalStateException(
@@ -174,9 +173,9 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
 
   private void closeSession() {
     try {
-      if (!database.isClosed()) {
-        database.activateOnCurrentThread();
-        database.close();
+      if (!session.isClosed()) {
+        session.activateOnCurrentThread();
+        session.close();
       }
     } catch (Exception e) {
       throw new IllegalStateException(
@@ -212,8 +211,6 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
   }
 
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "SILENT");
     return builder.build();
   }
 
@@ -226,14 +223,14 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
   }
 
   protected void checkEmbeddedDB() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is running only in embedded database");
     }
   }
 
   protected Index getIndex(final String indexName) {
-    final DatabaseSessionInternal db = database;
+    final DatabaseSessionInternal db = this.session;
 
-    return (db.getMetadata()).getIndexManagerInternal().getIndex(db, indexName);
+    return db.getSharedContext().getIndexManager().getIndex(db, indexName);
   }
 }

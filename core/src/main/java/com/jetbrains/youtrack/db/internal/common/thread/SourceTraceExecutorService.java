@@ -21,7 +21,7 @@ public class SourceTraceExecutorService implements ExecutorService {
 
   @Override
   public void execute(Runnable command) {
-    final TracedExecutionException trace = TracedExecutionException.prepareTrace(command);
+    final var trace = TracedExecutionException.prepareTrace(command);
     this.service.execute(
         () -> {
           try {
@@ -59,7 +59,7 @@ public class SourceTraceExecutorService implements ExecutorService {
 
   @Override
   public <T> Future<T> submit(Callable<T> task) {
-    final TracedExecutionException trace = TracedExecutionException.prepareTrace(task);
+    final var trace = TracedExecutionException.prepareTrace(task);
     return this.service.submit(
         () -> {
           try {
@@ -72,7 +72,7 @@ public class SourceTraceExecutorService implements ExecutorService {
 
   @Override
   public <T> Future<T> submit(Runnable task, T result) {
-    final TracedExecutionException trace = TracedExecutionException.prepareTrace(task);
+    final var trace = TracedExecutionException.prepareTrace(task);
     return this.service.submit(
         () -> {
           try {
@@ -86,7 +86,7 @@ public class SourceTraceExecutorService implements ExecutorService {
 
   @Override
   public Future<?> submit(Runnable task) {
-    final TracedExecutionException trace = TracedExecutionException.prepareTrace(task);
+    final var trace = TracedExecutionException.prepareTrace(task);
     return this.service.submit(
         () -> {
           try {

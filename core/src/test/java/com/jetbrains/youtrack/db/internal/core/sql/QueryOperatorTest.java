@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorAnd;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorBetween;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorContains;
@@ -37,9 +36,9 @@ public class QueryOperatorTest {
   public void testOperatorOrder() {
 
     // check operator are the correct order
-    final QueryOperator[] operators = SQLEngine.INSTANCE.getRecordOperators();
+    final var operators = SQLEngine.getRecordOperators();
 
-    int i = 0;
+    var i = 0;
     Assert.assertTrue(operators[i++] instanceof QueryOperatorEquals);
     Assert.assertTrue(operators[i++] instanceof QueryOperatorAnd);
     Assert.assertTrue(operators[i++] instanceof QueryOperatorOr);

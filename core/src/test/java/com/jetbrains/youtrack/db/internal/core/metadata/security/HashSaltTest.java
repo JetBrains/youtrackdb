@@ -13,9 +13,9 @@ public class HashSaltTest {
 
   @Test
   public void testSalt() throws InvalidKeySpecException, NoSuchAlgorithmException {
-    final String password = "YouTrackDBisCool";
-    final SecurityManager sm = new SecurityManager();
-    final String hashed = SecurityManager.createHashWithSalt(password);
+    final var password = "YouTrackDBisCool";
+    final var sm = new SecurityManager();
+    final var hashed = SecurityManager.createHashWithSalt(password);
 
     Assert.assertTrue(SecurityManager.checkPasswordWithSalt(password, hashed));
   }

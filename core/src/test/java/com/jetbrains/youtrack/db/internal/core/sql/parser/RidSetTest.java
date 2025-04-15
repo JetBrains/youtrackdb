@@ -13,7 +13,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 100);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -22,7 +22,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut0() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 0);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -31,7 +31,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut31() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 31);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -40,7 +40,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut32() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 32);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -49,7 +49,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut63() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 63);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -58,7 +58,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut64() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 64);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -67,7 +67,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testPut65() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 65);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -76,7 +76,7 @@ public class RidSetTest extends ParserTestAbstract {
 
   @Test
   public void testRemove() {
-    RidSet set = new RidSet();
+    var set = new RidSet();
     RID rid = new RecordId(12, 31);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -86,8 +86,8 @@ public class RidSetTest extends ParserTestAbstract {
   }
 
   @Test
-  public void testBigClusterId() {
-    RidSet set = new RidSet();
+  public void testBigCollectionId() {
+    var set = new RidSet();
     RID rid = new RecordId(1200, 100);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -97,8 +97,8 @@ public class RidSetTest extends ParserTestAbstract {
   }
 
   @Test
-  public void testBigClusterPosition() {
-    RidSet set = new RidSet();
+  public void testBigCollectionPosition() {
+    var set = new RidSet();
     RID rid = new RecordId(12, 200L * 1000 * 1000);
     Assert.assertFalse(set.contains(rid));
     set.add(rid);
@@ -111,24 +111,24 @@ public class RidSetTest extends ParserTestAbstract {
   public void testIterator() {
 
     Set<RID> set = new RidSet();
-    int clusters = 100;
-    int idsPerCluster = 10;
+    var collections = 100;
+    var idsPerCollection = 10;
 
-    for (int cluster = 0; cluster < clusters; cluster++) {
-      for (long id = 0; id < idsPerCluster; id++) {
-        set.add(new RecordId(cluster, id));
+    for (var collection = 0; collection < collections; collection++) {
+      for (long id = 0; id < idsPerCollection; id++) {
+        set.add(new RecordId(collection, id));
       }
     }
-    Iterator<RID> iterator = set.iterator();
+    var iterator = set.iterator();
 
     System.out.println("stating");
-    long begin = System.currentTimeMillis();
-    for (int cluster = 0; cluster < clusters; cluster++) {
-      for (long id = 0; id < idsPerCluster; id++) {
+    var begin = System.currentTimeMillis();
+    for (var collection = 0; collection < collections; collection++) {
+      for (long id = 0; id < idsPerCollection; id++) {
         Assert.assertTrue(iterator.hasNext());
-        RID next = iterator.next();
+        var next = iterator.next();
         Assert.assertNotNull(next);
-        //        Assert.assertEquals(new RecordId(cluster, id), next);
+        //        Assert.assertEquals(new RecordId(collection, id), next);
       }
     }
     System.out.println("elapsed: " + (System.currentTimeMillis() - begin));
@@ -141,20 +141,20 @@ public class RidSetTest extends ParserTestAbstract {
     Set<RID> control = new HashSet<>();
     Set<RID> set = new RidSet();
 
-    long offset = (((long) Integer.MAX_VALUE)) * 63;
-    long idsPerCluster = 10;
+    var offset = (((long) Integer.MAX_VALUE)) * 63;
+    long idsPerCollection = 10;
 
-    int cluster = 1;
-    for (long id = 0; id < idsPerCluster; id++) {
-      RecordId rid = new RecordId(cluster, offset + id);
+    var collection = 1;
+    for (long id = 0; id < idsPerCollection; id++) {
+      var rid = new RecordId(collection, offset + id);
       set.add(rid);
       control.add(rid);
     }
-    Iterator<RID> iterator = set.iterator();
+    var iterator = set.iterator();
 
-    for (long id = 0; id < idsPerCluster; id++) {
+    for (long id = 0; id < idsPerCollection; id++) {
       Assert.assertTrue(iterator.hasNext());
-      RID next = iterator.next();
+      var next = iterator.next();
       Assert.assertNotNull(next);
       control.remove(next);
     }

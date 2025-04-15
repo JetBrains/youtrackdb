@@ -19,28 +19,24 @@
  */
 package com.jetbrains.youtrack.db.api.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.LazySchemaClass;
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface Schema {
 
   int countClasses();
 
+  @Nonnull
   SchemaClass createClass(String iClassName);
 
-  SchemaClass createClass(String iClassName, SchemaClass iSuperClass);
-
-  SchemaClass createClass(String className, int clusters, SchemaClass... superClasses);
+  @Nonnull
+  SchemaClass createClass(@Nonnull String iClassName, @Nonnull SchemaClass iSuperClass);
 
   SchemaClass createClass(String iClassName, SchemaClass... superClasses);
-
-  SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iClusterIds);
-
-  SchemaClass createClass(String className, int[] clusterIds, SchemaClass... superClasses);
 
   SchemaClass createAbstractClass(String iClassName);
 
@@ -48,10 +44,52 @@ public interface Schema {
 
   SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses);
 
+  /**
+   * creates a new vertex class (a class that extends V)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if V class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createVertexClass(String className) throws SchemaException {
+    return createClass(className, getClass(SchemaClass.VERTEX_CLASS_NAME));
+  }
+
+  /**
+   * Creates a non-abstract new edge class (a class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createEdgeClass(String className) {
+    var edgeClass = createClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
+
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
+
+    return edgeClass;
+  }
+
+  /**
+   * Creates a new edge class for lightweight edge (an abstract class that extends E)
+   *
+   * @param className the class name
+   * @return The object representing the class in the schema
+   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
+   *                         deleted from the schema)
+   */
+  default SchemaClass createLightweightEdgeClass(String className) {
+    return createAbstractClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
+  }
+
   void dropClass(String iClassName);
 
   boolean existsClass(String iClassName);
 
+  @Nullable
   SchemaClass getClass(Class<?> iClass);
 
   /**
@@ -74,20 +112,19 @@ public interface Schema {
 
   SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses);
 
-  Collection<SchemaClass> getClasses(DatabaseSession db);
+  Collection<SchemaClass> getClasses();
 
-  Map<String, LazySchemaClass> getClassesRefs(DatabaseSession db);
+  Collection<String> getIndexes();
 
-  Collection<String> getIndexes(DatabaseSession db);
-
-  boolean indexExists(DatabaseSession db, String indexName);
+  boolean indexExists(String indexName);
 
   @Nonnull
-  IndexDefinition getIndexDefinition(DatabaseSession db, String indexName);
+  IndexDefinition getIndexDefinition(String indexName);
 
   int getVersion();
 
-  SchemaClass getClassByClusterId(int clusterId);
+  @Nullable
+  SchemaClass getClassByCollectionId(int collectionId);
 
   GlobalProperty getGlobalPropertyById(int id);
 

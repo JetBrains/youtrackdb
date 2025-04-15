@@ -19,7 +19,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.method.sequence;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
@@ -44,28 +44,28 @@ public class SQLMethodReset extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
     if (iThis == null) {
-      throw new CommandSQLParsingException(
+      throw new CommandSQLParsingException(iContext.getDatabaseSession().getDatabaseName(),
           "Method 'reset()' can be invoked only on OSequence instances, while NULL was found");
     }
 
     if (!(iThis instanceof DBSequence)) {
-      throw new CommandSQLParsingException(
+      throw new CommandSQLParsingException(iContext.getDatabaseSession().getDatabaseName(),
           "Method 'reset()' can be invoked only on OSequence instances, while '"
               + iThis.getClass()
               + "' was found");
     }
 
     try {
-      return ((DBSequence) iThis).reset();
+      return ((DBSequence) iThis).reset(iContext.getDatabaseSession());
     } catch (DatabaseException exc) {
-      String message = "Unable to execute command: " + exc.getMessage();
+      var message = "Unable to execute command: " + exc.getMessage();
       LogManager.instance().error(this, message, exc, (Object) null);
-      throw new CommandExecutionException(message);
+      throw new CommandExecutionException(iContext.getDatabaseSession(), message);
     }
   }
 }

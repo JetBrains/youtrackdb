@@ -32,7 +32,7 @@ public class NeOperatorTest {
 
   @Test
   public void test() {
-    SQLNeOperator op = new SQLNeOperator(-1);
+    var op = new SQLNeOperator(-1);
 
     Assert.assertTrue(op.execute(null, 1));
     Assert.assertTrue(op.execute(1, null));

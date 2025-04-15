@@ -54,8 +54,8 @@ class ScalingThreadPoolExecutor extends ThreadPoolExecutorWithLogging {
         maxPoolReached = false;
       }
       if (!maxPoolReached) {
-        final int size = size();
-        final int trigger =
+        final var size = size();
+        final var trigger =
             targetCapacity <= 1 ? (targetCapacity - 1) : rand.nextInt(targetCapacity);
         if (size > trigger) {
           return false;

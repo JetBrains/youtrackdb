@@ -32,10 +32,10 @@ public class CommandTimeoutChecker {
 
   protected void check() {
     if (active) {
-      long curTime = System.nanoTime() / 1000000;
-      Iterator<Entry<Thread, Long>> iter = running.entrySet().iterator();
+      var curTime = System.nanoTime() / 1000000;
+      var iter = running.entrySet().iterator();
       while (iter.hasNext()) {
-        Entry<Thread, Long> entry = iter.next();
+        var entry = iter.next();
         if (curTime > entry.getValue()) {
           entry.getKey().interrupt();
           iter.remove();
@@ -46,7 +46,7 @@ public class CommandTimeoutChecker {
 
   public void startCommand(Optional<Long> timeout) {
     if (active) {
-      long current = System.nanoTime() / 1000000;
+      var current = System.nanoTime() / 1000000;
       running.put(Thread.currentThread(), current + timeout.orElse(maxMills));
     }
   }

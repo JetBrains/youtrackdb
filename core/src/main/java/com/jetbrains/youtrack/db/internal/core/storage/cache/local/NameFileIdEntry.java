@@ -27,7 +27,7 @@ final class NameFileIdEntry {
       return false;
     }
 
-    final NameFileIdEntry that = (NameFileIdEntry) o;
+    final var that = (NameFileIdEntry) o;
 
     if (fileId != that.fileId) {
       return false;
@@ -40,7 +40,7 @@ final class NameFileIdEntry {
 
   @Override
   public int hashCode() {
-    int result = name.hashCode();
+    var result = name.hashCode();
     result = 31 * result + fileId;
     result = 31 * result + fileSystemName.hashCode();
     return result;

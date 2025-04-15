@@ -46,7 +46,7 @@ public abstract class SimpleNode implements Node {
     if (children == null) {
       children = new Node[i + 1];
     } else if (i >= children.length) {
-      Node[] c = new Node[i + 1];
+      var c = new Node[i + 1];
       System.arraycopy(children, 0, c, 0, children.length);
       children = c;
     }
@@ -92,7 +92,7 @@ public abstract class SimpleNode implements Node {
    */
 
   public String toString() {
-    StringBuilder result = new StringBuilder();
+    var result = new StringBuilder();
     toString(null, result);
     return result.toString();
   }
@@ -107,8 +107,8 @@ public abstract class SimpleNode implements Node {
 
   public void dump(String prefix) {
     if (children != null) {
-      for (int i = 0; i < children.length; ++i) {
-        SimpleNode n = (SimpleNode) children[i];
+      for (var i = 0; i < children.length; ++i) {
+        var n = (SimpleNode) children[i];
         if (n != null) {
           n.dump(prefix + " ");
         }
@@ -121,7 +121,7 @@ public abstract class SimpleNode implements Node {
   public abstract void toGenericStatement(StringBuilder builder);
 
   public String toGenericStatement() {
-    StringBuilder builder = new StringBuilder();
+    var builder = new StringBuilder();
     toGenericStatement(builder);
     return builder.toString();
   }

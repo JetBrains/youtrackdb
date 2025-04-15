@@ -11,7 +11,6 @@ public class EdgeTraversal {
   protected boolean out = true;
   public PatternEdge edge;
   private String leftClass;
-  private String leftCluster;
   private SQLRid leftRid;
   private SQLWhereClause leftFilter;
 
@@ -32,16 +31,8 @@ public class EdgeTraversal {
     return leftClass;
   }
 
-  public String getLeftCluster() {
-    return leftCluster;
-  }
-
   public SQLRid getLeftRid() {
     return leftRid;
-  }
-
-  public void setLeftCluster(String leftCluster) {
-    this.leftCluster = leftCluster;
   }
 
   public void setLeftRid(SQLRid leftRid) {

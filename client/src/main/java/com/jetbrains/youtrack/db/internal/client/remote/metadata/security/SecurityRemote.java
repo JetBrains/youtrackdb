@@ -1,13 +1,11 @@
 package com.jetbrains.youtrack.db.internal.client.remote.metadata.security;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.TrackedSet;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
@@ -17,17 +15,17 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole.ALLOW_MODES;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SecurityRemote implements SecurityInternal {
 
@@ -42,238 +40,150 @@ public class SecurityRemote implements SecurityInternal {
   }
 
   @Override
-  public Identifiable allowRole(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    final RID role = getRoleRID(session, iRoleName);
-    if (role == null) {
-      throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-    }
-
-    return allowIdentity(session, entity, iOperation.getFieldName(), role);
-  }
-
-  @Override
-  public Identifiable allowUser(
-      final DatabaseSession session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    final RID user = getUserRID(session, iUserName);
-    if (user == null) {
-      throw new IllegalArgumentException("User '" + iUserName + "' not found");
-    }
-
-    return allowIdentity(session, entity, iOperation.getFieldName(), user);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iUserName) {
-    final RID user = getUserRID(session, iUserName);
-    if (user == null) {
-      throw new IllegalArgumentException("User '" + iUserName + "' not found");
-    }
-
-    return disallowIdentity(session, entity, iOperation.getFieldName(), user);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      final DatabaseSessionInternal session,
-      final EntityImpl entity,
-      final RestrictedOperation iOperation,
-      final String iRoleName) {
-    final RID role = getRoleRID(session, iRoleName);
-    if (role == null) {
-      throw new IllegalArgumentException("Role '" + iRoleName + "' not found");
-    }
-
-    return disallowIdentity(session, entity, iOperation.getFieldName(), role);
-  }
-
-  @Override
-  public Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    Set<Identifiable> field = entity.field(iAllowFieldName);
-    if (field == null) {
-      field = new TrackedSet<>(entity);
-      entity.field(iAllowFieldName, field);
-    }
-    field.add(iId);
-
-    return iId;
-  }
-
-  public RID getRoleRID(final DatabaseSession session, final String iRoleName) {
-    if (iRoleName == null) {
-      return null;
-    }
-
-    try (final ResultSet result =
-        session.query("select @rid as rid from ORole where name = ? limit 1", iRoleName)) {
-
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
-      }
-    }
-    return null;
-  }
-
-  public RID getUserRID(final DatabaseSession session, final String userName) {
-    try (ResultSet result =
-        session.query("select @rid as rid from OUser where name = ? limit 1", userName)) {
-
-      if (result.hasNext()) {
-        return result.next().getProperty("rid");
-      }
-    }
-
-    return null;
-  }
-
-  @Override
-  public Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    Set<Identifiable> field = entity.field(iAllowFieldName);
-    if (field != null) {
-      field.remove(iId);
-    }
-    return iId;
-  }
-
-  @Override
-  public SecurityUserIml authenticate(DatabaseSessionInternal session, String iUsername,
+  public SecurityUserImpl authenticate(DatabaseSessionInternal session, String iUsername,
       String iUserPassword) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String iUserName,
       final String iUserPassword,
       final String... iRoles) {
-    final SecurityUserIml user = new SecurityUserIml(session, iUserName, iUserPassword);
+    final var user = new SecurityUserImpl(session, iUserName, iUserPassword);
     if (iRoles != null) {
-      for (String r : iRoles) {
+      for (var r : iRoles) {
         user.addRole(session, r);
       }
     }
-    return user.save(session);
+    user.save(session);
+    return user;
   }
 
   @Override
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String userName,
       final String userPassword,
       final Role... roles) {
-    final SecurityUserIml user = new SecurityUserIml(session, userName, userPassword);
+    final var user = new SecurityUserImpl(session, userName, userPassword);
 
     if (roles != null) {
-      for (Role r : roles) {
+      for (var r : roles) {
         user.addRole(session, r);
       }
     }
 
-    return user.save(session);
+    user.save(session);
+    return user;
   }
 
   @Override
-  public SecurityUserIml authenticate(DatabaseSessionInternal session, Token authToken) {
+  public SecurityUserImpl authenticate(DatabaseSessionInternal session, Token authToken) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public Role createRole(
-      final DatabaseSessionInternal session, final String iRoleName,
-      final ALLOW_MODES iAllowMode) {
-    return createRole(session, iRoleName, null, iAllowMode);
+      final DatabaseSessionInternal session, final String iRoleName) {
+    return createRole(session, iRoleName, null);
   }
 
   @Override
   public Role createRole(
       final DatabaseSessionInternal session,
       final String iRoleName,
-      final Role iParent,
-      final ALLOW_MODES iAllowMode) {
-    final Role role = new Role(session, iRoleName, iParent, iAllowMode);
-    return role.save(session);
+      final Role iParent) {
+    final var role = new Role(session, iRoleName, iParent);
+    role.save(session);
+    return role;
   }
 
   @Override
-  public SecurityUserIml getUser(final DatabaseSession session, final String iUserName) {
-    try (ResultSet result = session.query("select from OUser where name = ? limit 1",
-        iUserName)) {
-      if (result.hasNext()) {
-        return new SecurityUserIml(session, (EntityImpl) result.next().getEntity().get());
+  public SecurityUserImpl getUser(final DatabaseSession session, final String iUserName) {
+    return session.computeInTx(transaction -> {
+      try (var result = transaction.query("select from OUser where name = ? limit 1",
+          iUserName)) {
+        if (result.hasNext()) {
+          return new SecurityUserImpl((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
-    return null;
+      //noinspection ReturnOfNull
+      return null;
+    });
   }
 
-  public SecurityUserIml getUser(final DatabaseSession session, final RID iRecordId) {
+  @Nullable
+  public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
     }
 
+    var sessionInternal = (DatabaseSessionInternal) session;
     EntityImpl result;
-    result = session.load(iRecordId);
-    if (!result.getClassName().equals(SecurityUserIml.CLASS_NAME)) {
+    result = sessionInternal.load(iRecordId);
+    if (!result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
       result = null;
     }
-    return new SecurityUserIml(session, result);
+    return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
-    final EntityImpl entity = session.load(iRole.getIdentity());
-    SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(entity);
-    if (clazz != null && clazz.isOrole()) {
-      return new Role(session, entity);
+    var sessionInternal = (DatabaseSessionInternal) session;
+    final EntityImpl entity = sessionInternal.load(iRole.getIdentity());
+    SchemaImmutableClass clazz = null;
+    clazz = entity.getImmutableSchemaClass(sessionInternal);
+    if (clazz != null && clazz.isRole()) {
+      return new Role(sessionInternal, entity);
     }
 
     return null;
   }
 
+  @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
 
-    try (final ResultSet result =
-        session.query("select from ORole where name = ? limit 1", iRoleName)) {
-      if (result.hasNext()) {
-        return new Role(session, (EntityImpl) result.next().getEntity().get());
+    return session.computeInTx(transaction -> {
+      try (final var result =
+          transaction.query("select from " + Role.CLASS_NAME + " where name = ? limit 1",
+              iRoleName)) {
+        if (result.hasNext()) {
+          return new Role((DatabaseSessionInternal) session,
+              (EntityImpl) result.next().asEntity());
+        }
       }
-    }
 
-    return null;
+      //noinspection ReturnOfNull
+      return null;
+    });
   }
 
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
-    try (ResultSet rs = session.query("select from OUser")) {
-      return rs.stream().map((e) -> (EntityImpl) e.getEntity().get())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from OUser")) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
-    try (ResultSet rs = session.query("select from ORole")) {
-      return rs.stream().map((e) -> (EntityImpl) e.getEntity().get())
-          .collect(Collectors.toList());
-    }
+    return session.computeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
+        return rs.stream().map((e) -> (EntityImpl) e.asEntity())
+            .collect(Collectors.toList());
+      }
+    });
   }
 
   @Override
-  public Map<String, SecurityPolicy> getSecurityPolicies(
+  public Map<String, ? extends SecurityPolicy> getSecurityPolicies(
       DatabaseSession session, SecurityRole role) {
     throw new UnsupportedOperationException();
   }
@@ -318,26 +228,23 @@ public class SecurityRemote implements SecurityInternal {
 
   @Override
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
-    final Number removed =
-        session.command("delete from OUser where name = ?", iUserName).next().getProperty("count");
-
-    return removed != null && removed.intValue() > 0;
+    return session.computeInTx(transaction -> {
+      try (var result = transaction.execute("delete from OUser where name = ?", iUserName)) {
+        final Number removed = result.next().getProperty("count");
+        return removed != null && removed.intValue() > 0;
+      }
+    });
   }
 
   @Override
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
-    final Number removed =
-        session
-            .command("delete from ORole where name = '" + iRoleName + "'")
-            .next()
-            .getProperty("count");
-
-    return removed != null && removed.intValue() > 0;
-  }
-
-  @Override
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    throw new UnsupportedOperationException();
+    return session.computeInTx(transaction -> {
+      try (var resutl = transaction.execute(
+          "delete from " + Role.CLASS_NAME + " where name = '" + iRoleName + "'")) {
+        final Number removed = resutl.next().getProperty("count");
+        return removed != null && removed.intValue() > 0;
+      }
+    });
   }
 
   @Override
@@ -351,7 +258,7 @@ public class SecurityRemote implements SecurityInternal {
   }
 
   @Override
-  public SecurityUserIml create(DatabaseSessionInternal session) {
+  public SecurityUserImpl create(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
@@ -408,7 +315,7 @@ public class SecurityRemote implements SecurityInternal {
   @Override
   public Set<SecurityResourceProperty> getAllFilteredProperties(
       DatabaseSessionInternal database) {
-    return Collections.EMPTY_SET;
+    return Collections.emptySet();
   }
 
   @Override

@@ -19,20 +19,19 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLUpdateItem;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
 import java.io.BufferedReader;
 import java.io.StringReader;
 import java.text.NumberFormat;
 import java.util.InputMismatchException;
-import java.util.List;
 import java.util.Locale;
 
 public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstract {
@@ -43,20 +42,20 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
   private static final String[] NAMES = {"POST|importRecords/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             4,
             "Syntax error:"
                 + " importRecords/<database>/<format>/<class>[/<separator>][/<string-delimiter>][/<locale>]");
 
-    final long start = System.currentTimeMillis();
+    final var start = System.currentTimeMillis();
 
     iRequest.getData().commandInfo = "Import records";
 
-    try (var db = getProfiledDatabaseInstance(iRequest)) {
-      final SchemaClass cls = db.getMetadata().getSchema().getClass(urlParts[3]);
+    try (var session = getProfiledDatabaseSessionInstance(iRequest)) {
+      final var cls = session.getMetadata().getSchema().getClass(urlParts[3]);
       if (cls == null) {
         throw new IllegalArgumentException("Class '" + urlParts[3] + " is not defined");
       }
@@ -66,47 +65,47 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
       }
 
       if (urlParts[2].equalsIgnoreCase("csv")) {
-        final char separator = urlParts.length > 4 ? urlParts[4].charAt(0) : CSV_SEPARATOR;
-        final char stringDelimiter =
+        final var separator = urlParts.length > 4 ? urlParts[4].charAt(0) : CSV_SEPARATOR;
+        final var stringDelimiter =
             urlParts.length > 5 ? urlParts[5].charAt(0) : CSV_STR_DELIMITER;
-        final Locale locale = urlParts.length > 6 ? new Locale(urlParts[6]) : Locale.getDefault();
+        final var locale = urlParts.length > 6 ? new Locale(urlParts[6]) : Locale.getDefault();
 
-        final BufferedReader reader = new BufferedReader(new StringReader(iRequest.getContent()));
-        String header = reader.readLine();
+        final var reader = new BufferedReader(new StringReader(iRequest.getContent()));
+        var header = reader.readLine();
         if (header == null || (header = header.trim()).isEmpty()) {
           throw new InputMismatchException("Missing CSV file header");
         }
 
-        final List<String> columns = StringSerializerHelper.smartSplit(header, separator);
+        final var columns = StringSerializerHelper.smartSplit(header, separator);
         columns.replaceAll(IOUtils::getStringContent);
 
-        int imported = 0;
-        int errors = 0;
+        var imported = 0;
+        var errors = 0;
 
-        final StringBuilder output = new StringBuilder(1024);
+        final var output = new StringBuilder(1024);
 
-        int line = 0;
-        int col = 0;
-        String column = "?";
-        String parsedCell = "?";
-        final NumberFormat numberFormat = NumberFormat.getNumberInstance(locale);
+        var line = 0;
+        var col = 0;
+        var column = "?";
+        var parsedCell = "?";
+        final var numberFormat = NumberFormat.getNumberInstance(locale);
 
         for (line = 2; reader.ready(); line++) {
           try {
-            final String parsedRow = reader.readLine();
+            final var parsedRow = reader.readLine();
             if (parsedRow == null) {
               break;
             }
 
-            final EntityImpl entity = new EntityImpl(cls);
-            final String row = parsedRow.trim();
-            final List<String> cells = StringSerializerHelper.smartSplit(row, CSV_SEPARATOR);
+            final var entity = (EntityImpl) session.newEntity(cls);
+            final var row = parsedRow.trim();
+            final var cells = StringSerializerHelper.smartSplit(row, CSV_SEPARATOR);
 
             for (col = 0; col < columns.size(); ++col) {
               parsedCell = cells.get(col);
               column = columns.get(col);
 
-              String cellValue = parsedCell.trim();
+              var cellValue = parsedCell.trim();
 
               if (cellValue.isEmpty() || cellValue.equalsIgnoreCase("null")) {
                 continue;
@@ -121,14 +120,17 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
                 try {
                   value = numberFormat.parse(cellValue);
                 } catch (Exception e) {
-                  value = RecordSerializerCSVAbstract.getTypeValue(db, cellValue);
+                  value = RecordSerializerCSVAbstract.getTypeValue(session, cellValue);
                 }
               }
 
-              entity.field(columns.get(col), value);
+              var immutableClass = entity.getImmutableSchemaClass(session);
+              var property = immutableClass != null ?
+                  immutableClass.getProperty(columns.get(col)) : null;
+              entity.setProperty(columns.get(col), SQLUpdateItem.cleanPropertyValue(value,
+                  session, property));
             }
 
-            entity.save();
             imported++;
 
           } catch (Exception e) {
@@ -140,9 +142,9 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
           }
         }
 
-        final float elapsed = (float) (System.currentTimeMillis() - start) / 1000;
+        final var elapsed = (float) (System.currentTimeMillis() - start) / 1000;
 
-        String message =
+        var message =
             String.format(
                 """
                     Import of records of class '%s' completed in %5.3f seconds. Line parsed: %d,\

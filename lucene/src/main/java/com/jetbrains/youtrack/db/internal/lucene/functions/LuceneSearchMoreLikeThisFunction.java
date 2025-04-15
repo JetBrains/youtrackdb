@@ -5,20 +5,17 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneCompositeKey;
 import com.jetbrains.youtrack.db.internal.lucene.exception.LuceneIndexException;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneFullTextIndex;
@@ -34,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.mlt.MoreLikeThis;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -64,7 +61,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] params,
       CommandContext ctx) {
@@ -85,21 +82,22 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       CommandContext ctx,
       SQLExpression... args) {
 
-    LuceneFullTextIndex index = this.searchForIndex(target, ctx);
+    var index = this.searchForIndex(target, ctx);
 
     if (index == null) {
       return Collections.emptySet();
     }
 
-    IndexSearcher searcher = index.searcher();
+    var searcher = index.searcher();
 
-    SQLExpression expression = args[0];
+    var expression = args[0];
 
     var metadata = parseMetadata(args);
 
-    List<String> ridsAsString = parseRids(ctx, expression);
+    var ridsAsString = parseRids(ctx, expression);
 
-    List<DBRecord> others =
+    var db = ctx.getDatabaseSession();
+    var others =
         ridsAsString.stream()
             .map(
                 rid -> {
@@ -109,12 +107,15 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
                   recordId = recordId.copy();
                   return recordId;
                 })
-            .<DBRecord>map(RecordId::getRecord)
+            .<DBRecord>map(recordId1 -> {
+              var transaction = db.getActiveTransaction();
+              return transaction.load(recordId1);
+            })
             .toList();
 
-    MoreLikeThis mlt = buildMoreLikeThis(index, searcher, metadata);
+    var mlt = buildMoreLikeThis(index, searcher, metadata);
 
-    Builder queryBuilder = new Builder();
+    var queryBuilder = new Builder();
 
     excludeOtherFromResults(ridsAsString, queryBuilder);
 
@@ -123,10 +124,9 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     Query mltQuery = queryBuilder.build();
 
     Set<Identifiable> luceneResultSet;
-    try (Stream<RID> rids =
+    try (var rids =
         index
-            .getInternal()
-            .getRids(ctx.getDatabase(),
+            .getRids(ctx.getDatabaseSession(),
                 new LuceneKeyAndMetadata(
                     new LuceneCompositeKey(Collections.singletonList(mltQuery.toString()))
                         .setContext(ctx),
@@ -139,7 +139,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
 
   private List<String> parseRids(CommandContext ctx, SQLExpression expression) {
 
-    Object expResult = expression.execute((Identifiable) null, ctx);
+    var expResult = expression.execute((Identifiable) null, ctx);
 
     // single rind
     if (expResult instanceof Identifiable) {
@@ -157,14 +157,14 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
 
     List<String> rids = new ArrayList<>();
     while (iter.hasNext()) {
-      Object item = iter.next();
+      var item = iter.next();
       if (item instanceof Result) {
         if (((Result) item).isEntity()) {
-          rids.add(((Result) item).getIdentity().get().toString());
+          rids.add(((Result) item).getIdentity().toString());
         } else {
           var properties = ((Result) item).getPropertyNames();
           if (properties.size() == 1) {
-            Object val = ((Result) item).getProperty(properties.iterator().next());
+            var val = ((Result) item).getProperty(properties.iterator().next());
             if (val instanceof Identifiable) {
               rids.add(((Identifiable) val).getIdentity().toString());
             }
@@ -178,17 +178,13 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private static Map<String, ?> parseMetadata(SQLExpression[] args) {
-    EntityImpl metadata = new EntityImpl();
-    if (args.length == 2) {
-      metadata.fromJSON(args[1].toString());
-    }
-    return metadata.toMap();
+    return JSONSerializerJackson.mapFromJson(args[1].toString());
   }
 
   private MoreLikeThis buildMoreLikeThis(
       LuceneFullTextIndex index, IndexSearcher searcher, Map<String, ?> metadata) {
 
-    MoreLikeThis mlt = new MoreLikeThis(searcher.getIndexReader());
+    var mlt = new MoreLikeThis(searcher.getIndexReader());
 
     mlt.setAnalyzer(index.queryAnalyzer());
 
@@ -250,7 +246,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
                         fieldName -> {
                           String property = element.getProperty(fieldName);
                           try {
-                            Query fieldQuery = mlt.like(fieldName, new StringReader(property));
+                            var fieldQuery = mlt.like(fieldName, new StringReader(property));
                             if (!fieldQuery.toString().isEmpty()) {
                               queryBuilder.add(fieldQuery, Occur.SHOULD);
                             }
@@ -271,21 +267,21 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private LuceneFullTextIndex searchForIndex(SQLFromClause target, CommandContext ctx) {
-    SQLFromItem item = target.getItem();
+    var item = target.getItem();
 
-    String className = item.getIdentifier().getStringValue();
+    var className = item.getIdentifier().getStringValue();
 
     return searchForIndex(ctx, className);
   }
 
+  @Nullable
   private LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
-    var db = ctx.getDatabase();
-    db.activateOnCurrentThread();
-    MetadataInternal dbMetadata = db.getMetadata();
+    var db = ctx.getDatabaseSession();
+    var dbMetadata = db.getMetadata();
 
-    List<LuceneFullTextIndex> indices =
+    var indices =
         dbMetadata.getImmutableSchemaSnapshot().getClassInternal(
-                className).getIndexesInternal(db).stream()
+                className).getIndexesInternal().stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)
             .toList();
@@ -304,9 +300,9 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       Object rightValue,
       CommandContext ctx,
       SQLExpression... args) {
-    LuceneFullTextIndex index = this.searchForIndex(target, ctx);
+    var index = this.searchForIndex(target, ctx);
     if (index != null) {
-      return index.size(ctx.getDatabase());
+      return index.size(ctx.getDatabaseSession());
     }
     return 0;
   }
@@ -329,7 +325,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       CommandContext ctx,
       SQLExpression... args) {
 
-    LuceneFullTextIndex index = this.searchForIndex(target, ctx);
+    var index = this.searchForIndex(target, ctx);
 
     return index != null;
   }

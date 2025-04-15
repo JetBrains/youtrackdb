@@ -19,17 +19,18 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * CONTAINSTEXT operator. Look if a text is contained in a property. This is usually used with the
@@ -58,7 +59,7 @@ public class QueryOperatorContainsText extends QueryTargetOperator {
    */
   @Override
   public Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       final Object iLeft,
@@ -81,17 +82,20 @@ public class QueryOperatorContainsText extends QueryTargetOperator {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

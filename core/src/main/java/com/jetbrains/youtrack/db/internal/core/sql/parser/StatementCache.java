@@ -1,16 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This class is an LRU cache for already parsed SQL statement executors. It stores itself in the
@@ -53,17 +53,17 @@ public class StatementCache {
    * one (parsing and then putting it into the cache) if it doesn't
    *
    * @param statement the SQL statement
-   * @param db        the current DB instance. If null, cache is ignored and a new executor is
+   * @param session        the current DB instance. If null, cache is ignored and a new executor is
    *                  created through statement parsing
    * @return a statement executor from the cache
    */
-  public static SQLStatement get(String statement, DatabaseSessionInternal db) {
-    if (db == null) {
-      return parse(statement);
+  public static SQLStatement get(String statement, DatabaseSessionInternal session) {
+    if (session == null) {
+      return parse(statement, session);
     }
 
-    StatementCache resource = db.getSharedContext().getStatementCache();
-    return resource.get(statement);
+    var resource = session.getSharedContext().getStatementCache();
+    return resource.getCached(statement, session);
   }
 
   /**
@@ -82,13 +82,13 @@ public class StatementCache {
 
   /**
    * @param statement an SQL statement
+   * @param session
    * @return the corresponding executor, taking it from the internal cache, if it exists
    */
-  public SQLStatement get(String statement) {
+  public SQLStatement getCached(String statement, DatabaseSessionInternal session) {
     if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      return parse(statement);
+      return parse(statement, session);
     }
-
     SQLStatement result;
     synchronized (map) {
       // LRU
@@ -98,7 +98,7 @@ public class StatementCache {
       }
     }
     if (result == null) {
-      result = parse(statement);
+      result = parse(statement, session);
       synchronized (map) {
         map.put(statement, result);
       }
@@ -110,51 +110,48 @@ public class StatementCache {
    * parses an SQL statement and returns the corresponding executor
    *
    * @param statement the SQL statement
+   * @param session
    * @return the corresponding executor
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
-  protected static SQLStatement parse(String statement) throws CommandSQLParsingException {
+  @Nullable
+  protected static SQLStatement parse(String statement, DatabaseSessionInternal session)
+      throws CommandSQLParsingException {
     try {
-      DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
       InputStream is;
-
-      if (db == null) {
+      try {
+        is =
+            new ByteArrayInputStream(
+                statement.getBytes(session.getStorageInfo().getConfiguration().getCharset()));
+      } catch (UnsupportedEncodingException e2) {
+        LogManager.instance()
+            .warn(
+                StatementCache.class,
+                "Unsupported charset for database "
+                    + session
+                    + " "
+                    + session.getStorageInfo().getConfiguration().getCharset());
         is = new ByteArrayInputStream(statement.getBytes());
-      } else {
-        try {
-          is =
-              new ByteArrayInputStream(
-                  statement.getBytes(db.getStorageInfo().getConfiguration().getCharset()));
-        } catch (UnsupportedEncodingException e2) {
-          LogManager.instance()
-              .warn(
-                  StatementCache.class,
-                  "Unsupported charset for database "
-                      + db
-                      + " "
-                      + db.getStorageInfo().getConfiguration().getCharset());
-          is = new ByteArrayInputStream(statement.getBytes());
-        }
       }
 
       YouTrackDBSql osql = null;
-      if (db == null) {
+      if (session == null) {
         osql = new YouTrackDBSql(is);
       } else {
         try {
-          osql = new YouTrackDBSql(is, db.getStorageInfo().getConfiguration().getCharset());
+          osql = new YouTrackDBSql(is, session.getStorageInfo().getConfiguration().getCharset());
         } catch (UnsupportedEncodingException e2) {
           LogManager.instance()
               .warn(
                   StatementCache.class,
                   "Unsupported charset for database "
-                      + db
+                      + session
                       + " "
-                      + db.getStorageInfo().getConfiguration().getCharset());
+                      + session.getStorageInfo().getConfiguration().getCharset());
           osql = new YouTrackDBSql(is);
         }
       }
-      SQLStatement result = osql.parse();
+      var result = osql.parse();
       result.originalStatement = statement;
 
       return result;
@@ -173,12 +170,13 @@ public class StatementCache {
    * @return the corresponding executor
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
+  @Nullable
   protected static SQLServerStatement parseServerStatement(String statement)
       throws CommandSQLParsingException {
     try {
       InputStream is = new ByteArrayInputStream(statement.getBytes());
-      YouTrackDBSql osql = new YouTrackDBSql(is);
-      SQLServerStatement result = osql.parseServerStatement();
+      var osql = new YouTrackDBSql(is);
+      var result = osql.parseServerStatement();
       //      result.originalStatement = statement;
 
       return result;
@@ -191,11 +189,11 @@ public class StatementCache {
   }
 
   protected static void throwParsingException(ParseException e, String statement) {
-    throw new CommandSQLParsingException(e, statement);
+    throw new CommandSQLParsingException(null, e, statement);
   }
 
   protected static void throwParsingException(TokenMgrError e, String statement) {
-    throw new CommandSQLParsingException(e, statement);
+    throw new CommandSQLParsingException(null, e, statement);
   }
 
   public void clear() {

@@ -1,5 +1,7 @@
 package com.jetbrains.youtrack.db.internal.common.profiler.metrics;
 
+import javax.annotation.Nullable;
+
 /**
  * A metric that holds a single value of type T.
  */
@@ -13,6 +15,7 @@ public interface Gauge<T> extends Metric<T> {
       // do nothing
     }
 
+    @Nullable
     @Override
     public Object getValue() {
       return null;

@@ -28,15 +28,15 @@ public class EmptyDataGeneratorStep extends AbstractExecutionStep {
   }
 
   private static Result create(CommandContext ctx) {
-    ResultInternal result = new ResultInternal(ctx.getDatabase());
+    var result = new ResultInternal(ctx.getDatabaseSession());
     ctx.setVariable("$current", result);
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ GENERATE " + size + " EMPTY " + (size == 1 ? "RECORD" : "RECORDS");
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ GENERATE " + size + " EMPTY " + (size == 1 ? "RECORD" : "RECORDS");
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

@@ -26,20 +26,22 @@ public interface SQLFunctionFactory {
 
   void registerDefaultFunctions(DatabaseSessionInternal db);
 
-  boolean hasFunction(String iName);
+  boolean hasFunction(String iName, DatabaseSessionInternal session);
 
   /**
    * @return Set of supported function names of this factory
    */
-  Set<String> getFunctionNames();
+  Set<String> getFunctionNames(DatabaseSessionInternal session);
 
   /**
    * Create function for the given name. returned function may be a new instance each time or a
    * constant.
    *
    * @param name
+   * @param session
    * @return SQLFunction : created function
    * @throws CommandExecutionException : when function creation fail
    */
-  SQLFunction createFunction(String name) throws CommandExecutionException;
+  SQLFunction createFunction(String name, DatabaseSessionInternal session)
+      throws CommandExecutionException;
 }

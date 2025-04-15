@@ -19,22 +19,29 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property that presents
- * {@link PropertyType#EMBEDDEDMAP or
+ * {@link PropertyTypeInternal#EMBEDDEDMAP or
  *
- * @link PropertyType#LINKMAP} property.
+ * @link PropertyTypeInternal#LINKMAP} property.
  */
 public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
@@ -53,7 +60,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   public PropertyMapIndexDefinition(
-      final String iClassName, final String iField, final PropertyType iType,
+      final String iClassName, final String iField, final PropertyTypeInternal iType,
       final INDEX_BY indexBy) {
     super(iClassName, iField, iType);
 
@@ -66,36 +73,38 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object getDocumentValueToIndex(DatabaseSessionInternal session, EntityImpl entity) {
-    return createValue(session, entity.<Object>field(field));
+  public Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity) {
+    return createValue(transaction, entity.<Object>getProperty(field));
   }
 
+  @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, List<?> params) {
+  public Object createValue(FrontendTransaction transaction, List<?> params) {
     if (!(params.get(0) instanceof Map)) {
       return null;
     }
 
-    final Collection<?> mapParams = extractMapParams((Map<?, ?>) params.get(0));
+    final var mapParams = extractMapParams((Map<?, ?>) params.get(0));
     final List<Object> result = new ArrayList<>(mapParams.size());
-    for (final Object mapParam : mapParams) {
-      result.add(createSingleValue(session, mapParam));
+    for (final var mapParam : mapParams) {
+      result.add(createSingleValue(transaction, mapParam));
     }
 
     return result;
   }
 
+  @Nullable
   @Override
-  public Object createValue(DatabaseSessionInternal session, Object... params) {
+  public Object createValue(FrontendTransaction transaction, Object... params) {
     if (!(params[0] instanceof Map)) {
       return null;
     }
 
-    final Collection<?> mapParams = extractMapParams((Map<?, ?>) params[0]);
+    final var mapParams = extractMapParams((Map<?, ?>) params[0]);
 
     final List<Object> result = new ArrayList<>(mapParams.size());
-    for (final Object mapParam : mapParams) {
-      Object val = createSingleValue(session, mapParam);
+    for (final var mapParam : mapParams) {
+      var val = createSingleValue(transaction, mapParam);
       result.add(val);
     }
     if (getFieldsToIndex().size() == 1 && result.size() == 1) {
@@ -109,15 +118,27 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  protected void serializeToStream(EntityImpl entity) {
-    super.serializeToStream(entity);
-    entity.setPropertyInternal("mapIndexBy", indexBy.toString());
+  protected void serializeToJson(JsonGenerator jsonGenerator) {
+    try {
+      super.serializeToJson(jsonGenerator);
+      jsonGenerator.writeStringField("mapIndexBy", indexBy.toString());
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new SerializationException("Failed to serialize index definition to JSON"),
+          e, (String) null);
+    }
   }
 
   @Override
-  protected void serializeFromStream(EntityImpl entity) {
-    super.serializeFromStream(entity);
-    indexBy = INDEX_BY.valueOf(entity.field("mapIndexBy"));
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
+    super.serializeToMap(map, session);
+    map.put("mapIndexBy", indexBy.toString());
+  }
+
+  @Override
+  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
+    super.serializeFromMap(map);
+    indexBy = INDEX_BY.valueOf((String) map.get("mapIndexBy"));
   }
 
   private Collection<?> extractMapParams(Map<?, ?> map) {
@@ -139,26 +160,26 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
       return false;
     }
 
-    PropertyMapIndexDefinition that = (PropertyMapIndexDefinition) o;
+    var that = (PropertyMapIndexDefinition) o;
 
     return indexBy == that.indexBy;
   }
 
-  public Object createSingleValue(DatabaseSessionInternal session, final Object... param) {
-    return PropertyType.convert(session, refreshRid(session, param[0]),
-        keyType.getDefaultJavaType());
+  public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
+    var session = transaction.getDatabaseSession();
+    return keyType.convert(refreshRid(session, param[0]), null, null, session);
   }
 
   public void processChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     final boolean result;
     if (indexBy.equals(INDEX_BY.KEY)) {
-      result = processKeyChangeEvent(session, changeEvent, keysToAdd, keysToRemove);
+      result = processKeyChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
     } else {
-      result = processValueChangeEvent(session, changeEvent, keysToAdd, keysToRemove);
+      result = processValueChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
     }
 
     if (!result) {
@@ -167,17 +188,17 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   private boolean processKeyChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     return switch (changeEvent.getChangeType()) {
       case ADD -> {
-        processAdd(createSingleValue(session, changeEvent.getKey()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getKey()), keysToAdd, keysToRemove);
         yield true;
       }
       case REMOVE -> {
-        processRemoval(createSingleValue(session, changeEvent.getKey()), keysToAdd, keysToRemove);
+        processRemoval(createSingleValue(transaction, changeEvent.getKey()), keysToAdd, keysToRemove);
         yield true;
       }
       case UPDATE -> true;
@@ -186,22 +207,22 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   private boolean processValueChangeEvent(
-      DatabaseSessionInternal session,
+      FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD:
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         return true;
       case REMOVE:
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
         return true;
       case UPDATE:
         processRemoval(
-            createSingleValue(session, changeEvent.getOldValue()), keysToAdd, keysToRemove);
-        processAdd(createSingleValue(session, changeEvent.getValue()), keysToAdd, keysToRemove);
+            createSingleValue(transaction, changeEvent.getOldValue()), keysToAdd, keysToRemove);
+        processAdd(createSingleValue(transaction, changeEvent.getValue()), keysToAdd, keysToRemove);
         return true;
     }
     return false;
@@ -217,7 +238,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + indexBy.hashCode();
     return result;
   }
@@ -229,7 +250,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
 
   @Override
   public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    final StringBuilder ddl = new StringBuilder("create index `");
+    final var ddl = new StringBuilder("create index `");
 
     ddl.append(indexName).append("` on `");
     ddl.append(className).append("` ( `").append(field).append("`");

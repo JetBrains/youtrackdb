@@ -20,14 +20,11 @@ package com.jetbrains.youtrack.db.internal.core.exception;
  *
  */
 public class FetchException extends CoreException {
-
-  private static final long serialVersionUID = 7247597939953323863L;
-
   public FetchException(FetchException exception) {
     super(exception);
   }
 
-  public FetchException(String message) {
-    super(message);
+  public FetchException(String dbName, String message) {
+    super(dbName, message);
   }
 }

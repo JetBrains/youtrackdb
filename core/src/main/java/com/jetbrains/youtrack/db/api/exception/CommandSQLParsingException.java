@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
@@ -31,20 +32,27 @@ public class CommandSQLParsingException extends CoreException {
   private String statement;
   private String text;
   private int position;
-  private static final long serialVersionUID = -7430575036316163711L;
 
-  public CommandSQLParsingException(ParseException e, String statement) {
-    super(
+  public CommandSQLParsingException(String dbName, ParseException e,
+      String statement) {
+    super(dbName,
         generateMessage(e, statement, e.currentToken.next.beginLine, e.currentToken.next.endColumn),
-        null,
-        ErrorCode.QUERY_PARSE_ERROR);
+        null, ErrorCode.QUERY_PARSE_ERROR);
     this.statement = statement;
     this.line = e.currentToken.next.beginLine;
     this.column = e.currentToken.next.endColumn;
   }
 
+
+  public CommandSQLParsingException(String dbName, TokenMgrError e, String statement) {
+    super(dbName, e.getMessage(), null, ErrorCode.QUERY_PARSE_ERROR);
+    this.statement = statement;
+    this.line = 0;
+    this.column = 0;
+  }
+
   public CommandSQLParsingException(TokenMgrError e, String statement) {
-    super(e.getMessage(), null, ErrorCode.QUERY_PARSE_ERROR);
+    super(null, e.getMessage(), null, ErrorCode.QUERY_PARSE_ERROR);
     this.statement = statement;
     this.line = 0;
     this.column = 0;
@@ -52,14 +60,14 @@ public class CommandSQLParsingException extends CoreException {
 
   private static String generateMessage(
       ParseException e, String statement, Integer line, Integer column) {
-    StringBuilder result = new StringBuilder();
+    var result = new StringBuilder();
     result.append("Error parsing query:\n");
-    String[] stmLines = statement.split("\n");
-    for (int i = 0; i < stmLines.length; i++) {
+    var stmLines = statement.split("\n");
+    for (var i = 0; i < stmLines.length; i++) {
       result.append(stmLines[i]);
       result.append("\n");
       if (i == line - 1) {
-        for (int c = 0; c < column - 1; c++) {
+        for (var c = 0; c < column - 1; c++) {
           result.append(' ');
         }
         result.append("^\n");
@@ -70,7 +78,7 @@ public class CommandSQLParsingException extends CoreException {
   }
 
   private static String makeMessage(int position, String text, String message) {
-    StringBuilder buffer = new StringBuilder();
+    var buffer = new StringBuilder();
     buffer.append("Error on parsing command");
     buffer.append(": ").append(message);
 
@@ -78,9 +86,7 @@ public class CommandSQLParsingException extends CoreException {
       buffer.append("\nCommand: ");
       buffer.append(text);
       buffer.append("\n---------");
-      for (int i = 0; i < position - 1; ++i) {
-        buffer.append("-");
-      }
+      buffer.append("-".repeat(Math.max(0, position - 1)));
 
       buffer.append("^");
     }
@@ -98,11 +104,26 @@ public class CommandSQLParsingException extends CoreException {
     super(iMessage);
   }
 
-  public CommandSQLParsingException(String iMessage, String iText, int iPosition) {
-    super(makeMessage(iPosition, iText, iMessage));
+  public CommandSQLParsingException(String dbName, String iMessage) {
+    super(dbName, iMessage);
+  }
+
+  public CommandSQLParsingException(DatabaseSession session, String iMessage, String iText,
+      int iPosition) {
+    this(session != null ? session.getDatabaseName() : null, iMessage, iText, iPosition);
+  }
+
+  public CommandSQLParsingException(String dbName, String iMessage, String iText,
+      int iPosition) {
+    super(dbName, makeMessage(iPosition, iText, iMessage));
 
     text = iText;
     position = iPosition;
+  }
+
+  public CommandSQLParsingException(String iMessage, String iText,
+      int iPosition) {
+    this((String) null, iMessage, iText, iPosition);
   }
 
   public Integer getLine() {
@@ -115,14 +136,5 @@ public class CommandSQLParsingException extends CoreException {
 
   public String getStatement() {
     return statement;
-  }
-
-  @Override
-  public boolean equals(final Object obj) {
-    if (obj == null) {
-      return false;
-    }
-
-    return toString().equals(obj.toString());
   }
 }

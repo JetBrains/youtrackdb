@@ -40,7 +40,7 @@ set KEYSTORE=%YOUTRACKDB_HOME%\config\cert\youtrackdb-console.ks
 set KEYSTORE_PASS=password
 set TRUSTSTORE=%YOUTRACKDB_HOME%\config\cert\youtrackdb-console.ts
 set TRUSTSTORE_PASS=password
-set SSL_OPTS="-Dclient.ssl.enabled=false -Djavax.net.ssl.keyStore=%KEYSTORE% -Djavax.net.ssl.keyStorePassword=%KEYSTORE_PASS% -Djavax.net.ssl.trustStore=%TRUSTSTORE% -Djavax.net.ssl.trustStorePassword=%TRUSTSTORE_PASS%"
+set SSL_OPTS="-Dyoutrackdb.client.ssl.enabled=false -Djavax.net.ssl.keyStore=%KEYSTORE% -Djavax.net.ssl.keyStorePassword=%KEYSTORE_PASS% -Djavax.net.ssl.trustStore=%TRUSTSTORE% -Djavax.net.ssl.trustStorePassword=%TRUSTSTORE_PASS%"
 
 set YOUTRACKDB_SETTINGS=-Xmx1024m -Djna.nosys=true -Djava.util.logging.config.file="%YOUTRACKDB_HOME%\config\youtrackdb-client-log.properties" -Djava.awt.headless=true
 

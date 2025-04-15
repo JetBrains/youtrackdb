@@ -21,23 +21,18 @@ package com.jetbrains.youtrack.db.internal.core.query.live;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.QUERY_LIVE_SUPPORT;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLProjection;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLProjectionItem;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSelectStatement;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -49,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class LiveQueryHookV2 {
 
@@ -59,17 +55,26 @@ public class LiveQueryHookV2 {
     public byte type;
     protected EntityImpl originalEntity;
 
-    LiveQueryOp(EntityImpl originalEntity, Result before, Result after, byte type) {
+    LiveQueryOp(EntityImpl originalEntity, @Nullable Result before, @Nullable Result after,
+        byte type) {
       this.originalEntity = originalEntity;
       this.type = type;
-      this.before = before;
-      this.after = after;
+      if (before != null) {
+        this.before = before.detach();
+      } else {
+        this.before = null;
+      }
+      if (after != null) {
+        this.after = after.detach();
+      } else {
+        this.after = null;
+      }
     }
   }
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected Map<DatabaseSession, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
+    protected final Map<DatabaseSession, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
     private LiveQueryQueueThreadV2 queueThread = new LiveQueryQueueThreadV2(this);
     private final Object threadLock = new Object();
 
@@ -86,10 +91,6 @@ public class LiveQueryHookV2 {
         Thread.currentThread().interrupt();
       }
       pendingOps.clear();
-    }
-
-    public LiveQueryQueueThreadV2 getQueueThread() {
-      return queueThread;
     }
 
     public Map<Integer, LiveQueryListenerV2> getSubscribers() {
@@ -110,7 +111,7 @@ public class LiveQueryHookV2 {
     }
 
     public void unsubscribe(Integer id) {
-      LiveQueryListenerV2 res = subscribers.remove(id);
+      var res = subscribers.remove(id);
       if (res != null) {
         res.onLiveResultEnd();
       }
@@ -126,17 +127,17 @@ public class LiveQueryHookV2 {
   }
 
   public static Integer subscribe(
-      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionInternal db) {
-    if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
+      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionInternal session) {
+    if (Boolean.FALSE.equals(session.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       LogManager.instance()
           .warn(
-              db,
+              session,
               "Live query support is disabled impossible to subscribe a listener, set '%s' to true"
                   + " for enable the live query support",
               QUERY_LIVE_SUPPORT.getKey());
       return -1;
     }
-    LiveQueryOps ops = getOpsReference(db);
+    var ops = getOpsReference(session);
     synchronized (ops.threadLock) {
       if (!ops.queueThread.isAlive()) {
         ops.queueThread = ops.queueThread.clone();
@@ -158,7 +159,7 @@ public class LiveQueryHookV2 {
       return;
     }
     try {
-      LiveQueryOps ops = getOpsReference(db);
+      var ops = getOpsReference(db);
       synchronized (ops.threadLock) {
         ops.unsubscribe(id);
       }
@@ -168,7 +169,7 @@ public class LiveQueryHookV2 {
   }
 
   public static void notifyForTxChanges(DatabaseSession database) {
-    LiveQueryOps ops = getOpsReference((DatabaseSessionInternal) database);
+    var ops = getOpsReference((DatabaseSessionInternal) database);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -181,7 +182,7 @@ public class LiveQueryHookV2 {
     }
     // TODO sync
     if (list != null) {
-      for (LiveQueryOp item : list) {
+      for (var item : list) {
         ops.enqueue(item);
       }
     }
@@ -193,7 +194,7 @@ public class LiveQueryHookV2 {
           || Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      LiveQueryOps ops = getOpsReference((DatabaseSessionInternal) database);
+      var ops = getOpsReference((DatabaseSessionInternal) database);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(database);
       }
@@ -204,7 +205,7 @@ public class LiveQueryHookV2 {
   }
 
   public static void addOp(DatabaseSessionInternal database, EntityImpl entity, byte iType) {
-    LiveQueryOps ops = getOpsReference(database);
+    var ops = getOpsReference(database);
     if (!ops.hasListeners()) {
       return;
     }
@@ -212,7 +213,7 @@ public class LiveQueryHookV2 {
       return;
     }
 
-    Set<String> projectionsToLoad = calculateProjections(ops);
+    var projectionsToLoad = calculateProjections(ops);
 
     Result before =
         iType == RecordOperation.CREATED ? null
@@ -221,15 +222,11 @@ public class LiveQueryHookV2 {
         iType == RecordOperation.DELETED ? null
             : calculateAfter(database, entity, projectionsToLoad);
 
-    LiveQueryOp result = new LiveQueryOp(entity, before, after, iType);
+    var result = new LiveQueryOp(entity, before, after, iType);
     synchronized (ops.pendingOps) {
-      List<LiveQueryOp> list = ops.pendingOps.get(database);
-      if (list == null) {
-        list = new ArrayList<>();
-        ops.pendingOps.put(database, list);
-      }
+      var list = ops.pendingOps.computeIfAbsent(database, k -> new ArrayList<>());
       if (result.type == RecordOperation.UPDATED) {
-        LiveQueryOp prev = prevousUpdate(list, result.originalEntity);
+        var prev = prevousUpdate(list, result.originalEntity);
         if (prev == null) {
           list.add(result);
         } else {
@@ -247,19 +244,20 @@ public class LiveQueryHookV2 {
    * @param ops
    * @return
    */
+  @Nullable
   private static Set<String> calculateProjections(LiveQueryOps ops) {
     Set<String> result = new HashSet<>();
     if (ops == null || ops.subscribers == null) {
       return null;
     }
-    for (LiveQueryListenerV2 listener : ops.subscribers.values()) {
+    for (var listener : ops.subscribers.values()) {
       if (listener instanceof LiveQueryListenerImpl) {
-        SQLSelectStatement query = ((LiveQueryListenerImpl) listener).getStatement();
-        SQLProjection proj = query.getProjection();
+        var query = ((LiveQueryListenerImpl) listener).getStatement();
+        var proj = query.getProjection();
         if (proj == null || proj.getItems() == null || proj.getItems().isEmpty()) {
           return null;
         }
-        for (SQLProjectionItem item : proj.getItems()) {
+        for (var item : proj.getItems()) {
           if (!item.getExpression().isBaseIdentifier()) {
             return null;
           }
@@ -270,8 +268,9 @@ public class LiveQueryHookV2 {
     return result;
   }
 
+  @Nullable
   private static LiveQueryOp prevousUpdate(List<LiveQueryOp> list, EntityImpl entity) {
-    for (LiveQueryOp liveQueryOp : list) {
+    for (var liveQueryOp : list) {
       if (liveQueryOp.originalEntity == entity) {
         return liveQueryOp;
       }
@@ -282,17 +281,17 @@ public class LiveQueryHookV2 {
   public static ResultInternal calculateBefore(
       @Nonnull DatabaseSessionInternal db, EntityImpl entity,
       Set<String> projectionsToLoad) {
-    ResultInternal result = new ResultInternal(db);
-    for (String prop : entity.getPropertyNamesInternal()) {
+    var result = new ResultInternal(db);
+    for (var prop : entity.getPropertyNamesInternal(false, true)) {
       if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
         result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
       }
     }
     result.setProperty("@rid", entity.getIdentity());
-    result.setProperty("@class", entity.getClassName());
+    result.setProperty("@class", entity.getSchemaClassName());
     result.setProperty("@version", entity.getVersion());
-    for (Map.Entry<String, EntityEntry> rawEntry : EntityInternalUtils.rawEntries(entity)) {
-      EntityEntry entry = rawEntry.getValue();
+    for (var rawEntry : entity.getRawEntries()) {
+      var entry = rawEntry.getValue();
       if (entry.isChanged()) {
         result.setProperty(
             rawEntry.getKey(), convert(entity.getOriginalValue(rawEntry.getKey())));
@@ -307,9 +306,9 @@ public class LiveQueryHookV2 {
   }
 
   private static Object convert(Object originalValue) {
-    if (originalValue instanceof RidBag) {
+    if (originalValue instanceof LinkBag) {
       Set result = new LinkedHashSet<>();
-      ((RidBag) originalValue).forEach(result::add);
+      ((LinkBag) originalValue).forEach(result::add);
       return result;
     }
     return originalValue;
@@ -317,23 +316,23 @@ public class LiveQueryHookV2 {
 
   private static ResultInternal calculateAfter(
       DatabaseSessionInternal db, EntityImpl entity, Set<String> projectionsToLoad) {
-    ResultInternal result = new ResultInternal(db);
-    for (String prop : entity.getPropertyNamesInternal()) {
+    var result = new ResultInternal(db);
+    for (var prop : entity.getPropertyNamesInternal(false, true)) {
       if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
         result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
       }
     }
     result.setProperty("@rid", entity.getIdentity());
-    result.setProperty("@class", entity.getClassName());
+    result.setProperty("@class", entity.getSchemaClassName());
     result.setProperty("@version", entity.getVersion() + 1);
     return result;
   }
 
   public static Object unboxRidbags(Object value) {
     // TODO move it to some helper class
-    if (value instanceof RidBag) {
-      List<Identifiable> result = new ArrayList<>(((RidBag) value).size());
-      for (Identifiable oIdentifiable : (RidBag) value) {
+    if (value instanceof LinkBag) {
+      List<Identifiable> result = new ArrayList<>(((LinkBag) value).size());
+      for (Identifiable oIdentifiable : (LinkBag) value) {
         result.add(oIdentifiable);
       }
       return result;

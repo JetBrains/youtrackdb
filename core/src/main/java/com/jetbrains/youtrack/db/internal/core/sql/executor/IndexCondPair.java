@@ -28,7 +28,7 @@ class IndexCondPair {
       return false;
     }
 
-    IndexCondPair that = (IndexCondPair) o;
+    var that = (IndexCondPair) o;
 
     if (!Objects.equals(mainCondition, that.mainCondition)) {
       return false;
@@ -38,7 +38,7 @@ class IndexCondPair {
 
   @Override
   public int hashCode() {
-    int result = mainCondition != null ? mainCondition.hashCode() : 0;
+    var result = mainCondition != null ? mainCondition.hashCode() : 0;
     result = 31 * result + (additionalRange != null ? additionalRange.hashCode() : 0);
     return result;
   }

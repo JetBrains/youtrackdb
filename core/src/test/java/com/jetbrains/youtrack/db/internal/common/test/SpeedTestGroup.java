@@ -19,7 +19,7 @@ public abstract class SpeedTestGroup {
   }
 
   public void go() {
-    for (SpeedTestAbstract test : tests) {
+    for (var test : tests) {
       test.data().go(test);
       Runtime.getRuntime().gc();
       try {
@@ -36,7 +36,7 @@ public abstract class SpeedTestGroup {
   }
 
   public void setResult(String iResultType, String iTestName, long iResult) {
-    TreeMap<Long, String> result = results.get(iResultType);
+    var result = results.get(iResultType);
     if (result == null) {
       result = new TreeMap<Long, String>();
       results.put(iResultType, result);
@@ -53,12 +53,12 @@ public abstract class SpeedTestGroup {
     System.out.println("FINAL RESULTS (faster is the first one):");
 
     int i;
-    for (Entry<String, TreeMap<Long, String>> result : results.entrySet()) {
+    for (var result : results.entrySet()) {
       System.out.println("+ " + result.getKey() + ":");
 
       i = 1;
       long refValue = 0;
-      for (Entry<Long, String> entry : result.getValue().entrySet()) {
+      for (var entry : result.getValue().entrySet()) {
         if (i == 1) {
           System.out.println(" " + i++ + ": " + entry.getValue() + " = " + entry.getKey());
           refValue = entry.getKey();

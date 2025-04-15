@@ -22,14 +22,13 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJSON;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Factory of record serialized.
@@ -43,11 +42,8 @@ public class RecordSerializerFactory {
   private RecordSerializer defaultRecordSerializer;
 
   public RecordSerializerFactory() {
-    register(RecordSerializerSchemaAware2CSV.NAME, RecordSerializerSchemaAware2CSV.INSTANCE);
-    register(RecordSerializerJSON.NAME, RecordSerializerJSON.INSTANCE);
-    register(RecordSerializerRaw.NAME, new RecordSerializerRaw());
     register(RecordSerializerBinary.NAME, RecordSerializerBinary.INSTANCE);
-    register(RecordSerializerNetwork.NAME, RecordSerializerNetwork.INSTANCE);
+    register(RecordSerializerNetworkBase.NAME, RecordSerializerNetworkBase.INSTANCE);
     register(RecordSerializerNetworkV37.NAME, RecordSerializerNetworkV37.INSTANCE);
     register(RecordSerializerNetworkV37Client.NAME, RecordSerializerNetworkV37Client.INSTANCE);
 
@@ -74,6 +70,7 @@ public class RecordSerializerFactory {
     return implementations.values();
   }
 
+  @Nullable
   public RecordSerializer getFormat(final String iFormatName) {
     if (iFormatName == null) {
       return null;

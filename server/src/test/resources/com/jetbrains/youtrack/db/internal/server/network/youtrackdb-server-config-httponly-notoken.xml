@@ -42,7 +42,7 @@
           </command>
         </commands>
         <parameters>
-          <parameter value="utf-8" name="network.http.charset"/>
+          <parameter value="utf-8" name="youtrackdb.network.http.charset"/>
         </parameters>
       </listener>
     </listeners>
@@ -56,7 +56,7 @@
   <properties>
     <entry name="log.console.level" value="info"/>
     <entry name="log.file.level" value="fine"/>
-    <entry name="network.http.useToken" value="false"/>
+    <entry name="youtrackdb.network.http.useToken" value="false"/>
     <entry name="server.database.path" value="./target/server"/>
   </properties>
   <isAfterFirstTime>true</isAfterFirstTime>

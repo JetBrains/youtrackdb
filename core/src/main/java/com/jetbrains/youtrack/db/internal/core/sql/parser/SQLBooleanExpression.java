@@ -1,14 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -60,6 +61,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return TRUE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
@@ -145,6 +147,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return FALSE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
@@ -217,6 +220,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
    */
   protected abstract List<Object> getExternalCalculationConditions();
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     return null;
@@ -231,7 +235,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     if (item instanceof SQLAndBlock) {
       return (SQLAndBlock) item;
     }
-    SQLAndBlock result = new SQLAndBlock(-1);
+    var result = new SQLAndBlock(-1);
     result.subBlocks.add(item);
     return result;
   }
@@ -267,22 +271,23 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public void translateLuceneOperator() {
   }
 
+  @Nullable
   public static SQLBooleanExpression deserializeFromOResult(Result res) {
     try {
-      SQLBooleanExpression result =
+      var result =
           (SQLBooleanExpression)
               Class.forName(res.getProperty("__class"))
                   .getConstructor(Integer.class)
                   .newInstance(-1);
       result.deserialize(res);
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }
     return null;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("__class", getClass().getName());
     return result;
   }

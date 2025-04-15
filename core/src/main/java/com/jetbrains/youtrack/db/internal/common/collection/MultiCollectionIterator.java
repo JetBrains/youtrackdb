@@ -19,19 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.common.collection;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
-import com.jetbrains.youtrack.db.internal.core.iterator.LazyWrapperIterator;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
@@ -54,7 +55,7 @@ public class MultiCollectionIterator<T>
   private int skipped = 0;
 
   public MultiCollectionIterator() {
-    sources = new ArrayList<Object>();
+    sources = new ArrayList<>();
   }
 
   public MultiCollectionIterator(final Iterator<? extends Collection<?>> iterator) {
@@ -126,6 +127,11 @@ public class MultiCollectionIterator<T>
     skipped = 0;
   }
 
+  @Override
+  public boolean isResetable() {
+    return true;
+  }
+
   public MultiCollectionIterator<T> add(final Object iValue) {
     if (iValue != null) {
       if (sourcesIterator != null) {
@@ -133,25 +139,38 @@ public class MultiCollectionIterator<T>
             "MultiCollection iterator is in use and new collections cannot be added");
       }
 
+      if (!sources.isEmpty()) {
+        final var isMapMode = isInMapMode();
+        final var valueIsAMap = iValue instanceof Map<?, ?> || iValue instanceof Entry<?, ?>;
+
+        if (isMapMode != valueIsAMap) {
+          throw new IllegalStateException(
+              "Type mismatch. Iterator is in " + (isMapMode ? "map" : "collection") + " mode,"
+                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode"
+          );
+        }
+      }
+
       sources.add(iValue);
     }
     return this;
   }
 
+  public boolean isInMapMode() {
+    return sources.getFirst() instanceof Map<?, ?> || sources.getFirst() instanceof Entry<?, ?>;
+  }
+
   public int size() {
     // SUM ALL THE COLLECTION SIZES
-    int size = 0;
-    final int totSources = sources.size();
-    for (int i = 0; i < totSources; ++i) {
-      final Object o = sources.get(i);
-
+    var size = 0;
+    for (var o : sources) {
       if (o != null) {
         if (o instanceof Collection<?>) {
           size += ((Collection<?>) o).size();
         } else if (o instanceof Map<?, ?>) {
           size += ((Map<?, ?>) o).size();
-        } else if (o instanceof Sizeable) {
-          size += ((Sizeable) o).size();
+        } else if (o instanceof Sizeable sizeable && sizeable.isSizeable()) {
+          size += sizeable.size();
         } else if (o.getClass().isArray()) {
           size += Array.getLength(o);
         } else if (o instanceof Iterator<?> && o instanceof Resettable) {
@@ -166,6 +185,25 @@ public class MultiCollectionIterator<T>
       }
     }
     return size;
+  }
+
+  @Override
+  public boolean isSizeable() {
+    // SUM ALL THE COLLECTION SIZES
+    var size = 0;
+    for (var o : sources) {
+      if (o != null) {
+        if (o instanceof Sizeable sizeable) {
+          if (!sizeable.isSizeable()) {
+            return false;
+          }
+        } else if (o instanceof Iterator<?>) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   @Override
@@ -199,20 +237,15 @@ public class MultiCollectionIterator<T>
 
   @Override
   public boolean supportsFastContains() {
-    final int totSources = sources.size();
-    for (int i = 0; i < totSources; ++i) {
-      final Object o = sources.get(i);
+    final var totSources = sources.size();
+    for (var i = 0; i < totSources; ++i) {
+      final var o = sources.get(i);
 
       if (o != null) {
-        if (o instanceof Set<?> || o instanceof RidBag) {
+        if (o instanceof Set<?> || o instanceof LinkBag) {
           // OK
-        } else if (o instanceof LazyWrapperIterator) {
-          if (!((LazyWrapperIterator) o).canUseMultiValueDirectly()) {
-            return false;
-          }
-        } else {
-          return false;
-        }
+        } else
+          return o instanceof RelationsIteratorAbstract<?, ?>;
       }
     }
 
@@ -221,21 +254,18 @@ public class MultiCollectionIterator<T>
 
   @Override
   public boolean contains(final Object value) {
-    final int totSources = sources.size();
-    for (int i = 0; i < totSources; ++i) {
-      Object o = sources.get(i);
-
+    for (var o : sources) {
       if (o != null) {
-        if (o instanceof LazyWrapperIterator) {
-          o = ((LazyWrapperIterator) o).getMultiValue();
+        if (o instanceof RelationsIteratorAbstract<?, ?> bidirectionalLinkIterator) {
+          o = bidirectionalLinkIterator.getMultiValue();
         }
 
         if (o instanceof Collection<?>) {
           if (((Collection<?>) o).contains(value)) {
             return true;
           }
-        } else if (o instanceof RidBag) {
-          if (((RidBag) o).contains((Identifiable) value)) {
+        } else if (o instanceof LinkBag) {
+          if (((LinkBag) o).contains(((Identifiable) value).getIdentity())) {
             return true;
           }
         }
@@ -249,14 +279,20 @@ public class MultiCollectionIterator<T>
   protected boolean getNextPartial() {
     if (sourcesIterator != null) {
       while (sourcesIterator.hasNext()) {
-        Object next = sourcesIterator.next();
+        var next = sourcesIterator.next();
         if (next != null) {
 
           if (!(next instanceof EntityImpl) && next instanceof Iterable<?>) {
             next = ((Iterable) next).iterator();
           }
 
-          if (next instanceof Iterator<?>) {
+          if (next instanceof Map<?, ?> map) {
+            if (!map.isEmpty()) {
+              partialIterator = (Iterator<T>) map.entrySet().iterator();
+              return true;
+            }
+
+          } else if (next instanceof Iterator<?>) {
             if (next instanceof Resettable) {
               ((Resettable) next).reset();
             }
@@ -271,7 +307,7 @@ public class MultiCollectionIterator<T>
               return true;
             }
           } else if (next.getClass().isArray()) {
-            final int arraySize = Array.getLength(next);
+            final var arraySize = Array.getLength(next);
             if (arraySize > 0) {
               if (arraySize == 1) {
                 partialIterator = new IterableObject<T>((T) Array.get(next, 0));

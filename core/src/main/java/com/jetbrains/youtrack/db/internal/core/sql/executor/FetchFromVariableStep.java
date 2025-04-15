@@ -1,15 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collections;
+import java.util.Iterator;
+import org.apache.commons.collections4.IteratorUtils;
 
 /**
  *
@@ -29,28 +31,61 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     if (prev != null) {
       prev.start(ctx).close(ctx);
     }
+    var src = ctx.getVariable(variableName);
+    var session = ctx.getDatabaseSession();
 
-    Object src = ctx.getVariable(variableName);
     ExecutionStream source;
-    if (src instanceof ExecutionStream) {
-      source = (ExecutionStream) src;
-    } else if (src instanceof ResultSet) {
-      source =
-          ExecutionStream.resultIterator(((ResultSet) src).stream().iterator())
-              .onClose((context) -> ((ResultSet) src).close());
-    } else if (src instanceof Entity) {
-      source =
+    switch (src) {
+      case ExecutionStream executionStream -> source = executionStream;
+      case ResultSet resultSet -> source =
           ExecutionStream.resultIterator(
-              Collections.singleton(
-                  (Result) new ResultInternal(ctx.getDatabase(), (Entity) src)).iterator());
-    } else if (src instanceof Result) {
-      source = ExecutionStream.resultIterator(Collections.singleton((Result) src).iterator());
-    } else if (src instanceof Iterable) {
-      source = ExecutionStream.iterator(((Iterable<?>) src).iterator());
-    } else {
-      throw new CommandExecutionException("Cannot use variable as query target: " + variableName);
+                  resultSet.stream().map(result -> loadEntity(session, result)).iterator())
+              .onClose((context) -> ((ResultSet) src).close());
+      case Entity entity -> {
+        //case when we pass variable between txs
+        entity = (Entity) loadEntity(session, entity);
+        source =
+            ExecutionStream.resultIterator(
+                Collections.singleton(
+                    (Result) new ResultInternal(ctx.getDatabaseSession(), entity)).iterator());
+      }
+      case Result result -> {
+        source = ExecutionStream.resultIterator(
+            Collections.singleton(loadEntity(session, result)).iterator());
+      }
+      case Iterable<?> iterable ->
+          source = ExecutionStream.iterator(IteratorUtils.transformedIterator(
+              iterable.iterator(), result -> {
+                if (result instanceof Result sqlResult) {
+                  return loadEntity(session, sqlResult);
+                }
+
+                return result;
+              }));
+      case null, default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Cannot use variable as query target: " + variableName);
     }
     return source;
+  }
+
+  private static Result loadEntity(DatabaseSessionInternal session, Result result) {
+    if (result instanceof Entity entity) {
+      if (entity.isUnloaded()) {
+        var tx = session.getActiveTransaction();
+        return tx.loadEntity(entity);
+      }
+    } else if (result instanceof Result sqlResult) {
+      if (sqlResult.isEntity()) {
+        var entity = sqlResult.asEntity();
+        if (entity.isUnloaded()) {
+          var tx = session.getActiveTransaction();
+          return tx.loadEntity(entity);
+        }
+
+        return new ResultInternal(session, entity);
+      }
+    }
+    return result;
   }
 
   @Override
@@ -63,22 +98,22 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
+  public Result serialize(DatabaseSessionInternal session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("variableName", variableName);
     return result;
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("variableName") != null) {
         this.variableName = fromResult.getProperty(variableName);
       }
       reset();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 }

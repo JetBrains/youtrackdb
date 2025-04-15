@@ -11,7 +11,8 @@ public abstract class DurableComponentException extends CoreException {
     super(exception);
   }
 
-  public DurableComponentException(String message, DurableComponent component) {
-    super(message, component.getName());
+  public DurableComponentException(String dbName, String message,
+      DurableComponent component) {
+    super(dbName, message, component.getName());
   }
 }

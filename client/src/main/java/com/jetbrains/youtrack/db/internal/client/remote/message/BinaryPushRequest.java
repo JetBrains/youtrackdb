@@ -10,10 +10,9 @@ import java.io.IOException;
  *
  */
 public interface BinaryPushRequest<T extends BinaryPushResponse> {
-
   void write(DatabaseSessionInternal session, ChannelDataOutput channel) throws IOException;
 
-  void read(DatabaseSessionInternal db, final ChannelDataInput network) throws IOException;
+  void read(DatabaseSessionInternal session, final ChannelDataInput network) throws IOException;
 
   T execute(DatabaseSessionInternal session, RemotePushHandler remote);
 

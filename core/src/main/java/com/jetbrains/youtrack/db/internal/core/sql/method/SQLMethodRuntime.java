@@ -23,26 +23,22 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorNotFoundException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
-import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Wraps function managing the binding of parameters.
@@ -71,9 +67,10 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
    * @param iContext
    * @return
    */
+  @Nullable
   public Object execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final CommandContext iContext) {
     if (iThis == null) {
@@ -82,7 +79,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
 
     if (configuredParameters != null) {
       // RESOLVE VALUES USING THE CURRENT RECORD
-      for (int i = 0; i < configuredParameters.length; ++i) {
+      for (var i = 0; i < configuredParameters.length; ++i) {
         runtimeParameters[i] = configuredParameters[i];
 
         if (method.evaluateParameters()) {
@@ -95,7 +92,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
             {
               runtimeParameters[i] =
                   ((SQLFilterItemField) configuredParameters[i])
-                      .getValue((Identifiable) iCurrentResult, iCurrentResult, iContext);
+                      .getValue((Result) iCurrentResult, iCurrentResult, iContext);
             }
           } else if (configuredParameters[i] instanceof SQLMethodRuntime) {
             runtimeParameters[i] =
@@ -114,33 +111,8 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
             {
               runtimeParameters[i] =
                   ((SQLFilterItemVariable) configuredParameters[i])
-                      .getValue((Identifiable) iCurrentResult, iCurrentResult, iContext);
+                      .getValue((Result) iCurrentResult, iCurrentResult, iContext);
             }
-          } else if (configuredParameters[i] instanceof CommandSQL) {
-            try {
-              runtimeParameters[i] =
-                  ((CommandSQL) configuredParameters[i]).setContext(iContext)
-                      .execute(iContext.getDatabase());
-            } catch (CommandExecutorNotFoundException ignore) {
-              // TRY WITH SIMPLE CONDITION
-              final String text = ((CommandSQL) configuredParameters[i]).getText();
-              final SQLPredicate pred = new SQLPredicate(iContext, text);
-              runtimeParameters[i] =
-                  pred.evaluate(
-                      iCurrentRecord instanceof DBRecord ? iCurrentRecord : null,
-                      (EntityImpl) iCurrentResult,
-                      iContext);
-              // REPLACE ORIGINAL PARAM
-              configuredParameters[i] = pred;
-            }
-          } else if (configuredParameters[i] instanceof SQLPredicate) {
-            runtimeParameters[i] =
-                ((SQLPredicate) configuredParameters[i])
-                    .evaluate(
-                        iCurrentRecord.getRecord(),
-                        (iCurrentRecord instanceof EntityImpl ? (EntityImpl) iCurrentResult
-                            : null),
-                        iContext);
           } else if (configuredParameters[i] instanceof String) {
             if (configuredParameters[i].toString().startsWith("\"")
                 || configuredParameters[i].toString().startsWith("'")) {
@@ -150,18 +122,18 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
         }
       }
 
-      var db = iContext.getDatabase();
-      if (method.getMaxParams(db) == -1 || method.getMaxParams(db) > 0) {
+      var session = iContext.getDatabaseSession();
+      if (method.getMaxParams(session) == -1 || method.getMaxParams(session) > 0) {
         if (runtimeParameters.length < method.getMinParams()
-            || (method.getMaxParams(db) > -1 && runtimeParameters.length > method.getMaxParams(
-            db))) {
+            || (method.getMaxParams(session) > -1 && runtimeParameters.length > method.getMaxParams(
+            session))) {
           String params;
-          if (method.getMinParams() == method.getMaxParams(db)) {
+          if (method.getMinParams() == method.getMaxParams(session)) {
             params = "" + method.getMinParams();
           } else {
-            params = method.getMinParams() + "-" + method.getMaxParams(db);
+            params = method.getMinParams() + "-" + method.getMaxParams(session);
           }
-          throw new CommandExecutionException(
+          throw new CommandExecutionException(session,
               "Syntax error: function '"
                   + method.getName()
                   + "' needs "
@@ -172,18 +144,18 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
       }
     }
 
-    final Object functionResult =
+    final var functionResult =
         method.execute(iThis, iCurrentRecord, iContext, iCurrentResult, runtimeParameters);
 
     return transformValue(iCurrentRecord, iContext, functionResult);
   }
 
+  @Nullable
   @Override
   public Object getValue(
-      final Identifiable iRecord, Object iCurrentResult, CommandContext iContext) {
+      final Result iRecord, Object iCurrentResult, CommandContext iContext) {
     try {
-      final EntityImpl current = iRecord != null ? (EntityImpl) iRecord.getRecord() : null;
-      return execute(current, current, null, iContext);
+      return execute(iRecord, iRecord, null, iContext);
     } catch (RecordNotFoundException rnf) {
       return null;
     }
@@ -197,21 +169,22 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
   @Override
   protected void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
       final String iText) {
-    final int beginParenthesis = iText.indexOf('(');
+    final var beginParenthesis = iText.indexOf('(');
 
     // SEARCH FOR THE FUNCTION
-    final String funcName = iText.substring(0, beginParenthesis);
+    final var funcName = iText.substring(0, beginParenthesis);
 
-    final List<String> funcParamsText = StringSerializerHelper.getParameters(iText);
+    final var funcParamsText = StringSerializerHelper.getParameters(iText);
 
     method = SQLEngine.getMethod(funcName);
     if (method == null) {
-      throw new CommandSQLParsingException("Unknown method " + funcName + "()");
+      throw new CommandSQLParsingException(session.getDatabaseName(),
+          "Unknown method " + funcName + "()");
     }
 
     // PARSE PARAMETERS
     this.configuredParameters = new Object[funcParamsText.size()];
-    for (int i = 0; i < funcParamsText.size(); ++i) {
+    for (var i = 0; i < funcParamsText.size(); ++i) {
       this.configuredParameters[i] = funcParamsText.get(i);
     }
 
@@ -222,15 +195,15 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
       final Object[] iParameters, final boolean iEvaluate) {
     if (iParameters != null) {
       var context = new BasicCommandContext();
-      context.setDatabase(session);
+      context.setDatabaseSession(session);
 
       this.configuredParameters = new Object[iParameters.length];
-      for (int i = 0; i < iParameters.length; ++i) {
+      for (var i = 0; i < iParameters.length; ++i) {
         this.configuredParameters[i] = iParameters[i];
 
         if (iParameters[i] != null) {
           if (iParameters[i] instanceof String && !iParameters[i].toString().startsWith("[")) {
-            final Object v = SQLHelper.parseValue(null, null, iParameters[i].toString(), context);
+            final var v = SQLHelper.parseValue(null, null, iParameters[i].toString(), context);
             if (v == SQLHelper.VALUE_NOT_PARSED
                 || (MultiValue.isMultiValue(v)
                 && MultiValue.getFirstValue(v) == SQLHelper.VALUE_NOT_PARSED)) {
@@ -246,7 +219,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
 
       // COPY STATIC VALUES
       this.runtimeParameters = new Object[configuredParameters.length];
-      for (int i = 0; i < configuredParameters.length; ++i) {
+      for (var i = 0; i < configuredParameters.length; ++i) {
         if (!(configuredParameters[i] instanceof SQLFilterItemField)
             && !(configuredParameters[i] instanceof SQLMethodRuntime)) {
           runtimeParameters[i] = configuredParameters[i];

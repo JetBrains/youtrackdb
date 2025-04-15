@@ -18,7 +18,7 @@ public class SQLInsertSetExpression {
   }
 
   public SQLInsertSetExpression copy() {
-    SQLInsertSetExpression result = new SQLInsertSetExpression();
+    var result = new SQLInsertSetExpression();
     result.left = left == null ? null : left.copy();
     result.right = right == null ? null : right.copy();
     return result;

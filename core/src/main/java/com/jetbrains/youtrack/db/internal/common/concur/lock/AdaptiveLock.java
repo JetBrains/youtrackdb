@@ -24,12 +24,11 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * Adaptive class to handle shared resources. It's configurable specifying if it's running in a
@@ -96,11 +95,10 @@ public class AdaptiveLock extends AbstractLock {
                       + getClass()
                       + "' with timeout="
                       + timeout),
-              e);
+              e, (String) null);
         }
 
         throwTimeoutException(lock);
-
       } else {
         lock.lock();
       }
@@ -123,7 +121,7 @@ public class AdaptiveLock extends AbstractLock {
                       + getClass()
                       + "' with timeout="
                       + timeout),
-              e);
+              e, (String) null);
         }
       } else {
         return lock.tryLock();
@@ -151,7 +149,7 @@ public class AdaptiveLock extends AbstractLock {
   }
 
   private void throwTimeoutException(Lock lock) {
-    final String owner = extractLockOwnerStackTrace(lock);
+    final var owner = extractLockOwnerStackTrace(lock);
 
     throw new TimeoutException(
         "Timeout on acquiring exclusive lock against resource of class: "
@@ -161,27 +159,28 @@ public class AdaptiveLock extends AbstractLock {
             + (owner != null ? "\n" + owner : ""));
   }
 
+  @Nullable
   private String extractLockOwnerStackTrace(Lock lock) {
     try {
-      Field syncField = lock.getClass().getDeclaredField("sync");
+      var syncField = lock.getClass().getDeclaredField("sync");
       syncField.setAccessible(true);
 
-      Object sync = syncField.get(lock);
-      Method getOwner = sync.getClass().getSuperclass().getDeclaredMethod("getOwner");
+      var sync = syncField.get(lock);
+      var getOwner = sync.getClass().getSuperclass().getDeclaredMethod("getOwner");
       getOwner.setAccessible(true);
 
-      final Thread owner = (Thread) getOwner.invoke(sync);
+      final var owner = (Thread) getOwner.invoke(sync);
       if (owner == null) {
         return null;
       }
 
-      StringWriter stringWriter = new StringWriter();
-      PrintWriter printWriter = new PrintWriter(stringWriter);
+      var stringWriter = new StringWriter();
+      var printWriter = new PrintWriter(stringWriter);
 
       printWriter.append("Owner thread : ").append(owner.toString()).append("\n");
 
-      StackTraceElement[] stackTrace = owner.getStackTrace();
-      for (StackTraceElement traceElement : stackTrace) {
+      var stackTrace = owner.getStackTrace();
+      for (var traceElement : stackTrace) {
         printWriter.println("\tat " + traceElement);
       }
 

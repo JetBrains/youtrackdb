@@ -17,7 +17,7 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final BigDecimal matKey = (BigDecimal) key;
+    final var matKey = (BigDecimal) key;
     // decimal128 precision
     // matKey.setScale(34, RoundingMode.UP);
 
@@ -25,7 +25,7 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
     // final BigInteger unscaledValue = matKey.unscaledValue().add(TWO_COMPL_REF);
     // final byte[] bytes = unscaledValue.toByteArray();
 
-    final ByteBuffer bb = ByteBuffer.allocate(1 + 8); // bytes.length);
+    final var bb = ByteBuffer.allocate(1 + 8); // bytes.length);
     bb.order(ByteOrder.BIG_ENDIAN);
     bb.put((byte) 0);
     // bb.putInt(matKey.scale());
@@ -43,7 +43,7 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
   }
 
   private BigDecimal scaleToDecimal128(final BigDecimal rawValue) {
-    final BigDecimal value = clampAndRound(rawValue);
+    final var value = clampAndRound(rawValue);
     long exponent = -value.scale();
     if (exponent >= -6176L && exponent <= 6111L) {
       if (value.unscaledValue().bitLength() > 113) {
@@ -69,15 +69,15 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
           throw new NumberFormatException(
               "Exponent is out of range for Decimal128 encoding of " + initialValue);
         }
-        final BigInteger multiplier = BIG_INT_TEN.pow(diff);
+        final var multiplier = BIG_INT_TEN.pow(diff);
         value =
             new BigDecimal(
                 initialValue.unscaledValue().multiply(multiplier), initialValue.scale() + diff);
       }
     } else if (-initialValue.scale() < -6176) {
       diff = initialValue.scale() + -6176;
-      int undiscardedPrecision = ensureExactRounding(initialValue, diff);
-      BigInteger divisor = undiscardedPrecision == 0 ? BIG_INT_ONE : BIG_INT_TEN.pow(diff);
+      var undiscardedPrecision = ensureExactRounding(initialValue, diff);
+      var divisor = undiscardedPrecision == 0 ? BIG_INT_ONE : BIG_INT_TEN.pow(diff);
       value =
           new BigDecimal(initialValue.unscaledValue().divide(divisor), initialValue.scale() - diff);
     } else {
@@ -91,10 +91,10 @@ public class DecimalKeyNormalizer implements KeyNormalizers {
   }
 
   private int ensureExactRounding(final BigDecimal value, final int extraPrecision) {
-    final String significand = value.unscaledValue().abs().toString();
-    final int undiscardedPrecision = Math.max(0, significand.length() - extraPrecision);
+    final var significand = value.unscaledValue().abs().toString();
+    final var undiscardedPrecision = Math.max(0, significand.length() - extraPrecision);
 
-    for (int i = undiscardedPrecision; i < significand.length(); ++i) {
+    for (var i = undiscardedPrecision; i < significand.length(); ++i) {
       if (significand.charAt(i) != '0') {
         throw new NumberFormatException(
             "Conversion to Decimal128 would require inexact rounding of " + value);

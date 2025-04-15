@@ -12,7 +12,8 @@ public class BackupInProgressException extends CoreException implements HighLeve
     super(exception);
   }
 
-  public BackupInProgressException(String message, String componentName, ErrorCode errorCode) {
-    super(message, componentName, errorCode);
+  public BackupInProgressException(String dbName, String message, String componentName,
+      ErrorCode errorCode) {
+    super(dbName, message, componentName, errorCode);
   }
 }

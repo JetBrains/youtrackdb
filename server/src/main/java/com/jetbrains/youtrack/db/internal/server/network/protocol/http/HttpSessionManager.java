@@ -53,7 +53,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
             new Runnable() {
               @Override
               public void run() {
-                final int expired = checkSessionsValidity();
+                final var expired = checkSessionsValidity();
                 if (expired > 0) {
                   LogManager.instance().debug(this, "Removed %d session because expired", expired);
                 }
@@ -64,14 +64,14 @@ public class HttpSessionManager extends SharedResourceAbstract {
   }
 
   public int checkSessionsValidity() {
-    int expired = 0;
+    var expired = 0;
 
     acquireExclusiveLock();
     try {
-      final long now = System.currentTimeMillis();
+      final var now = System.currentTimeMillis();
 
       Entry<String, HttpSession> s;
-      for (Iterator<Map.Entry<String, HttpSession>> it = sessions.entrySet().iterator();
+      for (var it = sessions.entrySet().iterator();
           it.hasNext(); ) {
         s = it.next();
 
@@ -104,7 +104,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
     acquireSharedLock();
     try {
 
-      final HttpSession sess = sessions.get(iId);
+      final var sess = sessions.get(iId);
       if (sess != null) {
         sess.updateLastUpdatedOn();
       }
@@ -119,7 +119,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
       final String iDatabaseName, final String iUserName, final String iUserPassword) {
     acquireExclusiveLock();
     try {
-      final String id = "OS" + System.currentTimeMillis() + random.nextLong();
+      final var id = "OS" + System.currentTimeMillis() + random.nextLong();
       sessions.put(id, new HttpSession(id, iDatabaseName, iUserName, iUserPassword));
       return id;
 

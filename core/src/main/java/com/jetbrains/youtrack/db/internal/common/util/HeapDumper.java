@@ -14,7 +14,7 @@ public class HeapDumper {
    */
   public static void dumpHeap(String fileName, boolean live) {
     try {
-      MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+      var server = ManagementFactory.getPlatformMBeanServer();
       server.invoke(
           new ObjectName(HOTSPOT_BEAN_NAME),
           "dumpHeap",

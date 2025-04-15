@@ -19,129 +19,62 @@
  */
 package com.jetbrains.youtrack.db.internal.core.iterator;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import java.util.Arrays;
+import java.util.Iterator;
+import javax.annotation.Nonnull;
 
 /**
- * Iterator class to browse forward and backward the records of a cluster. Once browsed in a
+ * Iterator class to browse forward and backward the records of a collection. Once browsed in a
  * direction, the iterator cannot change it. This iterator with "live updates" set is able to catch
- * updates to the cluster sizes while browsing. This is the case when concurrent clients/threads
- * insert and remove item in any cluster the iterator is browsing. If the cluster are hot removed by
- * from the database the iterator could be invalid and throw exception of cluster not found.
+ * updates to the collection sizes while browsing. This is the case when concurrent clients/threads
+ * insert and remove item in any collection the iterator is browsing. If the collection are hot removed by
+ * from the database the iterator could be invalid and throw exception of collection not found.
  */
-public class RecordIteratorClass<REC extends DBRecord> extends RecordIteratorClusters<REC> {
+public class RecordIteratorClass implements Iterator<EntityImpl> {
 
-  protected final SchemaClass targetClass;
-  protected boolean polymorphic;
+  @Nonnull
+  private final RecordIteratorCollections<EntityImpl> iterator;
 
   public RecordIteratorClass(
-      final DatabaseSessionInternal iDatabase,
-      final String iClassName,
-      final boolean iPolymorphic,
-      boolean begin) {
-    this(iDatabase, iClassName, iPolymorphic);
-    if (begin) {
-      begin();
-    }
+      @Nonnull final DatabaseSessionInternal session,
+      @Nonnull final String className,
+      final boolean polymorphic, boolean forwardDirection) {
+    this(session, getSchemaClassInternal(session, className), polymorphic, forwardDirection);
   }
 
-  @Deprecated
-  public RecordIteratorClass(
-      final DatabaseSessionInternal iDatabase,
-      final String iClassName,
-      final boolean iPolymorphic) {
-    super(iDatabase);
+  public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
+      @Nonnull final SchemaClassInternal targetClass,
+      final boolean polymorphic, boolean forwardDirection) {
+    var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
+        : targetClass.getCollectionIds();
+    collectionIds = SchemaClassImpl.readableCollections(session, collectionIds,
+        targetClass.getName());
 
-    targetClass = database.getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+    iterator = new RecordIteratorCollections<>(session, collectionIds, forwardDirection);
+  }
+
+  @Override
+  public boolean hasNext() {
+    return iterator.hasNext();
+  }
+
+  @Override
+  public EntityImpl next() {
+    return iterator.next();
+  }
+
+  private static SchemaClassInternal getSchemaClassInternal(DatabaseSessionInternal session,
+      String className) {
+    var targetClass = (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
+        .getClass(className);
     if (targetClass == null) {
       throw new IllegalArgumentException(
-          "Class '" + iClassName + "' was not found in database schema");
+          "Class '" + className + "' was not found in database schema");
     }
 
-    polymorphic = iPolymorphic;
-    clusterIds = polymorphic ? targetClass.getPolymorphicClusterIds() : targetClass.getClusterIds();
-    clusterIds = SchemaClassImpl.readableClusters(iDatabase, clusterIds, targetClass.getName());
-
-    checkForSystemClusters(iDatabase, clusterIds);
-
-    Arrays.sort(clusterIds);
-    config();
-  }
-
-  protected RecordIteratorClass(
-      final DatabaseSessionInternal database, SchemaClass targetClass, boolean polymorphic) {
-    super(database, targetClass.getPolymorphicClusterIds());
-    this.targetClass = targetClass;
-    this.polymorphic = polymorphic;
-  }
-
-  @Override
-  public REC next() {
-    final Identifiable rec = super.next();
-    if (rec == null) {
-      return null;
-    }
-    return rec.getRecord();
-  }
-
-  @Override
-  public REC previous() {
-    final Identifiable rec = super.previous();
-    if (rec == null) {
-      return null;
-    }
-
-    return rec.getRecord();
-  }
-
-  public boolean isPolymorphic() {
-    return polymorphic;
-  }
-
-  @Override
-  public String toString() {
-    return String.format(
-        "RecordIteratorClass.targetClass(%s).polymorphic(%s)", targetClass, polymorphic);
-  }
-
-  @Override
-  protected boolean include(final DBRecord record) {
-    return record instanceof EntityImpl entity
-        && targetClass.isSuperClassOf(entity.getSession(),
-        EntityInternalUtils.getImmutableSchemaClass(entity));
-  }
-
-  public SchemaClass getTargetClass() {
     return targetClass;
-  }
-
-  @Override
-  protected void config() {
-    currentClusterIdx = 0; // START FROM THE FIRST CLUSTER
-
-    updateClusterRange();
-
-    totalAvailableRecords = database.countClusterElements(clusterIds);
-
-    txEntries = database.getTransaction().getNewRecordEntriesByClass(targetClass, polymorphic);
-
-    if (txEntries != null)
-    // ADJUST TOTAL ELEMENT BASED ON CURRENT TRANSACTION'S ENTRIES
-    {
-      for (RecordOperation entry : txEntries) {
-        if (!entry.record.getIdentity().isPersistent() && entry.type != RecordOperation.DELETED) {
-          totalAvailableRecords++;
-        } else if (entry.type == RecordOperation.DELETED) {
-          totalAvailableRecords--;
-        }
-      }
-    }
   }
 }

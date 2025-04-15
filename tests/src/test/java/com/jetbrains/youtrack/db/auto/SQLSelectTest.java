@@ -16,25 +16,21 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -67,426 +63,468 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryNoDirtyResultset() {
-    List<EntityImpl> result = executeQuery("select from Profile ", database);
-
+    var result = executeQuery("select from Profile ", session);
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertFalse(d.isDirty());
-    }
   }
 
   @Test
   public void queryNoWhere() {
-    List<EntityImpl> result = executeQuery("select from Profile ", database);
+    var result = executeQuery("select from Profile ", session);
 
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
-    }
   }
 
   @Test
   public void queryParentesisAsRight() {
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select from Profile where (name = 'Giuseppe' and ( name <> 'Napoleone' and nick is"
                 + " not null ))  ",
-            database);
+            session);
 
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
-    }
   }
 
   @Test
   public void querySingleAndDoubleQuotes() {
-    List<EntityImpl> result = executeQuery("select from Profile where name = 'Giuseppe'",
-        database);
+    var result = executeQuery("select from Profile where name = 'Giuseppe'",
+        session);
 
-    final int count = result.size();
+    final var count = result.size();
     Assert.assertFalse(result.isEmpty());
 
-    result = executeQuery("select from Profile where name = \"Giuseppe\"", database);
+    result = executeQuery("select from Profile where name = \"Giuseppe\"", session);
     Assert.assertFalse(result.isEmpty());
     Assert.assertEquals(result.size(), count);
   }
 
   @Test
   public void queryTwoParentesisConditions() {
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select from Profile  where ( name = 'Giuseppe' and nick is not null ) or ( name ="
                 + " 'Napoleone' and nick is not null ) ",
-            database);
+            session);
 
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
-    }
   }
 
   @Test
   public void testQueryCount() {
-    database.getMetadata().reload();
-    final long vertexesCount = database.countClass("V");
-    List<EntityImpl> result = executeQuery("select count(*) from V");
-    Assert.assertEquals(result.get(0).<Object>field("count(*)"), vertexesCount);
+    session.getMetadata().reload();
+    final var vertexesCount = session.countClass("V");
+    var result = executeQuery("select count(*) from V");
+    Assert.assertEquals(result.getFirst().<Object>getProperty("count(*)"), vertexesCount);
   }
 
   @Test
   public void querySchemaAndLike() {
-    List<EntityImpl> result1 =
-        executeQuery("select * from cluster:profile where name like 'Gi%'", database);
+    session.begin();
+    var result1 =
+        executeQuery("select * from Profile where name like 'Gi%'", session);
 
-    for (EntityImpl record : result1) {
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("profile"));
-      Assert.assertTrue(record.field("name").toString().startsWith("Gi"));
+    for (var record : result1) {
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.getProperty("name").toString().startsWith("Gi"));
     }
 
-    List<EntityImpl> result2 =
-        executeQuery("select * from cluster:profile where name like '%epp%'", database);
+    var result2 =
+        executeQuery("select * from Profile where name like '%epp%'", session);
 
     Assert.assertEquals(result1, result2);
 
-    List<EntityImpl> result3 =
-        executeQuery("select * from cluster:profile where name like 'Gius%pe'", database);
+    var result3 =
+        executeQuery("select * from Profile where name like 'Gius%pe'", session);
 
     Assert.assertEquals(result1, result3);
 
-    result1 = executeQuery("select * from cluster:profile where name like '%Gi%'", database);
+    result1 = executeQuery("select * from Profile where name like '%Gi%'", session);
 
-    for (EntityImpl record : result1) {
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("profile"));
-      Assert.assertTrue(record.field("name").toString().contains("Gi"));
+    for (var record : result1) {
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
-    result1 = executeQuery("select * from cluster:profile where name like ?", database, "%Gi%");
+    result1 = executeQuery("select * from Profile where name like ?", session, "%Gi%");
 
-    for (EntityImpl record : result1) {
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("profile"));
-      Assert.assertTrue(record.field("name").toString().contains("Gi"));
+    for (var record : result1) {
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
+    session.commit();
   }
 
   @Test
   public void queryContainsInEmbeddedSet() {
-    Set<String> tags = new HashSet<>();
+    session.begin();
+    var tags = session.newEmbeddedSet();
     tags.add("smart");
     tags.add("nice");
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("tags", tags, PropertyType.EMBEDDEDSET);
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("tags", tags, PropertyType.EMBEDDEDSET);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> resultset =
-        executeQuery("select from Profile where tags CONTAINS 'smart'", database);
+    var resultset =
+        executeQuery("select from Profile where tags CONTAINS 'smart'", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryContainsInEmbeddedList() {
-    List<String> tags = new ArrayList<>();
+    session.begin();
+    var tags = session.newEmbeddedList();
     tags.add("smart");
     tags.add("nice");
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("tags", tags);
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("tags", tags);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> resultset =
-        executeQuery("select from Profile where tags[0] = 'smart'", database);
+    var resultset =
+        executeQuery("select from Profile where tags[0] = 'smart'", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     resultset =
-        executeQuery("select from Profile where tags[0,1] CONTAINSALL ['smart','nice']", database);
+        executeQuery("select from Profile where tags[0,1] CONTAINSALL ['smart','nice']", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryContainsInDocumentSet() {
-    HashSet<EntityImpl> coll = new HashSet<>();
-    coll.add(new EntityImpl("name", "Luca", "surname", "Garulli"));
-    coll.add(new EntityImpl("name", "Jay", "surname", "Miner"));
+    session.begin();
+    var coll = session.newEmbeddedSet();
+    var entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    coll.add(entity);
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("coll", coll, PropertyType.EMBEDDEDSET);
+    entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    coll.add(entity);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("coll", coll, PropertyType.EMBEDDEDSET);
 
-    List<EntityImpl> resultset =
+    session.commit();
+
+    var resultset =
         executeQuery(
-            "select coll[name='Jay'] as value from Profile where coll is not null", database);
+            "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
+            session);
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertTrue(resultset.get(0).field("value") instanceof List<?>);
+    Assert.assertTrue(resultset.getFirst().getProperty("value") instanceof List<?>);
     Assert.assertEquals(
-        ((List<EntityImpl>) resultset.get(0).field("value")).get(0).field("name"), "Jay");
+        resultset.getFirst().<Result>getEmbeddedList("value").getFirst().getProperty("name"),
+        "Jay");
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryContainsInDocumentList() {
-    List<EntityImpl> coll = new ArrayList<>();
-    coll.add(new EntityImpl("name", "Luca", "surname", "Garulli"));
-    coll.add(new EntityImpl("name", "Jay", "surname", "Miner"));
+    session.begin();
+    var coll = session.newEmbeddedList();
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("coll", coll, PropertyType.EMBEDDEDLIST);
+    var entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    coll.add(entity);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    coll.add(entity);
 
-    List<EntityImpl> resultset =
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("coll", coll, PropertyType.EMBEDDEDLIST);
+    session.commit();
+
+    session.begin();
+    var resultset =
         executeQuery(
-            "select coll[name='Jay'] as value from Profile where coll is not null", database);
+            "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
+            session);
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertTrue(resultset.get(0).field("value") instanceof List<?>);
+    Assert.assertTrue(resultset.getFirst().getProperty("value") instanceof List<?>);
     Assert.assertEquals(
-        ((EntityImpl) ((List) resultset.get(0).field("value")).get(0)).field("name"), "Jay");
+        ((Result) ((List<?>) resultset.getFirst().getProperty("value")).getFirst()).getProperty(
+            "name"),
+        "Jay");
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryContainsInEmbeddedMapClassic() {
-    Map<String, EntityImpl> customReferences = new HashMap<>();
-    customReferences.put("first", new EntityImpl("name", "Luca", "surname", "Garulli"));
-    customReferences.put("second", new EntityImpl("name", "Jay", "surname", "Miner"));
+    var customReferences = session.newEmbeddedMap();
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
+    session.begin();
+    var entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    customReferences.put("first", (EntityImpl) entity);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    customReferences.put("second", (EntityImpl) entity);
 
-    List<EntityImpl> resultset =
-        executeQuery("select from Profile where customReferences CONTAINSKEY 'first'", database);
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
+
+    session.commit();
+
+    var resultset =
+        executeQuery("select from Profile where customReferences CONTAINSKEY 'first'", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     resultset =
         executeQuery(
-            "select from Profile where customReferences CONTAINSVALUE (name like 'Ja%')", database);
+            "select from Profile where customReferences CONTAINSVALUE (name like 'Ja%')", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryContainsInEmbeddedMapNew() {
-    Map<String, EntityImpl> customReferences = new HashMap<>();
-    customReferences.put("first", new EntityImpl("name", "Luca", "surname", "Garulli"));
-    customReferences.put("second", new EntityImpl("name", "Jay", "surname", "Miner"));
+    session.begin();
+    var customReferences = session.newEmbeddedMap();
+    var entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Luca");
+    entity.setProperty("surname", "Garulli");
+    customReferences.put("first", entity);
 
-    EntityImpl doc = new EntityImpl("Profile");
-    doc.field("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
+    entity = session.newEmbeddedEntity();
+    entity.setProperty("name", "Jay");
+    entity.setProperty("surname", "Miner");
+    customReferences.put("second", entity);
 
-    database.begin();
-    doc.save();
-    database.commit();
+    var doc = ((EntityImpl) session.newEntity("Profile"));
+    doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
 
-    List<EntityImpl> resultset =
+    session.commit();
+
+    var resultset =
         executeQuery(
-            "select from Profile where customReferences.keys() CONTAINS 'first'", database);
+            "select from Profile where customReferences.keys() CONTAINS 'first'", session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
     resultset =
         executeQuery(
             "select from Profile where customReferences.values() CONTAINS ( name like 'Ja%')",
-            database);
+            session);
 
     Assert.assertEquals(resultset.size(), 1);
-    Assert.assertEquals(resultset.get(0).getIdentity(), doc.getIdentity());
+    Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
 
-    database.begin();
-    database.bindToSession(doc).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(doc).delete();
+    session.commit();
   }
 
   @Test
   public void queryCollectionContainsLowerCaseSubStringIgnoreCase() {
-    List<EntityImpl> result =
+    session.begin();
+    var result =
         executeQuery(
-            "select * from cluster:profile where races contains"
+            "select * from Profile where races contains"
                 + " (name.toLowerCase(Locale.ENGLISH).subString(0,1) = 'e')",
-            database);
+            session);
 
-    for (EntityImpl record : result) {
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("profile"));
-      Assert.assertNotNull(record.field("races"));
+    for (var record : result) {
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      Assert.assertNotNull(record.getProperty("races"));
 
-      Collection<EntityImpl> races = record.field("races");
-      boolean found = false;
-      for (EntityImpl race : races) {
-        if (((String) race.field("name")).toLowerCase(Locale.ENGLISH).charAt(0) == 'e') {
+      Collection<EntityImpl> races = record.getProperty("races");
+      var found = false;
+      for (var race : races) {
+        if (((String) race.getProperty("name")).toLowerCase(Locale.ENGLISH).charAt(0) == 'e') {
           found = true;
           break;
         }
       }
       Assert.assertTrue(found);
     }
+    session.commit();
   }
 
   @Test
   public void queryCollectionContainsInRecords() {
-    var record = new EntityImpl("Animal");
-    record.field("name", "Cat");
+    session.begin();
+    var record = ((EntityImpl) session.newEntity("Animal"));
+    record.setProperty("name", "Cat");
 
-    database.begin();
-    Collection<Identifiable> races = new HashSet<>();
-    races.add(((EntityImpl) database.newInstance("AnimalRace")).field("name", "European"));
-    races.add(((EntityImpl) database.newInstance("AnimalRace")).field("name", "Siamese"));
-    record.field("age", 10);
-    record.field("races", races);
-    record.save();
-    database.commit();
+    var races = session.newLinkSet();
+    races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "European"));
+    races.add(session.newInstance("AnimalRace").setPropertyInChain("name", "Siamese"));
+    record.setProperty("age", 10);
+    record.setProperty("races", races);
 
-    List<EntityImpl> result =
+    session.commit();
+
+    session.begin();
+    var result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['European','Asiatic'])",
-            database);
+            "select * from Animal where races contains (name in ['European','Asiatic'])",
+            session);
 
-    boolean found = false;
-    for (int i = 0; i < result.size() && !found; ++i) {
-      record = result.get(i);
+    var found = false;
+    for (var i = 0; i < result.size() && !found; ++i) {
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
-      Assert.assertTrue(Objects.requireNonNull(record.getClassName()).equalsIgnoreCase("animal"));
-      Assert.assertNotNull(record.field("races"));
+      Assert.assertTrue(
+          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+      Assert.assertNotNull(record.getProperty("races"));
 
-      races = record.field("races");
-      for (Identifiable race : races) {
-        if (Objects.equals(race.getEntity().getProperty("name"), "European")
-            || Objects.equals(race.getEntity().getProperty("name"), "Asiatic")) {
+      races = record.getProperty("races");
+      for (var race : races) {
+        var transaction = session.getActiveTransaction();
+        var transaction1 = session.getActiveTransaction();
+        if (Objects.equals(transaction1.loadEntity(race).getProperty("name"), "European")
+            || Objects.equals(transaction.loadEntity(race).getProperty("name"), "Asiatic")) {
           found = true;
           break;
         }
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['Asiatic','European'])",
-            database);
+            "select * from Animal where races contains (name in ['Asiatic','European'])",
+            session);
 
     found = false;
-    for (int i = 0; i < result.size() && !found; ++i) {
-      record = result.get(i);
+    for (var i = 0; i < result.size() && !found; ++i) {
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
-      Assert.assertTrue(Objects.requireNonNull(record.getClassName()).equalsIgnoreCase("animal"));
-      Assert.assertNotNull(record.field("races"));
+      Assert.assertTrue(
+          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+      Assert.assertNotNull(record.getProperty("races"));
 
-      races = record.field("races");
-      for (Identifiable race : races) {
-        if (Objects.equals(race.getEntity().getProperty("name"), "European")
-            || Objects.equals(race.getEntity().getProperty("name"), "Asiatic")) {
+      races = record.getProperty("races");
+      for (var race : races) {
+        var transaction = session.getActiveTransaction();
+        var transaction1 = session.getActiveTransaction();
+        if (Objects.equals(transaction1.loadEntity(race).getProperty("name"), "European")
+            || Objects.equals(transaction.loadEntity(race).getProperty("name"), "Asiatic")) {
           found = true;
           break;
         }
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races contains (name in ['aaa','bbb'])", database);
+            "select * from Animal where races contains (name in ['aaa','bbb'])", session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Asiatic'])",
-            database);
+            "select * from Animal where races containsall (name in ['European','Asiatic'])",
+            session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (name in ['European','Siamese'])",
-            database);
+            "select * from Animal where races containsall (name in ['European','Siamese'])",
+            session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
-            database);
+            "select * from Animal where races containsall (age < 100) LIMIT 1000 SKIP 0",
+            session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
+    session.begin();
     result =
         executeQuery(
-            "select * from cluster:animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
-            database);
+            "select * from Animal where not ( races contains (age < 100) ) LIMIT 20 SKIP 0",
+            session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
-    database.begin();
-    database.bindToSession(record).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(record).delete();
+    session.commit();
   }
 
   @Test
   public void queryCollectionInNumbers() {
-    var record = new EntityImpl("Animal");
-    record.field("name", "Cat");
+    session.begin();
+    Entity record = ((EntityImpl) session.newEntity("Animal"));
+    record.setProperty("name", "Cat");
 
-    Collection<Integer> rates = new HashSet<>();
+    var rates = session.<Integer>newEmbeddedSet();
     rates.add(100);
     rates.add(200);
-    record.field("rates", rates);
+    record.setProperty("rates", rates);
+    session.commit();
 
-    database.begin();
-    record.save("animal");
-    database.commit();
+    session.begin();
+    var result = executeQuery(
+        "select * from Animal where rates in [100,200]");
 
-    List<EntityImpl> result = executeQuery(
-        "select * from cluster:animal where rates in [100,200]");
+    var found = false;
+    for (var i = 0; i < result.size() && !found; ++i) {
+      record = (EntityImpl) result.get(i).asEntityOrNull();
 
-    boolean found = false;
-    for (int i = 0; i < result.size() && !found; ++i) {
-      record = result.get(i);
+      Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      Assert.assertNotNull(record.getProperty("rates"));
 
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("animal"));
-      Assert.assertNotNull(record.field("rates"));
-
-      rates = record.field("rates");
-      for (Integer rate : rates) {
+      rates = record.getProperty("rates");
+      for (var rate : rates) {
         if (rate == 100 || rate == 105) {
           found = true;
           break;
@@ -494,18 +532,20 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates in [200,10333]");
+    session.begin();
+    result = executeQuery("select from Animal where rates in [200,10333]");
 
     found = false;
-    for (int i = 0; i < result.size() && !found; ++i) {
-      record = result.get(i);
+    for (var i = 0; i < result.size() && !found; ++i) {
+      record = result.get(i).asEntity();
 
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("animal"));
-      Assert.assertNotNull(record.field("rates"));
+      Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      Assert.assertNotNull(record.getProperty("rates"));
 
-      rates = record.field("rates");
-      for (Integer rate : rates) {
+      rates = record.getProperty("rates");
+      for (var rate : rates) {
         if (rate == 100 || rate == 105) {
           found = true;
           break;
@@ -513,45 +553,56 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
     }
     Assert.assertTrue(found);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates contains 500", database);
+    session.begin();
+    result = executeQuery("select * from Animal where rates contains 500", session);
     Assert.assertEquals(result.size(), 0);
+    session.commit();
 
-    result = executeQuery("select * from cluster:animal where rates contains 100", database);
+    session.begin();
+    result = executeQuery("select * from Animal where rates contains 100", session);
     Assert.assertEquals(result.size(), 1);
+    session.commit();
 
-    database.begin();
-    database.bindToSession(record).delete();
-    database.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(record).delete();
+    session.commit();
   }
 
   @Test
   public void queryWhereRidDirectMatching() {
-    int clusterId = database.getMetadata().getSchema().getClass("ORole").getClusterIds()[0];
-    List<Long> positions = getValidPositions(clusterId);
+    session.begin();
+    var collectionId = session.getMetadata().getSchema().getClass("ORole").getCollectionIds()[0];
+    var positions = getValidPositions(collectionId);
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
-            "select * from OUser where roles contains #" + clusterId + ":" + positions.get(0),
-            database);
+            "select * from OUser where roles contains #" + collectionId + ":"
+                + positions.getFirst(),
+            session);
 
     Assert.assertEquals(result.size(), 1);
+    session.commit();
   }
 
   @Test
   public void queryWhereInpreparred() {
-    List<EntityImpl> result =
-        executeQuery("select * from OUser where name in [ :name ]", database, "admin");
+    session.begin();
+    var result =
+        executeQuery("select * from OUser where name in [ :name ]", session, "admin");
 
     Assert.assertEquals(result.size(), 1);
-    Assert.assertEquals(((EntityImpl) result.get(0).getRecord()).field("name"), "admin");
+    Assert.assertEquals(result.getFirst().asEntityOrNull().getProperty("name"), "admin");
+    session.commit();
   }
 
   @Test
   public void queryInAsParameter() {
-    List<EntityImpl> roles = executeQuery("select from orole limit 1", database);
+    var roles = executeQuery("select from orole limit 1", session);
 
-    List<EntityImpl> result = executeQuery("select * from OUser where roles in ?", database,
+    var result = executeQuery("select * from OUser where roles in ?", session,
         roles);
 
     Assert.assertEquals(result.size(), 1);
@@ -559,42 +610,46 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryAnyOperator() {
-    List<EntityImpl> result = executeQuery("select from Profile where any() like 'N%'", database);
+    session.begin();
+    var result = executeQuery("select from Profile where any() like 'N%'", session);
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl record : result) {
-      Assert.assertTrue(record.getClassName().equalsIgnoreCase("Profile"));
+    for (var record : result) {
+      Assert.assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("Profile"));
 
-      boolean found = false;
-      for (Object fieldValue :
+      var found = false;
+      for (var fieldValue :
           record.getPropertyNames().stream().map(record::getProperty).toArray()) {
-        if (fieldValue != null && fieldValue.toString().toLowerCase(Locale.ROOT).startsWith("n")) {
+        if (fieldValue != null && !fieldValue.toString().isEmpty()
+            && fieldValue.toString().toLowerCase(Locale.ROOT).charAt(0) == 'n') {
           found = true;
           break;
         }
       }
       Assert.assertTrue(found);
     }
+    session.commit();
   }
 
   @Test
   public void queryAllOperator() {
-    List<EntityImpl> result = executeQuery("select from Account where all() is null", database);
+    var result = executeQuery("select from Account where all() is null", session);
 
     Assert.assertEquals(result.size(), 0);
   }
 
   @Test
   public void queryOrderBy() {
-    List<EntityImpl> result = executeQuery("select from Profile order by name", database);
+    session.begin();
+    var result = executeQuery("select from Profile order by name", session);
 
     Assert.assertFalse(result.isEmpty());
 
     String lastName = null;
-    boolean isNullSegment = true; // NULL VALUES AT THE BEGINNING!
-    for (EntityImpl d : result) {
-      final String fieldValue = d.field("name");
+    var isNullSegment = true; // NULL VALUES AT THE BEGINNING!
+    for (var d : result) {
+      final String fieldValue = d.getProperty("name");
       if (fieldValue != null) {
         isNullSegment = false;
       } else {
@@ -606,12 +661,13 @@ public class SQLSelectTest extends AbstractSelectTest {
       }
       lastName = fieldValue;
     }
+    session.commit();
   }
 
   @Test
   public void queryOrderByWrongSyntax() {
     try {
-      executeQuery("select from Profile order by name aaaa", database);
+      executeQuery("select from Profile order by name aaaa", session);
       Assert.fail();
     } catch (CommandSQLParsingException ignored) {
     }
@@ -619,119 +675,131 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryLimitOnly() {
-    List<EntityImpl> result = executeQuery("select from Profile limit 1", database);
+    var result = executeQuery("select from Profile limit 1", session);
 
     Assert.assertEquals(result.size(), 1);
   }
 
   @Test
   public void querySkipOnly() {
-    List<EntityImpl> result = executeQuery("select from Profile", database);
-    int total = result.size();
+    var result = executeQuery("select from Profile", session);
+    var total = result.size();
 
-    result = executeQuery("select from Profile skip 1", database);
+    result = executeQuery("select from Profile skip 1", session);
     Assert.assertEquals(result.size(), total - 1);
   }
 
   @Test
   public void queryPaginationWithSkipAndLimit() {
-    List<EntityImpl> result = executeQuery("select from Profile", database);
+    session.begin();
+    var result = executeQuery("select from Profile", session);
 
-    List<EntityImpl> page = executeQuery("select from Profile skip 10 limit 10", database);
+    var page = executeQuery("select from Profile skip 10 limit 10", session);
     Assert.assertEquals(page.size(), 10);
 
-    for (int i = 0; i < page.size(); ++i) {
-      Assert.assertEquals(page.get(i), (Object) result.get(10 + i));
+    for (var i = 0; i < page.size(); ++i) {
+      Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryOffsetOnly() {
-    List<EntityImpl> result = executeQuery("select from Profile", database);
-    int total = result.size();
+    var result = executeQuery("select from Profile", session);
+    var total = result.size();
 
-    result = executeQuery("select from Profile offset 1", database);
+    result = executeQuery("select from Profile offset 1", session);
     Assert.assertEquals(result.size(), total - 1);
   }
 
   @Test
   public void queryPaginationWithOffsetAndLimit() {
-    List<EntityImpl> result = executeQuery("select from Profile", database);
+    session.begin();
+    var result = executeQuery("select from Profile", session);
 
-    List<EntityImpl> page = executeQuery("select from Profile offset 10 limit 10", database);
+    var page = executeQuery("select from Profile offset 10 limit 10", session);
     Assert.assertEquals(page.size(), 10);
 
-    for (int i = 0; i < page.size(); ++i) {
-      Assert.assertEquals(page.get(i), (Object) result.get(10 + i));
+    for (var i = 0; i < page.size(); ++i) {
+      Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryPaginationWithOrderBySkipAndLimit() {
-    List<EntityImpl> result = executeQuery("select from Profile order by name", database);
+    session.begin();
+    var result = executeQuery("select from Profile order by name", session);
 
-    List<EntityImpl> page =
-        executeQuery("select from Profile order by name limit 10 skip 10", database);
+    var page =
+        executeQuery("select from Profile order by name limit 10 skip 10", session);
     Assert.assertEquals(page.size(), 10);
 
-    for (int i = 0; i < page.size(); ++i) {
-      Assert.assertEquals(page.get(i), (Object) result.get(10 + i));
+    for (var i = 0; i < page.size(); ++i) {
+      Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryPaginationWithOrderByDescSkipAndLimit() {
-    List<EntityImpl> result = executeQuery("select from Profile order by name desc");
+    session.begin();
+    var result = executeQuery("select from Profile order by name desc");
 
-    List<EntityImpl> page = executeQuery(
+    var page = executeQuery(
         "select from Profile order by name desc limit 10 skip 10");
     Assert.assertEquals(page.size(), 10);
 
-    for (int i = 0; i < page.size(); ++i) {
-      Assert.assertEquals(page.get(i), (Object) result.get(10 + i));
+    for (var i = 0; i < page.size(); ++i) {
+      Assert.assertEquals(page.get(i), result.get(10 + i));
     }
+    session.commit();
   }
 
   @Test
   public void queryOrderByAndLimit() {
-    List<EntityImpl> result = executeQuery("select from Profile order by name limit 2");
+    session.begin();
+    var result = executeQuery("select from Profile order by name limit 2");
 
     Assert.assertTrue(result.size() <= 2);
 
     String lastName = null;
-    for (EntityImpl d : result) {
-      if (lastName != null && d.field("name") != null) {
-        Assert.assertTrue(((String) d.field("name")).compareTo(lastName) >= 0);
+    for (var d : result) {
+      if (lastName != null && d.getProperty("name") != null) {
+        Assert.assertTrue(((String) d.getProperty("name")).compareTo(lastName) >= 0);
       }
-      lastName = d.field("name");
+      lastName = d.getProperty("name");
     }
+    session.commit();
   }
 
   @Test
   public void queryConditionAndOrderBy() {
-    List<EntityImpl> result =
+    session.begin();
+    var result =
         executeQuery("select from Profile where name is not null order by name");
 
     Assert.assertFalse(result.isEmpty());
 
     String lastName = null;
-    for (EntityImpl d : result) {
-      if (lastName != null && d.field("name") != null) {
-        Assert.assertTrue(((String) d.field("name")).compareTo(lastName) >= 0);
+    for (var d : result) {
+      if (lastName != null && d.getProperty("name") != null) {
+        Assert.assertTrue(((String) d.getProperty("name")).compareTo(lastName) >= 0);
       }
-      lastName = d.field("name");
+      lastName = d.getProperty("name");
     }
+    session.commit();
   }
 
   @Test(enabled = false)
   public void queryConditionsAndOrderBy() {
-    List<EntityImpl> result =
+    var result =
         executeQuery("select from Profile where name is not null order by name desc, id asc");
 
     Assert.assertFalse(result.isEmpty());
 
     String lastName = null;
-    for (EntityImpl d : result) {
+    for (var d : result) {
       if (lastName != null && d.getProperty("name") != null) {
         Assert.assertTrue(((String) d.getProperty("name")).compareTo(lastName) <= 0);
       }
@@ -741,118 +809,110 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryRecordTargetRid() {
-    int profileClusterId =
-        database.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    List<Long> positions = getValidPositions(profileClusterId);
+    session.begin();
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var positions = getValidPositions(profileCollectionId);
 
-    List<EntityImpl> result =
-        executeQuery("select from " + profileClusterId + ":" + positions.get(0));
+    var result =
+        executeQuery("select from " + profileCollectionId + ":" + positions.getFirst());
 
     Assert.assertEquals(result.size(), 1);
 
-    for (EntityImpl d : result) {
+    for (var d : result) {
       Assert.assertEquals(
-          d.getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(0));
+          d.getIdentity().toString(), "#" + profileCollectionId + ":" + positions.getFirst());
     }
+    session.commit();
   }
 
   @Test
   public void queryRecordTargetRids() {
-    int profileClusterId =
-        database.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    List<Long> positions = getValidPositions(profileClusterId);
+    session.begin();
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var positions = getValidPositions(profileCollectionId);
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             " select from ["
-                + profileClusterId
+                + profileCollectionId
                 + ":"
                 + positions.get(0)
                 + ", "
-                + profileClusterId
+                + profileCollectionId
                 + ":"
                 + positions.get(1)
                 + "]",
-            database);
+            session);
 
     Assert.assertEquals(result.size(), 2);
 
     Assert.assertEquals(
-        result.get(0).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(0));
+        result.get(0).getIdentity().toString(), "#" + profileCollectionId + ":" + positions.get(0));
     Assert.assertEquals(
-        result.get(1).getIdentity().toString(), "#" + profileClusterId + ":" + positions.get(1));
+        result.get(1).getIdentity().toString(), "#" + profileCollectionId + ":" + positions.get(1));
+    session.commit();
   }
 
   @Test
   public void queryRecordAttribRid() {
+    session.begin();
 
-    int profileClusterId =
-        database.getMetadata().getSchema().getClass("Profile").getClusterIds()[0];
-    List<Long> postions = getValidPositions(profileClusterId);
+    var profileCollectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+    var postions = getValidPositions(profileCollectionId);
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
-            "select from Profile where @rid = #" + profileClusterId + ":" + postions.get(0),
-            database);
+            "select from Profile where @rid = #" + profileCollectionId + ":" + postions.getFirst(),
+            session);
 
     Assert.assertEquals(result.size(), 1);
 
-    for (EntityImpl d : result) {
+    for (var d : result) {
       Assert.assertEquals(
-          d.getIdentity().toString(), "#" + profileClusterId + ":" + postions.get(0));
+          d.getIdentity().toString(), "#" + profileCollectionId + ":" + postions.getFirst());
     }
+    session.commit();
   }
 
   @Test
   public void queryRecordAttribClass() {
-    List<EntityImpl> result = executeQuery("select from Profile where @class = 'Profile'");
+    var result = executeQuery("select from Profile where @class = 'Profile'");
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.getClassName(), "Profile");
+    for (var d : result) {
+      Assert.assertEquals(d.asEntityOrNull().getSchemaClassName(), "Profile");
     }
   }
 
   @Test
   public void queryRecordAttribVersion() {
-    List<EntityImpl> result = executeQuery("select from Profile where @version > 0", database);
+    var result = executeQuery("select from Profile where @version > 0", session);
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.getVersion() > 0);
-    }
-  }
-
-  @Test
-  public void queryRecordAttribSize() {
-    List<EntityImpl> result = executeQuery("select from Profile where @size >= 50", database);
-
-    Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.toStream().length >= 50);
+    for (var d : result) {
+      Assert.assertTrue(d.asEntityOrNull().getVersion() > 0);
     }
   }
 
   @Test
   public void queryRecordAttribType() {
-    List<EntityImpl> result = executeQuery("select from Profile where @type = 'document'",
-        database);
+    session.begin();
+    var result = executeQuery("select from Profile where @type = 'entity'", session);
 
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
-    }
+    session.commit();
   }
 
   @Test
   public void queryWrongOperator() {
     try {
       executeQuery(
-          "select from Profile where name like.toLowerCase4(Locale.ENGLISH) '%Jay%'", database);
+          "select from Profile where name like.toLowerCase4(Locale.ENGLISH) '%Jay%'", session);
       Assert.fail();
     } catch (Exception e) {
       Assert.assertTrue(true);
@@ -861,39 +921,43 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void queryEscaping() {
-    executeQuery("select from Profile where name like '%\\'Jay%'", database);
+    executeQuery("select from Profile where name like '%\\'Jay%'", session);
   }
 
   @Test
   public void queryWithLimit() {
-    Assert.assertEquals(executeQuery("select from Profile limit 3", database).size(), 3);
+    Assert.assertEquals(executeQuery("select from Profile limit 3", session).size(), 3);
   }
 
   @SuppressWarnings("unused")
   @Test
   public void testRecordNumbers() {
-    long tot = database.countClass("V");
+    session.begin();
+    var tot = session.countClass("V");
 
-    int count = 0;
-    for (EntityImpl record : database.browseClass("V")) {
+    var count = 0;
+    var entityIterator = session.browseClass("V");
+    while (entityIterator.hasNext()) {
+      entityIterator.next();
       count++;
     }
 
     Assert.assertEquals(count, tot);
 
-    Assert.assertTrue(executeQuery("select from V", database).size() >= tot);
+    Assert.assertTrue(executeQuery("select from V", session).size() >= tot);
+    session.commit();
   }
 
   @Test
   public void includeFields() {
     var query = "select expand( roles.include('name') ) from OUser";
 
-    List<EntityImpl> resultset = executeQuery(query);
+    var resultset = executeQuery(query);
 
-    for (EntityImpl d : resultset) {
-      Assert.assertTrue(d.fields() <= 1);
-      if (d.fields() == 1) {
-        Assert.assertTrue(d.containsField("name"));
+    for (var d : resultset) {
+      Assert.assertTrue(d.getPropertyNames().size() <= 1);
+      if (d.getPropertyNames().size() == 1) {
+        Assert.assertTrue(d.hasProperty("name"));
       }
     }
   }
@@ -902,109 +966,127 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void excludeFields() {
     var query = "select expand( roles.exclude('rules') ) from OUser";
 
-    List<EntityImpl> resultset = executeQuery(query);
+    var resultset = executeQuery(query);
 
-    for (EntityImpl d : resultset) {
-      Assert.assertFalse(d.containsField("rules"));
-      Assert.assertTrue(d.containsField("name"));
+    for (var d : resultset) {
+      Assert.assertFalse(d.hasProperty("rules"));
+      Assert.assertTrue(d.hasProperty("name"));
     }
   }
 
   @Test
   public void queryBetween() {
-    List<EntityImpl> result = executeQuery("select * from account where nr between 10 and 20");
+    session.begin();
+    var result = executeQuery("select * from account where nr between 10 and 20");
 
-    for (EntityImpl record : result) {
+    for (var record : result) {
       Assert.assertTrue(
-          ((Integer) record.field("nr")) >= 10 && ((Integer) record.field("nr")) <= 20);
+          ((Integer) record.getProperty("nr")) >= 10 && ((Integer) record.getProperty("nr")) <= 20);
     }
+    session.commit();
   }
 
   @Test
   public void queryParenthesisInStrings() {
 
-    database.begin();
-    database.command("INSERT INTO account (name) VALUES ('test (demo)')");
-    database.commit();
+    session.begin();
+    session.execute("INSERT INTO account (name) VALUES ('test (demo)')");
+    session.commit();
 
-    List<EntityImpl> result = executeQuery("select * from account where name = 'test (demo)'");
+    session.begin();
+    var result = executeQuery("select * from account where name = 'test (demo)'");
 
     Assert.assertEquals(result.size(), 1);
 
-    for (EntityImpl record : result) {
-      Assert.assertEquals(record.field("name"), "test (demo)");
+    for (var record : result) {
+      Assert.assertEquals(record.getProperty("name"), "test (demo)");
     }
+    session.commit();
   }
 
   @Test
   public void queryMathOperators() {
-    List<EntityImpl> result = executeQuery("select * from account where id < 3 + 4");
+    session.begin();
+    var result = executeQuery("select * from account where id < 3 + 4");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl document : result) {
-      Assert.assertTrue(((Number) document.field("id")).intValue() < 3 + 4);
+    for (var document : result) {
+      Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 3 + 4);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 10 - 3");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl document : result) {
-      Assert.assertTrue(((Number) document.field("id")).intValue() < 10 - 3);
+    for (var document : result) {
+      Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 10 - 3);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 3 * 2");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl document : result) {
-      Assert.assertTrue(((Number) document.field("id")).intValue() < 3 * 2);
+    for (var document : result) {
+      Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 3 << 1);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 120 / 20");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl document : result) {
-      Assert.assertTrue(((Number) document.field("id")).intValue() < 120 / 20);
+    for (var document : result) {
+      Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 120 / 20);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id < 27 % 10");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl document : result) {
-      Assert.assertTrue(((Number) document.field("id")).intValue() < 27 % 10);
+    for (var document : result) {
+      Assert.assertTrue(((Number) document.getProperty("id")).intValue() < 27 % 10);
     }
+    session.commit();
 
+    session.begin();
     result = executeQuery("select * from account where id = id * 1");
     Assert.assertFalse(result.isEmpty());
-
-    List<EntityImpl> result2 = executeQuery("select count(*) as tot from account where id >= 0");
-    Assert.assertEquals(result.size(), ((Number) result2.get(0).field("tot")).intValue());
+    var result2 = executeQuery("select count(*) as tot from account where id >= 0");
+    Assert.assertEquals(result.size(), ((Number) result2.getFirst().getProperty("tot")).intValue());
+    session.commit();
   }
 
   @Test
   public void testBetweenWithParameters() {
+    session.begin();
 
-    final List<EntityImpl> result =
+    final var result =
         executeQuery(
             "select * from company where id between ? and ? and salary is not null",
-            database,
+            session,
             4,
             7);
 
     System.out.println("testBetweenWithParameters:");
-    for (EntityImpl d : result) {
+    for (var d : result) {
       System.out.println(d);
     }
 
     Assert.assertEquals(result.size(), 4, "Found: " + result);
 
     final List<Integer> resultsList = new ArrayList<>(Arrays.asList(4, 5, 6, 7));
-    for (final EntityImpl record : result) {
-      Assert.assertTrue(resultsList.remove(record.<Integer>field("id")));
+    for (var record : result) {
+      Assert.assertTrue(resultsList.remove(record.<Integer>getProperty("id")));
     }
+    session.commit();
   }
 
   @Test
   public void testInWithParameters() {
+    session.begin();
 
-    final List<EntityImpl> result =
+    final var result =
         executeQuery(
             "select * from Company where id in [?, ?, ?, ?] and salary is not null",
-            database,
+            session,
             4,
             5,
             6,
@@ -1013,9 +1095,10 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(result.size(), 4);
 
     final List<Integer> resultsList = new ArrayList<>(Arrays.asList(4, 5, 6, 7));
-    for (final EntityImpl record : result) {
-      Assert.assertTrue(resultsList.remove(record.<Integer>field("id")));
+    for (var record : result) {
+      Assert.assertTrue(resultsList.remove(record.<Integer>getProperty("id")));
     }
+    session.commit();
   }
 
   @Test
@@ -1023,7 +1106,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Map<String, Object> params = new HashMap<>();
     params.put("id", 4);
-    final List<EntityImpl> result =
+    final var result =
         executeQuery("select * from Company where id = :id and salary is not null", params);
 
     Assert.assertEquals(result.size(), 1);
@@ -1031,79 +1114,80 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testQueryAsClass() {
+    session.begin();
 
-    List<EntityImpl> result =
+    var result =
         executeQuery("select from Account where addresses.@class in [ 'Address' ]");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("addresses"));
+    for (var d : result) {
+      Assert.assertNotNull(d.getProperty("addresses"));
+      Identifiable identifiable = ((Collection<Identifiable>) d.getProperty("addresses"))
+          .iterator()
+          .next();
+      var transaction = session.getActiveTransaction();
       Assert.assertEquals(
           Objects.requireNonNull(
                   ((EntityImpl)
-                      ((Collection<Identifiable>) d.field("addresses"))
-                          .iterator()
-                          .next()
-                          .getRecord())
+                      transaction.load(identifiable))
                       .getSchemaClass())
               .getName(),
           "Address");
     }
+    session.commit();
   }
 
   @Test
   public void testQueryNotOperator() {
+    final var tx = session.begin();
 
-    List<EntityImpl> result =
+    var result =
         executeQuery("select from Account where not ( addresses.@class in [ 'Address' ] )");
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl d : result) {
-      Assert.assertTrue(
-          d.field("addresses") == null
-              || ((Collection<Identifiable>) d.field("addresses")).isEmpty()
-              || !Objects.requireNonNull(
-                  ((EntityImpl)
-                      ((Collection<Identifiable>) d.field("addresses"))
-                          .iterator()
-                          .next()
-                          .getRecord())
-                      .getSchemaClass())
-              .getName()
-              .equals("Address"));
+    for (var d : result) {
+      final var addresses = d.getLinkList("addresses");
+      if (addresses != null && !addresses.isEmpty()) {
+
+        for (var a : addresses) {
+          Assert.assertNotEquals(tx.loadEntity(a).getSchemaClassName(), "Address");
+        }
+      }
     }
+    session.commit();
   }
 
   public void testParams() {
-    SchemaClass test = database.getMetadata().getSchema().getClass("test");
+    var test = session.getMetadata().getSchema().getClass("test");
     if (test == null) {
-      test = database.getMetadata().getSchema().createClass("test");
-      test.createProperty(database, "f1", PropertyType.STRING);
-      test.createProperty(database, "f2", PropertyType.STRING);
+      test = session.getMetadata().getSchema().createClass("test");
+      test.createProperty("f1", PropertyType.STRING);
+      test.createProperty("f2", PropertyType.STRING);
     }
-    EntityImpl document = new EntityImpl(test);
-    document.field("f1", "a").field("f2", "a");
+    session.begin();
+    var document = ((EntityImpl) session.newEntity(test));
+    document.setProperty("f1", "a");
 
-    database.begin();
-    database.save(document);
-    database.commit();
+    session.commit();
 
+    session.begin();
     Map<String, Object> parameters = new HashMap<>();
     parameters.put("p1", "a");
     executeQuery("select from test where (f1 = :p1)", parameters);
     executeQuery("select from test where f1 = :p1 and f2 = :p1", parameters);
+    session.commit();
   }
 
   @Test
   public void queryInstanceOfOperator() {
-    List<EntityImpl> result = executeQuery("select from Account");
+    var result = executeQuery("select from Account");
 
     Assert.assertFalse(result.isEmpty());
 
-    List<EntityImpl> result2 = executeQuery(
+    var result2 = executeQuery(
         "select from Account where @this instanceof 'Account'");
 
     Assert.assertEquals(result2.size(), result.size());
 
-    List<EntityImpl> result3 = executeQuery(
+    var result3 = executeQuery(
         "select from Account where @class instanceof 'Account'");
 
     Assert.assertEquals(result3.size(), result.size());
@@ -1111,87 +1195,93 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void subQuery() {
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select from Account where name in ( select name from Account where name is not null"
                 + " limit 1 )",
-            database);
+            session);
 
     Assert.assertFalse(result.isEmpty());
   }
 
   @Test
   public void subQueryNoFrom() {
-    List<EntityImpl> result2 =
+    var result2 =
         executeQuery(
-            "select $names let $names = (select EXPAND( addresses.city ) as city from Account where"
+            "select $names let $names = (select EXPAND( addresses.city ) from Account where"
                 + " addresses.size() > 0 )");
 
     Assert.assertFalse(result2.isEmpty());
-    Assert.assertTrue(result2.get(0).field("$names") instanceof Collection<?>);
-    Assert.assertFalse(((Collection<?>) result2.get(0).field("$names")).isEmpty());
+    Assert.assertTrue(result2.getFirst().getProperty("$names") instanceof Collection<?>);
+    Assert.assertFalse(((Collection<?>) result2.getFirst().getProperty("$names")).isEmpty());
   }
 
   @Test
   public void subQueryLetAndIndexedWhere() {
-    List<EntityImpl> result =
+    var result =
         executeQuery("select $now from OUser let $now = eval('42') where name = 'admin'");
 
     Assert.assertEquals(result.size(), 1);
-    Assert.assertNotNull(result.get(0).field("$now"), result.get(0).toString());
+    Assert.assertNotNull(result.getFirst().getProperty("$now"), result.getFirst().toString());
   }
 
   @Test
   public void queryOrderByWithLimit() {
 
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass facClass = schema.getClass("FicheAppelCDI");
+    Schema schema = session.getMetadata().getSchema();
+    var facClass = schema.getClass("FicheAppelCDI");
     if (facClass == null) {
       facClass = schema.createClass("FicheAppelCDI");
     }
-    if (!facClass.existsProperty(database,"date")) {
-      facClass.createProperty(database, "date", PropertyType.DATE);
+    if (!facClass.existsProperty("date")) {
+      facClass.createProperty("date", PropertyType.DATE);
     }
 
-    final Calendar currentYear = Calendar.getInstance();
-    final Calendar oneYearAgo = Calendar.getInstance();
+    final var currentYear = Calendar.getInstance();
+    final var oneYearAgo = Calendar.getInstance();
     oneYearAgo.add(Calendar.YEAR, -1);
 
-    database.begin();
-    EntityImpl doc1 = new EntityImpl(facClass);
-    doc1.field("context", "test");
-    doc1.field("date", currentYear.getTime());
-    doc1.save();
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity(facClass));
+    doc1.setProperty("context", "test");
+    doc1.setProperty("date", currentYear.getTime());
 
-    EntityImpl doc2 = new EntityImpl(facClass);
-    doc2.field("context", "test");
-    doc2.field("date", oneYearAgo.getTime());
-    doc2.save();
-    database.commit();
+    var doc2 = ((EntityImpl) session.newEntity(facClass));
+    doc2.setProperty("context", "test");
+    doc2.setProperty("date", oneYearAgo.getTime());
 
-    List<EntityImpl> result =
+    session.commit();
+
+    session.begin();
+    var result =
         executeQuery(
-            "select * from " + facClass.getName() + " where context = 'test' order by date", 1);
-
-    Calendar smaller = Calendar.getInstance();
-    smaller.setTime(result.get(0).field("date", Date.class));
-    Assert.assertEquals(smaller.get(Calendar.YEAR), oneYearAgo.get(Calendar.YEAR));
-
-    result =
-        executeQuery(
-            "select * from " + facClass.getName() + " where context = 'test' order by date DESC",
+            "select * from " + facClass.getName() + " where context = 'test' order by date",
             1);
 
-    Calendar bigger = Calendar.getInstance();
-    bigger.setTime(result.get(0).field("date", Date.class));
+    var smaller = Calendar.getInstance();
+    smaller.setTime(result.getFirst().asEntityOrNull().getProperty("date"));
+    Assert.assertEquals(smaller.get(Calendar.YEAR), oneYearAgo.get(Calendar.YEAR));
+    session.commit();
+
+    session.begin();
+    result =
+        executeQuery(
+            "select * from " + facClass.getName()
+                + " where context = 'test' order by date DESC",
+            1);
+
+    var bigger = Calendar.getInstance();
+    bigger.setTime(result.getFirst().getProperty("date"));
     Assert.assertEquals(bigger.get(Calendar.YEAR), currentYear.get(Calendar.YEAR));
+    session.commit();
   }
 
   @Test
   public void queryWithTwoRidInWhere() {
-    int clusterId = database.getClusterIdByName("profile");
+    session.begin();
+    var collectionId = session.getCollectionIdByName("profile");
 
-    List<Long> positions = getValidPositions(clusterId);
+    var positions = getValidPositions(collectionId);
 
     final long minPos;
     final long maxPos;
@@ -1203,138 +1293,131 @@ public class SQLSelectTest extends AbstractSelectTest {
       maxPos = positions.get(25);
     }
 
-    List<EntityImpl> resultset =
+    var resultset =
         executeQuery(
             "select @rid.trim() as oid, name from Profile where (@rid in [#"
-                + clusterId
+                + collectionId
                 + ":"
                 + positions.get(5)
                 + "] or @rid in [#"
-                + clusterId
+                + collectionId
                 + ":"
                 + positions.get(25)
                 + "]) AND @rid > ? LIMIT 10000",
-            database,
-            new RecordId(clusterId, minPos));
+            session,
+            new RecordId(collectionId, minPos));
 
     Assert.assertEquals(resultset.size(), 1);
 
-    Assert.assertEquals(resultset.get(0).field("oid"),
-        new RecordId(clusterId, maxPos).toString());
+    Assert.assertEquals(resultset.getFirst().getProperty("oid"),
+        new RecordId(collectionId, maxPos).toString());
+    session.commit();
   }
 
   @Test
   public void testSelectFromListParameter() {
-    SchemaClass placeClass = database.getMetadata().getSchema().createClass("Place", 1);
-    placeClass.createProperty(database, "id", PropertyType.STRING);
-    placeClass.createProperty(database, "descr", PropertyType.STRING);
-    placeClass.createIndex(database, "place_id_index", INDEX_TYPE.UNIQUE, "id");
+    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
+    placeClass.createProperty("id", PropertyType.STRING);
+    placeClass.createProperty("descr", PropertyType.STRING);
+    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
 
-    EntityImpl odoc = new EntityImpl("Place");
-    odoc.field("id", "adda");
-    odoc.field("descr", "Adda");
+    session.begin();
+    var odoc = ((EntityImpl) session.newEntity("Place"));
+    odoc.setProperty("id", "adda");
+    odoc.setProperty("descr", "Adda");
 
-    database.begin();
-    database.save(odoc);
-    database.commit();
+    session.commit();
 
-    odoc = new EntityImpl("Place");
-    odoc.field("id", "lago_di_como");
-    odoc.field("descr", "Lago di Como");
+    session.begin();
+    odoc = ((EntityImpl) session.newEntity("Place"));
+    odoc.setProperty("id", "lago_di_como");
+    odoc.setProperty("descr", "Lago di Como");
 
-    database.begin();
-    database.save(odoc);
-    database.commit();
+    session.commit();
 
+    session.begin();
     Map<String, Object> params = new HashMap<>();
     List<String> inputValues = new ArrayList<>();
     inputValues.add("lago_di_como");
     inputValues.add("lecco");
     params.put("place", inputValues);
 
-    List<EntityImpl> result = executeQuery("select from place where id in :place", database,
+    var result = executeQuery("select from place where id in :place", session,
         params);
-    Assert.assertEquals(1, result.size());
+    Assert.assertEquals(result.size(), 1);
+    session.commit();
 
-    database.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSchema().dropClass("Place");
   }
 
   @Test
   public void testSelectRidFromListParameter() {
-    SchemaClass placeClass = database.getMetadata().getSchema().createClass("Place", 1);
-    placeClass.createProperty(database, "id", PropertyType.STRING);
-    placeClass.createProperty(database, "descr", PropertyType.STRING);
-    placeClass.createIndex(database, "place_id_index", INDEX_TYPE.UNIQUE, "id");
+    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
+    placeClass.createProperty("id", PropertyType.STRING);
+    placeClass.createProperty("descr", PropertyType.STRING);
+    placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
 
     List<RID> inputValues = new ArrayList<>();
 
-    EntityImpl odoc = new EntityImpl("Place");
-    odoc.field("id", "adda");
-    odoc.field("descr", "Adda");
-
-    database.begin();
-    database.save(odoc);
-    database.commit();
+    session.begin();
+    var odoc = ((EntityImpl) session.newEntity("Place"));
+    odoc.setProperty("id", "adda");
+    odoc.setProperty("descr", "Adda");
 
     inputValues.add(odoc.getIdentity());
 
-    odoc = new EntityImpl("Place");
-    odoc.field("id", "lago_di_como");
-    odoc.field("descr", "Lago di Como");
+    odoc = ((EntityImpl) session.newEntity("Place"));
+    odoc.setProperty("id", "lago_di_como");
+    odoc.setProperty("descr", "Lago di Como");
 
-    database.begin();
-    database.save(odoc);
-    database.commit();
+    session.commit();
 
+    session.begin();
     inputValues.add(odoc.getIdentity());
 
     Map<String, Object> params = new HashMap<>();
     params.put("place", inputValues);
 
-    List<EntityImpl> result =
-        executeQuery("select from place where @rid in :place", database, params);
-    Assert.assertEquals(2, result.size());
+    var result =
+        executeQuery("select from place where @rid in :place", session, params);
+    Assert.assertEquals(result.size(), 2);
+    session.commit();
 
-    database.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSchema().dropClass("Place");
   }
 
   @Test
   public void testSelectRidInList() {
-    SchemaClass placeClass = database.getMetadata().getSchema().createClass("Place", 1);
-    database.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
+    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
+    session.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
 
-    EntityImpl firstPlace = new EntityImpl("Place");
+    session.begin();
+    var firstPlace = ((EntityImpl) session.newEntity("Place"));
+    session.commit();
 
-    database.begin();
-    database.save(firstPlace);
-    database.commit();
+    session.begin();
+    var secondPlace = ((EntityImpl) session.newEntity("Place"));
+    session.commit();
 
-    EntityImpl secondPlace = new EntityImpl("Place");
-
-    database.begin();
-    database.save(secondPlace);
-    database.commit();
-
-    EntityImpl famousPlace = new EntityImpl("FamousPlace");
-
-    database.begin();
-    database.save(famousPlace);
-    database.commit();
+    session.begin();
+    var famousPlace = ((EntityImpl) session.newEntity("FamousPlace"));
+    session.commit();
 
     RID secondPlaceId = secondPlace.getIdentity();
     RID famousPlaceId = famousPlace.getIdentity();
     // if one of these two asserts fails, the test will be meaningless.
-    Assert.assertTrue(secondPlaceId.getClusterId() < famousPlaceId.getClusterId());
-    Assert.assertTrue(secondPlaceId.getClusterPosition() > famousPlaceId.getClusterPosition());
+    Assert.assertTrue(secondPlaceId.getCollectionId() < famousPlaceId.getCollectionId());
+    Assert.assertTrue(
+        secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select from Place where @rid in [" + secondPlaceId + "," + famousPlaceId + "]",
-            database);
-    Assert.assertEquals(2, result.size());
+            session);
+    Assert.assertEquals(result.size(), 2);
 
-    database.getMetadata().getSchema().dropClass("FamousPlace");
-    database.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSchema().dropClass("FamousPlace");
+    session.getMetadata().getSchema().dropClass("Place");
   }
 
   @Test
@@ -1342,108 +1425,108 @@ public class SQLSelectTest extends AbstractSelectTest {
     Map<String, Object> params = new HashMap<>();
     params.put("id", 4);
 
-    final List<EntityImpl> result =
+    final var result =
         executeQuery(
-            "select * from company where id = :id and salary is not null", database, params);
+            "select * from company where id = :id and salary is not null", session, params);
 
     Assert.assertEquals(result.size(), 1);
   }
 
   public void queryOrderByRidDesc() {
-    List<EntityImpl> result = executeQuery("select from OUser order by @rid desc", database);
+    var result = executeQuery("select from OUser order by @rid desc", session);
 
     Assert.assertFalse(result.isEmpty());
 
     RID lastRid = null;
-    for (EntityImpl d : result) {
-      RID rid = d.getIdentity();
-
+    for (var d : result) {
+      var rid = d.getIdentity();
       if (lastRid != null) {
         Assert.assertTrue(rid.compareTo(lastRid) < 0);
       }
       lastRid = rid;
     }
 
-    EntityImpl res = executeQuery("explain select from OUser order by @rid desc").get(0);
-    Assert.assertNull(res.field("orderByElapsed"));
+    var res = executeQuery("explain select from OUser order by @rid desc").getFirst();
+    Assert.assertNull(res.getProperty("orderByElapsed"));
   }
 
   public void testQueryParameterNotPersistent() {
-    EntityImpl doc = new EntityImpl();
-    doc.field("test", "test");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("test", "test");
     executeQuery("select from OUser where @rid = ?", doc);
     Assert.assertTrue(doc.isDirty());
+    session.commit();
   }
 
   public void testQueryLetExecutedOnce() {
-    final List<EntityImpl> result =
+    session.begin();
+    final var result =
         executeQuery(
             "select name, $counter as counter from OUser let $counter = eval(\"$counter +"
                 + " 1\")");
 
     Assert.assertFalse(result.isEmpty());
-    int i = 1;
-    for (Identifiable r : result) {
-      Assert.assertEquals(((EntityImpl) r.getRecord()).<Object>field("counter"), 1);
+    for (var r : result) {
+      Assert.assertEquals(r.<Object>getProperty("counter"), 1);
     }
+    session.commit();
   }
 
   @Test
-  public void testMultipleClustersWithPagination() {
-    final SchemaClass cls = database.getMetadata().getSchema()
-        .createClass("PersonMultipleClusters");
-    cls.addCluster(database, "PersonMultipleClusters_1");
-    cls.addCluster(database, "PersonMultipleClusters_2");
-    cls.addCluster(database, "PersonMultipleClusters_3");
-    cls.addCluster(database, "PersonMultipleClusters_4");
-
+  public void testMultipleCollectionsWithPagination() {
+    session.getMetadata().getSchema().createClass("PersonMultipleCollections");
     try {
       Set<String> names =
           new HashSet<>(Arrays.asList("Luca", "Jill", "Sara", "Tania", "Gianluca", "Marco"));
-      for (String n : names) {
-        database.begin();
-        new EntityImpl("PersonMultipleClusters").field("First", n).save();
-        database.commit();
+      for (var n : names) {
+        session.begin();
+        EntityImpl entity = ((EntityImpl) session.newEntity("PersonMultipleCollections"));
+        entity.setProperty("First", n);
+
+        session.commit();
       }
 
-      var query = "select from PersonMultipleClusters where @rid > ? limit 2";
-      List<EntityImpl> resultset = executeQuery(query, new ChangeableRecordId());
+      session.begin();
+      var query = "select from PersonMultipleCollections where @rid > ? limit 2";
+      var resultset = executeQuery(query, new ChangeableRecordId());
 
       while (!resultset.isEmpty()) {
-        final RID last = resultset.get(resultset.size() - 1).getIdentity();
+        final var last = resultset.getLast().getIdentity();
 
-        for (EntityImpl personDoc : resultset) {
-          Assert.assertTrue(names.contains(personDoc.<String>field("First")));
-          Assert.assertTrue(names.remove(personDoc.<String>field("First")));
+        for (var personDoc : resultset) {
+          Assert.assertTrue(names.contains(personDoc.<String>getProperty("First")));
+          Assert.assertTrue(names.remove(personDoc.<String>getProperty("First")));
         }
 
         resultset = executeQuery(query, last);
       }
 
       Assert.assertTrue(names.isEmpty());
+      session.commit();
 
     } finally {
-      database.getMetadata().getSchema().dropClass("PersonMultipleClusters");
+      session.getMetadata().getSchema().dropClass("PersonMultipleCollections");
     }
   }
 
   @Test
   public void testOutFilterInclude() {
-    Schema schema = database.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
     schema.createClass("TestOutFilterInclude", schema.getClass("V"));
-    database.command("create class linkedToOutFilterInclude extends E").close();
+    session.execute("create class linkedToOutFilterInclude extends E").close();
 
-    database.begin();
-    database.command("insert into TestOutFilterInclude content { \"name\": \"one\" }").close();
-    database.command("insert into TestOutFilterInclude content { \"name\": \"two\" }").close();
-    database
-        .command(
+    session.begin();
+    session.execute("insert into TestOutFilterInclude content { \"name\": \"one\" }").close();
+    session.execute("insert into TestOutFilterInclude content { \"name\": \"two\" }").close();
+    session
+        .execute(
             "create edge linkedToOutFilterInclude from (select from TestOutFilterInclude where name"
                 + " = 'one') to (select from TestOutFilterInclude where name = 'two')")
         .close();
-    database.commit();
+    session.commit();
 
-    final List<EntityImpl> result =
+    final var result =
         executeQuery(
             "select"
                 + " expand(out('linkedToOutFilterInclude')[@class='TestOutFilterInclude'].include('@rid'))"
@@ -1451,73 +1534,50 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    for (Identifiable r : result) {
-      Assert.assertNull(((EntityImpl) r.getRecord()).field("name"));
+    for (var r : result) {
+      Assert.assertNull(r.getProperty("name"));
     }
   }
 
-  private List<Long> getValidPositions(int clusterId) {
+  private List<Long> getValidPositions(int collectionId) {
     final List<Long> positions = new ArrayList<>();
 
-    final RecordIteratorCluster<EntityImpl> iteratorCluster =
-        database.browseCluster(database.getClusterNameById(clusterId));
+    final RecordIteratorCollection<EntityImpl> iteratorCollection =
+        session.browseCollection(session.getCollectionNameById(collectionId));
 
-    for (int i = 0; i < 100; i++) {
-      if (!iteratorCluster.hasNext()) {
+    for (var i = 0; i < 100; i++) {
+      if (!iteratorCollection.hasNext()) {
         break;
       }
 
-      EntityImpl doc = iteratorCluster.next();
-      positions.add(doc.getIdentity().getClusterPosition());
+      var doc = iteratorCollection.next();
+      positions.add(doc.getIdentity().getCollectionPosition());
     }
     return positions;
   }
 
   @Test
-  public void testBinaryClusterSelect() {
-    database.command("create blob cluster binarycluster").close();
-    database.reload();
-    Blob bytes = new RecordBytes(new byte[]{1, 2, 3});
-
-    database.begin();
-    database.save(bytes, "binarycluster");
-    database.commit();
-
-    ResultSet result = database.query("select from cluster:binarycluster");
-
-    Assert.assertEquals(result.stream().count(), 1);
-
-    database.begin();
-    database.command("delete from cluster:binarycluster").close();
-    database.commit();
-
-    result = database.query("select from cluster:binarycluster");
-
-    Assert.assertEquals(result.stream().count(), 0);
-  }
-
-  @Test
   public void testExpandSkip() {
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    final SchemaClass cls = schema.createClass("TestExpandSkip", v);
-    cls.createProperty(database, "name", PropertyType.STRING);
-    cls.createIndex(database, "TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    final var cls = schema.createClass("TestExpandSkip", v);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("TestExpandSkip.name", INDEX_TYPE.UNIQUE, "name");
 
-    database.begin();
-    database.command("CREATE VERTEX TestExpandSkip set name = '1'").close();
-    database.command("CREATE VERTEX TestExpandSkip set name = '2'").close();
-    database.command("CREATE VERTEX TestExpandSkip set name = '3'").close();
-    database.command("CREATE VERTEX TestExpandSkip set name = '4'").close();
+    session.begin();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '1'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '2'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '3'").close();
+    session.execute("CREATE VERTEX TestExpandSkip set name = '4'").close();
 
-    database
-        .command(
+    session
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM TestExpandSkip WHERE name = '1') to (SELECT FROM"
                 + " TestExpandSkip WHERE name <> '1')")
         .close();
-    database.commit();
+    session.commit();
 
-    ResultSet result = database.query(
+    var result = session.query(
         "select expand(out()) from TestExpandSkip where name = '1'");
 
     Assert.assertEquals(result.stream().count(), 3);
@@ -1525,59 +1585,59 @@ public class SQLSelectTest extends AbstractSelectTest {
     Map<Object, Object> params = new HashMap<>();
     params.put("values", Arrays.asList("2", "3", "antani"));
     result =
-        database.query(
+        session.query(
             "select expand(out()[name in :values]) from TestExpandSkip where name = '1'", params);
     Assert.assertEquals(result.stream().count(), 2);
 
-    result = database.query("select expand(out()) from TestExpandSkip where name = '1' skip 1");
+    result = session.query("select expand(out()) from TestExpandSkip where name = '1' skip 1");
 
     Assert.assertEquals(result.stream().count(), 2);
 
-    result = database.query("select expand(out()) from TestExpandSkip where name = '1' skip 2");
+    result = session.query("select expand(out()) from TestExpandSkip where name = '1' skip 2");
     Assert.assertEquals(result.stream().count(), 1);
 
-    result = database.query("select expand(out()) from TestExpandSkip where name = '1' skip 3");
+    result = session.query("select expand(out()) from TestExpandSkip where name = '1' skip 3");
     Assert.assertEquals(result.stream().count(), 0);
 
     result =
-        database.query("select expand(out()) from TestExpandSkip where name = '1' skip 1 limit 1");
+        session.query("select expand(out()) from TestExpandSkip where name = '1' skip 1 limit 1");
     Assert.assertEquals(result.stream().count(), 1);
   }
 
   @Test
   public void testPolymorphicEdges() {
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass e = schema.getClass("E");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var e = schema.getClass("E");
     schema.createClass("TestPolymorphicEdges_V", v);
-    final SchemaClass e1 = schema.createClass("TestPolymorphicEdges_E1", e);
+    final var e1 = schema.createClass("TestPolymorphicEdges_E1", e);
     schema.createClass("TestPolymorphicEdges_E2", e1);
 
-    database.begin();
-    database.command("CREATE VERTEX TestPolymorphicEdges_V set name = '1'").close();
-    database.command("CREATE VERTEX TestPolymorphicEdges_V set name = '2'").close();
-    database.command("CREATE VERTEX TestPolymorphicEdges_V set name = '3'").close();
+    session.begin();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '1'").close();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '2'").close();
+    session.execute("CREATE VERTEX TestPolymorphicEdges_V set name = '3'").close();
 
-    database
-        .command(
+    session
+        .execute(
             "CREATE EDGE TestPolymorphicEdges_E1 FROM (SELECT FROM TestPolymorphicEdges_V WHERE"
                 + " name = '1') to (SELECT FROM TestPolymorphicEdges_V WHERE name = '2')")
         .close();
-    database
-        .command(
+    session
+        .execute(
             "CREATE EDGE TestPolymorphicEdges_E2 FROM (SELECT FROM TestPolymorphicEdges_V WHERE"
                 + " name = '1') to (SELECT FROM TestPolymorphicEdges_V WHERE name = '3')")
         .close();
-    database.commit();
+    session.commit();
 
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             "select expand(out('TestPolymorphicEdges_E1')) from TestPolymorphicEdges_V where name ="
                 + " '1'");
     Assert.assertEquals(result.stream().count(), 2);
 
     result =
-        database.query(
+        session.query(
             "select expand(out('TestPolymorphicEdges_E2')) from TestPolymorphicEdges_V where name ="
                 + " '1' ");
     Assert.assertEquals(result.stream().count(), 1);
@@ -1585,23 +1645,23 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testSizeOfLink() {
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
     schema.createClass("TestSizeOfLink", v);
 
-    database.begin();
-    database.command("CREATE VERTEX TestSizeOfLink set name = '1'").close();
-    database.command("CREATE VERTEX TestSizeOfLink set name = '2'").close();
-    database.command("CREATE VERTEX TestSizeOfLink set name = '3'").close();
-    database
-        .command(
+    session.begin();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '1'").close();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '2'").close();
+    session.execute("CREATE VERTEX TestSizeOfLink set name = '3'").close();
+    session
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM TestSizeOfLink WHERE name = '1') to (SELECT FROM"
                 + " TestSizeOfLink WHERE name <> '1')")
         .close();
-    database.commit();
+    session.commit();
 
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             " select from (select from TestSizeOfLink where name = '1') where out()[name=2].size()"
                 + " > 0");
     Assert.assertEquals(result.stream().count(), 1);
@@ -1609,35 +1669,35 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testEmbeddedMapAndDotNotation() {
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
     schema.createClass("EmbeddedMapAndDotNotation", v);
 
-    database.begin();
-    database.command("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
-    database
-        .command(
+    session.begin();
+    session.execute("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
+    session
+        .execute(
             "CREATE VERTEX EmbeddedMapAndDotNotation set data = {\"bar\": \"baz\", \"quux\": 1},"
                 + " name = 'bar'")
         .close();
-    database
-        .command(
+    session
+        .execute(
             "CREATE EDGE E FROM (SELECT FROM EmbeddedMapAndDotNotation WHERE name = 'foo') to"
                 + " (SELECT FROM EmbeddedMapAndDotNotation WHERE name = 'bar')")
         .close();
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             " select out().data as result from (select from EmbeddedMapAndDotNotation where"
                 + " name = 'foo')");
     Assert.assertEquals(result.size(), 1);
-    EntityImpl doc = result.get(0);
+    var doc = result.getFirst();
     Assert.assertNotNull(doc);
     @SuppressWarnings("rawtypes")
-    List list = doc.field("result");
+    List list = doc.getProperty("result");
     Assert.assertEquals(list.size(), 1);
-    Object first = list.get(0);
+    var first = list.getFirst();
     Assert.assertTrue(first instanceof Map);
     //noinspection rawtypes
     Assert.assertEquals(((Map) first).get("bar"), "baz");
@@ -1645,15 +1705,15 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testLetWithQuotedValue() {
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
     schema.createClass("LetWithQuotedValue", v);
-    database.begin();
-    database.command("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
-    database.commit();
+    session.begin();
+    session.execute("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();
+    session.commit();
 
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             " select expand($a) let $a = (select from LetWithQuotedValue where name ="
                 + " \"\\\"foo\\\"\")");
     Assert.assertEquals(result.stream().count(), 1);
@@ -1663,25 +1723,25 @@ public class SQLSelectTest extends AbstractSelectTest {
   public void testNamedParams() {
     // issue #7236
 
-    database.command("create class testNamedParams extends V").close();
-    database.command("create class testNamedParams_permission extends V").close();
-    database.command("create class testNamedParams_HasPermission extends E").close();
+    session.execute("create class testNamedParams extends V").close();
+    session.execute("create class testNamedParams_permission extends V").close();
+    session.execute("create class testNamedParams_HasPermission extends E").close();
 
-    database.begin();
-    database.command("insert into testNamedParams_permission set type = ['USER']").close();
-    database.command("insert into testNamedParams set login = 20").close();
-    database
-        .command(
+    session.begin();
+    session.execute("insert into testNamedParams_permission set type = ['USER']").close();
+    session.execute("insert into testNamedParams set login = 20").close();
+    session
+        .execute(
             "CREATE EDGE testNamedParams_HasPermission from (select from testNamedParams) to"
                 + " (select from testNamedParams_permission)")
         .close();
-    database.commit();
+    session.commit();
 
     Map<String, Object> params = new HashMap<>();
     params.put("key", 10);
     params.put("permissions", new String[]{"USER"});
     params.put("limit", 1);
-    List<EntityImpl> results =
+    var results =
         executeQuery(
             "SELECT *, out('testNamedParams_HasPermission').type as permissions FROM"
                 + " testNamedParams WHERE login >= :key AND"
@@ -1693,20 +1753,18 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void selectLikeFromSet() {
-    String vertexClass = "SetContainer";
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    var vertexClass = "SetContainer";
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
     var clazz = schema.createClass(vertexClass, v);
-    database.begin();
-    var container1 = database.newVertex(clazz);
-    container1.setProperty("data", Set.of("hello", "world", "baobab"));
-    container1.save();
-    var container2 = database.newVertex(vertexClass);
-    container2.setProperty("data", Set.of("1hello", "2world", "baobab"));
-    container2.save();
-    database.commit();
+    session.begin();
+    var container1 = session.newVertex(clazz);
+    container1.setProperty("data", session.newEmbeddedSet(Set.of("hello", "world", "baobab")));
+    var container2 = session.newVertex(vertexClass);
+    container2.setProperty("data", session.newEmbeddedSet(Set.of("1hello", "2world", "baobab")));
+    session.commit();
 
-    List<EntityImpl> results = executeQuery("SELECT FROM SetContainer WHERE data LIKE 'wor%'");
+    var results = executeQuery("SELECT FROM SetContainer WHERE data LIKE 'wor%'");
     Assert.assertEquals(results.size(), 1);
 
     results = executeQuery("SELECT FROM SetContainer WHERE data LIKE 'bobo%'");
@@ -1718,49 +1776,23 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void selectLikeFromList() {
-    String vertexClass = "ListContainer";
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    var vertexClass = "ListContainer";
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
     var clazz = schema.createClass(vertexClass, v);
-    database.begin();
-    var container1 = database.newVertex(clazz);
-    container1.setProperty("data", List.of("hello", "world", "baobab"));
-    container1.save();
-    var container2 = database.newVertex(vertexClass);
-    container2.setProperty("data", List.of("1hello", "2world", "baobab"));
-    container2.save();
-    database.commit();
-    List<EntityImpl> results = executeQuery("SELECT FROM ListContainer WHERE data LIKE 'wor%'");
+    session.begin();
+    var container1 = session.newVertex(clazz);
+    container1.setProperty("data", session.newEmbeddedList(List.of("hello", "world", "baobab")));
+    var container2 = session.newVertex(vertexClass);
+    container2.setProperty("data", session.newEmbeddedList(List.of("1hello", "2world", "baobab")));
+    session.commit();
+    var results = executeQuery("SELECT FROM ListContainer WHERE data LIKE 'wor%'");
     Assert.assertEquals(results.size(), 1);
 
     results = executeQuery("SELECT FROM ListContainer WHERE data LIKE 'bobo%'");
     Assert.assertEquals(results.size(), 0);
 
     results = executeQuery("SELECT FROM ListContainer WHERE data LIKE '%hell%'");
-    Assert.assertEquals(results.size(), 2);
-  }
-
-  @Test
-  public void selectLikeFromArray() {
-    String vertexClass = "ArrayContainer";
-    Schema schema = database.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    var clazz = schema.createClass(vertexClass, v);
-    database.begin();
-    var container1 = database.newVertex(clazz);
-    container1.setProperty("data", new String[]{"hello", "world", "baobab"});
-    container1.save();
-    var container2 = database.newVertex(vertexClass);
-    container2.setProperty("data", new String[]{"1hello", "2world", "baobab"});
-    container2.save();
-    database.commit();
-    List<EntityImpl> results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE 'wor%'");
-    Assert.assertEquals(results.size(), 1);
-
-    results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE 'bobo%'");
-    Assert.assertEquals(results.size(), 0);
-
-    results = executeQuery("SELECT FROM ArrayContainer WHERE data LIKE '%hell%'");
     Assert.assertEquals(results.size(), 2);
   }
 }

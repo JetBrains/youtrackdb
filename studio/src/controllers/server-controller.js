@@ -107,7 +107,7 @@ ServerModule.controller("MultipleServerController", [
   "$location",
   "$routeParams",
   "$timeout",
-  "Cluster",
+  "Collection",
   "Profiler",
   "$q",
   "AgentService",
@@ -117,12 +117,12 @@ ServerModule.controller("MultipleServerController", [
     $location,
     $routeParams,
     $timeout,
-    Cluster,
+    Collection,
     Profiler,
     $q,
     AgentService
   ) {
-    $scope.clustered = false;
+    $scope.collectioned = false;
 
     $scope.polling = true;
     $scope.agent = true;
@@ -180,12 +180,12 @@ ServerModule.controller("MultipleServerController", [
       return found;
     };
     var multiplePoll = function() {
-      Cluster.stats()
+      Collection.stats()
         .then(function(data) {
-          var keys = Object.keys(data.clusterStats);
+          var keys = Object.keys(data.collectionStats);
           var tmpServers = [];
           for (var i in keys) {
-            var s = data.clusterStats[keys[i]];
+            var s = data.collectionStats[keys[i]];
             s.name = keys[i];
             s.status = "ONLINE";
             tmpServers.push(s);
@@ -238,13 +238,13 @@ ServerModule.controller("MultipleServerController", [
         $scope.agent = false;
         $scope.servers.push({ status: "AGENT NOT FOUND" });
       } else {
-        Cluster.stats()
+        Collection.stats()
           .then(function(data) {
-            var keys = Object.keys(data.clusterStats);
+            var keys = Object.keys(data.collectionStats);
             $scope.servers = [];
 
             for (var i in keys) {
-              var s = data.clusterStats[keys[i]];
+              var s = data.collectionStats[keys[i]];
               s.name = keys[i];
               s.status = "ONLINE";
               $scope.servers.push(s);
@@ -478,21 +478,21 @@ ServerModule.controller("ServerConnectionController", [
   "$scope",
   "$filter",
   "NgTableParams",
-  "Cluster",
+  "Collection",
   "AgentService",
   "ServerApi",
-  function($scope, $filter, NgTableParams, Cluster, AgentService, ServerApi) {
+  function($scope, $filter, NgTableParams, Collection, AgentService, ServerApi) {
     $scope.init = false;
 
     if (AgentService.active) {
       $scope.killConnection = function(n) {
-        Cluster.killConnection($scope.server, n.connectionId).then(function() {
+        Collection.killConnection($scope.server, n.connectionId).then(function() {
           var index = $scope.connections.indexOf(n);
           $scope.connections.splice(index, 1);
         });
       };
       $scope.interruptConnection = function(n) {
-        Cluster.interruptConnection($scope.server, n.connectionId).then(
+        Collection.interruptConnection($scope.server, n.connectionId).then(
           function() {
             var index = $scope.connections.indexOf(n);
             $scope.connections.splice(index, 1);
@@ -501,7 +501,7 @@ ServerModule.controller("ServerConnectionController", [
       };
 
       $scope.$watch("server", function(server) {
-        Cluster.infoServer(server)
+        Collection.infoServer(server)
           .then(function(info) {
             $scope.connections = info.connections;
           })
@@ -536,7 +536,7 @@ ServerModule.controller("LogsController", [
   "$routeParams",
   "CommandLogApi",
   "Spinner",
-  "Cluster",
+  "Collection",
   "AgentService",
   function(
     $scope,
@@ -545,7 +545,7 @@ ServerModule.controller("LogsController", [
     $routeParams,
     CommandLogApi,
     Spinner,
-    Cluster,
+    Collection,
     AgentService
   ) {
     $scope.countPage = 1000;
@@ -565,7 +565,7 @@ ServerModule.controller("LogsController", [
     $scope.selectedType = undefined;
     $scope.selectedFile = "LAST";
 
-    //Cluster.node().then(function (data) {
+    //Collection.node().then(function (data) {
     //  $scope.servers = data.members;
     //  if ($scope.servers.length > 0) {
     //    $scope.server = $scope.servers[0]

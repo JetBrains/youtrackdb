@@ -19,9 +19,9 @@
 
 package com.jetbrains.youtrack.db.internal.common.util;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 
 /**
  * Provides various utilities related to memory management and configuration.
@@ -34,7 +34,7 @@ public class Memory {
    * if JVM reports {@link Long#MAX_VALUE unlimited memory}.
    */
   public static long getCappedRuntimeMaxMemory(long unlimitedCap) {
-    final long jvmMaxMemory = Runtime.getRuntime().maxMemory();
+    final var jvmMaxMemory = Runtime.getRuntime().maxMemory();
     return jvmMaxMemory == Long.MAX_VALUE ? unlimitedCap : jvmMaxMemory;
   }
 
@@ -52,9 +52,9 @@ public class Memory {
    * invalid.
    */
   public static void checkCacheMemoryConfiguration() {
-    final long maxHeapSize = Runtime.getRuntime().maxMemory();
-    final long maxCacheSize = getMaxCacheMemorySize();
-    final Native.MemoryLimitResult physicalMemory = Native.instance().getMemoryLimit(false);
+    final var maxHeapSize = Runtime.getRuntime().maxMemory();
+    final var maxCacheSize = getMaxCacheMemorySize();
+    final var physicalMemory = Native.instance().getMemoryLimit(false);
 
     if (maxHeapSize != Long.MAX_VALUE
         && physicalMemory != null
@@ -72,7 +72,7 @@ public class Memory {
                   + physicalMemory.memoryLimit
                   + " bytes). That may cause out of memory errors, please tune the configuration"
                   + " up. Use the -Xmx JVM option to lower the JVM maximum heap memory size or"
-                  + " storage.diskCache.bufferSize YouTrackDB option to lower memory requirements of"
+                  + " youtrackdb.storage.diskCache.bufferSize YouTrackDB option to lower memory requirements of"
                   + " the cache.");
     }
   }
@@ -86,9 +86,9 @@ public class Memory {
    *       <ul/>
    */
   public static void fixCommonConfigurationProblems() {
-    long diskCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong();
+    var diskCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong();
 
-    final int max32BitCacheSize = 512;
+    final var max32BitCacheSize = 512;
     if (getJavaBitWidth() == 32 && diskCacheSize > max32BitCacheSize) {
       LogManager.instance()
           .info(
@@ -103,8 +103,8 @@ public class Memory {
   private static int getJavaBitWidth() {
     // Figure out whether bit width of running JVM
     // Most of JREs support property "sun.arch.data.model" which is exactly what we need here
-    String dataModel = System.getProperty("sun.arch.data.model", "64"); // By default assume 64bit
-    int size = 64;
+    var dataModel = System.getProperty("sun.arch.data.model", "64"); // By default assume 64bit
+    var size = 64;
     try {
       size = Integer.parseInt(dataModel);
     } catch (NumberFormatException ignore) {

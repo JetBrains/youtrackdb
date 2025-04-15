@@ -1,83 +1,78 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import javax.annotation.Nonnull;
 
 /**
  *
  */
 public class LiveQueryClientListener {
 
-  private final DatabaseSession database;
+  @Nonnull
+  private final DatabasePoolInternal pool;
   private final LiveQueryResultListener listener;
 
-  public LiveQueryClientListener(DatabaseSession database, LiveQueryResultListener listener) {
-    this.database = database;
+  public LiveQueryClientListener(@Nonnull DatabasePoolInternal pool,
+      LiveQueryResultListener listener) {
+    this.pool = pool;
     this.listener = listener;
   }
 
   /**
    * Return true if the push request require an unregister
-   *
-   * @param pushRequest
-   * @return
    */
   public boolean onEvent(LiveQueryPushRequest pushRequest) {
-    DatabaseSessionInternal old = DatabaseRecordThreadLocal.instance().getIfDefined();
-    try {
-      database.activateOnCurrentThread();
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
       if (pushRequest.getStatus() == LiveQueryPushRequest.ERROR) {
-        onError(pushRequest.getErrorCode().newException(pushRequest.getErrorMessage(), null));
+        onError(pushRequest.getErrorCode().newException(pushRequest.getErrorMessage(), null),
+            session);
         return true;
       } else {
-        for (LiveQueryResult result : pushRequest.getEvents()) {
+        for (var result : pushRequest.getEvents()) {
           switch (result.getEventType()) {
             case LiveQueryResult.CREATE_EVENT:
-              listener.onCreate(database, result.getCurrentValue());
+              listener.onCreate(session, result.getCurrentValue().detach());
               break;
             case LiveQueryResult.UPDATE_EVENT:
-              listener.onUpdate(database, result.getOldValue(), result.getCurrentValue());
+              listener.onUpdate(session, result.getOldValue(), result.getCurrentValue().detach());
               break;
             case LiveQueryResult.DELETE_EVENT:
-              listener.onDelete(database, result.getCurrentValue());
+              listener.onDelete(session, result.getCurrentValue().detach());
               break;
           }
         }
         if (pushRequest.getStatus() == LiveQueryPushRequest.END) {
-          onEnd();
+          onEnd(session);
           return true;
         }
       }
       return false;
-    } finally {
-      DatabaseRecordThreadLocal.instance().set(old);
     }
+  }
+
+  public void onError(BaseException e, DatabaseSessionInternal session) {
+    listener.onError(session, e);
   }
 
   public void onError(BaseException e) {
-    DatabaseSessionInternal old = DatabaseRecordThreadLocal.instance().getIfDefined();
-    try {
-      database.activateOnCurrentThread();
-      listener.onError(database, e);
-      database.close();
-    } finally {
-      DatabaseRecordThreadLocal.instance().set(old);
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      onError(e, session);
     }
   }
 
+  public void onEnd(DatabaseSessionInternal session) {
+    listener.onEnd(session);
+  }
+
   public void onEnd() {
-    DatabaseSessionInternal old = DatabaseRecordThreadLocal.instance().getIfDefined();
-    try {
-      database.activateOnCurrentThread();
-      listener.onEnd(database);
-      database.close();
-    } finally {
-      DatabaseRecordThreadLocal.instance().set(old);
+    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+      onEnd(session);
     }
+    pool.close();
   }
 }

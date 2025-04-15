@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.IOException;
 import java.util.logging.Level;
@@ -26,27 +25,27 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
 
     System.setProperty("youtrackdb.test.env", "ci");
 
-    String fromStream =
+    var fromStream =
         IOUtils.readStreamAsString(ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql"));
-    db.execute("sql", fromStream).close();
-    db.setProperty("CUSTOM", "strictSql=false");
+    session.runScript("sql", fromStream).close();
+    session.setProperty("CUSTOM", "strictSql=false");
 
     // three separate indeexs, one result
-    db.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
 
-    db.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + StandardAnalyzer.class.getName()
                 + "\"}")
         .close();
 
-    db.command(
+    session.execute(
             "create index Song.lyrics on Song (lyrics) FULLTEXT ENGINE LUCENE METADATA"
                 + " {\"index_analyzer\":\""
                 + EnglishAnalyzer.class.getName()
@@ -57,8 +56,8 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
   @Test
   @Ignore // FIXME: No function with name 'lucene_match'
   public void testLuceneFunction() {
-    ResultSet docs =
-        db.query("select from Song where lucene_match( \"Song.author:Fabbio\" ) = true ");
+    var docs =
+        session.query("select from Song where lucene_match( \"Song.author:Fabbio\" ) = true ");
     assertThat(docs).hasSize(87);
   }
 }

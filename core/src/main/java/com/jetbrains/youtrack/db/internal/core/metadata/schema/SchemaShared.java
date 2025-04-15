@@ -22,24 +22,20 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SchemaNotCreatedException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.MetadataUpdateListener;
-import com.jetbrains.youtrack.db.internal.core.db.ScenarioThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.clusterselection.ClusterSelectionFactory;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.CollectionSelectionFactory;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -55,16 +51,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Shared schema class. It's shared by all the database instances that point to the same storage.
  */
 public abstract class SchemaShared implements CloseableInStorage {
 
-  private static final int NOT_EXISTENT_CLUSTER_ID = -1;
   public static final int CURRENT_VERSION_NUMBER = 4;
   public static final int VERSION_NUMBER_V4 = 4;
   // this is needed for guarantee the compatibility to 2.0-M1 and 2.0-M2 no changed associated with
@@ -76,22 +73,26 @@ public abstract class SchemaShared implements CloseableInStorage {
   protected final Map<String, SchemaClassImpl> dirtyClasses = new HashMap<>();
   protected final Map<String, LazySchemaClass> classesRefs = new HashMap<>();
   protected final Int2ObjectOpenHashMap<SchemaClass> clustersToClasses = new Int2ObjectOpenHashMap<>();
+  protected final Map<String, SchemaClassImpl> classes = new HashMap<>();
+  protected final Int2ObjectOpenHashMap<SchemaClassImpl> collectionsToClasses = new Int2ObjectOpenHashMap<>();
 
-  private final ClusterSelectionFactory clusterSelectionFactory = new ClusterSelectionFactory();
+  private final CollectionSelectionFactory collectionSelectionFactory = new CollectionSelectionFactory();
 
   private final ModifiableInteger modificationCounter = new ModifiableInteger();
   private final List<GlobalProperty> properties = new ArrayList<>();
   private final Map<String, GlobalProperty> propertiesByNameType = new HashMap<>();
-  private IntOpenHashSet blobClusters = new IntOpenHashSet();
+  private IntOpenHashSet blobCollections = new IntOpenHashSet();
   private volatile int version = 0;
   private volatile RecordId identity;
   protected volatile ImmutableSchema snapshot;
 
-  protected static Set<String> internalClasses = new HashSet<String>();
+  private final ReentrantLock snapshotLock = new ReentrantLock();
+
+  protected static Set<String> internalClasses = new HashSet<>();
 
   static {
     internalClasses.add("ouser");
-    internalClasses.add("orole");
+    internalClasses.add(Role.CLASS_NAME.toLowerCase(Locale.ROOT));
     internalClasses.add("osecuritypolicy");
     internalClasses.add("oidentity");
     internalClasses.add("ofunction");
@@ -140,6 +141,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   public SchemaShared() {
   }
 
+  @Nullable
   public static Character checkClassNameIfValid(String iName) throws SchemaException {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
@@ -163,21 +165,23 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
-  public static Character checkFieldNameIfValid(String iName) {
+  @SuppressWarnings("JavaExistingMethodCanBeUsed")
+  @Nullable
+  public static Character checkPropertyNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
     }
 
     iName = iName.trim();
 
-    final int nameSize = iName.length();
+    final var nameSize = iName.length();
 
     if (nameSize == 0) {
       throw new IllegalArgumentException("Name is empty");
     }
 
-    for (int i = 0; i < nameSize; ++i) {
-      final char c = iName.charAt(i);
+    for (var i = 0; i < nameSize; ++i) {
+      final var c = iName.charAt(i);
       if (c == ':' || c == ',' || c == ';' || c == ' ' || c == '=')
       // INVALID CHARACTER
       {
@@ -188,6 +192,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
+  @Nullable
   public static Character checkIndexNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
@@ -195,14 +200,14 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     iName = iName.trim();
 
-    final int nameSize = iName.length();
+    final var nameSize = iName.length();
 
     if (nameSize == 0) {
       throw new IllegalArgumentException("Name is empty");
     }
 
-    for (int i = 0; i < nameSize; ++i) {
-      final char c = iName.charAt(i);
+    for (var i = 0; i < nameSize; ++i) {
+      final var c = iName.charAt(i);
       if (c == ':' || c == ',' || c == ';' || c == ' ' || c == '=')
       // INVALID CHARACTER
       {
@@ -213,215 +218,220 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
-  public ImmutableSchema makeSnapshot(DatabaseSessionInternal database) {
+  public ImmutableSchema makeSnapshot(DatabaseSessionInternal session) {
+    var snapshot = this.snapshot;
+
     if (snapshot == null) {
-      // Is null only in the case that is asked while the schema is created
-      // all the other cases are already protected by a write lock
-      acquireSchemaReadLock();
+      acquireSchemaReadLock(session);
       try {
-        if (snapshot == null) {
-          snapshot = new ImmutableSchema(this, database);
+        snapshotLock.lock();
+        try {
+          if (this.snapshot == null) {
+            this.snapshot = new ImmutableSchema(this, session);
+          }
+
+          return this.snapshot;
+        } finally {
+          snapshotLock.unlock();
         }
       } finally {
-        releaseSchemaReadLock();
+        releaseSchemaReadLock(session);
       }
     }
+
     return snapshot;
   }
 
-  public void forceSnapshot(DatabaseSessionInternal database) {
-    acquireSchemaReadLock();
+  public void forceSnapshot() {
+    if (snapshot == null) {
+      return;
+    }
+
+    snapshotLock.lock();
     try {
-      snapshot = new ImmutableSchema(this, database);
+      snapshot = null;
     } finally {
-      releaseSchemaReadLock();
+      snapshotLock.unlock();
     }
   }
 
-  public ClusterSelectionFactory getClusterSelectionFactory() {
-    return clusterSelectionFactory;
+  public CollectionSelectionFactory getCollectionSelectionFactory() {
+    return collectionSelectionFactory;
   }
 
-  public int countClasses(DatabaseSessionInternal database) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
+  public int countClasses(DatabaseSessionInternal session) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    acquireSchemaReadLock();
+    acquireSchemaReadLock(session);
     try {
       return classesRefs.size();
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
 
-  /**
-   * Callback invoked when the schema is loaded, after all the initializations.
-   */
-  public void onPostIndexManagement(DatabaseSessionInternal session) {
-    for (LazySchemaClass c : classesRefs.values()) {
-      c.loadIfNeededWithTemplate(session, createClassInstance(
-          // it's not an issue to set class id as a name since it will be immediately replaced by fromStream method
-          c.getId().toString()));
-      if (c.getDelegate() instanceof SchemaClassImpl) {
-        ((SchemaClassImpl) c.getDelegate()).onPostIndexManagement(session);
-      }
-    }
+  public SchemaClassImpl createClass(DatabaseSessionInternal sesion, final String className) {
+    return createClass(sesion, className, null, (int[]) null);
   }
 
-  public SchemaClass createClass(DatabaseSessionInternal database, final String className) {
-    return createClass(database, className, null, (int[]) null);
+  public SchemaClassImpl createClass(
+      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl iSuperClass) {
+    return createClass(session, iClassName, iSuperClass, null);
   }
 
-  public SchemaClass createClass(
-      DatabaseSessionInternal database, final String iClassName, final SchemaClass iSuperClass) {
-    return createClass(database, iClassName, iSuperClass, null);
+  public SchemaClassImpl createClass(
+      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+    return createClass(session, iClassName, null, superClasses);
   }
 
-  public SchemaClass createClass(
-      DatabaseSessionInternal database, String iClassName, SchemaClass... superClasses) {
-    return createClass(database, iClassName, null, superClasses);
+  public SchemaClassImpl getOrCreateClass(DatabaseSessionInternal session,
+      final String iClassName) {
+    return getOrCreateClass(session, iClassName, (SchemaClassImpl) null);
   }
 
-  public SchemaClass getOrCreateClass(DatabaseSessionInternal database, final String iClassName) {
-    return getOrCreateClass(database, iClassName, (SchemaClass) null);
-  }
-
-  public SchemaClass getOrCreateClass(
-      DatabaseSessionInternal database, final String iClassName, final SchemaClass superClass) {
+  public SchemaClassImpl getOrCreateClass(
+      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl superClass) {
     return getOrCreateClass(
-        database, iClassName,
-        superClass == null ? new SchemaClass[0] : new SchemaClass[]{superClass});
+        session, iClassName,
+        superClass == null ? new SchemaClassImpl[0] : new SchemaClassImpl[]{superClass});
   }
 
-  public abstract SchemaClass getOrCreateClass(
-      DatabaseSessionInternal database, final String iClassName, final SchemaClass... superClasses);
+  public abstract SchemaClassImpl getOrCreateClass(
+      DatabaseSessionInternal session, final String iClassName,
+      final SchemaClassImpl... superClasses);
 
-  public SchemaClass createAbstractClass(DatabaseSessionInternal database, final String className) {
-    return createClass(database, className, null, new int[]{-1});
+  public SchemaClassImpl createAbstractClass(DatabaseSessionInternal session,
+      final String className) {
+    return createClass(session, className, null, new int[]{-1});
   }
 
-  public SchemaClass createAbstractClass(
-      DatabaseSessionInternal database, final String className, final SchemaClass superClass) {
-    return createClass(database, className, superClass, new int[]{-1});
+  public SchemaClassImpl createAbstractClass(
+      DatabaseSessionInternal session, final String className, final SchemaClassImpl superClass) {
+    return createClass(session, className, superClass, new int[]{-1});
   }
 
-  public SchemaClass createAbstractClass(
-      DatabaseSessionInternal database, String iClassName, SchemaClass... superClasses) {
-    return createClass(database, iClassName, new int[]{-1}, superClasses);
+  public SchemaClassImpl createAbstractClass(
+      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+    return createClass(session, iClassName, new int[]{-1}, superClasses);
   }
 
-  public SchemaClass createClass(
-      DatabaseSessionInternal database,
+  public SchemaClassImpl createClass(
+      DatabaseSessionInternal session,
       final String className,
-      final SchemaClass superClass,
-      int[] clusterIds) {
-    return createClass(database, className, clusterIds, superClass);
+      final SchemaClassImpl superClass,
+      int[] collectionIds) {
+    return createClass(session, className, collectionIds, superClass);
   }
 
-  public abstract SchemaClass createClass(
-      DatabaseSessionInternal database,
+  public abstract SchemaClassImpl createClass(
+      DatabaseSessionInternal session,
       final String className,
-      int[] clusterIds,
-      SchemaClass... superClasses);
+      int[] collectionIds,
+      SchemaClassImpl... superClasses);
 
-  public abstract SchemaClass createClass(
-      DatabaseSessionInternal database,
+  public abstract SchemaClassImpl createClass(
+      DatabaseSessionInternal session,
       final String className,
-      int clusters,
-      SchemaClass... superClasses);
+      int collections,
+      SchemaClassImpl... superClasses);
 
 
-  public abstract void checkEmbedded();
+  public abstract void checkEmbedded(DatabaseSessionInternal session);
 
-  void checkClusterCanBeAdded(int clusterId, SchemaClass cls) {
-    acquireSchemaReadLock();
+  void checkCollectionCanBeAdded(DatabaseSessionInternal session, int collectionId,
+      SchemaClassImpl cls) {
+    acquireSchemaReadLock(session);
     try {
-      if (clusterId < 0) {
+      if (collectionId < 0) {
         return;
       }
 
-      if (blobClusters.contains(clusterId)) {
-        throw new SchemaException("Cluster with id " + clusterId + " already belongs to Blob");
+      if (blobCollections.contains(collectionId)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Collection with id " + collectionId + " already belongs to Blob");
       }
 
-      final SchemaClass existingCls = clustersToClasses.get(clusterId);
+      final var existingCls = collectionsToClasses.get(collectionId);
 
       if (existingCls != null && (cls == null || !cls.equals(existingCls))) {
-        throw new SchemaException(
-            "Cluster with id "
-                + clusterId
+        throw new SchemaException(session.getDatabaseName(),
+            "Collection with id "
+                + collectionId
                 + " already belongs to the class '"
-                + clustersToClasses.get(clusterId)
+                + collectionsToClasses.get(collectionId)
                 + "'");
       }
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public SchemaClass getClassByClusterId(int clusterId) {
-    acquireSchemaReadLock();
+  public SchemaClassImpl getClassByCollectionId(DatabaseSessionInternal session, int collectionId) {
+    acquireSchemaReadLock(session);
     try {
-      return clustersToClasses.get(clusterId);
+      return collectionsToClasses.get(collectionId);
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public abstract void dropClass(DatabaseSessionInternal database, final String className);
+  public abstract void dropClass(DatabaseSessionInternal session, final String className);
 
   /**
    * Reloads the schema inside a storage's shared lock.
    */
-  public void reload(DatabaseSessionInternal database) {
+  public void reload(DatabaseSessionInternal session) {
     lock.writeLock().lock();
     try {
-      database.executeInTx(
-          () -> {
+      session.executeInTx(
+          transaction -> {
             identity = new RecordId(
-                database.getStorageInfo().getConfiguration().getSchemaRecordId());
+                session.getStorageInfo().getConfiguration().getSchemaRecordId());
 
-            EntityImpl entity = database.load(identity);
-            fromStream(database, entity);
-            forceSnapshot(database);
+            EntityImpl entity = session.load(identity);
+            fromStream(session, entity);
+            forceSnapshot();
           });
     } finally {
       lock.writeLock().unlock();
     }
   }
 
-  public boolean existsClass(final String iClassName) {
+  public boolean existsClass(DatabaseSessionInternal session, final String iClassName) {
     if (iClassName == null) {
       return false;
     }
 
-    acquireSchemaReadLock();
+    acquireSchemaReadLock(session);
     try {
       return classesRefs.containsKey(normalizeClassName(iClassName));
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public SchemaClass getClass(DatabaseSessionInternal database, final Class<?> iClass) {
+  @Nullable
+  public SchemaClassImpl getClass(DatabaseSessionInternal session, final Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
 
-    return getClass(database, iClass.getSimpleName());
+    return getClass(session, iClass.getSimpleName());
   }
 
-  public LazySchemaClass getLazyClass(final String iClassName) {
+  @Nullable
+  public SchemaClassImpl getClass(DatabaseSessionInternal session, final String iClassName) {
     if (iClassName == null) {
       return null;
     }
 
-    acquireSchemaReadLock();
+    acquireSchemaReadLock(session);
     try {
       String normalizedClassName = normalizeClassName(iClassName);
       return classesRefs.get(normalizedClassName);
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
@@ -439,21 +449,21 @@ public abstract class SchemaShared implements CloseableInStorage {
     lock.readLock().lock();
   }
 
-  public void releaseSchemaReadLock() {
+  public void releaseSchemaReadLock(DatabaseSessionInternal session) {
     lock.readLock().unlock();
   }
 
-  public void acquireSchemaWriteLock(DatabaseSessionInternal database) {
-    database.startExclusiveMetadataChange();
+  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
+    session.startExclusiveMetadataChange();
     lock.writeLock().lock();
     modificationCounter.increment();
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal database) {
-    releaseSchemaWriteLock(database, true);
+  public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
+    releaseSchemaWriteLock(session, true);
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal database, final boolean iSave) {
+  public void releaseSchemaWriteLock(DatabaseSessionInternal session, final boolean iSave) {
     int count;
     try {
       if (modificationCounter.intValue() == 1) {
@@ -461,44 +471,45 @@ public abstract class SchemaShared implements CloseableInStorage {
         // is done by sql commands, and we need to reload local replica
 
         if (iSave) {
-          if (database.getStorage() instanceof AbstractPaginatedStorage) {
-            saveInternal(database);
+          if (session.getStorage() instanceof AbstractStorage) {
+            saveInternal(session);
           } else {
-            reload(database);
+            reload(session);
           }
         } else {
-          snapshot = new ImmutableSchema(this, database);
+          snapshot = null;
         }
+        //noinspection NonAtomicOperationOnVolatileField
         version++;
       }
     } finally {
       modificationCounter.decrement();
       count = modificationCounter.intValue();
       lock.writeLock().unlock();
-      database.endExclusiveMetadataChange();
+      session.endExclusiveMetadataChange();
     }
     assert count >= 0;
 
-    if (count == 0 && database.isRemote()) {
-      database.getStorage().reload(database);
+    if (count == 0 && session.isRemote()) {
+      session.getStorage().reload(session);
     }
   }
 
   // this method not only changes name, but also creates it, if oldName is null
   void changeClassName(
-      DatabaseSessionInternal database,
+      DatabaseSessionInternal session,
       final String oldName,
       final String newName,
-      final SchemaClassInternal cls) {
+      final SchemaClassImpl cls) {
 
     if (oldName != null && oldName.equalsIgnoreCase(newName)) {
       throw new IllegalArgumentException(
           "Class '" + oldName + "' cannot be renamed with the same name");
     }
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       if (newName != null
           && (classesRefs.containsKey(normalizeClassName(newName)))) {
@@ -515,7 +526,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
@@ -527,7 +538,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     modificationCounter.increment();
     try {
       // READ CURRENT SCHEMA VERSION
-      final Integer schemaVersion = entity.field("schemaVersion");
+      final Integer schemaVersion = entity.getProperty("schemaVersion");
       if (schemaVersion == null) {
         LogManager.instance()
             .error(
@@ -541,26 +552,27 @@ public abstract class SchemaShared implements CloseableInStorage {
         // changed associated with it
         // HANDLE SCHEMA UPGRADE
         throw new ConfigurationException(
+            session.getDatabaseName(),
             "Database schema is different. Please export your old database with the previous"
                 + " version of YouTrackDB and reimport it using the current one.");
       }
 
       properties.clear();
       propertiesByNameType.clear();
-      List<EntityImpl> globalProperties = entity.field("globalProperties");
-      boolean hasGlobalProperties = false;
+      List<EntityImpl> globalProperties = entity.getProperty("globalProperties");
+      var hasGlobalProperties = false;
       if (globalProperties != null) {
         hasGlobalProperties = true;
-        for (EntityImpl oDocument : globalProperties) {
-          GlobalPropertyImpl prop = new GlobalPropertyImpl();
-          prop.fromDocument(oDocument);
+        for (var oDocument : globalProperties) {
+          var prop = new GlobalPropertyImpl();
+          prop.fromEntity(oDocument);
           ensurePropertiesSize(prop.getId());
           properties.set(prop.getId(), prop);
           propertiesByNameType.put(prop.getName() + "|" + prop.getType().name(), prop);
         }
       }
       // REGISTER ALL THE CLASSES
-      clustersToClasses.clear();
+      collectionsToClasses.clear();
 
       Map<String, RecordId> storedClassesRefsUnsafe = entity.field("classesRefs");
       Map<String, RecordId> storedClassesRefs = storedClassesRefsUnsafe == null
@@ -603,18 +615,18 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
       // VIEWS
 
-      if (entity.containsField("blobClusters")) {
-        blobClusters = new IntOpenHashSet((Set<Integer>) entity.field("blobClusters"));
+      if (entity.hasProperty("blobCollections")) {
+        blobCollections = new IntOpenHashSet(entity.getEmbeddedSet("blobCollections"));
       }
 
       if (!hasGlobalProperties) {
-        DatabaseSessionInternal database = DatabaseRecordThreadLocal.instance().get();
-        if (database.getStorage() instanceof AbstractPaginatedStorage) {
-          saveInternal(database);
+        if (session.getStorage() instanceof AbstractStorage) {
+          saveInternal(session);
         }
       }
 
     } finally {
+      //noinspection NonAtomicOperationOnVolatileField
       version++;
       modificationCounter.decrement();
       lock.writeLock().unlock();
@@ -623,44 +635,14 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   protected abstract SchemaClassImpl createClassInstance(String name);
 
-
-  public EntityImpl toNetworkStream() {
-    lock.readLock().lock();
-    try {
-      EntityImpl entity = new EntityImpl();
-      entity.setTrackingChanges(false);
-      entity.field("schemaVersion", CURRENT_VERSION_NUMBER);
-
-      // why don't we serialise classes?
-      Map<String, RecordId> classIds = classesRefs.entrySet().stream()
-          .map(e -> Map.entry(e.getKey(), e.getValue().getId()))
-          .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
-
-      entity.field("classesRefs", classIds, PropertyType.EMBEDDEDMAP);
-
-      List<EntityImpl> globalProperties = new ArrayList<EntityImpl>();
-      for (GlobalProperty globalProperty : properties) {
-        if (globalProperty != null) {
-          globalProperties.add(((GlobalPropertyImpl) globalProperty).toDocument());
-        }
-      }
-
-      entity.field("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-      entity.field("blobClusters", blobClusters, PropertyType.EMBEDDEDSET);
-      return entity;
-    } finally {
-      lock.readLock().unlock();
-    }
-  }
-
   /**
    * Binds POJO to EntityImpl.
    */
-  public EntityImpl toStream(@Nonnull DatabaseSessionInternal db) {
+  public EntityImpl toStream(@Nonnull DatabaseSessionInternal session) {
     lock.readLock().lock();
     try {
-      EntityImpl entity = db.load(identity);
-      entity.field("schemaVersion", CURRENT_VERSION_NUMBER);
+      EntityImpl entity = session.load(identity);
+      entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
       Map<String, RecordId> classIds = classesRefs.entrySet().stream()
           .map(e -> Map.entry(e.getKey(), e.getValue().getId()))
@@ -670,11 +652,12 @@ public abstract class SchemaShared implements CloseableInStorage {
       List<EntityImpl> globalProperties = new ArrayList<EntityImpl>();
       for (GlobalProperty globalProperty : properties) {
         if (globalProperty != null) {
-          globalProperties.add(((GlobalPropertyImpl) globalProperty).toDocument());
+          globalProperties.add(((GlobalPropertyImpl) globalProperty).toEntity(session));
         }
       }
-      entity.field("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-      entity.field("blobClusters", blobClusters, PropertyType.EMBEDDEDSET);
+      entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+      Object propertyValue = session.newEmbeddedSet(blobCollections);
+      entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
       return entity;
     } finally {
       lock.readLock().unlock();
@@ -702,15 +685,15 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       return new HashMap<>(classesRefs);
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public Set<SchemaClass> getClassesRelyOnCluster(
-      DatabaseSessionInternal database, final String clusterName) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
+  public Set<SchemaClassImpl> getClassesRelyOnCollection(
+      DatabaseSessionInternal session, final String collectionName) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    acquireSchemaReadLock();
+    acquireSchemaReadLock(session);
     try {
       final int clusterId = database.getClusterIdByName(clusterName);
       final Set<SchemaClass> result = new HashSet<SchemaClass>();
@@ -723,22 +706,23 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       return result;
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public SchemaShared load(DatabaseSessionInternal database) {
+  public SchemaShared load(DatabaseSessionInternal session) {
 
     lock.writeLock().lock();
     try {
-      identity = new RecordId(database.getStorageInfo().getConfiguration().getSchemaRecordId());
-      if (!identity.isValid()) {
-        throw new SchemaNotCreatedException("Schema is not created and cannot be loaded");
+      identity = new RecordId(session.getStorageInfo().getConfiguration().getSchemaRecordId());
+      if (!identity.isValidPosition()) {
+        throw new SchemaNotCreatedException(session.getDatabaseName(),
+            "Schema is not created and cannot be loaded");
       }
-      database.executeInTx(
-          () -> {
-            EntityImpl entity = database.load(identity);
-            fromStream(database, entity);
+      session.executeInTx(
+          transaction -> {
+            EntityImpl entity = session.load(identity);
+            fromStream(session, entity);
           });
       return this;
     } finally {
@@ -746,15 +730,14 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public void create(final DatabaseSessionInternal database) {
+  public void create(final DatabaseSessionInternal session) {
     lock.writeLock().lock();
     try {
-      EntityImpl entity =
-          database.computeInTx(
-              () -> database.save(new EntityImpl(), MetadataDefault.CLUSTER_INTERNAL_NAME));
+      var entity = session.computeInTx(transaction -> session.newInternalInstance());
+
       this.identity = entity.getIdentity();
-      database.getStorage().setSchemaRecordId(entity.getIdentity().toString());
-      snapshot = new ImmutableSchema(this, database);
+      session.getStorage().setSchemaRecordId(entity.getIdentity().toString());
+      snapshot = null;
     } finally {
       lock.writeLock().unlock();
     }
@@ -769,20 +752,27 @@ public abstract class SchemaShared implements CloseableInStorage {
     return version;
   }
 
-  public RecordId getIdentity() {
-    acquireSchemaReadLock();
+  public RecordId getIdentity(DatabaseSessionInternal session) {
+    acquireSchemaReadLock(session);
     try {
       return identity;
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
   }
 
-  public GlobalProperty getGlobalPropertyById(int id) {
-    if (id >= properties.size()) {
-      return null;
+  @Nullable
+  public GlobalProperty getGlobalPropertyById(DatabaseSessionInternal session, int id) {
+    acquireSchemaReadLock(session);
+    try {
+      if (id >= properties.size()) {
+        return null;
+      }
+      return properties.get(id);
+    } finally {
+      releaseSchemaReadLock(session);
     }
-    return properties.get(id);
+
   }
 
   public GlobalProperty createGlobalProperty(
@@ -798,21 +788,30 @@ public abstract class SchemaShared implements CloseableInStorage {
       return global;
     }
 
-    global = new GlobalPropertyImpl(name, type, id);
-    ensurePropertiesSize(id);
-    properties.set(id, global);
-    propertiesByNameType.put(global.getName() + "|" + global.getType().name(), global);
-    return global;
+      global = new GlobalPropertyImpl(name, type, id);
+      ensurePropertiesSize(id);
+      properties.set(id, global);
+      propertiesByNameType.put(global.getName() + "|" + global.getType().name(), global);
+      return global;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
   }
 
-  public List<GlobalProperty> getGlobalProperties() {
-    return Collections.unmodifiableList(properties);
+  public List<GlobalProperty> getGlobalProperties(DatabaseSessionInternal session) {
+    acquireSchemaReadLock(session);
+    try {
+      return Collections.unmodifiableList(properties);
+    } finally {
+      releaseSchemaReadLock(session);
+    }
   }
 
-  protected GlobalProperty findOrCreateGlobalProperty(final String name, final PropertyType type) {
-    GlobalProperty global = propertiesByNameType.get(name + "|" + type.name());
+  protected GlobalProperty findOrCreateGlobalProperty(final String name,
+      final PropertyTypeInternal type) {
+    var global = propertiesByNameType.get(name + "|" + type.name());
     if (global == null) {
-      int id = properties.size();
+      var id = properties.size();
       global = new GlobalPropertyImpl(name, type, id);
       properties.add(id, global);
       propertiesByNameType.put(global.getName() + "|" + global.getType().name(), global);
@@ -820,14 +819,12 @@ public abstract class SchemaShared implements CloseableInStorage {
     return global;
   }
 
-  protected boolean executeThroughDistributedStorage(DatabaseSessionInternal database) {
-    return !database.isLocalEnv();
-  }
+  private void saveInternal(DatabaseSessionInternal session) {
 
   private void saveInternal(DatabaseSessionInternal database) {
     var tx = database.getTransaction();
     if (tx.isActive()) {
-      throw new SchemaException(
+      throw new SchemaException(session.getDatabaseName(),
           "Cannot change the schema while a transaction is active. Schema changes are not"
               + " transactional");
     }
@@ -855,18 +852,16 @@ public abstract class SchemaShared implements CloseableInStorage {
     dirtyClasses.clear();
     forceSnapshot(database);
 
-    for (MetadataUpdateListener listener : database.getSharedContext().browseListeners()) {
-      listener.onSchemaUpdate(database, database.getName(), this);
-    }
+    forceSnapshot();
   }
 
-  protected void addClusterClassMap(final SchemaClass cls) {
-    for (int clusterId : cls.getClusterIds()) {
-      if (clusterId < 0) {
+  protected void addCollectionClassMap(DatabaseSessionInternal session, final SchemaClassImpl cls) {
+    for (var collectionId : cls.getCollectionIds(session)) {
+      if (collectionId < 0) {
         continue;
       }
 
-      clustersToClasses.put(clusterId, cls);
+      collectionsToClasses.put(collectionId, cls);
     }
   }
 
@@ -876,59 +871,45 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public int addBlobCluster(DatabaseSessionInternal database, int clusterId) {
-    acquireSchemaWriteLock(database);
+  public int addBlobCollection(DatabaseSessionInternal session, int collectionId) {
+    acquireSchemaWriteLock(session);
     try {
-      checkClusterCanBeAdded(clusterId, null);
-      blobClusters.add(clusterId);
+      checkCollectionCanBeAdded(session, collectionId, null);
+      blobCollections.add(collectionId);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
-    return clusterId;
+    return collectionId;
   }
 
-  public void removeBlobCluster(DatabaseSessionInternal database, String clusterName) {
-    acquireSchemaWriteLock(database);
+  public void removeBlobCollection(DatabaseSessionInternal session, String collectionName) {
+    acquireSchemaWriteLock(session);
     try {
-      int clusterId = getClusterId(database, clusterName);
-      blobClusters.remove(clusterId);
+      var collectionId = getCollectionId(session, collectionName);
+      blobCollections.remove(collectionId);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
-  protected int getClusterId(DatabaseSessionInternal database, final String stringValue) {
+  protected static int getCollectionId(DatabaseSessionInternal session, final String stringValue) {
     int clId;
     try {
       clId = Integer.parseInt(stringValue);
     } catch (NumberFormatException ignore) {
-      clId = database.getClusterIdByName(stringValue);
+      clId = session.getCollectionIdByName(stringValue);
     }
     return clId;
   }
 
-  public int createClusterIfNeeded(DatabaseSessionInternal database, String nameOrId) {
-    final String[] parts = nameOrId.split(" ");
-    int clId = getClusterId(database, parts[0]);
-
-    if (clId == NOT_EXISTENT_CLUSTER_ID) {
-      try {
-        clId = Integer.parseInt(parts[0]);
-        throw new IllegalArgumentException("Cluster id '" + clId + "' cannot be added");
-      } catch (NumberFormatException ignore) {
-        clId = database.addCluster(parts[0]);
-      }
+  public IntSet getBlobCollections(DatabaseSessionInternal session) {
+    acquireSchemaReadLock(session);
+    try {
+      return IntSets.unmodifiable(blobCollections);
+    } finally {
+      releaseSchemaReadLock(session);
     }
 
-    return clId;
-  }
-
-  public IntSet getBlobClusters() {
-    return IntSets.unmodifiable(blobClusters);
-  }
-
-  public void sendCommand(DatabaseSessionInternal database, String command) {
-    throw new UnsupportedOperationException();
   }
 
   protected static String normalizeClassName(String className) {

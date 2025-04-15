@@ -7,8 +7,8 @@ public class BinaryKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final byte[] matKey = (byte[]) key;
-    final ByteBuffer bb = ByteBuffer.allocate(1 + matKey.length);
+    final var matKey = (byte[]) key;
+    final var bb = ByteBuffer.allocate(1 + matKey.length);
     bb.put((byte) 0);
     bb.put(matKey);
     return bb.array();

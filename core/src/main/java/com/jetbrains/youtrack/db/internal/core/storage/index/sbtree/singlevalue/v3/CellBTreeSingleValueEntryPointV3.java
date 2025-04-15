@@ -41,7 +41,7 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
   }
 
   public int getFreeListHead() {
-    final int head = getIntValue(FREE_LIST_HEAD_OFFSET);
+    final var head = getIntValue(FREE_LIST_HEAD_OFFSET);
 
     // fix of binary compatibility.
     // in previous version free list head is absent so 0 is considered as invalid value

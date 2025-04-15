@@ -15,7 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -23,7 +22,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +37,7 @@ public class StorageBackupMTIT {
 
   @Test
   public void testParallelBackup() throws Exception {
-    final String buildDirectory = System.getProperty("buildDirectory", ".");
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
     dbName = StorageBackupMTIT.class.getSimpleName();
 
     final File backupDir = new File(buildDirectory, "backupDir");
@@ -51,16 +49,16 @@ public class StorageBackupMTIT {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
-      final SchemaClass backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty(db, "num", PropertyType.INTEGER);
-      backupClass.createProperty(db, "data", PropertyType.BINARY);
+      final var backupClass = schema.createClass("BackupClass");
+      backupClass.createProperty("num", PropertyType.INTEGER);
+      backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
       FileUtils.deleteRecursively(backupDir);
 
@@ -68,10 +66,10 @@ public class StorageBackupMTIT {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      try (final ExecutorService executor = Executors.newCachedThreadPool()) {
+      try (final var executor = Executors.newCachedThreadPool()) {
         final List<Future<Void>> futures = new ArrayList<>();
 
-        for (int i = 0; i < 4; i++) {
+        for (var i = 0; i < 4; i++) {
           futures.add(executor.submit(new DataWriterCallable()));
         }
 
@@ -79,11 +77,11 @@ public class StorageBackupMTIT {
 
         latch.countDown();
 
-      TimeUnit.MINUTES.sleep(15);
+        TimeUnit.MINUTES.sleep(15);
 
         stop = true;
 
-        for (Future<Void> future : futures) {
+        for (var future : futures) {
           future.get();
         }
       }
@@ -107,7 +105,7 @@ public class StorageBackupMTIT {
               System.out::println);
 
       System.out.println("compare");
-      boolean areSame = compare.compare();
+      var areSame = compare.compare();
       Assert.assertTrue(areSame);
 
     } finally {
@@ -139,14 +137,14 @@ public class StorageBackupMTIT {
 
   @Test
   public void testParallelBackupEncryption() throws Exception {
-    final String buildDirectory = System.getProperty("buildDirectory", ".");
-    final String backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
-    final String backedUpDbDirectory = buildDirectory + File.separator + backupDbName;
-    final File backupDir = new File(buildDirectory, "backupDir");
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    final var backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
+    final var backedUpDbDirectory = buildDirectory + File.separator + backupDbName;
+    final var backupDir = new File(buildDirectory, "backupDir");
 
     dbName = StorageBackupMTIT.class.getSimpleName();
 
-    final YouTrackDBConfigImpl config =
+    final var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
                 "T1JJRU5UREJfSVNfQ09PTA==")
@@ -157,16 +155,16 @@ public class StorageBackupMTIT {
 
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
-      final SchemaClass backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty(db, "num", PropertyType.INTEGER);
-      backupClass.createProperty(db, "data", PropertyType.BINARY);
+      final var backupClass = schema.createClass("BackupClass");
+      backupClass.createProperty("num", PropertyType.INTEGER);
+      backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
       FileUtils.deleteRecursively(backupDir);
 
@@ -174,10 +172,10 @@ public class StorageBackupMTIT {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      final ExecutorService executor = Executors.newCachedThreadPool();
+      final var executor = Executors.newCachedThreadPool();
       final List<Future<Void>> futures = new ArrayList<>();
 
-      for (int i = 0; i < 4; i++) {
+      for (var i = 0; i < 4; i++) {
         futures.add(executor.submit(new DataWriterCallable()));
       }
 
@@ -189,7 +187,7 @@ public class StorageBackupMTIT {
 
       stop = true;
 
-      for (Future<Void> future : futures) {
+      for (var future : futures) {
         future.get();
       }
 
@@ -213,7 +211,7 @@ public class StorageBackupMTIT {
               System.out::println);
       System.out.println("compare");
 
-      boolean areSame = compare.compare();
+      var areSame = compare.compare();
       Assert.assertTrue(areSame);
 
     } finally {
@@ -250,18 +248,15 @@ public class StorageBackupMTIT {
         final Random random = new Random();
         while (!stop) {
           try {
-            final byte[] data = new byte[16];
+            final var data = new byte[16];
             random.nextBytes(data);
 
-            final int num = random.nextInt();
+            final var num = random.nextInt();
 
-            databaseSession.executeInTx(() -> {
-
-              final EntityImpl document = new EntityImpl("BackupClass");
-              document.field("num", num);
-              document.field("data", data);
-
-              document.save();
+            databaseSession.executeInTx(transaction -> {
+              var entity = transaction.newEntity("BackupClass");
+              entity.setProperty("num", num);
+              entity.setProperty("data", data);
             });
           } catch (ModificationOperationProhibitedException e) {
             System.out.println("Modification prohibited ... wait ...");

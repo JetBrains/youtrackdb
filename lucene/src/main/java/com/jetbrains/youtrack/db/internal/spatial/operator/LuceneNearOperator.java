@@ -13,14 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
@@ -33,8 +33,8 @@ import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.distance.DistanceUtils;
-import org.locationtech.spatial4j.shape.Circle;
 import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.SpatialRelation;
@@ -49,7 +49,7 @@ public class LuceneNearOperator extends QueryTargetOperator {
 
   @Override
   public Object evaluateRecord(
-      Identifiable iRecord,
+      Result iRecord,
       EntityImpl iCurrentResult,
       SQLFilterCondition iCondition,
       Object iLeft,
@@ -57,35 +57,35 @@ public class LuceneNearOperator extends QueryTargetOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    List<Number> left = (List<Number>) iLeft;
+    var left = (List<Number>) iLeft;
 
-    double lat = left.get(0).doubleValue();
-    double lon = left.get(1).doubleValue();
+    var lat = left.get(0).doubleValue();
+    var lon = left.get(1).doubleValue();
 
     Shape shape = factory.context().makePoint(lon, lat);
-    List<Number> right = (List<Number>) iRight;
+    var right = (List<Number>) iRight;
 
-    double lat1 = right.get(0).doubleValue();
-    double lon1 = right.get(1).doubleValue();
+    var lat1 = right.get(0).doubleValue();
+    var lon1 = right.get(1).doubleValue();
     Shape shape1 = factory.context().makePoint(lon1, lat1);
 
-    Map map = (Map) right.get(2);
+    var map = (Map) right.get(2);
     double distance = 0;
 
-    Number n = (Number) map.get("maxDistance");
+    var n = (Number) map.get("maxDistance");
     if (n != null) {
       distance = n.doubleValue();
     }
-    Point p = (Point) shape1;
-    Circle circle =
+    var p = (Point) shape1;
+    var circle =
         factory
             .context()
             .makeCircle(
                 p.getX(),
                 p.getY(),
                 DistanceUtils.dist2Degrees(distance, DistanceUtils.EARTH_MEAN_RADIUS_KM));
-    double docDistDEG = factory.context().getDistCalc().distance((Point) shape, p);
-    final double docDistInKM =
+    var docDistDEG = factory.context().getDistCalc().distance((Point) shape, p);
+    final var docDistInKM =
         DistanceUtils.degrees2Dist(docDistDEG, DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM);
     iContext.setVariable("distance", docDistInKM);
     return shape.relate(circle) == SpatialRelation.WITHIN;
@@ -96,17 +96,17 @@ public class LuceneNearOperator extends QueryTargetOperator {
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
 
     double distance = 0;
-    Object spatial = iContext.getVariable("spatial");
+    var spatial = iContext.getVariable("spatial");
     if (spatial != null) {
       if (spatial instanceof Number) {
-        distance = PropertyType.convert(iContext.getDatabase(), spatial,
+        distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), spatial,
             Double.class).doubleValue();
       } else if (spatial instanceof Map) {
-        Map<String, Object> params = (Map<String, Object>) spatial;
+        var params = (Map<String, Object>) spatial;
 
-        Object dst = params.get("maxDistance");
+        var dst = params.get("maxDistance");
         if (dst != null && dst instanceof Number) {
-          distance = PropertyType.convert(iContext.getDatabase(), dst,
+          distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), dst,
               Double.class).doubleValue();
         }
       }
@@ -115,8 +115,7 @@ public class LuceneNearOperator extends QueryTargetOperator {
     iContext.setVariable("$luceneIndex", true);
 
     return index
-        .getInternal()
-        .getRids(iContext.getDatabase(),
+        .getRids(iContext.getDatabaseSession(),
             new SpatialCompositeKey(keyParams).setMaxDistance(distance).setContext(iContext))
         .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));
   }
@@ -126,11 +125,13 @@ public class LuceneNearOperator extends QueryTargetOperator {
     return IndexReuseType.INDEX_OPERATOR;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
@@ -144,7 +145,7 @@ public class LuceneNearOperator extends QueryTargetOperator {
 
   @Override
   public IndexSearchResult getOIndexSearchResult(
-      SchemaClass iSchemaClass,
+      SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {

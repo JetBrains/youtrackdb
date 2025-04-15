@@ -31,7 +31,7 @@ public class FuncitonAggregationContext implements AggregationContext {
   @Override
   public void apply(Result next, CommandContext ctx) {
     List<Object> paramValues = new ArrayList<>();
-    for (SQLExpression expr : params) {
+    for (var expr : params) {
       paramValues.add(expr.execute(next, ctx));
     }
     ctx.setVariable("aggregation", true);

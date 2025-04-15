@@ -22,7 +22,6 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
 import org.junit.Test;
 
 /**
@@ -32,28 +31,28 @@ public class CommandExecutorSQLGrantRevokeTest extends DbTestBase {
 
   @Test
   public void grantServerRemove() {
-    db.begin();
-    Role testRole =
-        db.getMetadata()
+    session.begin();
+    var testRole =
+        session.getMetadata()
             .getSecurity()
-            .createRole("testRole", SecurityRole.ALLOW_MODES.DENY_ALL_BUT);
+            .createRole("testRole");
 
     assertFalse(testRole.allow(Rule.ResourceGeneric.SERVER, "server", Role.PERMISSION_EXECUTE));
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db.command("GRANT execute on server.remove to testRole").close();
-    db.commit();
+    session.begin();
+    session.execute("GRANT execute on server.remove to testRole").close();
+    session.commit();
 
-    testRole = db.getMetadata().getSecurity().getRole("testRole");
+    testRole = session.getMetadata().getSecurity().getRole("testRole");
 
     assertTrue(testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
 
-    db.begin();
-    db.command("REVOKE execute on server.remove from testRole").close();
-    db.commit();
+    session.begin();
+    session.execute("REVOKE execute on server.remove from testRole").close();
+    session.commit();
 
-    testRole = db.getMetadata().getSecurity().getRole("testRole");
+    testRole = session.getMetadata().getSecurity().getRole("testRole");
 
     assertFalse(testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
   }

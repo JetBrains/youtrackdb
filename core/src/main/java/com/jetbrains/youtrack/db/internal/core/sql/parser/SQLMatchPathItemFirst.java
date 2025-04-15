@@ -45,13 +45,13 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
       SQLMatchStatement.MatchContext matchContext,
       Identifiable startingPoint,
       CommandContext iCommandContext) {
-    Object qR = this.function.execute(startingPoint, iCommandContext);
+    var qR = this.function.execute(startingPoint, iCommandContext);
     return (qR instanceof Iterable) ? (Iterable) qR : Collections.singleton((Identifiable) qR);
   }
 
   @Override
   public SQLMatchPathItem copy() {
-    SQLMatchPathItemFirst result = (SQLMatchPathItemFirst) super.copy();
+    var result = (SQLMatchPathItemFirst) super.copy();
     result.function = function == null ? null : function.copy();
     return result;
   }
@@ -61,14 +61,14 @@ public class SQLMatchPathItemFirst extends SQLMatchPathItem {
     if (!super.equals(o)) {
       return false;
     }
-    SQLMatchPathItemFirst that = (SQLMatchPathItemFirst) o;
+    var that = (SQLMatchPathItemFirst) o;
 
     return Objects.equals(function, that.function);
   }
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + (function != null ? function.hashCode() : 0);
     return result;
   }

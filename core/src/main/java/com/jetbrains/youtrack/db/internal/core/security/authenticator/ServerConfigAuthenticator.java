@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 
 /**
  * Provides an SecurityAuthenticator for the users listed in youtrackdb-server-config.xml.

@@ -15,8 +15,8 @@ public class DefaultComparatorTest {
 
   @Test
   public void testCompareStrings() {
-    final CompositeKey keyOne = new CompositeKey("name4", PropertyType.STRING);
-    final CompositeKey keyTwo = new CompositeKey("name5", PropertyType.STRING);
+    final var keyOne = new CompositeKey("name4", PropertyType.STRING);
+    final var keyTwo = new CompositeKey("name5", PropertyType.STRING);
 
     assertCompareTwoKeys(comparator, keyOne, keyTwo);
   }

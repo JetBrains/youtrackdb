@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.Optional;
 
 /**
  * Deletes records coming from upstream steps
@@ -20,22 +19,23 @@ public class DeleteStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    var upstream = prev.start(ctx);
+    return upstream.map(DeleteStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
-    Optional<RID> id = result.getIdentity();
-    if (id.isPresent()) {
-      ctx.getDatabase().delete(id.get());
+  private static Result mapResult(Result result, CommandContext ctx) {
+    if (result.isRecord()) {
+      ctx.getDatabaseSession().delete(result.asRecord());
+    } else {
+      throw new DatabaseException("Can not delete non-record result: " + result);
     }
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ DELETE");
     if (profilingEnabled) {

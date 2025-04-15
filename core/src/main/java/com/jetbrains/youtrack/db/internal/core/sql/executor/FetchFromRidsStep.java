@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collection;
@@ -43,8 +43,8 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
+  public Result serialize(DatabaseSessionInternal session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
     if (rids != null) {
       result.setProperty(
           "rids", rids.stream().map(RecordId::toString).collect(Collectors.toList()));
@@ -53,16 +53,16 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("rids") != null) {
         List<String> ser = fromResult.getProperty("rids");
         rids = ser.stream().map(RecordId::new).collect(Collectors.toList());
       }
       reset();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 }

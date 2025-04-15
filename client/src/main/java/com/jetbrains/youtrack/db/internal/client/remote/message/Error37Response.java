@@ -35,13 +35,13 @@ public class Error37Response implements BinaryResponse {
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    int code = network.readInt();
+    var code = network.readInt();
     this.errorIdentifier = network.readInt();
     this.code = ErrorCode.getErrorCode(code);
     messages = new HashMap<>();
     while (network.readByte() == 1) {
-      String key = network.readString();
-      String value = network.readString();
+      var key = network.readString();
+      var value = network.readString();
       messages.put(key, value);
     }
     verbose = network.readBytes();
@@ -53,7 +53,7 @@ public class Error37Response implements BinaryResponse {
       throws IOException {
     channel.writeInt(code.getCode());
     channel.writeInt(errorIdentifier);
-    for (Map.Entry<String, String> entry : messages.entrySet()) {
+    for (var entry : messages.entrySet()) {
       // MORE DETAILS ARE COMING AS EXCEPTION
       channel.writeByte((byte) 1);
 

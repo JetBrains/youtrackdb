@@ -7,17 +7,16 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentCreateException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.common.util.Triple;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.After;
@@ -46,22 +45,23 @@ public class TransactionRidAllocationTest {
   @Test
   public void testAllocation() {
     db.begin();
-    Vertex v = db.newVertex("V");
-    db.save(v);
+    var v = db.newVertex("V");
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids((TransactionInternal) db.getTransaction());
-    RecordId generated = (RecordId) v.getIdentity();
-    assertTrue(generated.isValid());
+    ((AbstractStorage) db.getStorage())
+        .preallocateRids(db.getTransactionInternal());
+    var generated = (RecordId) v.getIdentity();
+    assertTrue(generated.isValidPosition());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
+    var tx = db1.begin();
     try {
-      db1.load(generated);
+      tx.load(generated);
       Assert.fail();
     } catch (RecordNotFoundException e) {
       // ignore
     }
+    tx.commit();
 
     db1.close();
   }
@@ -69,18 +69,19 @@ public class TransactionRidAllocationTest {
   @Test
   public void testAllocationCommit() {
     db.begin();
-    Vertex v = db.newVertex("V");
-    db.save(v);
+    var v = db.newVertex("V");
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids((TransactionOptimistic) db.getTransaction());
-    RID generated = v.getIdentity();
-    ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((TransactionOptimistic) db.getTransaction());
+    ((AbstractStorage) db.getStorage())
+        .preallocateRids(db.getTransactionInternal());
+    var generated = v.getIdentity();
+    ((AbstractStorage) db.getStorage())
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    assertNotNull(db1.load(generated));
+    var tx = db1.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
     db1.close();
   }
 
@@ -101,43 +102,55 @@ public class TransactionRidAllocationTest {
 
     db.activateOnCurrentThread();
     db.begin();
-    Vertex v = db.newVertex("V");
-    db.save(v);
+    var v = db.newVertex("V");
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids((TransactionInternal) db.getTransaction());
-    RID generated = v.getIdentity();
-    FrontendTransaction transaction = db.getTransaction();
-    List<RawPair<RecordAbstract, Byte>> recordOperations = new ArrayList<>();
-    for (RecordOperation operation : transaction.getRecordOperations()) {
+    ((AbstractStorage) db.getStorage())
+        .preallocateRids(db.getTransactionInternal());
+    var generated = v.getIdentity();
+    var transaction = db.getTransactionInternal();
+    List<Triple<Byte, Identifiable, byte[]>> recordOperations = new ArrayList<>();
+    for (var operation : transaction.getRecordOperationsInternal()) {
       var record = operation.record;
-      recordOperations.add(new RawPair<>(record.copy(), operation.type));
+      recordOperations.add(
+          new Triple<>(operation.type, operation.getRecordId(), record.toStream()));
     }
 
     second.activateOnCurrentThread();
     second.begin();
-    TransactionOptimistic transactionOptimistic = (TransactionOptimistic) second.getTransaction();
+    var transactionOptimistic = (FrontendTransactionImpl) second.getTransactionInternal();
+
     for (var recordOperation : recordOperations) {
-      var record = recordOperation.first;
-      record.setup(second);
-      transactionOptimistic.addRecord(record, recordOperation.second, null);
+      var record = recordOperation.value.value;
+
+      var serializer = second.getSerializer();
+      var deserialized = new EntityImpl(second, "V");
+      serializer.fromStream(second, record, deserialized, null);
+
+      deserialized.setIdentity(recordOperation.value.key.getIdentity());
+      deserialized.setInternalStatus(STATUS.LOADED);
+
+      transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
     }
 
-    ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
+    ((AbstractStorage) second.getStorage()).preallocateRids(transactionOptimistic);
     db.activateOnCurrentThread();
-    ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((TransactionOptimistic) db.getTransaction());
+    ((AbstractStorage) db.getStorage())
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    assertNotNull(db1.load(generated));
+    var tx = db1.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
 
     db1.close();
     second.activateOnCurrentThread();
-    ((AbstractPaginatedStorage) second.getStorage())
-        .commitPreAllocated((TransactionOptimistic) second.getTransaction());
+    ((AbstractStorage) second.getStorage())
+        .commitPreAllocated((FrontendTransactionImpl) second.getTransactionInternal());
     second.close();
     var db2 = youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    assertNotNull(db2.load(generated));
+    tx = db2.begin();
+    assertNotNull(tx.load(generated));
+    tx.commit();
     db2.close();
   }
 
@@ -156,35 +169,38 @@ public class TransactionRidAllocationTest {
         (DatabaseSessionInternal)
             youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     // THIS OFFSET FIRST DB FROM THE SECOND
-    for (int i = 0; i < 20; i++) {
+    for (var i = 0; i < 20; i++) {
       second.begin();
-      second.save(second.newVertex("V"));
+      second.newVertex("V");
       second.commit();
     }
 
     db.activateOnCurrentThread();
     db.begin();
-    Vertex v = db.newVertex("V");
-    db.save(v);
+    var v = db.newVertex("V");
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids((TransactionOptimistic) db.getTransaction());
-    FrontendTransaction transaction = db.getTransaction();
-    List<RawPair<RecordAbstract, Byte>> recordOperations = new ArrayList<>();
-    for (RecordOperation operation : transaction.getRecordOperations()) {
+    ((AbstractStorage) db.getStorage()).preallocateRids(db.getTransactionInternal());
+    var transaction = db.getTransactionInternal();
+    List<Triple<Byte, Identifiable, byte[]>> recordOperations = new ArrayList<>();
+    for (var operation : transaction.getRecordOperationsInternal()) {
       var record = operation.record;
-      recordOperations.add(new RawPair<>(record.copy(), operation.type));
+      recordOperations.add(new Triple<>(operation.type, record.getIdentity(), record.toStream()));
     }
 
     second.activateOnCurrentThread();
     second.begin();
-    TransactionOptimistic transactionOptimistic = (TransactionOptimistic) second.getTransaction();
+    var transactionOptimistic = (FrontendTransactionImpl) second.getTransactionInternal();
     for (var recordOperation : recordOperations) {
-      var record = recordOperation.first;
-      record.setup(second);
-      transactionOptimistic.addRecord(record, recordOperation.second, null);
+      var record = recordOperation.value.value;
+      var serializer = second.getSerializer();
+
+      var deserialized = new EntityImpl(second, "V");
+      serializer.fromStream(second, record, deserialized, null);
+      deserialized.setIdentity(recordOperation.value.key.getIdentity());
+      deserialized.setInternalStatus(STATUS.LOADED);
+      transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
     }
-    ((AbstractPaginatedStorage) second.getStorage()).preallocateRids(transactionOptimistic);
+    ((AbstractStorage) second.getStorage()).preallocateRids(transactionOptimistic);
   }
 
   @Test
@@ -192,28 +208,29 @@ public class TransactionRidAllocationTest {
     db.begin();
 
     List<DBRecord> orecords = new ArrayList<>();
-    Vertex v0 = db.newVertex("V");
-    db.save(v0);
-    for (int i = 0; i < 20; i++) {
-      Vertex v = db.newVertex("V");
-      Edge edge = v0.addRegularEdge(v);
-      orecords.add(db.save(edge));
-      orecords.add(db.save(v));
+    var v0 = db.newVertex("V");
+    for (var i = 0; i < 20; i++) {
+      var v = db.newVertex("V");
+      var edge = v0.addStateFulEdge(v);
+      orecords.add(edge);
+      orecords.add(v);
     }
 
-    ((AbstractPaginatedStorage) db.getStorage())
-        .preallocateRids((TransactionInternal) db.getTransaction());
+    ((AbstractStorage) db.getStorage())
+        .preallocateRids(db.getTransactionInternal());
     List<RID> allocated = new ArrayList<>();
-    for (DBRecord rec : orecords) {
+    for (var rec : orecords) {
       allocated.add(rec.getIdentity());
     }
-    ((AbstractPaginatedStorage) db.getStorage())
-        .commitPreAllocated((TransactionOptimistic) db.getTransaction());
+    ((AbstractStorage) db.getStorage())
+        .commitPreAllocated((FrontendTransactionImpl) db.getTransactionInternal());
 
     var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    for (final RID id : allocated) {
-      assertNotNull(db1.load(id));
+    var tx = db1.begin();
+    for (final var id : allocated) {
+      assertNotNull(tx.load(id));
     }
+    tx.commit();
     db1.close();
   }
 

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -31,39 +30,38 @@ public class StorageBackupTest {
 
   @Test
   public void testSingeThreadFullBackup() {
-    final String dbName = StorageBackupTest.class.getSimpleName();
     FileUtils.deleteRecursively(new File(testDirectory));
+    final var dbName = StorageBackupTest.class.getSimpleName();
 
-    YouTrackDB youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    var youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();
-    final SchemaClass backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    final var backupClass = schema.createClass("BackupClass");
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
-    final Random random = new Random();
-    for (int i = 0; i < 1000; i++) {
+    final var random = new Random();
+    for (var i = 0; i < 1000; i++) {
       db.begin();
-      final byte[] data = new byte[16];
+      final var data = new byte[16];
       random.nextBytes(data);
 
-      final int num = random.nextInt();
+      final var num = random.nextInt();
 
-      final EntityImpl document = new EntityImpl("BackupClass");
-      document.field("num", num);
-      document.field("data", data);
+      final var document = ((EntityImpl) db.newEntity("BackupClass"));
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
-      document.save();
       db.commit();
     }
 
-    final File backupDir = new File(testDirectory, "backupDir");
+    final var backupDir = new File(testDirectory, "backupDir");
     FileUtils.deleteRecursively(backupDir);
 
     if (!backupDir.exists()) {
@@ -73,7 +71,7 @@ public class StorageBackupTest {
     db.incrementalBackup(backupDir.toPath());
     youTrackDB.close();
 
-    final String backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
     youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
     youTrackDB.restore(
@@ -83,7 +81,7 @@ public class StorageBackupTest {
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
-    final DatabaseCompare compare =
+    final var compare =
         new DatabaseCompare(
             (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
             (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
@@ -112,38 +110,37 @@ public class StorageBackupTest {
   public void testSingeThreadIncrementalBackup() {
     FileUtils.deleteRecursively(new File(testDirectory));
 
-    YouTrackDB youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    var youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
 
-    final String dbName = StorageBackupTest.class.getSimpleName();
+    final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();
-    final SchemaClass backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    final var backupClass = schema.createClass("BackupClass");
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
-    final Random random = new Random();
-    for (int i = 0; i < 1000; i++) {
+    final var random = new Random();
+    for (var i = 0; i < 1000; i++) {
       db.begin();
-      final byte[] data = new byte[16];
+      final var data = new byte[16];
       random.nextBytes(data);
 
-      final int num = random.nextInt();
+      final var num = random.nextInt();
 
-      final EntityImpl document = new EntityImpl("BackupClass");
-      document.field("num", num);
-      document.field("data", data);
+      final var document = ((EntityImpl) db.newEntity("BackupClass"));
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
-      document.save();
       db.commit();
     }
 
-    final File backupDir = new File(testDirectory, "backupDir");
+    final var backupDir = new File(testDirectory, "backupDir");
     FileUtils.deleteRecursively(backupDir);
 
     if (!backupDir.exists()) {
@@ -152,19 +149,18 @@ public class StorageBackupTest {
 
     db.incrementalBackup(backupDir.toPath());
 
-    for (int n = 0; n < 3; n++) {
-      for (int i = 0; i < 1000; i++) {
+    for (var n = 0; n < 3; n++) {
+      for (var i = 0; i < 1000; i++) {
         db.begin();
-        final byte[] data = new byte[16];
+        final var data = new byte[16];
         random.nextBytes(data);
 
-        final int num = random.nextInt();
+        final var num = random.nextInt();
 
-        final EntityImpl document = new EntityImpl("BackupClass");
-        document.field("num", num);
-        document.field("data", data);
+        final var document = ((EntityImpl) db.newEntity("BackupClass"));
+        document.setProperty("num", num);
+        document.setProperty("data", data);
 
-        document.save();
         db.commit();
       }
 
@@ -176,7 +172,7 @@ public class StorageBackupTest {
 
     youTrackDB.close();
 
-    final String backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
     youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
     youTrackDB.restore(
@@ -186,7 +182,7 @@ public class StorageBackupTest {
         backupDir.getAbsolutePath(),
         YouTrackDBConfig.defaultConfig());
 
-    final DatabaseCompare compare =
+    final var compare =
         new DatabaseCompare(
             (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
             (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
@@ -210,43 +206,42 @@ public class StorageBackupTest {
   @Test
   public void testSingeThreadIncrementalBackupEncryption() {
     FileUtils.deleteRecursively(new File(testDirectory));
-    final YouTrackDBConfigImpl config =
+    final var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
                 "T1JJRU5UREJfSVNfQ09PTA==")
             .build();
-    YouTrackDB youTrackDB = YourTracks.embedded(testDirectory, config);
+    var youTrackDB = YourTracks.embedded(testDirectory, config);
 
-    final String dbName = StorageBackupTest.class.getSimpleName();
+    final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
-        "create database `" + dbName + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();
-    final SchemaClass backupClass = schema.createClass("BackupClass");
-    backupClass.createProperty(db, "num", PropertyType.INTEGER);
-    backupClass.createProperty(db, "data", PropertyType.BINARY);
+    final var backupClass = schema.createClass("BackupClass");
+    backupClass.createProperty("num", PropertyType.INTEGER);
+    backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
-    final Random random = new Random();
-    for (int i = 0; i < 1000; i++) {
+    final var random = new Random();
+    for (var i = 0; i < 1000; i++) {
       db.begin();
-      final byte[] data = new byte[16];
+      final var data = new byte[16];
       random.nextBytes(data);
 
-      final int num = random.nextInt();
+      final var num = random.nextInt();
 
-      final EntityImpl document = new EntityImpl("BackupClass");
-      document.field("num", num);
-      document.field("data", data);
+      final var document = ((EntityImpl) db.newEntity("BackupClass"));
+      document.setProperty("num", num);
+      document.setProperty("data", data);
 
-      document.save();
       db.commit();
     }
 
-    final File backupDir = new File(testDirectory, "backupDir");
+    final var backupDir = new File(testDirectory, "backupDir");
     FileUtils.deleteRecursively(backupDir);
 
     if (!backupDir.exists()) {
@@ -255,19 +250,18 @@ public class StorageBackupTest {
 
     db.incrementalBackup(backupDir.toPath());
 
-    for (int n = 0; n < 3; n++) {
-      for (int i = 0; i < 1000; i++) {
+    for (var n = 0; n < 3; n++) {
+      for (var i = 0; i < 1000; i++) {
         db.begin();
-        final byte[] data = new byte[16];
+        final var data = new byte[16];
         random.nextBytes(data);
 
-        final int num = random.nextInt();
+        final var num = random.nextInt();
 
-        final EntityImpl document = new EntityImpl("BackupClass");
-        document.field("num", num);
-        document.field("data", data);
+        final var document = ((EntityImpl) db.newEntity("BackupClass"));
+        document.setProperty("num", num);
+        document.setProperty("data", data);
 
-        document.save();
         db.commit();
       }
 
@@ -279,7 +273,7 @@ public class StorageBackupTest {
 
     youTrackDB.close();
 
-    final String backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
     youTrackDB = YourTracks.embedded(testDirectory, config);
     youTrackDB.restore(
@@ -289,7 +283,7 @@ public class StorageBackupTest {
         backupDir.getAbsolutePath(),
         config);
 
-    final DatabaseCompare compare =
+    final var compare =
         new DatabaseCompare(
             (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
             (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),

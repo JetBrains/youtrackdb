@@ -6,7 +6,7 @@ public class EncryptionKeyAbsentException extends StorageException {
     super(exception);
   }
 
-  public EncryptionKeyAbsentException(String string) {
-    super(string);
+  public EncryptionKeyAbsentException(String dbName, String string) {
+    super(dbName, string);
   }
 }

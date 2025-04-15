@@ -42,9 +42,4 @@ public abstract class SQLFunctionMultiValueAbstract<T> extends SQLFunctionConfig
   public T getResult() {
     return context;
   }
-
-  @Override
-  public boolean shouldMergeDistributedResult() {
-    return true;
-  }
 }

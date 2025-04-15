@@ -16,13 +16,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.io.UnsupportedEncodingException;
 import java.security.NoSuchAlgorithmException;
+import javax.annotation.Nullable;
 
 /**
  * Hash a string supporting multiple algorithm, all those supported by JVM
@@ -40,10 +41,11 @@ public class SQLMethodHash extends AbstractSQLMethod {
     return "hash([<algorithm>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final CommandContext iContext,
       final Object ioResult,
       final Object[] iParams) {
@@ -51,18 +53,20 @@ public class SQLMethodHash extends AbstractSQLMethod {
       return null;
     }
 
-    final String algorithm =
+    final var algorithm =
         iParams.length > 0 ? iParams[0].toString() : SecurityManager.HASH_ALGORITHM;
     try {
       return SecurityManager.createHash(iThis.toString(), algorithm);
 
     } catch (NoSuchAlgorithmException e) {
       throw BaseException.wrapException(
-          new CommandExecutionException("hash(): algorithm '" + algorithm + "' is not supported"),
-          e);
+          new CommandExecutionException(iContext.getDatabaseSession(),
+              "hash(): algorithm '" + algorithm + "' is not supported"),
+          e, iContext.getDatabaseSession());
     } catch (UnsupportedEncodingException e) {
       throw BaseException.wrapException(
-          new CommandExecutionException("hash(): encoding 'UTF-8' is not supported"), e);
+          new CommandExecutionException(iContext.getDatabaseSession(),
+              "hash(): encoding 'UTF-8' is not supported"), e, iContext.getDatabaseSession());
     }
   }
 }

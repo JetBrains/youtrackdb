@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -15,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLBinaryCondition extends SQLBooleanExpression {
 
@@ -52,9 +51,9 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     if (left.isFunctionAll()) {
       return evaluateAllFunction(currentRecord, ctx);
     }
-    Object leftVal = left.execute(currentRecord, ctx);
-    Object rightVal = right.execute(currentRecord, ctx);
-    Collate collate = left.getCollate(currentRecord, ctx);
+    var leftVal = left.execute(currentRecord, ctx);
+    var rightVal = right.execute(currentRecord, ctx);
+    var collate = left.getCollate(currentRecord, ctx);
     if (collate == null) {
       collate = right.getCollate(currentRecord, ctx);
     }
@@ -66,9 +65,9 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
-      Object rightVal = right.execute(currentRecord, ctx);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
+      var rightVal = right.execute(currentRecord, ctx);
 
       // TODO collate
 
@@ -80,9 +79,9 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
-      Object rightVal = right.execute(currentRecord, ctx);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
+      var rightVal = right.execute(currentRecord, ctx);
 
       // TODO collate
 
@@ -118,7 +117,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   protected int getNumberOfExternalCalculations() {
-    int total = 0;
+    var total = 0;
     if (!operator.supportsBasicCalculation()) {
       total++;
     }
@@ -146,6 +145,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Nullable
   public SQLBinaryCondition isIndexedFunctionCondition(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (left.isIndexedFunctionCal(database)) {
@@ -212,6 +212,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
         target, context, operator, right.execute((Result) null, context));
   }
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
     if (left.isIndexedFunctionCal(database)) {
@@ -230,7 +231,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public SQLBinaryCondition copy() {
-    SQLBinaryCondition result = new SQLBinaryCondition(-1);
+    var result = new SQLBinaryCondition(-1);
     result.left = left.copy();
     result.operator = operator.copy();
     result.right = right.copy();
@@ -254,9 +255,9 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       return Optional.empty();
     }
     if (operator instanceof SQLEqualsCompareOperator) {
-      SQLUpdateItem result = new SQLUpdateItem(-1);
+      var result = new SQLUpdateItem(-1);
       result.operator = SQLUpdateItem.OPERATOR_EQ;
-      SQLBaseExpression baseExp = ((SQLBaseExpression) left.mathExpression);
+      var baseExp = ((SQLBaseExpression) left.mathExpression);
       result.left = baseExp.getIdentifier().suffix.getIdentifier().copy();
       result.leftModifier = baseExp.modifier == null ? null : baseExp.modifier.copy();
       result.right = right.copy();
@@ -309,7 +310,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLBinaryCondition that = (SQLBinaryCondition) o;
+    var that = (SQLBinaryCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -322,7 +323,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (operator != null ? operator.hashCode() : 0);
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
@@ -330,8 +331,8 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> leftX = left.getMatchPatternInvolvedAliases();
-    List<String> rightX = right.getMatchPatternInvolvedAliases();
+    var leftX = left.getMatchPatternInvolvedAliases();
+    var rightX = right.getMatchPatternInvolvedAliases();
     if (leftX == null) {
       return rightX;
     }
@@ -348,12 +349,12 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public void translateLuceneOperator() {
     if (operator instanceof SQLLuceneOperator) {
-      SQLExpression newLeft = new SQLExpression(-1);
+      var newLeft = new SQLExpression(-1);
       newLeft.mathExpression = new SQLBaseExpression(-1);
-      SQLBaseIdentifier identifirer = new SQLBaseIdentifier(-1);
+      var identifirer = new SQLBaseIdentifier(-1);
       ((SQLBaseExpression) newLeft.mathExpression).setIdentifier(identifirer);
       identifirer.levelZero = new SQLLevelZeroIdentifier(-1);
-      SQLFunctionCall function = new SQLFunctionCall(-1);
+      var function = new SQLFunctionCall(-1);
       identifirer.levelZero.functionCall = function;
       function.name = new SQLIdentifier("search_fields");
       function.params = new ArrayList<>();
@@ -367,17 +368,17 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     }
   }
 
-  private SQLExpression fieldNamesToStrings(SQLExpression left) {
+  private static SQLExpression fieldNamesToStrings(SQLExpression left) {
     if (left.isBaseIdentifier()) {
-      SQLIdentifier identifier =
+      var identifier =
           ((SQLBaseExpression) left.mathExpression).getIdentifier().suffix.getIdentifier();
-      SQLCollection newColl = new SQLCollection(-1);
+      var newColl = new SQLCollection(-1);
       newColl.expressions = new ArrayList<>();
       newColl.expressions.add(identifierToStringExpr(identifier));
-      SQLExpression result = new SQLExpression(-1);
-      SQLBaseExpression newBase = new SQLBaseExpression(-1);
+      var result = new SQLExpression(-1);
+      var newBase = new SQLBaseExpression(-1);
       result.mathExpression = newBase;
-      SQLBaseIdentifier newIdentifier = new SQLBaseIdentifier(-1);
+      var newIdentifier = new SQLBaseIdentifier(-1);
       newIdentifier.levelZero = new SQLLevelZeroIdentifier(-1);
       newIdentifier.levelZero.collection = newColl;
       newBase.setIdentifier(newIdentifier);
@@ -386,26 +387,26 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       if (base.getIdentifier() != null
           && base.getIdentifier().levelZero != null
           && base.getIdentifier().levelZero.collection != null) {
-        SQLCollection coll = base.getIdentifier().levelZero.collection;
+        var coll = base.getIdentifier().levelZero.collection;
 
-        SQLCollection newColl = new SQLCollection(-1);
+        var newColl = new SQLCollection(-1);
         newColl.expressions = new ArrayList<>();
 
-        for (SQLExpression exp : coll.expressions) {
+        for (var exp : coll.expressions) {
           if (exp.isBaseIdentifier()) {
-            SQLIdentifier identifier =
+            var identifier =
                 ((SQLBaseExpression) exp.mathExpression).getIdentifier().suffix.getIdentifier();
-            SQLExpression val = identifierToStringExpr(identifier);
+            var val = identifierToStringExpr(identifier);
             newColl.expressions.add(val);
           } else {
             throw new CommandExecutionException(
                 "Cannot execute because of invalid LUCENE expression");
           }
         }
-        SQLExpression result = new SQLExpression(-1);
-        SQLBaseExpression newBase = new SQLBaseExpression(-1);
+        var result = new SQLExpression(-1);
+        var newBase = new SQLBaseExpression(-1);
         result.mathExpression = newBase;
-        SQLBaseIdentifier newIdentifier = new SQLBaseIdentifier(-1);
+        var newIdentifier = new SQLBaseIdentifier(-1);
         newIdentifier.levelZero = new SQLLevelZeroIdentifier(-1);
         newIdentifier.levelZero.collection = newColl;
         newBase.setIdentifier(newIdentifier);
@@ -415,16 +416,16 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     throw new CommandExecutionException("Cannot execute because of invalid LUCENE expression");
   }
 
-  private SQLExpression identifierToStringExpr(SQLIdentifier identifier) {
-    SQLBaseExpression bexp = new SQLBaseExpression(identifier.getStringValue());
+  private static SQLExpression identifierToStringExpr(SQLIdentifier identifier) {
+    var bexp = new SQLBaseExpression(identifier.getStringValue());
 
-    SQLExpression result = new SQLExpression(-1);
+    var result = new SQLExpression(-1);
     result.mathExpression = bexp;
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("left", left.serialize(db));
     result.setProperty("operator", operator.getClass().getName());
     result.setProperty("right", right.serialize(db));
@@ -439,7 +440,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
           (SQLBinaryCompareOperator)
               Class.forName(String.valueOf(fromResult.getProperty("operator"))).newInstance();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }
     right = new SQLExpression(-1);
     right.deserialize(fromResult.getProperty("right"));
@@ -456,11 +457,11 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     if (operator instanceof SQLEqualsCompareOperator
         && right.isEarlyCalculated(ctx)
         && left.isIndexChain(ctx, clazz)) {
-      SQLInCondition result = new SQLInCondition(-1);
+      var result = new SQLInCondition(-1);
 
       result.left = new SQLExpression(-1);
-      SQLBaseExpression base = new SQLBaseExpression(-1);
-      SQLBaseIdentifier identifier = new SQLBaseIdentifier(-1);
+      var base = new SQLBaseExpression(-1);
+      var identifier = new SQLBaseIdentifier(-1);
       identifier.suffix = new SQLSuffixIdentifier(-1);
       identifier.suffix.setIdentifier(
           ((SQLBaseExpression) left.mathExpression).getIdentifier().suffix.getIdentifier());
@@ -469,11 +470,12 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
       result.operator = new SQLInOperator(-1);
 
-      SchemaClass nextClazz =
+      var session = ctx.getDatabaseSession();
+      var nextClazz =
           clazz
-              .getProperty(ctx.getDatabase(),
+              .getProperty(
                   base.getIdentifier().suffix.getIdentifier().getStringValue())
-              .getLinkedClass(ctx.getDatabase());
+              .getLinkedClass();
       result.rightStatement =
           indexChainToStatement(
               ((SQLBaseExpression) left.mathExpression).modifier, nextClazz, right, ctx);
@@ -484,15 +486,16 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   public static SQLSelectStatement indexChainToStatement(
       SQLModifier modifier, SchemaClass clazz, SQLExpression right, CommandContext ctx) {
-    SchemaClass queryClass = clazz;
+    var queryClass = clazz;
 
-    SQLSelectStatement result = new SQLSelectStatement(-1);
+    var result = new SQLSelectStatement(-1);
     result.target = new SQLFromClause(-1);
     result.target.setItem(new SQLFromItem(-1));
-    result.target.getItem().identifier = new SQLIdentifier(queryClass.getName());
+    result.target.getItem().identifier = new SQLIdentifier(
+        queryClass.getName());
 
     result.whereClause = new SQLWhereClause(-1);
-    SQLBinaryCondition base = new SQLBinaryCondition(-1);
+    var base = new SQLBinaryCondition(-1);
     result.whereClause.baseExpression = new SQLNotBlock(-1);
     ((SQLNotBlock) result.whereClause.baseExpression).sub = base;
     ((SQLNotBlock) result.whereClause.baseExpression).negate = false;
@@ -511,11 +514,11 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<MetadataPath> path = left.getPath();
+    var path = left.getPath();
     if (path.isPresent()) {
-      MetadataPath p = path.get();
+      var p = path.get();
       if (right.isEarlyCalculated(ctx)) {
-        Object value = right.execute((Result) null, ctx);
+        var value = right.execute((Result) null, ctx);
         if (operator instanceof SQLEqualsCompareOperator) {
           return info.findExactIndex(p, value, ctx);
         } else if (operator instanceof SQLContainsKeyOperator) {
@@ -556,8 +559,8 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     if (!metchingCondition.left.equals(this.left)) {
       return false;
     }
-    SQLBinaryCompareOperator leftOperator = metchingCondition.operator;
-    SQLBinaryCompareOperator rightOperator = this.operator;
+    var leftOperator = metchingCondition.operator;
+    var rightOperator = this.operator;
     if (leftOperator instanceof SQLGeOperator || leftOperator instanceof SQLGtOperator) {
       return rightOperator instanceof SQLLeOperator || rightOperator instanceof SQLLtOperator;
     }
@@ -567,9 +570,10 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Nullable
   @Override
   public SQLExpression resolveKeyFrom(SQLBinaryCondition additional) {
-    SQLBinaryCompareOperator operator = this.operator;
+    var operator = this.operator;
     if ((operator instanceof SQLEqualsCompareOperator)
         || (operator instanceof SQLGtOperator)
         || (operator instanceof SQLGeOperator)
@@ -584,9 +588,10 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     }
   }
 
+  @Nullable
   @Override
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
-    SQLBinaryCompareOperator operator = this.operator;
+    var operator = this.operator;
     if ((operator instanceof SQLEqualsCompareOperator)
         || (operator instanceof SQLLtOperator)
         || (operator instanceof SQLLeOperator)

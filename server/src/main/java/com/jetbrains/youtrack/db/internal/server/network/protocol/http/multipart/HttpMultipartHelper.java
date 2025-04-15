@@ -16,7 +16,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
 
 /**
@@ -25,7 +25,7 @@ import java.io.IOException;
 public class HttpMultipartHelper {
 
   protected static boolean isMultipartPartHeader(StringBuilder header) {
-    final String linePart = header.toString();
+    final var linePart = header.toString();
     return ((linePart.equals(HttpUtils.MULTIPART_CONTENT_CHARSET))
         || (linePart.equals(HttpUtils.MULTIPART_CONTENT_FILENAME))
         || (linePart.equals(HttpUtils.MULTIPART_CONTENT_NAME))
@@ -34,8 +34,8 @@ public class HttpMultipartHelper {
         || (linePart.equals(HttpUtils.MULTIPART_CONTENT_TRANSFER_ENCODING)));
   }
 
-  public static boolean isEndRequest(final OHttpRequest iRequest) throws IOException {
-    int in = iRequest.getMultipartStream().read();
+  public static boolean isEndRequest(final HttpRequest iRequest) throws IOException {
+    var in = iRequest.getMultipartStream().read();
     if (((char) in) == '-') {
       in = iRequest.getMultipartStream().read();
       if (((char) in) == '-') {

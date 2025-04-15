@@ -2,12 +2,12 @@ package com.jetbrains.youtrack.db.internal.core.db.hook;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -15,98 +15,143 @@ import org.junit.Test;
 public class HookChangeValidationTest extends DbTestBase {
 
   @Test
-  public void testHookCreateChangeTx() {
-
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("TestClass");
-    classA.createProperty(db, "property1", PropertyType.STRING).setNotNull(db, true);
-    classA.createProperty(db, "property2", PropertyType.STRING).setReadonly(db, true);
-    classA.createProperty(db, "property3", PropertyType.STRING).setMandatory(db, true);
-    db.registerHook(
-        new DocumentHookAbstract() {
+  public void testBeforeHookCreateChangeTx() {
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("TestClass");
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    session.registerHook(
+        new EntityHookAbstract() {
           @Override
-          public RESULT onRecordBeforeCreate(EntityImpl entity) {
-            entity.removeField("property1");
-            entity.removeField("property2");
-            entity.removeField("property3");
-            return RESULT.RECORD_CHANGED;
-          }
-
-          @Override
-          public RESULT onRecordBeforeUpdate(EntityImpl entity) {
-            return RESULT.RECORD_NOT_CHANGED;
-          }
-
-          @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return DISTRIBUTED_EXECUTION_MODE.SOURCE_NODE;
+          public void onBeforeEntityCreate(Entity entity) {
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
           }
         });
-    EntityImpl doc = new EntityImpl(classA);
-    doc.field("property1", "value1-create");
-    doc.field("property2", "value2-create");
-    doc.field("property3", "value3-create");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
     try {
-      db.begin();
-      doc.save();
-      db.commit();
-      Assert.fail("The document save should fail for validation exception");
-    } catch (ValidationException ex) {
-
+      session.commit();
+      Assert.fail("The document save should fail with illegal state exception");
+    } catch (IllegalStateException ex) {
     }
   }
 
   @Test
-  public void testHookUpdateChangeTx() {
-
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("TestClass");
-    classA.createProperty(db, "property1", PropertyType.STRING).setNotNull(db, true);
-    classA.createProperty(db, "property2", PropertyType.STRING).setReadonly(db, true);
-    classA.createProperty(db, "property3", PropertyType.STRING).setMandatory(db, true);
-    db.registerHook(
-        new DocumentHookAbstract() {
+  public void testAfterHookCreateChangeTx() {
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("TestClass");
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    session.registerHook(
+        new EntityHookAbstract() {
           @Override
-          public RESULT onRecordBeforeCreate(EntityImpl entity) {
-            return RESULT.RECORD_NOT_CHANGED;
+          public void onAfterEntityCreate(Entity entity) {
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
           }
+        });
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
+    try {
 
-          @Override
-          public RESULT onRecordBeforeUpdate(EntityImpl entity) {
-            entity.removeField("property1");
-            entity.removeField("property2");
-            entity.removeField("property3");
-            return RESULT.RECORD_CHANGED;
-          }
+      session.commit();
+      Assert.fail("The document save should fail for validation exception");
+    } catch (ValidationException ex) {
+    }
+  }
 
+  @Test
+  public void testBeforeHookUpdateChangeTx() {
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("TestClass");
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    session.registerHook(
+        new EntityHookAbstract() {
           @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return DISTRIBUTED_EXECUTION_MODE.SOURCE_NODE;
+          public void onBeforeEntityUpdate(Entity entity) {
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
           }
         });
 
-    db.begin();
-    EntityImpl doc = new EntityImpl(classA);
-    doc.field("property1", "value1-create");
-    doc.field("property2", "value2-create");
-    doc.field("property3", "value3-create");
-    doc.save();
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    assertEquals("value1-create", doc.field("property1"));
-    assertEquals("value2-create", doc.field("property2"));
-    assertEquals("value3-create", doc.field("property3"));
+    session.commit();
 
-    doc.field("property1", "value1-update");
-    doc.field("property2", "value2-update");
+    session.begin();
     try {
-      doc.save();
-      db.commit();
+      var activeTx = session.getActiveTransaction();
+      doc = activeTx.load(doc);
+      assertEquals("value1-create", doc.getProperty("property1"));
+      assertEquals("value2-create", doc.getProperty("property2"));
+      assertEquals("value3-create", doc.getProperty("property3"));
+
+      doc.setProperty("property1", "value1-update");
+      doc.setProperty("property2", "value2-update");
+
+      session.commit();
+      Assert.fail("The document save should fail with illegal exception");
+    } catch (IllegalStateException ex) {
+    }
+  }
+
+  @Test
+  public void testAfterHookUpdateChangeTx() {
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("TestClass");
+    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
+    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
+    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    session.registerHook(
+        new EntityHookAbstract() {
+          @Override
+          public void onAfterEntityUpdate(Entity entity) {
+            entity.removeProperty("property1");
+            entity.removeProperty("property2");
+            entity.removeProperty("property3");
+          }
+        });
+
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    doc.setProperty("property1", "value1-create");
+    doc.setProperty("property2", "value2-create");
+    doc.setProperty("property3", "value3-create");
+
+    session.commit();
+
+    session.begin();
+    try {
+      var activeTx = session.getActiveTransaction();
+      doc = activeTx.load(doc);
+      assertEquals("value1-create", doc.getProperty("property1"));
+      assertEquals("value2-create", doc.getProperty("property2"));
+      assertEquals("value3-create", doc.getProperty("property3"));
+
+      doc.setProperty("property1", "value1-update");
+      doc.setProperty("property2", "value2-update");
+
+      session.commit();
       Assert.fail("The document save should fail for validation exception");
     } catch (ValidationException ex) {
-
     }
   }
 }

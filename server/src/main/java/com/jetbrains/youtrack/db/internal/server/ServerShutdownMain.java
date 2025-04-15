@@ -19,14 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.server;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ShutdownRequest;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
 import java.util.Arrays;
 
@@ -59,7 +59,7 @@ public class ServerShutdownMain {
 
   public void connect(final int iTimeout) throws IOException {
     // TRY TO CONNECT TO THE RIGHT PORT
-    for (int port : networkPort) {
+    for (var port : networkPort) {
       try {
         channel =
             new SocketChannelBinaryAsynchClient(
@@ -81,7 +81,7 @@ public class ServerShutdownMain {
               + Arrays.toString(networkPort));
     }
 
-    ShutdownRequest request = new ShutdownRequest(rootUser, rootPassword);
+    var request = new ShutdownRequest(rootUser, rootPassword);
     channel.writeByte(request.getCommand());
     channel.writeInt(0);
     channel.writeBytes(null);
@@ -93,15 +93,15 @@ public class ServerShutdownMain {
 
   public static void main(final String[] iArgs) {
 
-    String serverHost = "localhost";
-    String serverPorts = "2424-2430";
-    String rootPassword = "NOT_PRESENT";
-    String rootUser = ServerConfiguration.DEFAULT_ROOT_USER;
+    var serverHost = "localhost";
+    var serverPorts = "2424-2430";
+    var rootPassword = "NOT_PRESENT";
+    var rootUser = ServerConfiguration.DEFAULT_ROOT_USER;
 
-    boolean printUsage = false;
+    var printUsage = false;
 
-    for (int i = 0; i < iArgs.length; i++) {
-      String arg = iArgs[i];
+    for (var i = 0; i < iArgs.length; i++) {
+      var arg = iArgs[i];
       if ("-P".equals(arg) || "--ports".equals(arg)) {
         serverPorts = iArgs[i + 1];
       }

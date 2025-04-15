@@ -2,13 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +30,8 @@ public class SQLCollection extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("[");
-    boolean first = true;
-    for (SQLExpression expr : expressions) {
+    var first = true;
+    for (var expr : expressions) {
       if (!first) {
         builder.append(", ");
       }
@@ -43,8 +43,8 @@ public class SQLCollection extends SimpleNode {
 
   public void toGenericStatement(StringBuilder builder) {
     builder.append("[");
-    boolean first = true;
-    for (SQLExpression expr : expressions) {
+    var first = true;
+    for (var expr : expressions) {
       if (!first) {
         builder.append(", ");
       }
@@ -60,7 +60,7 @@ public class SQLCollection extends SimpleNode {
 
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
-    for (SQLExpression exp : expressions) {
+    for (var exp : expressions) {
       result.add(exp.execute(iCurrentRecord, ctx));
     }
     return result;
@@ -68,7 +68,7 @@ public class SQLCollection extends SimpleNode {
 
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
-    for (SQLExpression exp : expressions) {
+    for (var exp : expressions) {
       result.add(convert(exp.execute(iCurrentRecord, ctx)));
     }
     return result;
@@ -82,7 +82,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public boolean needsAliases(Set<String> aliases) {
-    for (SQLExpression expr : this.expressions) {
+    for (var expr : this.expressions) {
       if (expr.needsAliases(aliases)) {
         return true;
       }
@@ -91,7 +91,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public boolean isAggregate(DatabaseSessionInternal session) {
-    for (SQLExpression exp : this.expressions) {
+    for (var exp : this.expressions) {
       if (exp.isAggregate(session)) {
         return true;
       }
@@ -101,14 +101,14 @@ public class SQLCollection extends SimpleNode {
 
   public SQLCollection splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
-    var db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     if (isAggregate(db)) {
-      SQLCollection result = new SQLCollection(-1);
-      for (SQLExpression exp : this.expressions) {
+      var result = new SQLCollection(-1);
+      for (var exp : this.expressions) {
         if (exp.isAggregate(db) || exp.isEarlyCalculated(ctx)) {
           result.expressions.add(exp.splitForAggregation(aggregateProj, ctx));
         } else {
-          throw new CommandExecutionException(
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Cannot mix aggregate and non-aggregate operations in a collection: " + this);
         }
       }
@@ -119,7 +119,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {
-    for (SQLExpression exp : expressions) {
+    for (var exp : expressions) {
       if (!exp.isEarlyCalculated(ctx)) {
         return false;
       }
@@ -128,7 +128,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public SQLCollection copy() {
-    SQLCollection result = new SQLCollection(-1);
+    var result = new SQLCollection(-1);
     result.expressions =
         expressions == null
             ? null
@@ -145,7 +145,7 @@ public class SQLCollection extends SimpleNode {
       return false;
     }
 
-    SQLCollection that = (SQLCollection) o;
+    var that = (SQLCollection) o;
 
     return Objects.equals(expressions, that.expressions);
   }
@@ -157,7 +157,7 @@ public class SQLCollection extends SimpleNode {
 
   public boolean refersToParent() {
     if (expressions != null) {
-      for (SQLExpression exp : expressions) {
+      for (var exp : expressions) {
         if (exp != null && exp.refersToParent()) {
           return true;
         }
@@ -167,7 +167,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (expressions != null) {
       result.setProperty(
           "expressions",
@@ -180,8 +180,8 @@ public class SQLCollection extends SimpleNode {
     if (fromResult.getProperty("expressions") != null) {
       expressions = new ArrayList<>();
       List<Result> ser = fromResult.getProperty("expressions");
-      for (Result item : ser) {
-        SQLExpression exp = new SQLExpression(-1);
+      for (var item : ser) {
+        var exp = new SQLExpression(-1);
         exp.deserialize(item);
         expressions.add(exp);
       }
@@ -189,7 +189,7 @@ public class SQLCollection extends SimpleNode {
   }
 
   public boolean isCacheable(DatabaseSessionInternal session) {
-    for (SQLExpression exp : expressions) {
+    for (var exp : expressions) {
       if (!exp.isCacheable(session)) {
         return false;
       }

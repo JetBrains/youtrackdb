@@ -4,14 +4,10 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,39 +28,39 @@ public class SQLTruncateClassStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    DatabaseSessionInternal db = ctx.getDatabase();
-    var schema = db.getMetadata().getSchemaInternal();
-    SchemaClassInternal clazz = schema.getClassInternal(className.getStringValue());
+    var session = ctx.getDatabaseSession();
+    var schema = session.getMetadata().getSchemaInternal();
+    var clazz = schema.getClassInternal(className.getStringValue());
     if (clazz == null) {
-      throw new CommandExecutionException("Schema Class not found: " + className);
+      throw new CommandExecutionException(session, "Schema Class not found: " + className);
     }
 
-    final long recs = clazz.count(ctx.getDatabase(), polymorphic);
+    final var recs = clazz.count(session, polymorphic);
     if (recs > 0 && !unsafe) {
-      if (clazz.isSubClassOf(ctx.getDatabase(), "V")) {
-        throw new CommandExecutionException(
+      if (clazz.isSubClassOf("V")) {
+        throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (clazz.isSubClassOf(ctx.getDatabase(), "E")) {
-        throw new CommandExecutionException(
+      } else if (clazz.isSubClassOf("E")) {
+        throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
       }
     }
 
     List<Result> rs = new ArrayList<>();
-    Collection<SchemaClass> subclasses = clazz.getAllSubclasses(ctx.getDatabase());
+    var subclasses = clazz.getAllSubclasses();
     if (polymorphic && !unsafe) { // for multiple inheritance
-      for (SchemaClass subclass : subclasses) {
-        long subclassRecs = clazz.count(db);
+      for (var subclass : subclasses) {
+        var subclassRecs = clazz.count(session);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf(ctx.getDatabase(), "V")) {
-            throw new CommandExecutionException(
+          if (subclass.isSubClassOf("V")) {
+            throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
                     + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf(ctx.getDatabase(), "E")) {
-            throw new CommandExecutionException(
+          } else if (subclass.isSubClassOf("E")) {
+            throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
                     + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
@@ -73,16 +69,16 @@ public class SQLTruncateClassStatement extends DDLStatement {
       }
     }
 
-    long count = db.truncateClass(clazz.getName(), false);
-    ResultInternal result = new ResultInternal(db);
+    var count = session.truncateClass(clazz.getName(), false);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "truncate class");
     result.setProperty("className", className.getStringValue());
     result.setProperty("count", count);
     rs.add(result);
     if (polymorphic) {
-      for (SchemaClass subclass : subclasses) {
-        count = db.truncateClass(subclass.getName(), false);
-        result = new ResultInternal(db);
+      for (var subclass : subclasses) {
+        count = session.truncateClass(subclass.getName(), false);
+        result = new ResultInternal(session);
         result.setProperty("operation", "truncate class");
         result.setProperty("className", className.getStringValue());
         result.setProperty("count", count);
@@ -119,7 +115,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
 
   @Override
   public SQLTruncateClassStatement copy() {
-    SQLTruncateClassStatement result = new SQLTruncateClassStatement(-1);
+    var result = new SQLTruncateClassStatement(-1);
     result.className = className == null ? null : className.copy();
     result.polymorphic = polymorphic;
     result.unsafe = unsafe;
@@ -135,7 +131,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
       return false;
     }
 
-    SQLTruncateClassStatement that = (SQLTruncateClassStatement) o;
+    var that = (SQLTruncateClassStatement) o;
 
     if (polymorphic != that.polymorphic) {
       return false;
@@ -148,7 +144,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = className != null ? className.hashCode() : 0;
+    var result = className != null ? className.hashCode() : 0;
     result = 31 * result + (polymorphic ? 1 : 0);
     result = 31 * result + (unsafe ? 1 : 0);
     return result;

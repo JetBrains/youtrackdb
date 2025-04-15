@@ -38,7 +38,7 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    ExecutionStream nextBlock = prefetchExecutionPlan.start();
+    var nextBlock = prefetchExecutionPlan.start();
     List<Result> prefetched = new ArrayList<>();
     while (nextBlock.hasNext(ctx)) {
       prefetched.add(nextBlock.next(ctx));
@@ -51,7 +51,7 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces
         + "+ PREFETCH "
         + alias

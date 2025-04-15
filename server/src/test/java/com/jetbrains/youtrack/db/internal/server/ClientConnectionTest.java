@@ -5,8 +5,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrack.db.internal.server.token.TokenHandlerImpl;
@@ -43,9 +43,10 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidToken() throws IOException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    byte[] tokenBytes = handler.getSignedBinaryToken(db, db.geCurrentUser(), conn.getData());
+    var conn = new ClientConnection(1, protocol);
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
 
     conn.validateSession(tokenBytes, handler, null);
     assertTrue(conn.getTokenBased());
@@ -55,29 +56,31 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = TokenSecurityException.class)
   public void testExpiredToken() throws IOException, InterruptedException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    long sessionTimeout = GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.getValueAsLong();
+    var conn = new ClientConnection(1, protocol);
+    var sessionTimeout = GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.getValueAsLong();
     GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.setValue(0);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
     GlobalConfiguration.NETWORK_TOKEN_EXPIRE_TIMEOUT.setValue(sessionTimeout);
-    byte[] tokenBytes = handler.getSignedBinaryToken(db, db.geCurrentUser(), conn.getData());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     Thread.sleep(1);
     conn.validateSession(tokenBytes, handler, protocol);
   }
 
   @Test(expected = TokenSecurityException.class)
   public void testWrongToken() throws IOException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    byte[] tokenBytes = new byte[120];
+    var conn = new ClientConnection(1, protocol);
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    var tokenBytes = new byte[120];
     conn.validateSession(tokenBytes, handler, protocol);
   }
 
   @Test
   public void testAlreadyAuthenticatedOnConnection() throws IOException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    byte[] tokenBytes = handler.getSignedBinaryToken(db, db.geCurrentUser(), conn.getData());
+    var conn = new ClientConnection(1, protocol);
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     conn.validateSession(tokenBytes, handler, protocol);
     assertTrue(conn.getTokenBased());
     assertArrayEquals(tokenBytes, conn.getTokenBytes());
@@ -91,23 +94,24 @@ public class ClientConnectionTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = TokenSecurityException.class)
   public void testNotAlreadyAuthenticated() throws IOException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    var conn = new ClientConnection(1, protocol);
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
     // second validation don't need token
     conn.validateSession(null, handler, protocol1);
   }
 
   @Test(expected = TokenSecurityException.class)
   public void testAlreadyAuthenticatedButNotOnSpecificConnection() throws IOException {
-    ClientConnection conn = new ClientConnection(1, protocol);
-    OTokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
-    byte[] tokenBytes = handler.getSignedBinaryToken(db, db.geCurrentUser(), conn.getData());
+    var conn = new ClientConnection(1, protocol);
+    TokenHandler handler = new TokenHandlerImpl(server.getContextConfiguration());
+    var tokenBytes = handler.getSignedBinaryToken(session, session.getCurrentUser(),
+        conn.getData());
     conn.validateSession(tokenBytes, handler, protocol);
     assertTrue(conn.getTokenBased());
     assertArrayEquals(tokenBytes, conn.getTokenBytes());
     assertNotNull(conn.getToken());
     // second validation don't need token
-    NetworkProtocolBinary otherConn = Mockito.mock(NetworkProtocolBinary.class);
+    var otherConn = Mockito.mock(NetworkProtocolBinary.class);
     conn.validateSession(null, handler, otherConn);
   }
 }

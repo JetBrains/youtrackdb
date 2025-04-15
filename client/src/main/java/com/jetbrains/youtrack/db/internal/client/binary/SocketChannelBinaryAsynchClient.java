@@ -19,23 +19,23 @@
  */
 package com.jetbrains.youtrack.db.internal.client.binary;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteNodeSession;
+import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketFactory;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ResponseProcessingException;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteNodeSession;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -46,9 +46,8 @@ import java.io.ObjectInputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.SocketException;
-import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
@@ -57,7 +56,6 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
   private final String serverURL;
   private byte currentStatus;
   private int currentSessionId;
-  private byte currentMessage;
   private volatile long lastUse;
   private volatile boolean inUse;
 
@@ -135,7 +133,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     RuntimeException rootException = null;
     Constructor<?> c = null;
     try {
-      final Class<RuntimeException> excClass = (Class<RuntimeException>) Class.forName(iClassName);
+      final var excClass = (Class<RuntimeException>) Class.forName(iClassName);
       if (iPrevious != null) {
         try {
           c = excClass.getConstructor(String.class, Throwable.class);
@@ -150,7 +148,8 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
     } catch (Exception e) {
       // UNABLE TO REPRODUCE THE SAME SERVER-SIDE EXCEPTION: THROW AN SYSTEM EXCEPTION
-      rootException = BaseException.wrapException(new SystemException(iMessage), iPrevious);
+      rootException = BaseException.wrapException(new SystemException(iMessage), iPrevious,
+          (String) null);
     }
 
     if (c != null) {
@@ -163,10 +162,10 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
         }
 
         rootException =
-            BaseException.wrapException(new SystemException("Data processing exception"), cause);
-      } catch (InstantiationException ignored) {
-      } catch (IllegalAccessException ignored) {
-      } catch (InvocationTargetException ignored) {
+            BaseException.wrapException(new SystemException("Data processing exception"), cause,
+                (String) null);
+      } catch (InstantiationException | IllegalAccessException |
+               InvocationTargetException ignored) {
       }
     }
 
@@ -178,6 +177,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     return beginResponse(db, iRequesterId, timeout, token);
   }
 
+  @Nullable
   public byte[] beginResponse(DatabaseSessionInternal db, final int iRequesterId,
       final long iTimeout, final boolean token)
       throws IOException {
@@ -224,7 +224,8 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
         tokenBytes = null;
       }
 
-      currentMessage = readByte();
+      //current message
+      readByte();
       handleStatus(db, currentStatus, currentSessionId);
       return tokenBytes;
     } catch (LockException e) {
@@ -276,7 +277,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
    * @return true if it's connected, otherwise false.
    */
   public boolean isConnected() {
-    final Socket s = socket;
+    final var s = socket;
     return s != null
         && !s.isClosed()
         && s.isConnected()
@@ -317,16 +318,16 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
       return iClientTxId;
     } else if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
 
-      Error37Response response = new Error37Response();
+      var response = new Error37Response();
       response.read(db, this, null);
-      byte[] serializedException = response.getVerbose();
+      var serializedException = response.getVerbose();
       Exception previous = null;
       if (serializedException != null && serializedException.length > 0) {
-        Throwable deserializeException = deserializeException(serializedException);
+        var deserializeException = deserializeException(serializedException);
         exceptionHandler.onException(deserializeException);
       }
 
-      for (Map.Entry<String, String> entry : response.getMessages().entrySet()) {
+      for (var entry : response.getMessages().entrySet()) {
         previous = createException(entry.getKey(), entry.getValue(), previous);
       }
 
@@ -352,15 +353,15 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
   }
 
   private void setReadResponseTimeout() throws SocketException {
-    final Socket s = socket;
+    final var s = socket;
     if (s != null && s.isConnected() && !s.isClosed()) {
       s.setSoTimeout(socketTimeout);
     }
   }
 
   private Throwable deserializeException(final byte[] serializedException) throws IOException {
-    final ByteArrayInputStream inputStream = new ByteArrayInputStream(serializedException);
-    final ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+    final var inputStream = new ByteArrayInputStream(serializedException);
+    final var objectInputStream = new ObjectInputStream(inputStream);
 
     Object throwable = null;
     try {
@@ -377,10 +378,10 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
   public void handleException(Throwable throwable) {
     if (throwable instanceof BaseException) {
       try {
-        final Class<? extends BaseException> cls = (Class<? extends BaseException>) throwable.getClass();
+        final var cls = (Class<? extends BaseException>) throwable.getClass();
         final Constructor<? extends BaseException> constructor;
         constructor = cls.getConstructor(cls);
-        final BaseException proxyInstance = constructor.newInstance(throwable);
+        final var proxyInstance = constructor.newInstance(throwable);
         proxyInstance.addSuppressed(throwable);
         throw proxyInstance;
 
@@ -399,7 +400,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
       throw new ResponseProcessingException("Exception during response processing", throwable);
     } else {
       // WRAP IT
-      String exceptionType = throwable != null ? throwable.getClass().getName() : "null";
+      var exceptionType = throwable != null ? throwable.getClass().getName() : "null";
       LogManager.instance()
           .error(
               this,
@@ -412,7 +413,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
   public void beginRequest(final byte iCommand, final StorageRemoteSession session)
       throws IOException {
-    final StorageRemoteNodeSession nodeSession = session.getServerSession(serverURL);
+    final var nodeSession = session.getServerSession(serverURL);
     beginRequest(iCommand, nodeSession);
   }
 

@@ -20,9 +20,9 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -55,7 +55,7 @@ public class StorageStartupMetadata {
   private static final int DIRTY_FLAG_OFFSET = VERSION_OFFSET + 4;
 
   static {
-    final XXHashFactory xxHashFactory = XXHashFactory.fastestInstance();
+    final var xxHashFactory = XXHashFactory.fastestInstance();
     XX_HASH_64 = xxHashFactory.hash64();
   }
 
@@ -81,10 +81,10 @@ public class StorageStartupMetadata {
   }
 
   public void addFileToArchive(ZipOutputStream zos, String name) throws IOException {
-    final ZipEntry ze = new ZipEntry(name);
+    final var ze = new ZipEntry(name);
     zos.putNextEntry(ze);
     try {
-      final ByteBuffer byteBuffer = serialize();
+      final var byteBuffer = serialize();
       byteBuffer.put(DIRTY_FLAG_OFFSET, (byte) 0);
       zos.write(byteBuffer.array());
     } finally {
@@ -115,7 +115,7 @@ public class StorageStartupMetadata {
       lastTxId = -1;
       this.openedAtVersion = openedAtVersion;
 
-      final ByteBuffer buffer = serialize();
+      final var buffer = serialize();
       buffer.rewind();
 
       update(buffer);
@@ -128,7 +128,7 @@ public class StorageStartupMetadata {
   private void update(ByteBuffer buffer) throws IOException {
     Files.deleteIfExists(backupPath);
 
-    try (final FileChannel backupChannel =
+    try (final var backupChannel =
         FileChannel.open(
             backupPath,
             StandardOpenOption.READ,
@@ -152,7 +152,7 @@ public class StorageStartupMetadata {
     }
 
     if (fileLock == null) {
-      throw new StorageException(
+      throw new StorageException(null,
           "Database is locked by another process, please shutdown process and try again");
     }
   }
@@ -193,28 +193,28 @@ public class StorageStartupMetadata {
                 StandardOpenOption.READ,
                 StandardOpenOption.CREATE);
 
-        final long size = channel.size();
+        final var size = channel.size();
 
         if (size < 9) {
-          ByteBuffer buffer = ByteBuffer.allocate(1);
+          var buffer = ByteBuffer.allocate(1);
           IOUtils.readByteBuffer(buffer, channel, 0, true);
 
           buffer.position(0);
           dirtyFlag = buffer.get() > 0;
         } else if (size == 9) {
-          ByteBuffer buffer = ByteBuffer.allocate(8 + 1);
+          var buffer = ByteBuffer.allocate(8 + 1);
           IOUtils.readByteBuffer(buffer, channel, 0, true);
 
           buffer.position(0);
           dirtyFlag = buffer.get() > 0;
           lastTxId = buffer.getLong();
         } else {
-          final ByteBuffer buffer = ByteBuffer.allocate((int) size);
+          final var buffer = ByteBuffer.allocate((int) size);
           IOUtils.readByteBuffer(buffer, channel);
 
           buffer.rewind();
 
-          final long xxHash = XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED);
+          final var xxHash = XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED);
           if (xxHash != buffer.getLong(0)) {
             if (!Files.exists(backupPath)) {
               LogManager.instance()
@@ -242,7 +242,7 @@ public class StorageStartupMetadata {
           }
 
           buffer.position(8);
-          final int version = buffer.getInt();
+          final var version = buffer.getInt();
           if (version != VERSION && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
             throw new IllegalStateException(
                 "Invalid version of the binary format of startup metadata file found "
@@ -256,19 +256,19 @@ public class StorageStartupMetadata {
           dirtyFlag = buffer.get() > 0;
           lastTxId = buffer.getLong();
 
-          final int metadataLen = buffer.getInt();
+          final var metadataLen = buffer.getInt();
           if (metadataLen > 0) {
-            final byte[] txMeta = new byte[metadataLen];
+            final var txMeta = new byte[metadataLen];
             buffer.get(txMeta);
 
             txMetadata = txMeta;
           }
 
           if (version == VERSION) {
-            final int openedAtVersionLen = buffer.getInt();
+            final var openedAtVersionLen = buffer.getInt();
 
             if (openedAtVersionLen > 0) {
-              final byte[] rawOpenedAtVersion = new byte[openedAtVersionLen];
+              final var rawOpenedAtVersion = new byte[openedAtVersionLen];
               buffer.get(rawOpenedAtVersion);
 
               this.openedAtVersion = new String(rawOpenedAtVersion, StandardCharsets.UTF_8);
@@ -412,7 +412,7 @@ public class StorageStartupMetadata {
 
   private ByteBuffer serialize() {
     final ByteBuffer buffer;
-    int bufferSize = 8 + 4 + 1 + 8 + 4 + 4;
+    var bufferSize = 8 + 4 + 1 + 8 + 4 + 4;
 
     if (txMetadata != null) {
       bufferSize += txMetadata.length;
@@ -452,7 +452,7 @@ public class StorageStartupMetadata {
       buffer.put(openedAtVersionRaw);
     }
 
-    final long xxHash = XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED);
+    final var xxHash = XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED);
     buffer.putLong(0, xxHash);
 
     buffer.rewind();

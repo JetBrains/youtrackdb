@@ -100,33 +100,33 @@ public final class WTinyLFUPolicy {
 
   private void purgeEden() {
     while (eden.size() > maxEdenSize) {
-      final CacheEntry candidate = eden.poll();
+      final var candidate = eden.poll();
       assert candidate != null;
 
       if (probation.size() + protection.size() < maxSecondLevelSize) {
         probation.moveToTheTail(candidate);
       } else {
-        final CacheEntry victim = probation.peek();
+        final var victim = probation.peek();
 
-        final int candidateKeyHashCode = candidate.getPageKey().hashCode();
-        final int victimKeyHashCode = victim.getPageKey().hashCode();
+        final var candidateKeyHashCode = candidate.getPageKey().hashCode();
+        final var victimKeyHashCode = victim.getPageKey().hashCode();
 
-        final int candidateFrequency = admittor.frequency(candidateKeyHashCode);
-        final int victimFrequency = admittor.frequency(victimKeyHashCode);
+        final var candidateFrequency = admittor.frequency(candidateKeyHashCode);
+        final var victimFrequency = admittor.frequency(victimKeyHashCode);
 
         if (candidateFrequency >= victimFrequency) {
           probation.poll();
           probation.moveToTheTail(candidate);
 
           if (victim.freeze()) {
-            final boolean removed = data.remove(victim.getPageKey(), victim);
+            final var removed = data.remove(victim.getPageKey(), victim);
             victim.makeDead();
 
             if (removed) {
               cacheSize.decrementAndGet();
             }
 
-            final CachePointer pointer = victim.getCachePointer();
+            final var pointer = victim.getCachePointer();
 
             pointer.decrementReadersReferrer();
             victim.clearCachePointer();
@@ -135,14 +135,14 @@ public final class WTinyLFUPolicy {
           }
         } else {
           if (candidate.freeze()) {
-            final boolean removed = data.remove(candidate.getPageKey(), candidate);
+            final var removed = data.remove(candidate.getPageKey(), candidate);
             candidate.makeDead();
 
             if (removed) {
               cacheSize.decrementAndGet();
             }
 
-            final CachePointer pointer = candidate.getCachePointer();
+            final var pointer = candidate.getCachePointer();
 
             pointer.decrementReadersReferrer();
             candidate.clearCachePointer();
@@ -169,7 +169,7 @@ public final class WTinyLFUPolicy {
 
     cacheEntry.makeDead();
 
-    final CachePointer cachePointer = cacheEntry.getCachePointer();
+    final var cachePointer = cacheEntry.getCachePointer();
     cachePointer.decrementReadersReferrer();
     cacheEntry.clearCachePointer();
   }
@@ -199,24 +199,24 @@ public final class WTinyLFUPolicy {
   }
 
   void assertConsistency() {
-    for (final CacheEntry cacheEntry : data.values()) {
+    for (final var cacheEntry : data.values()) {
       assert eden.contains(cacheEntry)
           || protection.contains(cacheEntry)
           || probation.contains(cacheEntry);
     }
 
-    int counter = 0;
-    for (final CacheEntry cacheEntry : eden) {
+    var counter = 0;
+    for (final var cacheEntry : eden) {
       assert data.get(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    for (final CacheEntry cacheEntry : probation) {
+    for (final var cacheEntry : probation) {
       assert data.get(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }
 
-    for (final CacheEntry cacheEntry : protection) {
+    for (final var cacheEntry : protection) {
       assert data.get(cacheEntry.getPageKey()) == cacheEntry;
       counter++;
     }

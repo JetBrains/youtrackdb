@@ -2,10 +2,10 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,71 +37,90 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
 
   @Test(expected = CommandExecutionException.class)
   public void shouldNotDeleteVertexAndEdge() {
-    CommandContext context = new BasicCommandContext();
-    context.setDatabase(db);
     switch (className) {
       case VERTEX_CLASS_NAME:
-        db.createVertexClass(VERTEX_CLASS_NAME);
+        session.createVertexClass(VERTEX_CLASS_NAME);
         break;
       case EDGE_CLASS_NAME:
-        db.createEdgeClass(EDGE_CLASS_NAME);
+        session.createEdgeClass(EDGE_CLASS_NAME);
         break;
     }
 
-    CheckSafeDeleteStep step = new CheckSafeDeleteStep(context, false);
-    AbstractExecutionStep previous =
-        new AbstractExecutionStep(context, false) {
-          boolean done = false;
+    var simpleClassName = createClassInstance().getName();
+    session.executeInTx(transaction -> {
+      CommandContext context = new BasicCommandContext();
+      context.setDatabaseSession(session);
 
-          @Override
-          public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-            List<Result> result = new ArrayList<>();
-            String simpleClassName = createClassInstance().getName();
-            if (!done) {
-              for (int i = 0; i < 10; i++) {
-                result.add(
-                    new ResultInternal(db,
-                        new EntityImpl(i % 2 == 0 ? simpleClassName : className)));
+      var step = new CheckSafeDeleteStep(context, false);
+      var previous =
+          new AbstractExecutionStep(context, false) {
+            boolean done = false;
+
+            @Override
+            public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+              List<Result> result = new ArrayList<>();
+              var db = ctx.getDatabaseSession();
+
+              if (!done) {
+                for (var i = 0; i < 10; i++) {
+                  if (i % 2 == 0) {
+                    result.add(new ResultInternal(db, db.newEntity(simpleClassName)));
+                  } else {
+                    if (className.equals(VERTEX_CLASS_NAME)) {
+                      result.add(new ResultInternal(db, db.newVertex(className)));
+                    } else if (className.equals(EDGE_CLASS_NAME)) {
+                      var from = db.newVertex();
+                      var to = db.newVertex();
+
+                      var edge = db.newStatefulEdge(from, to, className);
+                      result.add(new ResultInternal(db, (Identifiable) edge));
+                    }
+                  }
+                }
+                done = true;
               }
-              done = true;
+              return ExecutionStream.resultIterator(result.iterator());
             }
-            return ExecutionStream.resultIterator(result.iterator());
-          }
-        };
+          };
 
-    step.setPrevious(previous);
-    ExecutionStream result = step.start(context);
-    while (result.hasNext(context)) {
-      result.next(context);
-    }
+      step.setPrevious(previous);
+      var result = step.start(context);
+      while (result.hasNext(context)) {
+        result.next(context);
+      }
+    });
   }
 
   @Test
   public void shouldSafelyDeleteRecord() {
-    CommandContext context = new BasicCommandContext();
-    context.setDatabase(db);
-    CheckSafeDeleteStep step = new CheckSafeDeleteStep(context, false);
-    AbstractExecutionStep previous =
-        new AbstractExecutionStep(context, false) {
-          boolean done = false;
+    var className = createClassInstance().getName();
 
-          @Override
-          public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-            List<Result> result = new ArrayList<>();
-            if (!done) {
-              for (int i = 0; i < 10; i++) {
-                result.add(
-                    new ResultInternal(db, new EntityImpl(createClassInstance().getName())));
+    session.executeInTx(transaction -> {
+      CommandContext context = new BasicCommandContext();
+      context.setDatabaseSession(session);
+      var step = new CheckSafeDeleteStep(context, false);
+      var previous =
+          new AbstractExecutionStep(context, false) {
+            boolean done = false;
+
+            @Override
+            public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+              List<Result> result = new ArrayList<>();
+              if (!done) {
+                for (var i = 0; i < 10; i++) {
+                  result.add(
+                      new ResultInternal(session, session.newEntity(className)));
+                }
+                done = true;
               }
-              done = true;
+              return ExecutionStream.resultIterator(result.iterator());
             }
-            return ExecutionStream.resultIterator(result.iterator());
-          }
-        };
+          };
+      step.setPrevious(previous);
 
-    step.setPrevious(previous);
-    ExecutionStream result = step.start(context);
-    Assert.assertEquals(10, result.stream(context).count());
-    Assert.assertFalse(result.hasNext(context));
+      var result = step.start(context);
+      Assert.assertEquals(10, result.stream(context).count());
+      Assert.assertFalse(result.hasNext(context));
+    });
   }
 }

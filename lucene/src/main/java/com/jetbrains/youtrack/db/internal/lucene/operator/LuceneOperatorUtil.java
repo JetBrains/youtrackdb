@@ -16,9 +16,9 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.operator;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -28,26 +28,28 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorBetween
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorIn;
 import java.util.Collection;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class LuceneOperatorUtil {
 
+  @Nullable
   public static IndexSearchResult buildOIndexSearchResult(
-      SchemaClass iSchemaClass,
+      SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {
 
-    if (iCondition.getLeft() instanceof Collection left) {
+    if (iCondition.getLeft() instanceof Collection<?> left) {
       IndexSearchResult lastResult = null;
 
-      int i = 0;
-      Object lastValue = null;
-      for (Object obj : left) {
+      var i = 0;
+      for (var obj : left) {
         if (obj instanceof SQLFilterItemField item) {
 
-          Object value = null;
-          if (iCondition.getRight() instanceof Collection) {
-            List<Object> right = (List<Object>) iCondition.getRight();
+          Object value;
+          if (iCondition.getRight() instanceof Collection<?>) {
+            @SuppressWarnings("unchecked")
+            var right = (List<Object>) iCondition.getRight();
             value = right.get(i);
           } else {
             value = iCondition.getRight();
@@ -62,9 +64,10 @@ public class LuceneOperatorUtil {
           }
 
         } else if (obj instanceof SQLFilterItemVariable item) {
-          Object value = null;
+          Object value;
           if (iCondition.getRight() instanceof Collection) {
-            List<Object> right = (List<Object>) iCondition.getRight();
+            @SuppressWarnings("unchecked")
+            var right = (List<Object>) iCondition.getRight();
             value = right.get(i);
           } else {
             value = iCondition.getRight();
@@ -73,14 +76,14 @@ public class LuceneOperatorUtil {
         }
         i++;
       }
-      if (lastResult != null && LuceneOperatorUtil.checkIndexExistence(context.getDatabase(),
+      if (lastResult != null && LuceneOperatorUtil.checkIndexExistence(context.getDatabaseSession(),
           iSchemaClass,
           lastResult)) {
         iIndexSearchResults.add(lastResult);
       }
       return lastResult;
     } else {
-      IndexSearchResult result =
+      var result =
           LuceneOperatorUtil.createIndexedProperty(iCondition, iCondition.getLeft());
       if (result == null) {
         result = LuceneOperatorUtil.createIndexedProperty(iCondition, iCondition.getRight());
@@ -90,7 +93,8 @@ public class LuceneOperatorUtil {
         return null;
       }
 
-      if (LuceneOperatorUtil.checkIndexExistence(context.getDatabase(), iSchemaClass, result)) {
+      if (LuceneOperatorUtil.checkIndexExistence(context.getDatabaseSession(), iSchemaClass,
+          result)) {
         iIndexSearchResults.add(result);
       }
 
@@ -99,31 +103,33 @@ public class LuceneOperatorUtil {
   }
 
   public static boolean checkIndexExistence(
-      DatabaseSessionInternal session, final SchemaClass iSchemaClass,
+      DatabaseSessionInternal session, final SchemaClassInternal iSchemaClass,
       final IndexSearchResult result) {
     if (!iSchemaClass.areIndexed(session, result.fields())) {
       return false;
     }
 
     if (result.lastField.isLong()) {
-      final int fieldCount = result.lastField.getItemCount();
-      SchemaClass cls = iSchemaClass.getProperty(session, result.lastField.getItemName(0))
-          .getLinkedClass(session);
+      final var fieldCount = result.lastField.getItemCount();
+      var cls = (SchemaClassInternal) iSchemaClass.getProperty(
+          result.lastField.getItemName(0)).getLinkedClass();
 
-      for (int i = 1; i < fieldCount; i++) {
+      for (var i = 1; i < fieldCount; i++) {
         if (cls == null || !cls.areIndexed(session, result.lastField.getItemName(i))) {
           return false;
         }
 
-        cls = cls.getProperty(session, result.lastField.getItemName(i)).getLinkedClass(session);
+        cls = (SchemaClassInternal) cls.getProperty(result.lastField.getItemName(i))
+            .getLinkedClass();
       }
     }
     return true;
   }
 
+  @Nullable
   public static IndexSearchResult createIndexedProperty(
       final SQLFilterCondition iCondition, final Object iItem) {
-    if (iItem == null || !(iItem instanceof SQLFilterItemField item)) {
+    if (!(iItem instanceof SQLFilterItemField item)) {
       return null;
     }
 
@@ -136,7 +142,7 @@ public class LuceneOperatorUtil {
       return null;
     }
 
-    final Object origValue =
+    final var origValue =
         iCondition.getLeft() == iItem ? iCondition.getRight() : iCondition.getLeft();
 
     if (iCondition.getOperator() instanceof QueryOperatorBetween
@@ -144,7 +150,7 @@ public class LuceneOperatorUtil {
       return new IndexSearchResult(iCondition.getOperator(), item.getFieldChain(), origValue);
     }
 
-    final Object value = SQLHelper.getValue(origValue);
+    final var value = SQLHelper.getValue(origValue);
 
     if (value == null) {
       return null;

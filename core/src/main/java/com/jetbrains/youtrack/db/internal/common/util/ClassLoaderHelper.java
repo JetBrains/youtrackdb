@@ -29,8 +29,8 @@ import java.util.ServiceLoader;
 public class ClassLoaderHelper {
 
   /**
-   * Switch to the YouTrackDB classloader before lookups on ServiceRegistry for implementation of the
-   * given Class. Useful under OSGI and generally under applications where jars are loaded by
+   * Switch to the YouTrackDB classloader before lookups on ServiceRegistry for implementation of
+   * the given Class. Useful under OSGI and generally under applications where jars are loaded by
    * another class loader
    *
    * @param clazz the class to lookup foor
@@ -46,14 +46,14 @@ public class ClassLoaderHelper {
   public static synchronized <T extends Object> Iterator<T> lookupProviderWithYouTrackDBClassLoader(
       Class<T> clazz, ClassLoader youTrackDBClassLoader) {
 
-    final ClassLoader origClassLoader = Thread.currentThread().getContextClassLoader();
+    final var origClassLoader = Thread.currentThread().getContextClassLoader();
     Thread.currentThread().setContextClassLoader(youTrackDBClassLoader);
     try {
       return ServiceLoader.load(clazz).iterator();
     } catch (Exception e) {
       LogManager.instance().warn(ClassLoaderHelper.class, "Cannot lookup in service registry", e);
       throw BaseException.wrapException(
-          new ConfigurationException("Cannot lookup in service registry"), e);
+          new ConfigurationException("Cannot lookup in service registry"), e, (String) null);
     } finally {
       Thread.currentThread().setContextClassLoader(origClassLoader);
     }

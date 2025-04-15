@@ -31,22 +31,22 @@ public class ShapeOperationImpl implements ShapeOperation {
 
   @Override
   public double distance(Shape s1, Shape s2) {
-    Geometry geometry = factory.toGeometry(s1);
-    Geometry geometry1 = factory.toGeometry(s2);
+    var geometry = factory.toGeometry(s1);
+    var geometry1 = factory.toGeometry(s2);
     return geometry.distance(geometry1);
   }
 
   @Override
   public boolean isWithInDistance(Shape s1, Shape s2, Double dist) {
-    Geometry geometry = factory.toGeometry(s1);
-    Geometry geometry1 = factory.toGeometry(s2);
+    var geometry = factory.toGeometry(s1);
+    var geometry1 = factory.toGeometry(s2);
     return geometry.isWithinDistance(geometry1, dist);
   }
 
   @Override
   public boolean intersect(Shape s1, Shape s2) {
-    Geometry geometry = factory.toGeometry(s1);
-    Geometry geometry1 = factory.toGeometry(s2);
+    var geometry = factory.toGeometry(s1);
+    var geometry1 = factory.toGeometry(s2);
     return geometry.intersects(geometry1);
   }
 
@@ -56,8 +56,8 @@ public class ShapeOperationImpl implements ShapeOperation {
     if (shape instanceof ShapeCollection || shape1 instanceof ShapeCollection) {
       return shape.relate(shape1).equals(SpatialRelation.CONTAINS);
     }
-    Geometry geometry = factory.toGeometry(shape);
-    Geometry geometry1 = factory.toGeometry(shape1);
+    var geometry = factory.toGeometry(shape);
+    var geometry1 = factory.toGeometry(shape1);
 
     return geometry.contains(geometry1);
   }
@@ -68,8 +68,8 @@ public class ShapeOperationImpl implements ShapeOperation {
     if (shape instanceof ShapeCollection || shape1 instanceof ShapeCollection) {
       return shape.relate(shape1).equals(SpatialRelation.WITHIN);
     }
-    Geometry geometry = factory.toGeometry(shape);
-    Geometry geometry1 = factory.toGeometry(shape1);
+    var geometry = factory.toGeometry(shape);
+    var geometry1 = factory.toGeometry(shape1);
     return geometry.within(geometry1);
   }
 

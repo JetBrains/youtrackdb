@@ -21,7 +21,7 @@ public class PlotterTest {
 
   @Test
   public void histogram() throws Exception {
-    final CategoryChart chart =
+    final var chart =
         plotter.getCategoryChart(
             "Test chart name", "Test x axis", "Test y axis", Styler.LegendPosition.InsideNW);
     plotter.addSeriesToHistogram(chart);
@@ -31,12 +31,12 @@ public class PlotterTest {
 
   @Test
   public void lineChart() throws Exception {
-    final XYChart chart =
+    final var chart =
         plotter.getXYChart(
             "Test chart name", "Test x axis", "Test y axis", Styler.LegendPosition.InsideNW);
     final List<Integer> xData = new ArrayList<>();
     final List<Double> yData = new ArrayList<>();
-    for (int i = -3; i <= 3; i++) {
+    for (var i = -3; i <= 3; i++) {
       xData.add(i);
       yData.add(Math.pow(10, i));
     }

@@ -3,45 +3,37 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
+import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
  *
  */
-public class SQLDropClassTest {
+public class SQLDropClassTest extends BaseDBTest {
+
+  @Parameters(value = "remote")
+  public SQLDropClassTest(@Optional Boolean remote) {
+    super(remote != null && remote);
+  }
 
   @Test
   public void testSimpleDrop() {
-    DatabaseSessionInternal db =
-        new DatabaseDocumentTx("memory:" + SQLDropClassTest.class.getName());
-    db.create();
-    try {
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testSimpleDrop"));
-      db.command("create class testSimpleDrop").close();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("testSimpleDrop"));
-      db.command("Drop class testSimpleDrop").close();
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testSimpleDrop"));
-    } finally {
-      db.drop();
-    }
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleDrop"));
+    session.execute("create class testSimpleDrop").close();
+    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testSimpleDrop"));
+    session.execute("Drop class testSimpleDrop").close();
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleDrop"));
   }
 
   @Test
   public void testIfExists() {
-    DatabaseSessionInternal db =
-        new DatabaseDocumentTx("memory:" + SQLDropClassTest.class.getName() + "_ifNotExists");
-    db.create();
-    try {
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testIfExists"));
-      db.command("create class testIfExists if not exists").close();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("testIfExists"));
-      db.command("drop class testIfExists if exists").close();
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testIfExists"));
-      db.command("drop class testIfExists if exists").close();
-      Assert.assertFalse(db.getMetadata().getSchema().existsClass("testIfExists"));
-
-    } finally {
-      db.drop();
-    }
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testIfExists"));
+    session.execute("create class testIfExists if not exists").close();
+    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testIfExists"));
+    session.execute("drop class testIfExists if exists").close();
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testIfExists"));
+    session.execute("drop class testIfExists if exists").close();
+    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testIfExists"));
   }
 }

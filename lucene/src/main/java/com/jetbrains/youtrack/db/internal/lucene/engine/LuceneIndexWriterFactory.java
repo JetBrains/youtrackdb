@@ -17,13 +17,13 @@ public class LuceneIndexWriterFactory {
   public IndexWriter createIndexWriter(Directory dir, Map<String, ?> metadata, Analyzer analyzer)
       throws IOException {
 
-    IndexWriterConfig config = createIndexWriterConfig(metadata, analyzer);
+    var config = createIndexWriterConfig(metadata, analyzer);
 
     return new IndexWriter(dir, config);
   }
 
   public IndexWriterConfig createIndexWriterConfig(Map<String, ?> metadata, Analyzer analyzer) {
-    IndexWriterConfig config = new IndexWriterConfig(analyzer);
+    var config = new IndexWriterConfig(analyzer);
 
     config.setOpenMode(CREATE_OR_APPEND);
 

@@ -17,22 +17,20 @@
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.IndexStreamSecurityDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
@@ -43,65 +41,78 @@ import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.IndexSearcher;
 
 public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex {
 
-  public LuceneIndexNotUnique(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+
+  public LuceneIndexNotUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneIndexNotUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
-  public long rebuild(DatabaseSessionInternal session, ProgressListener iProgressListener) {
-    return super.rebuild(session, iProgressListener);
+  public Index create(FrontendTransaction transaction, IndexMetadata indexMetadata) {
+    var metadata = indexMetadata.getMetadata();
+
+    if (metadata == null || !metadata.containsKey("analyzer")) {
+      HashMap<String, Object> met;
+      if (metadata != null) {
+        met = new HashMap<>(metadata);
+      } else {
+        met = new HashMap<>();
+      }
+
+      met.put("analyzer", StandardAnalyzer.class.getName());
+      indexMetadata.setMetadata(met);
+    }
+
+    return super.create(transaction, indexMetadata);
   }
 
   @Override
-  public boolean remove(DatabaseSessionInternal session, final Object key,
+  public long rebuild(DatabaseSessionInternal session, ProgressListener progressListener) {
+    return super.rebuild(session, progressListener);
+  }
+
+  @Override
+  public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
 
     if (key != null) {
-      FrontendTransaction transaction = session.getTransaction();
-
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           rid);
-      LuceneTxChanges transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(session, key, rid);
+      var transactionChanges = getTransactionChanges(transaction);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, rid);
       return true;
     }
     return true;
   }
 
   @Override
-  public boolean remove(DatabaseSessionInternal session, final Object key) {
+  public boolean remove(FrontendTransaction transaction, final Object key) {
     if (key != null) {
-      FrontendTransaction transaction = session.getTransaction();
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.REMOVE, encodeKey(key),
           null);
-      LuceneTxChanges transactionChanges = getTransactionChanges(transaction);
-      transactionChanges.remove(session, key, null);
+      var transactionChanges = getTransactionChanges(transaction);
+      transactionChanges.remove(transaction.getDatabaseSession(), key, null);
       return true;
     }
     return true;
-  }
-
-  @Override
-  public void removeCluster(DatabaseSessionInternal session, String clusterName) {
-    acquireExclusiveLock();
-    try {
-      if (clustersToIndex.remove(clusterName)) {
-        session.executeInTx(
-            () -> remove(session, "_CLUSTER:" + storage.getClusterIdByName(clusterName)));
-      }
-    } finally {
-      releaseExclusiveLock();
-    }
   }
 
   @Override
@@ -111,7 +122,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid) {
     while (true) {
@@ -121,15 +132,16 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             indexId,
             engine -> {
               try {
-                LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
+                var indexEngine = (LuceneIndexEngine) engine;
 
-                AtomicOperation atomicOperation =
+                var atomicOperation =
                     storage.getAtomicOperationsManager().getCurrentOperation();
-                indexEngine.put(session, atomicOperation, decodeKey(key), rid);
+                indexEngine.put(session, atomicOperation, decodeKey(key, session), rid);
                 return null;
               } catch (IOException e) {
                 throw BaseException.wrapException(
-                    new IndexException("Error during commit of index changes"), e);
+                    new IndexException(session, "Error during commit of index changes"), e,
+                    session);
               }
             });
         break;
@@ -140,16 +152,16 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(AbstractPaginatedStorage storage, Object key)
-      throws InvalidIndexEngineIdException {
+  public boolean doRemove(AbstractStorage storage, Object key,
+      DatabaseSessionInternal session) {
     while (true) {
       try {
         storage.callIndexEngine(
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-              indexEngine.remove(decodeKey(key));
+              var indexEngine = (LuceneIndexEngine) engine;
+              indexEngine.remove(storage, decodeKey(key, session));
               return true;
             });
         break;
@@ -161,7 +173,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     while (true) {
@@ -170,8 +182,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-              indexEngine.remove(decodeKey(key), rid);
+              var indexEngine = (LuceneIndexEngine) engine;
+              indexEngine.remove(storage, decodeKey(key, session), rid);
               return true;
             });
         break;
@@ -187,7 +199,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     return key;
   }
 
-  public void doDelete(DatabaseSessionInternal session) {
+  public void doDelete(FrontendTransaction transaction) {
     while (true) {
       try {
         storage.deleteIndexEngine(indexId);
@@ -196,22 +208,25 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         doReloadIndexEngine();
       }
     }
+
+    var entity = transaction.loadEntity(identity);
+    entity.delete();
   }
 
-  protected Object decodeKey(Object key) {
+  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     return key;
   }
 
   @Override
-  protected void onIndexEngineChange(int indexId) {
+  protected void onIndexEngineChange(DatabaseSessionInternal session, int indexId) {
     while (true) {
       try {
         storage.callIndexEngine(
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine oIndexEngine = (LuceneIndexEngine) engine;
-              oIndexEngine.init(im);
+              var oIndexEngine = (LuceneIndexEngine) engine;
+              oIndexEngine.init(session, im);
               return null;
             });
         break;
@@ -227,7 +242,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   private LuceneTxChanges getTransactionChanges(FrontendTransaction transaction) {
 
-    LuceneTxChanges changes = (LuceneTxChanges) transaction.getCustomData(getName());
+    var changes = (LuceneTxChanges) transaction.getCustomData(getName());
     if (changes == null) {
       while (true) {
         try {
@@ -236,12 +251,13 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   false,
                   indexId,
                   engine -> {
-                    LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
+                    var indexEngine = (LuceneIndexEngine) engine;
                     try {
                       return indexEngine.buildTxChanges();
                     } catch (IOException e) {
                       throw BaseException.wrapException(
-                          new IndexException("Cannot get searcher from index " + getName()), e);
+                          new IndexException(storage.getName(),
+                              "Cannot get searcher from index " + getName()), e, storage.getName());
                     }
                   });
           break;
@@ -258,7 +274,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   @Deprecated
   @Override
   public Collection<Identifiable> get(DatabaseSessionInternal session, final Object key) {
-    try (Stream<RID> stream = getRids(session, key)) {
+    try (var stream = getRids(session, key)) {
       return stream.collect(Collectors.toList());
     }
   }
@@ -268,8 +284,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     while (true) {
       try {
         @SuppressWarnings("unchecked")
-        Set<Identifiable> result = (Set<Identifiable>) storage.getIndexValue(session, indexId,
-            key);
+        var result = (Set<Identifiable>) storage.getIndexValue(session,
+            indexId, key);
         return result.stream().map(Identifiable::getIdentity);
         // TODO filter these results based on security
         //          return new HashSet(IndexInternal.securityFilterOnRead(this, result));
@@ -281,8 +297,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
-    return session.computeInTx(() -> {
-      var transaction = session.getTransaction();
+    return session.computeInTx(transaction -> {
       while (true) {
         try {
           return storage
@@ -290,8 +305,9 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   false,
                   indexId,
                   engine -> {
-                    LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-                    return indexEngine.getInTx(session, key, getTransactionChanges(transaction));
+                    var indexEngine = (LuceneIndexEngine) engine;
+                    return indexEngine.getInTx(session, key,
+                        getTransactionChanges((FrontendTransaction) transaction));
                   })
               .stream()
               .map(Identifiable::getIdentity);
@@ -303,22 +319,12 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public LuceneIndexNotUnique put(DatabaseSessionInternal session, final Object key,
+  public LuceneIndexNotUnique put(FrontendTransaction transaction, final Object key,
       final Identifiable value) {
-    final RID rid = value.getIdentity();
+    final var rid = value.getIdentity();
 
-    if (!((RecordId) rid).isValid()) {
-      if (value instanceof DBRecord) {
-        // EARLY SAVE IT
-        ((DBRecord) value).save();
-      } else {
-        throw new IllegalArgumentException(
-            "Cannot store non persistent RID as index value for key '" + key + "'");
-      }
-    }
     if (key != null) {
-      FrontendTransaction transaction = session.getTransaction();
-      LuceneTxChanges transactionChanges = getTransactionChanges(transaction);
+      var transactionChanges = getTransactionChanges(transaction);
       transaction.addIndexEntry(
           this, super.getName(), FrontendTransactionIndexChanges.OPERATION.PUT, encodeKey(key),
           value);
@@ -331,8 +337,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                   false,
                   indexId,
                   engine -> {
-                    LuceneIndexEngine oIndexEngine = (LuceneIndexEngine) engine;
-                    return oIndexEngine.buildDocument(session, key, value);
+                    var oIndexEngine = (LuceneIndexEngine) engine;
+                    return oIndexEngine.buildDocument(transaction.getDatabaseSession(), key, value);
                   });
           break;
         } catch (InvalidIndexEngineIdException e) {
@@ -347,16 +353,16 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public long size(DatabaseSessionInternal session) {
-    return session.computeInTx(() -> {
+    return session.computeInTx(transaction -> {
       while (true) {
         try {
           return storage.callIndexEngine(
               false,
               indexId,
               engine -> {
-                FrontendTransaction transaction = session.getTransaction();
-                LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-                return indexEngine.sizeInTx(getTransactionChanges(transaction));
+                var indexEngine = (LuceneIndexEngine) engine;
+                return indexEngine.sizeInTx(
+                    getTransactionChanges((FrontendTransaction) transaction), storage);
               });
         } catch (InvalidIndexEngineIdException e) {
           doReloadIndexEngine();
@@ -370,7 +376,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
       Collection<?> keys, boolean ascSortOrder) {
 
     @SuppressWarnings("resource")
-    String query =
+    var query =
         (String)
             keys.stream()
                 .findFirst()
@@ -379,7 +385,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
                 .orElse(Collections.singletonList("q=*:*"))
                 .get(0);
     return IndexStreamSecurityDecorator.decorateStream(
-        this, getRids(session, query).map((rid) -> new RawPair<>(query, rid)));
+        this, getRids(session, query).map((rid) -> new RawPair<>(query, rid)), session);
   }
 
   @Override
@@ -391,7 +397,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         return IndexStreamSecurityDecorator.decorateStream(
             this,
             storage.iterateIndexEntriesBetween(session,
-                indexId, fromKey, fromInclusive, toKey, toInclusive, ascOrder, null));
+                indexId, fromKey, fromInclusive, toKey, toInclusive, ascOrder, null), session);
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
       }
@@ -405,7 +411,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
       try {
         return IndexStreamSecurityDecorator.decorateStream(
             this,
-            storage.iterateIndexEntriesMajor(indexId, fromKey, fromInclusive, ascOrder, null));
+            storage.iterateIndexEntriesMajor(indexId, fromKey, fromInclusive, ascOrder, null),
+            session);
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
       }
@@ -418,7 +425,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
-            this, storage.iterateIndexEntriesMinor(indexId, toKey, toInclusive, ascOrder, null));
+            this, storage.iterateIndexEntriesMinor(indexId, toKey, toInclusive, ascOrder, null),
+            session);
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
       }
@@ -426,16 +434,11 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean isNativeTxSupported() {
-    return false;
-  }
-
-  @Override
   public Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
-            this, storage.getIndexStream(indexId, null));
+            this, storage.getIndexStream(indexId, null), session);
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
       }
@@ -447,7 +450,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
-            this, storage.getIndexStream(indexId, null));
+            this, storage.getIndexStream(indexId, null), session);
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
       }
@@ -467,8 +470,8 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
             false,
             indexId,
             engine -> {
-              final LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-              return indexEngine.searcher();
+              final var indexEngine = (LuceneIndexEngine) engine;
+              return indexEngine.searcher(storage);
             });
       } catch (final InvalidIndexEngineIdException e) {
         doReloadIndexEngine();

@@ -31,6 +31,10 @@ public class InvalidStorageEncryptionKeyException extends SecurityException {
     super(exception);
   }
 
+  public InvalidStorageEncryptionKeyException(String dbName, final String message) {
+    super(dbName, message);
+  }
+
   public InvalidStorageEncryptionKeyException(final String message) {
     super(message);
   }

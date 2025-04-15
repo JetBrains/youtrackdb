@@ -20,8 +20,9 @@
 
 package com.jetbrains.youtrack.db.api.exception;
 
-import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 /**
  * @since 9/5/12
@@ -40,8 +41,9 @@ public class RecordDuplicatedException extends CoreException implements HighLeve
   }
 
   public RecordDuplicatedException(
-      final String message, final String indexName, final RID iRid, Object key) {
-    super(message);
+      DatabaseSessionInternal db, final String message, final String indexName, final RID iRid,
+      Object key) {
+    super(db, message);
     this.indexName = indexName;
     this.rid = iRid;
     this.key = key;
@@ -60,25 +62,7 @@ public class RecordDuplicatedException extends CoreException implements HighLeve
   }
 
   @Override
-  public boolean equals(final Object obj) {
-    if (obj == null || !obj.getClass().equals(getClass())) {
-      return false;
-    }
-
-    if (!indexName.equals(((RecordDuplicatedException) obj).indexName)) {
-      return false;
-    }
-
-    return rid.equals(((RecordDuplicatedException) obj).rid);
-  }
-
-  @Override
-  public int hashCode() {
-    return rid.hashCode();
-  }
-
-  @Override
-  public String toString() {
-    return super.toString() + " INDEX=" + indexName + " RID=" + rid;
+  public String getMessage() {
+    return super.getMessage() + " INDEX=" + indexName + " RID=" + rid;
   }
 }

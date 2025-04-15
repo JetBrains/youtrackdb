@@ -21,25 +21,15 @@ package com.jetbrains.youtrack.db.api.exception;
 
 public class SecurityAccessException extends SecurityException implements HighLevelException {
 
-  private static final long serialVersionUID = -8486291378415776372L;
-  private String databaseName;
-
   public SecurityAccessException(SecurityAccessException exception) {
     super(exception);
-
-    this.databaseName = exception.databaseName;
   }
 
   public SecurityAccessException(final String iDatabasename, final String message) {
-    super(message);
-    databaseName = iDatabasename;
+    super(iDatabasename, message);
   }
 
   public SecurityAccessException(final String message) {
     super(message);
-  }
-
-  public String getDatabaseName() {
-    return databaseName;
   }
 }

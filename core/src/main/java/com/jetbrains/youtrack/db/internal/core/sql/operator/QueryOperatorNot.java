@@ -19,13 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
+import javax.annotation.Nullable;
 
 /**
  * NOT operator.
@@ -46,7 +47,7 @@ public class QueryOperatorNot extends QueryOperator {
 
   @Override
   public Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       final Object iLeft,
@@ -69,11 +70,12 @@ public class QueryOperatorNot extends QueryOperator {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {
-      final RID beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
-      final RID endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
+      final var beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
+      final var endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
 
       if (beginRange == null && endRange == null) {
         return null;
@@ -89,11 +91,12 @@ public class QueryOperatorNot extends QueryOperator {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     if (iLeft instanceof SQLFilterCondition) {
-      final RID beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
-      final RID endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
+      final var beginRange = ((SQLFilterCondition) iLeft).getBeginRidRange(session);
+      final var endRange = ((SQLFilterCondition) iLeft).getEndRidRange(session);
 
       if (beginRange == null && endRange == null) {
         return null;

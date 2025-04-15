@@ -32,10 +32,11 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
-import com.jetbrains.youtrack.db.internal.server.plugin.OServerPluginConfigurable;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginConfigurable;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -45,6 +46,7 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -58,12 +60,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * also to create incremental backup and export of databases. If you need a mix of different modes,
  * configure more instances of the same component.
  */
-public class AutomaticBackup extends ServerPluginAbstract implements OServerPluginConfigurable {
+public class AutomaticBackup extends ServerPluginAbstract implements ServerPluginConfigurable {
 
-  private EntityImpl configuration;
+  private Map<String, Object> configuration;
 
-  private final Set<OAutomaticBackupListener> listeners =
-      Collections.newSetFromMap(new ConcurrentHashMap<OAutomaticBackupListener, Boolean>());
+  private final Set<AutomaticBackupListener> listeners =
+      Collections.newSetFromMap(new ConcurrentHashMap<AutomaticBackupListener, Boolean>());
 
   public enum VARIABLES {
     DBNAME,
@@ -94,15 +96,14 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
       final ServerParameterConfiguration[] iParams) {
     serverInstance = iServer;
 
-    configuration = new EntityImpl();
-
-    for (ServerParameterConfiguration param : iParams) {
-      if (param.name.equalsIgnoreCase("config") && param.value.trim().length() > 0) {
+    configuration = new HashMap<>();
+    for (var param : iParams) {
+      if (param.name.equalsIgnoreCase("config") && !param.value.trim().isEmpty()) {
         configFile = param.value.trim();
 
-        final File f = new File(SystemVariableResolver.resolveSystemVariables(configFile));
+        final var f = new File(SystemVariableResolver.resolveSystemVariables(configFile));
         if (!f.exists()) {
-          throw new ConfigurationException(
+          throw new ConfigurationException((String) null,
               "Automatic Backup configuration file '"
                   + configFile
                   + "' not found. Automatic Backup will be disabled");
@@ -111,27 +112,27 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
         // LEGACY <v2.2: CONVERT ALL SETTINGS IN JSON
       } else if (param.name.equalsIgnoreCase("enabled")) {
-        configuration.field("enabled", Boolean.parseBoolean(param.value));
+        configuration.put("enabled", Boolean.parseBoolean(param.value));
       } else if (param.name.equalsIgnoreCase("delay")) {
-        configuration.field("delay", param.value);
+        configuration.put("delay", param.value);
       } else if (param.name.equalsIgnoreCase("firstTime")) {
-        configuration.field("firstTime", param.value);
+        configuration.put("firstTime", param.value);
       } else if (param.name.equalsIgnoreCase("target.directory")) {
-        configuration.field("targetDirectory", param.value);
-      } else if (param.name.equalsIgnoreCase("db.include") && param.value.trim().length() > 0) {
-        configuration.field("dbInclude", param.value);
-      } else if (param.name.equalsIgnoreCase("db.exclude") && param.value.trim().length() > 0) {
-        configuration.field("dbExclude", param.value);
+        configuration.put("targetDirectory", param.value);
+      } else if (param.name.equalsIgnoreCase("db.include") && !param.value.trim().isEmpty()) {
+        configuration.put("dbInclude", param.value);
+      } else if (param.name.equalsIgnoreCase("db.exclude") && !param.value.trim().isEmpty()) {
+        configuration.put("dbExclude", param.value);
       } else if (param.name.equalsIgnoreCase("target.fileName")) {
-        configuration.field("targetFileName", param.value);
+        configuration.put("targetFileName", param.value);
       } else if (param.name.equalsIgnoreCase("bufferSize")) {
-        configuration.field("bufferSize", Integer.parseInt(param.value));
+        configuration.put("bufferSize", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("compressionLevel")) {
-        configuration.field("compressionLevel", Integer.parseInt(param.value));
+        configuration.put("compressionLevel", Integer.parseInt(param.value));
       } else if (param.name.equalsIgnoreCase("mode")) {
-        configuration.field("mode", param.value);
+        configuration.put("mode", param.value);
       } else if (param.name.equalsIgnoreCase("exportOptions")) {
-        configuration.field("exportOptions", param.value);
+        configuration.put("exportOptions", param.value);
       }
     }
 
@@ -140,16 +141,17 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
     if (enabled) {
       if (delay <= 0) {
-        throw new ConfigurationException("Cannot find mandatory parameter 'delay'");
+        throw new ConfigurationException((String) null, "Cannot find mandatory parameter 'delay'");
       }
       if (!targetDirectory.endsWith("/")) {
         targetDirectory += "/";
       }
 
-      final File filePath = new File(targetDirectory);
+      final var filePath = new File(targetDirectory);
       if (filePath.exists()) {
         if (!filePath.isDirectory()) {
-          throw new ConfigurationException("Parameter 'path' points to a file, not a directory");
+          throw new ConfigurationException((String) null,
+              "Parameter 'path' points to a file, not a directory");
         }
       } else {
         // CREATE BACKUP FOLDER(S) IF ANY
@@ -165,19 +167,19 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
               firstTime,
               targetDirectory);
 
-      final Runnable timerTask =
+      final var timerTask =
           new Runnable() {
             @Override
             public void run() {
               LogManager.instance().info(this, "Scanning databases to backup...");
 
-              int ok = 0;
-              int errors = 0;
+              var ok = 0;
+              var errors = 0;
 
-              final Map<String, String> databases = serverInstance.getAvailableStorageNames();
-              for (final Entry<String, String> database : databases.entrySet()) {
-                final String dbName = database.getKey();
-                final String dbURL = database.getValue();
+              final var databases = serverInstance.getAvailableStorageNames();
+              for (final var database : databases.entrySet()) {
+                final var dbName = database.getKey();
+                final var dbURL = database.getValue();
 
                 boolean include;
 
@@ -192,10 +194,10 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
                 }
 
                 if (include) {
-                  try (DatabaseSessionInternal db =
+                  try (var db =
                       serverInstance.getDatabases().openNoAuthorization(dbName)) {
 
-                    final long begin = System.currentTimeMillis();
+                    final var begin = System.currentTimeMillis();
 
                     switch (mode) {
                       case INCREMENTAL_BACKUP:
@@ -227,7 +229,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
                     try {
 
-                      for (OAutomaticBackupListener listener : listeners) {
+                      for (var listener : listeners) {
                         listener.onBackupCompleted(dbName);
                       }
                     } catch (Exception e) {
@@ -248,7 +250,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
                             e);
 
                     try {
-                      for (OAutomaticBackupListener listener : listeners) {
+                      for (var listener : listeners) {
                         listener.onBackupError(dbName, e);
                       }
                     } catch (Exception l) {
@@ -264,7 +266,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
             }
           };
 
-      TimerTask task =
+      var task =
           new TimerTask() {
 
             @Override
@@ -283,20 +285,19 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
   }
 
   private void configure() {
-    final File f = new File(SystemVariableResolver.resolveSystemVariables(configFile));
+    final var f = new File(SystemVariableResolver.resolveSystemVariables(configFile));
     if (f.exists()) {
       // READ THE FILE
       try {
-        final String configurationContent = IOUtils.readFileAsString(f);
-        configuration = new EntityImpl();
-        configuration.fromJSON(configurationContent);
+        final var configurationContent = IOUtils.readFileAsString(f);
+        configuration = JSONSerializerJackson.mapFromJson(configurationContent);
       } catch (IOException e) {
         throw BaseException.wrapException(
-            new ConfigurationException(
+            new ConfigurationException((String) null,
                 "Cannot load Automatic Backup configuration file '"
                     + configFile
                     + "'. Automatic Backup will be disabled"),
-            e);
+            e, (String) null);
       }
 
     } else {
@@ -304,24 +305,25 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
       try {
         f.getParentFile().mkdirs();
         f.createNewFile();
-        IOUtils.writeFile(f, configuration.toJSON("prettyPrint"));
+        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configuration));
 
         LogManager.instance()
             .info(this, "Automatic Backup: migrated configuration to file '%s'", f);
       } catch (IOException e) {
         throw BaseException.wrapException(
-            new ConfigurationException(
+            new ConfigurationException((String) null,
                 "Cannot create Automatic Backup configuration file '"
                     + configFile
                     + "'. Automatic Backup will be disabled"),
-            e);
+            e, (String) null);
       }
     }
 
     // PARSE THE JSON FILE
-    for (String settingName : configuration.fieldNames()) {
-      final Object settingValue = configuration.field(settingName);
-      final String settingValueAsString = settingValue != null ? settingValue.toString() : null;
+    for (var entry : configuration.entrySet()) {
+      var settingName = entry.getKey();
+      final var settingValue = entry.getValue();
+      final var settingValueAsString = settingValue != null ? settingValue.toString() : null;
 
       if (settingName.equalsIgnoreCase("enabled")) {
         if (!(Boolean) settingValue) {
@@ -335,25 +337,25 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
         try {
           firstTime = IOUtils.getTodayWithTime(settingValueAsString);
           if (firstTime.before(new Date())) {
-            Calendar cal = Calendar.getInstance();
+            var cal = Calendar.getInstance();
             cal.setTime(firstTime);
             cal.add(Calendar.DAY_OF_MONTH, 1);
             firstTime = cal.getTime();
           }
         } catch (ParseException e) {
           throw BaseException.wrapException(
-              new ConfigurationException(
+              new ConfigurationException((String) null,
                   "Parameter 'firstTime' has invalid format, expected: HH:mm:ss"),
-              e);
+              e, (String) null);
         }
       } else if (settingName.equalsIgnoreCase("targetDirectory")) {
         targetDirectory = settingValueAsString;
       } else if (settingName.equalsIgnoreCase("dbInclude")) {
-        String[] included = getDbsList(settingName, settingValueAsString);
+        var included = getDbsList(settingName, settingValueAsString);
         Collections.addAll(includeDatabases, included);
       } else if (settingName.equalsIgnoreCase("dbExclude")
           && settingValueAsString.trim().length() > 0) {
-        String[] excluded = getDbsList(settingName, settingValueAsString);
+        var excluded = getDbsList(settingName, settingValueAsString);
         Collections.addAll(excludeDatabases, excluded);
       } else if (settingName.equalsIgnoreCase("targetFileName")) {
         targetFileName = settingValueAsString;
@@ -371,16 +373,16 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
 
   private String[] getDbsList(String settingName, String settingValueAsString) {
     String[] included = null;
-    Object val = configuration.field(settingName);
-    if (val instanceof Collection dbs) {
+    var val = configuration.get(settingName);
+    if (val instanceof Collection<?> dbs) {
       included = new String[dbs.size()];
-      int i = 0;
-      for (Object o : dbs) {
+      var i = 0;
+      for (var o : dbs) {
         included[i] = o.toString();
         i++;
       }
     } else {
-      if (settingValueAsString.trim().length() > 0) {
+      if (!settingValueAsString.trim().isEmpty()) {
         included = settingValueAsString.split(",");
       }
     }
@@ -393,7 +395,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
     if (!iPath.endsWith("/")) {
       iPath += "/";
     }
-    iPath += db.getName();
+    iPath += db.getDatabaseName();
 
     LogManager.instance()
         .info(
@@ -412,7 +414,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
     LogManager.instance()
         .info(this, "AutomaticBackup: executing export of database '%s' to %s", dbURL, iPath);
 
-    final DatabaseExport exp =
+    final var exp =
         new DatabaseExport(
             db,
             iPath,
@@ -459,7 +461,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
   }
 
   @Override
-  public EntityImpl getConfig() {
+  public Map<String, Object> getConfig() {
     return configuration;
   }
 
@@ -468,15 +470,15 @@ public class AutomaticBackup extends ServerPluginAbstract implements OServerPlug
   public void changeConfig(EntityImpl entity) {
   }
 
-  public void registerListener(OAutomaticBackupListener listener) {
+  public void registerListener(AutomaticBackupListener listener) {
     listeners.add(listener);
   }
 
-  public void unregisterListener(OAutomaticBackupListener listener) {
+  public void unregisterListener(AutomaticBackupListener listener) {
     listeners.remove(listener);
   }
 
-  public interface OAutomaticBackupListener {
+  public interface AutomaticBackupListener {
 
     void onBackupCompleted(String database);
 

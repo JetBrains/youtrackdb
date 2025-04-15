@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class FrontendTransactionIndexChangesList
     implements List<TransactionIndexEntry> {
@@ -43,9 +44,9 @@ public class FrontendTransactionIndexChangesList
       }
 
       // update the map
-      RID rid = entry.getValue() == null ? null : entry.getValue().getIdentity();
-      List<Node> ridList = ridToNodes.get(rid);
-      Iterator<Node> iter = ridList.iterator();
+      var rid = entry.getValue() == null ? null : entry.getValue().getIdentity();
+      var ridList = ridToNodes.get(rid);
+      var iter = ridList.iterator();
       while (iter.hasNext()) {
         if (iter.next() == this) {
           iter.remove();
@@ -59,7 +60,7 @@ public class FrontendTransactionIndexChangesList
 
     public void onRidChange(RID oldRid, RID newRid) {
       ridToNodes.get(oldRid).remove(this);
-      List<Node> newMapList = ridToNodes.get(newRid);
+      var newMapList = ridToNodes.get(newRid);
       if (newMapList == null) {
         newMapList = new ArrayList<>();
         ridToNodes.put(newRid, newMapList);
@@ -89,13 +90,13 @@ public class FrontendTransactionIndexChangesList
       return false;
     }
 
-    Identifiable record = ((TransactionIndexEntry) o).getValue();
-    RID rid = record == null ? null : record.getIdentity();
-    List<Node> items = ridToNodes.get(rid);
+    var record = ((TransactionIndexEntry) o).getValue();
+    var rid = record == null ? null : record.getIdentity();
+    var items = ridToNodes.get(rid);
     if (items == null) {
       return false;
     }
-    for (Node item : items) {
+    for (var item : items) {
       if (item.entry.equals(o)) {
         return true;
       }
@@ -120,7 +121,7 @@ public class FrontendTransactionIndexChangesList
           throw new IllegalStateException();
         }
         lastReturned = nextItem;
-        TransactionIndexEntry result = nextItem.entry;
+        var result = nextItem.entry;
         nextItem = nextItem.next;
         return result;
       }
@@ -138,9 +139,9 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public Object[] toArray() {
-    Object[] result = new Object[size];
-    Iterator<TransactionIndexEntry> iterator = this.iterator();
-    for (int i = 0; i < size; i++) {
+    var result = new Object[size];
+    var iterator = this.iterator();
+    for (var i = 0; i < size; i++) {
       try {
         result[i] = iterator.next();
       } catch (IllegalStateException x) {
@@ -152,12 +153,12 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public <T> T[] toArray(T[] a) {
-    T[] result = a;
+    var result = a;
     if (a.length < size) {
       result = (T[]) java.lang.reflect.Array.newInstance(a.getClass().getComponentType(), size);
     }
-    Iterator<TransactionIndexEntry> it = iterator();
-    int i = 0;
+    var it = iterator();
+    var i = 0;
     while (it.hasNext()) {
       result[i++] = (T) it.next();
     }
@@ -170,12 +171,12 @@ public class FrontendTransactionIndexChangesList
     if (item == null) {
       throw new NullPointerException();
     }
-    Node node = new Node();
+    var node = new Node();
     node.entry = item;
     node.next = null;
 
     // update the linked list
-    Node previousLast = last;
+    var previousLast = last;
     last = node;
     if (previousLast == null) {
       first = node;
@@ -186,8 +187,8 @@ public class FrontendTransactionIndexChangesList
     }
 
     // update the map
-    RID nodeId = item.getValue() == null ? null : item.getValue().getIdentity();
-    List<Node> mapList = ridToNodes.get(nodeId);
+    var nodeId = item.getValue() == null ? null : item.getValue().getIdentity();
+    var mapList = ridToNodes.get(nodeId);
     if (mapList == null) {
       mapList = new ArrayList<>();
       ridToNodes.put(nodeId, mapList);
@@ -203,9 +204,9 @@ public class FrontendTransactionIndexChangesList
       return false;
     }
 
-    RID rid = item.getValue() == null ? null : item.getValue().getIdentity();
-    List<Node> list = ridToNodes.get(rid);
-    for (Node node : list) {
+    var rid = item.getValue() == null ? null : item.getValue().getIdentity();
+    var list = ridToNodes.get(rid);
+    for (var node : list) {
       if (node.entry.equals(item)) {
         node.remove();
         return true;
@@ -220,7 +221,7 @@ public class FrontendTransactionIndexChangesList
     if (c == null) {
       return false;
     }
-    for (Object o : c) {
+    for (var o : c) {
       if (!contains(o)) {
         return false;
       }
@@ -231,9 +232,9 @@ public class FrontendTransactionIndexChangesList
   @Override
   public boolean addAll(
       Collection<? extends TransactionIndexEntry> c) {
-    boolean result = false;
+    var result = false;
 
-    for (TransactionIndexEntry item : c) {
+    for (var item : c) {
       result = result || add(item);
     }
     return result;
@@ -243,7 +244,7 @@ public class FrontendTransactionIndexChangesList
   public boolean addAll(
       int index, Collection<? extends TransactionIndexEntry> c) {
 
-    for (TransactionIndexEntry item : c) {
+    for (var item : c) {
       add(index++, item);
     }
     return true;
@@ -251,8 +252,8 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public boolean removeAll(Collection<?> c) {
-    boolean result = false;
-    for (Object o : c) {
+    var result = false;
+    for (var o : c) {
       result = result || remove(o);
     }
     return result;
@@ -260,10 +261,10 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public boolean retainAll(Collection<?> c) {
-    Node next = first;
-    boolean result = false;
+    var next = first;
+    var result = false;
     while (next != null) {
-      Node current = next;
+      var current = next;
       next = current.next;
       if (!c.contains(current.entry)) {
         current.remove();
@@ -281,13 +282,14 @@ public class FrontendTransactionIndexChangesList
     this.ridToNodes.clear();
   }
 
+  @Nullable
   @Override
   public TransactionIndexEntry get(int index) {
     if (index < 0 || index >= size) {
       throw new IndexOutOfBoundsException();
     }
-    Node item = first;
-    for (int i = 0; i < index; i++) {
+    var item = first;
+    for (var i = 0; i < index; i++) {
       if (item.next == null) {
         return null;
       }
@@ -307,28 +309,29 @@ public class FrontendTransactionIndexChangesList
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   @Override
   public TransactionIndexEntry remove(int index) {
     if (index < 0 || index >= size) {
       throw new IndexOutOfBoundsException();
     }
-    Node item = first;
-    for (int i = 0; i < index; i++) {
+    var item = first;
+    for (var i = 0; i < index; i++) {
       if (item.next == null) {
         return null;
       }
       item = item.next;
     }
 
-    TransactionIndexEntry result = item.entry;
+    var result = item.entry;
     item.remove();
     return result;
   }
 
   @Override
   public int indexOf(Object o) {
-    Node item = first;
-    for (int i = 0; i < size; i++) {
+    var item = first;
+    for (var i = 0; i < size; i++) {
       if (item.entry.equals(o)) {
         return i;
       }
@@ -340,8 +343,8 @@ public class FrontendTransactionIndexChangesList
 
   @Override
   public int lastIndexOf(Object o) {
-    Node item = last;
-    for (int i = size - 1; i >= 0; i--) {
+    var item = last;
+    for (var i = size - 1; i >= 0; i--) {
       if (item.entry.equals(o)) {
         return i;
       }
@@ -370,7 +373,7 @@ public class FrontendTransactionIndexChangesList
           throw new IllegalStateException();
         }
         lastReturned = nextItem;
-        TransactionIndexEntry result = nextItem.entry;
+        var result = nextItem.entry;
         nextItem = nextItem.next;
         nextIndex++;
         return result;
@@ -386,7 +389,7 @@ public class FrontendTransactionIndexChangesList
         if (!hasPrevious()) {
           throw new IllegalStateException();
         }
-        TransactionIndexEntry result = nextItem.prev.entry;
+        var result = nextItem.prev.entry;
         nextItem = nextItem.prev;
         nextIndex--;
         return result;
@@ -436,7 +439,7 @@ public class FrontendTransactionIndexChangesList
   }
 
   public Optional<Node> getFirstNode(RID rid, FrontendTransactionIndexChanges.OPERATION op) {
-    List<Node> list = ridToNodes.get(rid);
+    var list = ridToNodes.get(rid);
     if (list != null) {
       return list.stream().filter(x -> x.entry.getOperation() == op).findFirst();
     }
@@ -444,8 +447,8 @@ public class FrontendTransactionIndexChangesList
   }
 
   public Optional<Node> getNode(TransactionIndexEntry entry) {
-    RID rid = entry.getValue() == null ? null : entry.getValue().getIdentity();
-    List<Node> list = ridToNodes.get(rid);
+    var rid = entry.getValue() == null ? null : entry.getValue().getIdentity();
+    var list = ridToNodes.get(rid);
     if (list != null) {
       return list.stream().filter(x -> x.entry == entry).findFirst();
     }

@@ -19,22 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * IS operator. Different by EQUALS since works also for null. Example "IS null"
@@ -47,7 +45,7 @@ public class QueryOperatorIs extends QueryOperatorEquality {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       Object iRight,
@@ -76,11 +74,8 @@ public class QueryOperatorIs extends QueryOperatorEquality {
     }
   }
 
-  protected boolean evaluateDefined(final Identifiable iRecord, final String iFieldName) {
-    if (iRecord instanceof EntityImpl) {
-      return ((EntityImpl) iRecord).containsField(iFieldName);
-    }
-    return false;
+  protected static boolean evaluateDefined(final Result iRecord, final String iFieldName) {
+    return iRecord.getProperty(iFieldName) != null;
   }
 
   @Override
@@ -92,49 +87,50 @@ public class QueryOperatorIs extends QueryOperatorEquality {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
 
-    final IndexDefinition indexDefinition = index.getDefinition();
+    final var indexDefinition = index.getDefinition();
 
-    final IndexInternal internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabase(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabase(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabase(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case we perform search
       // using part of composite key stored in index
 
-      final CompositeIndexDefinition compositeIndexDefinition =
+      final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabase(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
       final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabase(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
-      if (internalIndex.hasRangeQuerySupport()) {
-        stream = index.getInternal()
-            .streamEntriesBetween(iContext.getDatabase(), keyOne, true, keyTwo, true,
-                ascSortOrder);
+      if (index.hasRangeQuerySupport()) {
+        stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
+            true,
+            ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabase(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;
@@ -146,11 +142,13 @@ public class QueryOperatorIs extends QueryOperatorEquality {
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

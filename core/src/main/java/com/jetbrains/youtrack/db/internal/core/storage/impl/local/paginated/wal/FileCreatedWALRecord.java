@@ -51,20 +51,20 @@ public class FileCreatedWALRecord extends OperationUnitBodyRecord {
 
   @Override
   protected void serializeToByteBuffer(ByteBuffer buffer) {
-    StringSerializer.INSTANCE.serializeInByteBufferObject(fileName, buffer);
+    StringSerializer.staticSerializeInByteBufferObject(fileName, buffer);
     buffer.putLong(fileId);
   }
 
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
-    fileName = StringSerializer.INSTANCE.deserializeFromByteBufferObject(buffer);
+    fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
     fileId = buffer.getLong();
   }
 
   @Override
   public int serializedSize() {
     return super.serializedSize()
-        + StringSerializer.INSTANCE.getObjectSize(fileName)
+        + StringSerializer.staticGetObjectSize(fileName)
         + LongSerializer.LONG_SIZE;
   }
 

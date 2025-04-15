@@ -9,15 +9,15 @@ import java.io.InputStream;
 public abstract class ParserTestAbstract extends DbTestBase {
 
   protected SimpleNode checkRightSyntax(String query) {
-    SimpleNode result = checkSyntax(query, true);
-    StringBuilder builder = new StringBuilder();
+    var result = checkSyntax(query, true);
+    var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntax(builder.toString(), true);
   }
 
   protected SimpleNode checkRightSyntaxServer(String query) {
-    SimpleNode result = checkSyntaxServer(query, true);
-    StringBuilder builder = new StringBuilder();
+    var result = checkSyntaxServer(query, true);
+    var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntaxServer(builder.toString(), true);
   }
@@ -31,7 +31,7 @@ public abstract class ParserTestAbstract extends DbTestBase {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -48,7 +48,7 @@ public abstract class ParserTestAbstract extends DbTestBase {
   }
 
   protected SimpleNode checkSyntaxServer(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parseServerStatement();
       if (!isCorrect) {
@@ -66,7 +66,7 @@ public abstract class ParserTestAbstract extends DbTestBase {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

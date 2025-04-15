@@ -12,27 +12,27 @@ public class AtomicUnitEndDBRecordTest {
 
   @Test
   public void recordMetadataSerializationTest() {
-    RecordOperationMetadata recordOperationMetadata = new RecordOperationMetadata();
+    var recordOperationMetadata = new RecordOperationMetadata();
     recordOperationMetadata.addRid(new RecordId(10, 42));
     recordOperationMetadata.addRid(new RecordId(42, 10));
 
     Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
     metadata.put(recordOperationMetadata.getKey(), recordOperationMetadata);
 
-    AtomicUnitEndRecord atomicUnitEndRecord = new AtomicUnitEndRecord(1, false, metadata);
-    int arraySize = atomicUnitEndRecord.serializedSize() + 1;
-    byte[] content = new byte[arraySize];
+    var atomicUnitEndRecord = new AtomicUnitEndRecord(1, false, metadata);
+    var arraySize = atomicUnitEndRecord.serializedSize() + 1;
+    var content = new byte[arraySize];
 
-    final int endOffset = atomicUnitEndRecord.toStream(content, 1);
+    final var endOffset = atomicUnitEndRecord.toStream(content, 1);
     Assert.assertEquals(endOffset, content.length);
 
-    AtomicUnitEndRecord atomicUnitEndRecordD = new AtomicUnitEndRecord();
-    final int dEndOffset = atomicUnitEndRecordD.fromStream(content, 1);
+    var atomicUnitEndRecordD = new AtomicUnitEndRecord();
+    final var dEndOffset = atomicUnitEndRecordD.fromStream(content, 1);
     Assert.assertEquals(dEndOffset, content.length);
 
     Assert.assertEquals(
         atomicUnitEndRecordD.getOperationUnitId(), atomicUnitEndRecord.getOperationUnitId());
-    RecordOperationMetadata recordOperationMetadataD =
+    var recordOperationMetadataD =
         (RecordOperationMetadata)
             atomicUnitEndRecordD
                 .getAtomicOperationMetadata()
@@ -43,15 +43,15 @@ public class AtomicUnitEndDBRecordTest {
 
   @Test
   public void recordNoMetadataSerializationTest() {
-    AtomicUnitEndRecord atomicUnitEndRecord = new AtomicUnitEndRecord(1, false, null);
-    int arraySize = atomicUnitEndRecord.serializedSize() + 1;
-    byte[] content = new byte[arraySize];
+    var atomicUnitEndRecord = new AtomicUnitEndRecord(1, false, null);
+    var arraySize = atomicUnitEndRecord.serializedSize() + 1;
+    var content = new byte[arraySize];
 
-    final int endOffset = atomicUnitEndRecord.toStream(content, 1);
+    final var endOffset = atomicUnitEndRecord.toStream(content, 1);
     Assert.assertEquals(endOffset, content.length);
 
-    AtomicUnitEndRecord atomicUnitEndRecordD = new AtomicUnitEndRecord();
-    final int dEndOffset = atomicUnitEndRecordD.fromStream(content, 1);
+    var atomicUnitEndRecordD = new AtomicUnitEndRecord();
+    final var dEndOffset = atomicUnitEndRecordD.fromStream(content, 1);
     Assert.assertEquals(dEndOffset, content.length);
   }
 }

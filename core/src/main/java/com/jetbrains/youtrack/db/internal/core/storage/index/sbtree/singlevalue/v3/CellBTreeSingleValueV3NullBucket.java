@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerial
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
+import javax.annotation.Nullable;
 
 /**
  * Bucket which is intended to save values stored in sbtree under <code>null</code> key. Bucket has
@@ -52,18 +53,19 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
 
     setByteValue(NEXT_FREE_POSITION, (byte) 1);
 
-    setShortValue(NEXT_FREE_POSITION + 1, (short) value.getClusterId());
-    setLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE, value.getClusterPosition());
+    setShortValue(NEXT_FREE_POSITION + 1, (short) value.getCollectionId());
+    setLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE, value.getCollectionPosition());
   }
 
+  @Nullable
   public RID getValue() {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
     }
 
-    final int clusterId = getShortValue(NEXT_FREE_POSITION + 1);
-    final long clusterPosition = getLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE);
-    return new RecordId(clusterId, clusterPosition);
+    final int collectionId = getShortValue(NEXT_FREE_POSITION + 1);
+    final var collectionPosition = getLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE);
+    return new RecordId(collectionId, collectionPosition);
   }
 
   public void removeValue() {

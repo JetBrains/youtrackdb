@@ -29,7 +29,7 @@ public final class RawPairObjectInteger<V> {
       return false;
     }
 
-    RawPairObjectInteger<?> oRawPair = (RawPairObjectInteger<?>) o;
+    var oRawPair = (RawPairObjectInteger<?>) o;
 
     if (!first.equals(oRawPair.first)) {
       return false;
@@ -39,7 +39,7 @@ public final class RawPairObjectInteger<V> {
 
   @Override
   public int hashCode() {
-    int result = first.hashCode();
+    var result = first.hashCode();
     result = 31 * result + HashCommon.mix(second);
     return result;
   }

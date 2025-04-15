@@ -58,7 +58,7 @@ public enum AuditingOperation {
   }
 
   public static AuditingOperation getByByte(byte value) {
-    for (AuditingOperation op : values()) {
+    for (var op : values()) {
       if (op.byteOp == value) {
         return op;
       }

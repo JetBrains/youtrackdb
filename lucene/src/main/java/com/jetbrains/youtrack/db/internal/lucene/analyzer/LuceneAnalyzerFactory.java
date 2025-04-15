@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import java.lang.reflect.Constructor;
 import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
@@ -28,10 +27,10 @@ public class LuceneAnalyzerFactory {
     if (metadata == null) {
       throw new IllegalArgumentException("Metadata must not be null");
     }
-    final String defaultAnalyzerFQN = (String) metadata.get("default");
-    final String prefix = index.getClassName() + ".";
+    final var defaultAnalyzerFQN = (String) metadata.get("default");
+    final var prefix = index.getClassName() + ".";
 
-    final LucenePerFieldAnalyzerWrapper analyzer =
+    final var analyzer =
         geLucenePerFieldPresetAnalyzerWrapperForAllFields(defaultAnalyzerFQN);
     setDefaultAnalyzerForRequestedKind(index, kind, metadata, prefix, analyzer);
     setSpecializedAnalyzersForEachField(index, kind, metadata, prefix, analyzer);
@@ -53,9 +52,9 @@ public class LuceneAnalyzerFactory {
       final Map<String, ?> metadata,
       final String prefix,
       final LucenePerFieldAnalyzerWrapper analyzer) {
-    final String specializedAnalyzerFQN = (String) metadata.get(kind.toString());
+    final var specializedAnalyzerFQN = (String) metadata.get(kind.toString());
     if (specializedAnalyzerFQN != null) {
-      for (final String field : index.getFields()) {
+      for (final var field : index.getFields()) {
         analyzer.add(field, buildAnalyzer(specializedAnalyzerFQN));
         analyzer.add(prefix + field, buildAnalyzer(specializedAnalyzerFQN));
       }
@@ -68,12 +67,12 @@ public class LuceneAnalyzerFactory {
       final Map<String, ?> metadata,
       final String prefix,
       final LucenePerFieldAnalyzerWrapper analyzer) {
-    for (final String field : index.getFields()) {
-      final String analyzerName = field + "_" + kind.toString();
-      final String analyzerStopwords = analyzerName + "_stopwords";
+    for (final var field : index.getFields()) {
+      final var analyzerName = field + "_" + kind.toString();
+      final var analyzerStopwords = analyzerName + "_stopwords";
 
       if (metadata.containsKey(analyzerName) && metadata.containsKey(analyzerStopwords)) {
-        @SuppressWarnings("unchecked") final Collection<String> stopWords =
+        @SuppressWarnings("unchecked") final var stopWords =
             (Collection<String>) metadata.get(analyzerStopwords);
         analyzer.add(field, buildAnalyzer((String) metadata.get(analyzerName), stopWords));
         analyzer.add(prefix + field, buildAnalyzer((String) metadata.get(analyzerName), stopWords));
@@ -87,11 +86,11 @@ public class LuceneAnalyzerFactory {
   private Analyzer buildAnalyzer(final String analyzerFQN) {
     try {
       final Class classAnalyzer = Class.forName(analyzerFQN);
-      final Constructor constructor = classAnalyzer.getConstructor();
+      final var constructor = classAnalyzer.getConstructor();
       return (Analyzer) constructor.newInstance();
     } catch (final ClassNotFoundException e) {
       throw BaseException.wrapException(
-          new IndexException("Analyzer: " + analyzerFQN + " not found"), e);
+          new IndexException("Analyzer: " + analyzerFQN + " not found"), e, (String) null);
     } catch (final NoSuchMethodException e) {
       Class classAnalyzer = null;
       try {
@@ -102,7 +101,7 @@ public class LuceneAnalyzerFactory {
         //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
         throw BaseException.wrapException(
             new IndexException("Couldn't instantiate analyzer:  public constructor  not found"),
-            e1);
+            e1, (String) null);
       }
     } catch (Exception e) {
       LogManager.instance()
@@ -117,14 +116,15 @@ public class LuceneAnalyzerFactory {
   private Analyzer buildAnalyzer(final String analyzerFQN, final Collection<String> stopwords) {
     try {
       final Class classAnalyzer = Class.forName(analyzerFQN);
-      final Constructor constructor = classAnalyzer.getDeclaredConstructor(CharArraySet.class);
+      final var constructor = classAnalyzer.getDeclaredConstructor(CharArraySet.class);
       return (Analyzer) constructor.newInstance(new CharArraySet(stopwords, true));
     } catch (final ClassNotFoundException e) {
       throw BaseException.wrapException(
-          new IndexException("Analyzer: " + analyzerFQN + " not found"), e);
+          new IndexException("Analyzer: " + analyzerFQN + " not found"), e, (String) null);
     } catch (final NoSuchMethodException e) {
       throw BaseException.wrapException(
-          new IndexException("Couldn't instantiate analyzer: public constructor not found"), e);
+          new IndexException("Couldn't instantiate analyzer: public constructor not found"), e,
+          (String) null);
     } catch (final Exception e) {
       LogManager.instance()
           .error(

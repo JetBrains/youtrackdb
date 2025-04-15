@@ -22,13 +22,13 @@ public class DirectMemoryAllocatorTest {
 
   @Test
   public void testAllocateDeallocate() {
-    final DirectMemoryAllocator directMemoryAllocator = new DirectMemoryAllocator();
-    final Pointer pointer = directMemoryAllocator.allocate(42, false, Intention.TEST);
+    final var directMemoryAllocator = new DirectMemoryAllocator();
+    final var pointer = directMemoryAllocator.allocate(42, false, Intention.TEST);
     Assert.assertNotNull(pointer);
 
     Assert.assertEquals(42, directMemoryAllocator.getMemoryConsumption());
 
-    final ByteBuffer buffer = pointer.getNativeByteBuffer();
+    final var buffer = pointer.getNativeByteBuffer();
     Assert.assertEquals(42, buffer.capacity());
     directMemoryAllocator.deallocate(pointer);
 
@@ -37,7 +37,7 @@ public class DirectMemoryAllocatorTest {
 
   @Test
   public void testNegativeOrZeroIsPassedToAllocate() {
-    final DirectMemoryAllocator directMemoryAllocator = new DirectMemoryAllocator();
+    final var directMemoryAllocator = new DirectMemoryAllocator();
     try {
       directMemoryAllocator.allocate(0, false, Intention.TEST);
       Assert.fail();
@@ -55,7 +55,7 @@ public class DirectMemoryAllocatorTest {
 
   @Test
   public void testNullValueIsPassedToDeallocate() {
-    final DirectMemoryAllocator directMemoryAllocator = new DirectMemoryAllocator();
+    final var directMemoryAllocator = new DirectMemoryAllocator();
     try {
       directMemoryAllocator.deallocate(null);
       Assert.fail();

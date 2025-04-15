@@ -1,17 +1,17 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -58,20 +58,20 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
       channel.writeString(errorMessage);
     } else {
       channel.writeInt(events.size());
-      for (LiveQueryResult event : events) {
+      for (var event : events) {
         channel.writeByte(event.getEventType());
         MessageHelper.writeResult(session,
-            event.getCurrentValue(), channel, RecordSerializerNetworkV37.INSTANCE);
+            event.getCurrentValue(), channel);
         if (event.getEventType() == LiveQueryResult.UPDATE_EVENT) {
           MessageHelper.writeResult(session,
-              event.getOldValue(), channel, RecordSerializerNetworkV37.INSTANCE);
+              event.getOldValue(), channel);
         }
       }
     }
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network) throws IOException {
+  public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
     monitorId = network.readInt();
     status = network.readByte();
     if (status == ERROR) {
@@ -79,26 +79,28 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
       errorCode = ErrorCode.getErrorCode(network.readInt());
       errorMessage = network.readString();
     } else {
-      int eventSize = network.readInt();
+      var eventSize = network.readInt();
       events = new ArrayList<>(eventSize);
       while (eventSize-- > 0) {
-        byte type = network.readByte();
-        Result currentValue = MessageHelper.readResult(db, network);
+        var type = network.readByte();
+        Result currentValue = MessageHelper.readResult(session, network);
         Result oldValue = null;
         if (type == LiveQueryResult.UPDATE_EVENT) {
-          oldValue = MessageHelper.readResult(db, network);
+          oldValue = MessageHelper.readResult(session, network);
         }
         events.add(new LiveQueryResult(type, currentValue, oldValue));
       }
     }
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse execute(DatabaseSessionInternal session, RemotePushHandler remote) {
     remote.executeLiveQueryPush(this);
     return null;
   }
 
+  @Nullable
   @Override
   public BinaryPushResponse createResponse() {
     return null;

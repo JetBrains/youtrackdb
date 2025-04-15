@@ -21,8 +21,8 @@ import com.cloudbees.syslog.sender.UdpSyslogMessageSender;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.security.Syslog;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 
 /**
  * Provides a default implementation for syslog access.
@@ -60,7 +60,7 @@ public class DefaultSyslog extends ServerPluginAbstract implements Syslog {
   public void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams) {
     enabled = false;
 
-    for (ServerParameterConfiguration param : iParams) {
+    for (var param : iParams) {
       if (param.name.equalsIgnoreCase("enabled")) {
         enabled = Boolean.parseBoolean(param.value);
         if (!enabled)
@@ -105,7 +105,7 @@ public class DefaultSyslog extends ServerPluginAbstract implements Syslog {
       final String operation, final String dbName, final String username, final String message) {
     try {
       if (messageSender != null) {
-        SyslogMessage sysMsg = new SyslogMessage();
+        var sysMsg = new SyslogMessage();
 
         sysMsg.setFacility(Facility.USER);
         sysMsg.setSeverity(Severity.INFORMATIONAL);
@@ -116,7 +116,7 @@ public class DefaultSyslog extends ServerPluginAbstract implements Syslog {
         // if(operation != null) sysMsg.setMsgId(operation);
         // if(dbName != null) sysMsg.setProcId(dbName);
 
-        StringBuilder sb = new StringBuilder();
+        var sb = new StringBuilder();
 
         if (operation != null) {
           sb.append("[");

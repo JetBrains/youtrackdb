@@ -21,7 +21,7 @@ public class SQLContainsKeyOperator extends SimpleNode implements SQLBinaryCompa
       return false;
     }
     if (left instanceof Map<?, ?>) {
-      final Map<String, ?> map = (Map<String, ?>) left;
+      final var map = (Map<String, ?>) left;
       return map.containsKey(right);
     }
     return false;

@@ -30,7 +30,7 @@ public class LikeOperatorTest {
 
   @Test
   public void test() {
-    SQLLikeOperator op = new SQLLikeOperator(-1);
+    var op = new SQLLikeOperator(-1);
     Assert.assertTrue(op.execute("foobar", "%ooba%"));
     Assert.assertTrue(op.execute("foobar", "%oo%"));
     Assert.assertFalse(op.execute("foobar", "oo%"));

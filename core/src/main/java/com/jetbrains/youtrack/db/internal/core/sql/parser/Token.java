@@ -2,6 +2,8 @@
 /* JavaCCOptions:TOKEN_EXTENDS=,KEEP_LINE_COL=null,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import javax.annotation.Nullable;
+
 /**
  * Describes the input token stream.
  */
@@ -69,6 +71,7 @@ public class Token implements java.io.Serializable {
    * attribute value is often different from the image. Any subclass of Token that actually wants to
    * return a non-null value can override this method as appropriate.
    */
+  @Nullable
   public Object getValue() {
     return null;
   }

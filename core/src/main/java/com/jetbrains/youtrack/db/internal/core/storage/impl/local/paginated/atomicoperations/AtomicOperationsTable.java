@@ -49,10 +49,10 @@ public class AtomicOperationsTable {
   public long getSegmentEarliestOperationInProgress() {
     compactionLock.sharedLock();
     try {
-      for (final CASObjectArray<OperationInformation> table : tables) {
-        final int size = table.size();
-        for (int i = 0; i < size; i++) {
-          final OperationInformation operationInformation = table.get(i);
+      for (final var table : tables) {
+        final var size = table.size();
+        for (var i = 0; i < size; i++) {
+          final var operationInformation = table.get(i);
           if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
             return operationInformation.segment;
           }
@@ -68,10 +68,10 @@ public class AtomicOperationsTable {
   public long getSegmentEarliestNotPersistedOperation() {
     compactionLock.sharedLock();
     try {
-      for (final CASObjectArray<OperationInformation> table : tables) {
-        final int size = table.size();
-        for (int i = 0; i < size; i++) {
-          final OperationInformation operationInformation = table.get(i);
+      for (final var table : tables) {
+        final var size = table.size();
+        for (var i = 0; i < size; i++) {
+          final var operationInformation = table.get(i);
           if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
               || operationInformation.status == AtomicOperationStatus.COMMITTED) {
             return operationInformation.segment;
@@ -106,18 +106,18 @@ public class AtomicOperationsTable {
             "Invalid value of transaction segment for newly started operation");
       }
 
-      int currentIndex = 0;
-      long currentOffset = idOffsets[0];
-      long nextOffset = idOffsets.length > 1 ? idOffsets[1] : Long.MAX_VALUE;
+      var currentIndex = 0;
+      var currentOffset = idOffsets[0];
+      var nextOffset = idOffsets.length > 1 ? idOffsets[1] : Long.MAX_VALUE;
 
       while (true) {
         if (currentOffset <= operationId && operationId < nextOffset) {
-          final int itemIndex = (int) (operationId - currentOffset);
+          final var itemIndex = (int) (operationId - currentOffset);
           if (itemIndex < 0) {
             throw new IllegalStateException("Invalid state of table of atomic operations");
           }
 
-          final CASObjectArray<OperationInformation> table = tables[currentIndex];
+          final var table = tables[currentIndex];
           if (newStatus == AtomicOperationStatus.IN_PROGRESS) {
             table.set(
                 itemIndex,
@@ -125,7 +125,7 @@ public class AtomicOperationsTable {
                 ATOMIC_OPERATION_STATUS_PLACE_HOLDER);
             operationsStarted.incrementAndGet();
           } else {
-            final OperationInformation currentInformation = table.get(itemIndex);
+            final var currentInformation = table.get(itemIndex);
             if (currentInformation.operationId != operationId) {
               throw new IllegalStateException(
                   "Invalid operation id, expected "
@@ -175,22 +175,22 @@ public class AtomicOperationsTable {
   public void compactTable() {
     compactionLock.exclusiveLock();
     try {
-      final ArrayDeque<Integer> tablesToRemove = new ArrayDeque<>(tables.length);
+      final var tablesToRemove = new ArrayDeque<Integer>(tables.length);
 
-      boolean tablesAreFull = true;
-      long maxId = Long.MIN_VALUE;
+      var tablesAreFull = true;
+      var maxId = Long.MIN_VALUE;
 
-      for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
-        final CASObjectArray<OperationInformation> table = tables[tableIndex];
-        final long idOffset = idOffsets[tableIndex];
+      for (var tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+        final var table = tables[tableIndex];
+        final var idOffset = idOffsets[tableIndex];
 
-        final CASObjectArray<OperationInformation> newTable = new CASObjectArray<>();
-        final int tableSize = table.size();
-        boolean addition = false;
+        final var newTable = new CASObjectArray<OperationInformation>();
+        final var tableSize = table.size();
+        var addition = false;
 
         long newIdOffset = -1;
-        for (int i = 0; i < tableSize; i++) {
-          final OperationInformation operationInformation = table.get(i);
+        for (var i = 0; i < tableSize; i++) {
+          final var operationInformation = table.get(i);
           if (!addition) {
             if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
                 || operationInformation.status == AtomicOperationStatus.NOT_STARTED
@@ -233,13 +233,13 @@ public class AtomicOperationsTable {
           //noinspection unchecked
           CASObjectArray<OperationInformation>[] newTables =
               new CASObjectArray[this.tables.length - tablesToRemove.size()];
-          long[] newIdOffsets = new long[this.idOffsets.length - tablesToRemove.size()];
+          var newIdOffsets = new long[this.idOffsets.length - tablesToRemove.size()];
 
-          int firstSrcIndex = 0;
-          int firstDestIndex = 0;
+          var firstSrcIndex = 0;
+          var firstDestIndex = 0;
 
           for (final int tableIndex : tablesToRemove) {
-            final int len = tableIndex - firstSrcIndex;
+            final var len = tableIndex - firstSrcIndex;
             if (len > 0) {
               System.arraycopy(this.tables, firstSrcIndex, newTables, firstDestIndex, len);
               System.arraycopy(this.idOffsets, firstSrcIndex, newIdOffsets, firstDestIndex, len);

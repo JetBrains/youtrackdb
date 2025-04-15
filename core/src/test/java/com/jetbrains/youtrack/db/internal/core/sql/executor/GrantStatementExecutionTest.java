@@ -3,9 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,41 +13,46 @@ public class GrantStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testSimple() {
-    db.begin();
-    Role testRole =
-        db.getMetadata()
+    session.begin();
+    var testRole =
+        session.getMetadata()
             .getSecurity()
-            .createRole("testRole", SecurityRole.ALLOW_MODES.DENY_ALL_BUT);
+            .createRole("testRole");
     Assert.assertFalse(
         testRole.allow(Rule.ResourceGeneric.SERVER, "server", Role.PERMISSION_EXECUTE));
-    db.commit();
-    db.begin();
-    db.command("GRANT execute on server.remove to testRole");
-    db.commit();
-    testRole = db.getMetadata().getSecurity().getRole("testRole");
+    session.commit();
+    session.begin();
+    session.execute("GRANT execute on server.remove to testRole");
+    session.commit();
+
+    session.begin();
+    testRole = session.getMetadata().getSecurity().getRole("testRole");
     Assert.assertTrue(
         testRole.allow(Rule.ResourceGeneric.SERVER, "remove", Role.PERMISSION_EXECUTE));
+    session.commit();
   }
 
   @Test
   public void testGrantPolicy() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    db.command("GRANT POLICY testPolicy ON database.class.Person TO reader").close();
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    session.execute("GRANT POLICY testPolicy ON database.class.Person TO reader").close();
+    session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(db));
+            .getName());
+    session.commit();
   }
 }

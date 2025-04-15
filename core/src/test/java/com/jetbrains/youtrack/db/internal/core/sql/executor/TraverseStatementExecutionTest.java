@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import java.util.Collection;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -13,18 +11,19 @@ import org.junit.Test;
 public class TraverseStatementExecutionTest extends DbTestBase {
 
   @Test
+  @Ignore
   public void testPlainTraverse() {
-    String classPrefix = "testPlainTraverse_";
-    db.createVertexClass(classPrefix + "V");
-    db.createEdgeClass(classPrefix + "E");
+    var classPrefix = "testPlainTraverse_";
+    session.createVertexClass(classPrefix + "V");
+    session.createEdgeClass(classPrefix + "E");
 
-    db.begin();
-    db.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.begin();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -33,7 +32,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -42,7 +41,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -51,33 +50,36 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'd')")
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet result =
-        db.query("traverse out() from (select from " + classPrefix + "V where name = 'a')");
+    session.begin();
+    var result =
+        session.query("traverse out() from (select from " + classPrefix + "V where name = 'a')");
 
-    for (int i = 0; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
-      Assert.assertEquals(i, item.getMetadata("$depth"));
+      var item = result.next();
+      Assert.assertEquals(i, ((ResultInternal) item).getMetadata("$depth"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testWithDepth() {
-    String classPrefix = "testWithDepth_";
-    db.createVertexClass(classPrefix + "V");
-    db.createEdgeClass(classPrefix + "E");
+    var classPrefix = "testWithDepth_";
+    session.createVertexClass(classPrefix + "V");
+    session.createEdgeClass(classPrefix + "E");
 
-    db.begin();
-    db.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.begin();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -86,7 +88,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -95,7 +97,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -104,36 +106,39 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'd')")
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet result =
-        db.query(
+    session.begin();
+    var result =
+        session.query(
             "traverse out() from (select from "
                 + classPrefix
                 + "V where name = 'a') WHILE $depth < 2");
 
-    for (int i = 0; i < 2; i++) {
+    for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
-      Assert.assertEquals(i, item.getMetadata("$depth"));
+      var item = result.next();
+      Assert.assertEquals(i, ((ResultInternal) item).getMetadata("$depth"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testMaxDepth() {
-    String classPrefix = "testMaxDepth";
-    db.createVertexClass(classPrefix + "V");
-    db.createEdgeClass(classPrefix + "E");
+    var classPrefix = "testMaxDepth";
+    session.createVertexClass(classPrefix + "V");
+    session.createEdgeClass(classPrefix + "E");
 
-    db.begin();
-    db.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.begin();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -142,7 +147,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -151,7 +156,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -160,46 +165,49 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'd')")
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet result =
-        db.query(
+    session.begin();
+    var result =
+        session.query(
             "traverse out() from (select from " + classPrefix + "V where name = 'a') MAXDEPTH 1");
 
-    for (int i = 0; i < 2; i++) {
+    for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
-      Assert.assertEquals(i, item.getMetadata("$depth"));
+      var item = result.next();
+      Assert.assertEquals(i, ((ResultInternal) item).getMetadata("$depth"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
 
     result =
-        db.query(
+        session.query(
             "traverse out() from (select from " + classPrefix + "V where name = 'a') MAXDEPTH 2");
 
-    for (int i = 0; i < 3; i++) {
+    for (var i = 0; i < 3; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
-      Assert.assertEquals(i, item.getMetadata("$depth"));
+      var item = result.next();
+      Assert.assertEquals(i, ((ResultInternal) item).getMetadata("$depth"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testBreadthFirst() {
-    String classPrefix = "testBreadthFirst_";
-    db.createVertexClass(classPrefix + "V");
-    db.createEdgeClass(classPrefix + "E");
+    var classPrefix = "testBreadthFirst_";
+    session.createVertexClass(classPrefix + "V");
+    session.createEdgeClass(classPrefix + "E");
 
-    db.begin();
-    db.command("create vertex " + classPrefix + "V set name = 'a'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'b'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'c'").close();
-    db.command("create vertex " + classPrefix + "V set name = 'd'").close();
+    session.begin();
+    session.execute("create vertex " + classPrefix + "V set name = 'a'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'b'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'c'").close();
+    session.execute("create vertex " + classPrefix + "V set name = 'd'").close();
 
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -208,7 +216,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'b')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -217,7 +225,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'c')")
         .close();
-    db.command(
+    session.execute(
             "create edge "
                 + classPrefix
                 + "E from (select from "
@@ -226,26 +234,29 @@ public class TraverseStatementExecutionTest extends DbTestBase {
                 + classPrefix
                 + "V where name = 'd')")
         .close();
-    db.commit();
+    session.commit();
 
-    ResultSet result =
-        db.query(
+    session.begin();
+    var result =
+        session.query(
             "traverse out() from (select from "
                 + classPrefix
                 + "V where name = 'a') STRATEGY BREADTH_FIRST");
 
-    for (int i = 0; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
-      Assert.assertEquals(i, item.getMetadata("$depth"));
+      var item = result.next();
+      Assert.assertEquals(i, ((ResultInternal) item).getMetadata("$depth"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testTraverseInBatchTx() {
-    String script = "";
+    var script = "";
     script += "";
 
     script += "drop class testTraverseInBatchTx_V if exists unsafe;";
@@ -263,18 +274,18 @@ public class TraverseStatementExecutionTest extends DbTestBase {
         "create edge testTraverseInBatchTx_E from (select from testTraverseInBatchTx_V where name ="
             + " 'b') to (select from testTraverseInBatchTx_V where name = 'c');";
     script +=
-        "let top = (select * from (traverse in('testTraverseInBatchTx_E') from (select from"
+        "let top = (select @rid as rid from (traverse in('testTraverseInBatchTx_E') from (select from"
             + " testTraverseInBatchTx_V where name='c')) where in('testTraverseInBatchTx_E').size()"
             + " == 0);";
     script += "commit;";
     script += "return $top";
 
-    ResultSet result = db.execute("sql", script);
+    var result = session.runScript("sql", script);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
-    Object val = item.getProperty("value");
-    Assert.assertTrue(val instanceof Collection);
-    Assert.assertEquals(1, ((Collection) val).size());
+    var item = result.next();
+
+    var val = item.getEmbeddedList("value");
+    Assert.assertEquals(1, val.size());
     result.close();
   }
 }

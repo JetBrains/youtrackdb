@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -35,28 +35,33 @@ public class FloorPhysicalPositionsRequest
     implements BinaryRequest<FloorPhysicalPositionsResponse> {
 
   private PhysicalPosition physicalPosition;
-  private int clusterId;
+  private int collectionId;
+  private int limit;
 
-  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int clusterId) {
+  public FloorPhysicalPositionsRequest(PhysicalPosition physicalPosition, int collectionId, int limit) {
     this.physicalPosition = physicalPosition;
-    this.clusterId = clusterId;
+    this.collectionId = collectionId;
+    this.limit = limit;
   }
 
   public FloorPhysicalPositionsRequest() {
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
+  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    network.writeInt(clusterId);
-    network.writeLong(physicalPosition.clusterPosition);
+    network.writeInt(collectionId);
+    network.writeLong(physicalPosition.collectionPosition);
+    network.writeInt(limit);
   }
 
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
+      int protocolVersion,
+      RecordSerializerNetwork serializer)
       throws IOException {
-    this.clusterId = channel.readInt();
+    this.collectionId = channel.readInt();
     this.physicalPosition = new PhysicalPosition(channel.readLong());
+    this.limit = channel.readInt();
   }
 
   @Override
@@ -69,12 +74,16 @@ public class FloorPhysicalPositionsRequest
     return "Retrieve floor positions";
   }
 
-  public int getClusterId() {
-    return clusterId;
+  public int getCollectionId() {
+    return collectionId;
   }
 
   public PhysicalPosition getPhysicalPosition() {
     return physicalPosition;
+  }
+
+  public int getLimit() {
+    return limit;
   }
 
   public FloorPhysicalPositionsResponse createResponse() {

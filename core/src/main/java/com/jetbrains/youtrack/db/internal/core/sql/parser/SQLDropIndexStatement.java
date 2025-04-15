@@ -2,12 +2,10 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -32,23 +30,24 @@ public class SQLDropIndexStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     List<Result> rs = new ArrayList<>();
-    DatabaseSessionInternal db = ctx.getDatabase();
-    IndexManagerAbstract idxMgr = db.getMetadata().getIndexManagerInternal();
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var idxMgr = session.getSharedContext().getIndexManager();
     if (all) {
-      for (Index idx : idxMgr.getIndexes(db)) {
-        db.getMetadata().getIndexManagerInternal().dropIndex(db, idx.getName());
-        ResultInternal result = new ResultInternal(db);
+      for (var idx : idxMgr.getIndexes(session)) {
+        idxMgr.dropIndex(session, idx.getName());
+        var result = new ResultInternal(session);
         result.setProperty("operation", "drop index");
-        result.setProperty("clusterName", idx.getName());
+        result.setProperty("collectionName", idx.getName());
         rs.add(result);
       }
 
     } else {
-      if (!idxMgr.existsIndex(name.getValue()) && !ifExists) {
-        throw new CommandExecutionException("Index not found: " + name.getValue());
+      if (!idxMgr.existsIndex(session, name.getValue()) && !ifExists) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Index not found: " + name.getValue());
       }
-      idxMgr.dropIndex(db, name.getValue());
-      ResultInternal result = new ResultInternal(db);
+      idxMgr.dropIndex(session, name.getValue());
+      var result = new ResultInternal(session);
       result.setProperty("operation", "drop index");
       result.setProperty("indexName", name.getValue());
       rs.add(result);
@@ -85,7 +84,7 @@ public class SQLDropIndexStatement extends DDLStatement {
 
   @Override
   public SQLDropIndexStatement copy() {
-    SQLDropIndexStatement result = new SQLDropIndexStatement(-1);
+    var result = new SQLDropIndexStatement(-1);
     result.all = all;
     result.name = name == null ? null : name.copy();
     return result;
@@ -100,7 +99,7 @@ public class SQLDropIndexStatement extends DDLStatement {
       return false;
     }
 
-    SQLDropIndexStatement that = (SQLDropIndexStatement) o;
+    var that = (SQLDropIndexStatement) o;
 
     if (all != that.all) {
       return false;
@@ -110,7 +109,7 @@ public class SQLDropIndexStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = (all ? 1 : 0);
+    var result = (all ? 1 : 0);
     result = 31 * result + (name != null ? name.hashCode() : 0);
     return result;
   }

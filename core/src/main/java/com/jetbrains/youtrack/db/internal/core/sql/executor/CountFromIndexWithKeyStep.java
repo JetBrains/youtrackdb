@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -46,20 +46,22 @@ public class CountFromIndexWithKeyStep extends AbstractExecutionStep {
   }
 
   private Result produce(CommandContext ctx) {
-    Index idx = ctx.getDatabase().getMetadata().getIndexManager().getIndex(target.getIndexName());
-    var db = ctx.getDatabase();
-    Object val =
+    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var idx = session.getSharedContext().getIndexManager()
+        .getIndex(session, target.getIndexName());
+    var db = ctx.getDatabaseSession();
+    var val =
         idx.getDefinition()
-            .createValue(db, keyValue.execute(new ResultInternal(db), ctx));
-    long size = idx.getInternal().getRids(db, val).distinct().count();
-    ResultInternal result = new ResultInternal(db);
+            .createValue(db.getActiveTransaction(), keyValue.execute(new ResultInternal(db), ctx));
+    var size = idx.getRids(db, val).distinct().count();
+    var result = new ResultInternal(db);
     result.setProperty(alias, size);
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ CALCULATE INDEX SIZE BY KEY: " + target;
   }
 }

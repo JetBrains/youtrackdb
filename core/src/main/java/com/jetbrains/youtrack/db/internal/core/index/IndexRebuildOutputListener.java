@@ -68,7 +68,7 @@ public class IndexRebuildOutputListener implements ProgressListener {
 
   @Override
   public boolean onProgress(final Object iTask, final long iCounter, final float iPercent) {
-    final long now = System.currentTimeMillis();
+    final var now = System.currentTimeMillis();
     if (now - lastDump > 10000) {
       // DUMP EVERY 5 SECONDS FOR LARGE INDEXES
       if (rebuild) {
@@ -97,7 +97,7 @@ public class IndexRebuildOutputListener implements ProgressListener {
   @Override
   public void onCompletition(DatabaseSessionInternal session, final Object iTask,
       final boolean iSucceed) {
-    final long idxSize = idx.getInternal().size(session);
+    final var idxSize = idx.size(session);
 
     if (idxSize > 0) {
       if (rebuild) {

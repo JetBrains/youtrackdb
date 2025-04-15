@@ -75,7 +75,7 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
 
   @Override
   public SQLParenthesisBlock copy() {
-    SQLParenthesisBlock result = new SQLParenthesisBlock(-1);
+    var result = new SQLParenthesisBlock(-1);
     result.subElement = subElement.copy();
     return result;
   }
@@ -99,7 +99,7 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
       return false;
     }
 
-    SQLParenthesisBlock that = (SQLParenthesisBlock) o;
+    var that = (SQLParenthesisBlock) o;
 
     return Objects.equals(subElement, that.subElement);
   }

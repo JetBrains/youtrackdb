@@ -64,7 +64,7 @@ public class FrontendTransactionIndexChangesPerKey {
       if (obj == null || obj.getClass() != TransactionIndexEntry.class) {
         return false;
       }
-      final TransactionIndexEntry other = (TransactionIndexEntry) obj;
+      final var other = (TransactionIndexEntry) obj;
 
       if (this.value != null) {
         return this.value.equals(other.value);
@@ -87,9 +87,9 @@ public class FrontendTransactionIndexChangesPerKey {
     }
 
     public void setValue(Identifiable newValue) {
-      RID oldValueId = value == null ? null : value.getIdentity();
-      RID newValueId = newValue == null ? null : newValue.getIdentity();
-      Optional<FrontendTransactionIndexChangesList.Node> node = entries.getNode(this);
+      var oldValueId = value == null ? null : value.getIdentity();
+      var newValueId = newValue == null ? null : newValue.getIdentity();
+      var node = entries.getNode(this);
 
       this.value = newValue;
       node.ifPresent(x -> x.onRidChange(oldValueId, newValueId));
@@ -103,9 +103,9 @@ public class FrontendTransactionIndexChangesPerKey {
 
   public void add(Identifiable iValue, final OPERATION operation) {
     synchronized (this) {
-      RID valueIdentity = iValue == null ? null : iValue.getIdentity();
+      var valueIdentity = iValue == null ? null : iValue.getIdentity();
       if (operation == OPERATION.REMOVE) {
-        Optional<FrontendTransactionIndexChangesList.Node> nodeToRemove =
+        var nodeToRemove =
             entries.getFirstNode(valueIdentity, OPERATION.PUT);
         if (nodeToRemove.isPresent()) {
           nodeToRemove.get().remove();
@@ -113,7 +113,7 @@ public class FrontendTransactionIndexChangesPerKey {
         }
       }
 
-      TransactionIndexEntry item = new TransactionIndexEntry(valueIdentity, operation);
+      var item = new TransactionIndexEntry(valueIdentity, operation);
       entries.add(item);
     }
   }
@@ -147,10 +147,10 @@ public class FrontendTransactionIndexChangesPerKey {
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder(64);
+    final var builder = new StringBuilder(64);
     builder.append(key).append(" [");
-    boolean first = true;
-    for (TransactionIndexEntry entry : entries) {
+    var first = true;
+    for (var entry : entries) {
       if (first) {
         first = false;
       } else {
@@ -171,15 +171,15 @@ public class FrontendTransactionIndexChangesPerKey {
     }
 
     if (entries.size() == 2) {
-      final TransactionIndexEntry entryA = entries.get(0);
-      final TransactionIndexEntry entryB = entries.get(1);
+      final var entryA = entries.get(0);
+      final var entryB = entries.get(1);
 
       if (entryA.operation == OPERATION.REMOVE && entryB.operation == OPERATION.REMOVE) {
         return Collections.singletonList(entryA); // only one removal is observed anyway
       }
 
-      final RID ridA = entryA.value == null ? null : entryA.value.getIdentity();
-      final RID ridB = entryB.value == null ? null : entryB.value.getIdentity();
+      final var ridA = entryA.value == null ? null : entryA.value.getIdentity();
+      final var ridB = entryB.value == null ? null : entryB.value.getIdentity();
 
       if (ridA != null && ridA.equals(ridB)) {
         if (entryA.operation == entryB.operation) // both operations do the same on the same RID
@@ -209,8 +209,8 @@ public class FrontendTransactionIndexChangesPerKey {
     final Set<TransactionIndexEntry> interpretation =
         new HashSet<TransactionIndexEntry>(entries.size());
     TransactionIndexEntry firstExternalRemove = null;
-    for (TransactionIndexEntry entry : entries) {
-      final Identifiable value = entry.value;
+    for (var entry : entries) {
+      final var value = entry.value;
 
       switch (entry.operation) {
         case PUT:
@@ -252,8 +252,8 @@ public class FrontendTransactionIndexChangesPerKey {
       changes.add(firstExternalRemove);
     }
 
-    int counter = 0;
-    for (TransactionIndexEntry entry : interpretation) {
+    var counter = 0;
+    for (var entry : interpretation) {
       changes.add(entry);
 
       if (++counter == 2) {
@@ -272,15 +272,15 @@ public class FrontendTransactionIndexChangesPerKey {
     }
 
     if (entries.size() == 2) {
-      final TransactionIndexEntry entryA = entries.get(0);
-      final TransactionIndexEntry entryB = entries.get(1);
+      final var entryA = entries.get(0);
+      final var entryB = entries.get(1);
 
       if (entryA.operation == OPERATION.REMOVE && entryB.operation == OPERATION.REMOVE) {
         return Collections.singletonList(entryA); // only one removal is observed anyway
       }
 
-      final RID ridA = entryA.value == null ? null : entryA.value.getIdentity();
-      final RID ridB = entryB.value == null ? null : entryB.value.getIdentity();
+      final var ridA = entryA.value == null ? null : entryA.value.getIdentity();
+      final var ridB = entryB.value == null ? null : entryB.value.getIdentity();
 
       if (ridA != null && ridA.equals(ridB)) {
         if (entryA.operation == entryB.operation) // both operations do the same on the same RID
@@ -319,8 +319,8 @@ public class FrontendTransactionIndexChangesPerKey {
     final Set<TransactionIndexEntry> interpretation =
         new HashSet<TransactionIndexEntry>(entries.size());
     TransactionIndexEntry firstExternalRemove = null;
-    for (TransactionIndexEntry entry : entries) {
-      final Identifiable value = entry.value;
+    for (var entry : entries) {
+      final var value = entry.value;
 
       switch (entry.operation) {
         case PUT:
@@ -385,11 +385,11 @@ public class FrontendTransactionIndexChangesPerKey {
     }
 
     if (entries.size() == 2) {
-      final TransactionIndexEntry entryA = entries.get(0);
-      final TransactionIndexEntry entryB = entries.get(1);
+      final var entryA = entries.get(0);
+      final var entryB = entries.get(1);
 
-      final RID ridA = entryA.value == null ? null : entryA.value.getIdentity();
-      final RID ridB = entryB.value == null ? null : entryB.value.getIdentity();
+      final var ridA = entryA.value == null ? null : entryA.value.getIdentity();
+      final var ridB = entryB.value == null ? null : entryB.value.getIdentity();
 
       if (ridA == null) {
         assert entryA.operation == OPERATION.REMOVE;
@@ -425,10 +425,10 @@ public class FrontendTransactionIndexChangesPerKey {
 
     final Set<TransactionIndexEntry> interpretation =
         new HashSet<TransactionIndexEntry>(entries.size());
-    boolean seenKeyRemoval = false;
-    for (TransactionIndexEntry entry : entries) {
-      final Identifiable value = entry.value;
-      final RID rid = value == null ? null : value.getIdentity();
+    var seenKeyRemoval = false;
+    for (var entry : entries) {
+      final var value = entry.value;
+      final var rid = value == null ? null : value.getIdentity();
 
       switch (entry.operation) {
         case PUT:
@@ -477,7 +477,7 @@ public class FrontendTransactionIndexChangesPerKey {
       changes.addAll(interpretation);
       return changes;
     } else {
-      final MultiCollectionIterator<TransactionIndexEntry> result =
+      final var result =
           new MultiCollectionIterator<TransactionIndexEntry>();
       result.setAutoConvertToRecord(false);
       result.add(changes);

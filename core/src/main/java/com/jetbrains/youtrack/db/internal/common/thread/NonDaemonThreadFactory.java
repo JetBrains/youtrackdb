@@ -15,7 +15,7 @@ public class NonDaemonThreadFactory implements ThreadFactory {
 
   @Override
   public Thread newThread(Runnable r) {
-    final Thread thread = new Thread(r, prefix + " #" + counter.incrementAndGet());
+    final var thread = new Thread(r, prefix + " #" + counter.incrementAndGet());
     thread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
 
     return thread;

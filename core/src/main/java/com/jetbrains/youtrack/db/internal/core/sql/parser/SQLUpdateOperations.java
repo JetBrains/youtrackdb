@@ -39,11 +39,11 @@ public class SQLUpdateOperations extends SimpleNode {
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    boolean first = true;
+    var first = true;
     switch (type) {
       case TYPE_SET:
         builder.append("SET ");
-        for (SQLUpdateItem item : this.updateItems) {
+        for (var item : this.updateItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -53,7 +53,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_PUT:
         builder.append("PUT ");
-        for (SQLUpdatePutItem item : this.updatePutItems) {
+        for (var item : this.updatePutItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -71,7 +71,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_INCREMENT:
         builder.append("INCREMENT ");
-        for (SQLUpdateIncrementItem item : this.updateIncrementItems) {
+        for (var item : this.updateIncrementItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -81,7 +81,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_ADD:
         builder.append("ADD ");
-        for (SQLUpdateIncrementItem item : this.updateIncrementItems) {
+        for (var item : this.updateIncrementItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -91,7 +91,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_REMOVE:
         builder.append("REMOVE ");
-        for (SQLUpdateRemoveItem item : this.updateRemoveItems) {
+        for (var item : this.updateRemoveItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -103,11 +103,11 @@ public class SQLUpdateOperations extends SimpleNode {
   }
 
   public void toGenericStatement(StringBuilder builder) {
-    boolean first = true;
+    var first = true;
     switch (type) {
       case TYPE_SET:
         builder.append("SET ");
-        for (SQLUpdateItem item : this.updateItems) {
+        for (var item : this.updateItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -117,7 +117,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_PUT:
         builder.append("PUT ");
-        for (SQLUpdatePutItem item : this.updatePutItems) {
+        for (var item : this.updatePutItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -135,7 +135,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_INCREMENT:
         builder.append("INCREMENT ");
-        for (SQLUpdateIncrementItem item : this.updateIncrementItems) {
+        for (var item : this.updateIncrementItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -145,7 +145,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_ADD:
         builder.append("ADD ");
-        for (SQLUpdateIncrementItem item : this.updateIncrementItems) {
+        for (var item : this.updateIncrementItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -155,7 +155,7 @@ public class SQLUpdateOperations extends SimpleNode {
         break;
       case TYPE_REMOVE:
         builder.append("REMOVE ");
-        for (SQLUpdateRemoveItem item : this.updateRemoveItems) {
+        for (var item : this.updateRemoveItems) {
           if (!first) {
             builder.append(", ");
           }
@@ -168,7 +168,7 @@ public class SQLUpdateOperations extends SimpleNode {
 
   public SQLUpdateOperations copy() {
 
-    SQLUpdateOperations result = new SQLUpdateOperations(-1);
+    var result = new SQLUpdateOperations(-1);
     result.type = type;
     result.updateItems =
         updateItems == null
@@ -199,7 +199,7 @@ public class SQLUpdateOperations extends SimpleNode {
       return false;
     }
 
-    SQLUpdateOperations that = (SQLUpdateOperations) o;
+    var that = (SQLUpdateOperations) o;
 
     if (type != that.type) {
       return false;
@@ -221,7 +221,7 @@ public class SQLUpdateOperations extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = type;
+    var result = type;
     result = 31 * result + (updateItems != null ? updateItems.hashCode() : 0);
     result = 31 * result + (updatePutItems != null ? updatePutItems.hashCode() : 0);
     result = 31 * result + (json != null ? json.hashCode() : 0);

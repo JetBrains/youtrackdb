@@ -30,7 +30,7 @@ public class TooBigIndexKeyException extends CoreException implements HighLevelE
     super(exception);
   }
 
-  public TooBigIndexKeyException(String message, String componentName) {
-    super(message, componentName);
+  public TooBigIndexKeyException(String dbName, String message, String componentName) {
+    super(dbName, message, componentName);
   }
 }

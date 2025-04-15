@@ -47,7 +47,7 @@ public class ServletContextLifeCycleListener implements ServletContextListener {
   @Override
   public void contextDestroyed(ServletContextEvent sce) {
     if (GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.getValueAsBoolean()) {
-      final YouTrackDBEnginesManager youTrack = YouTrackDBEnginesManager.instance();
+      final var youTrack = YouTrackDBEnginesManager.instance();
       if (youTrack != null) {
         LogManager.instance()
             .info(

@@ -25,7 +25,7 @@ public class ImportResponse implements BinaryResponse {
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    for (String string : messages) {
+    for (var string : messages) {
       channel.writeString(string);
     }
     channel.writeString(null);

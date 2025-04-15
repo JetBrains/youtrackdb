@@ -19,44 +19,36 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
+import javax.annotation.Nullable;
 
 /**
  * NOT EQUALS operator.
  */
 public class QueryOperatorNotEquals2 extends QueryOperatorEqualityNotNulls {
-
-  private boolean binaryEvaluate = false;
-
   public QueryOperatorNotEquals2() {
     super("!=", 5, false);
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (db != null) {
-      binaryEvaluate = db.getSerializer().getSupportBinaryEvaluate();
-    }
   }
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
-    return !QueryOperatorEquals.equals(iContext.getDatabase(), iLeft, iRight);
+    return !QueryOperatorEquals.equals(iContext.getDatabaseSession(), iLeft, iRight);
   }
 
   @Override
   public boolean isSupportingBinaryEvaluate() {
-    return binaryEvaluate;
+    return true;
   }
 
   @Override
@@ -65,7 +57,8 @@ public class QueryOperatorNotEquals2 extends QueryOperatorEqualityNotNulls {
       final BinaryField iSecondField,
       CommandContext iContext,
       final EntitySerializer serializer) {
-    return !serializer.getComparator().isEqual(iFirstField, iSecondField);
+    return !serializer.getComparator()
+        .isEqual(iContext.getDatabaseSession(), iFirstField, iSecondField);
   }
 
   @Override
@@ -73,11 +66,13 @@ public class QueryOperatorNotEquals2 extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

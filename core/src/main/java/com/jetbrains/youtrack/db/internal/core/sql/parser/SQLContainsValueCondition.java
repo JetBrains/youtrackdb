@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLContainsValueCondition extends SQLBooleanExpression {
 
@@ -35,17 +36,17 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (leftValue instanceof Map map) {
       if (condition != null) {
-        for (Object o : map.values()) {
+        for (var o : map.values()) {
           if (condition.evaluate(o, ctx)) {
             return true;
           }
         }
         return false;
       } else {
-        Object rightValue = expression.execute(currentRecord, ctx);
+        var rightValue = expression.execute(currentRecord, ctx);
         return map.containsValue(rightValue); // TODO type conversions...?
       }
     }
@@ -62,17 +63,17 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (leftValue instanceof Map map) {
       if (condition != null) {
-        for (Object o : map.values()) {
+        for (var o : map.values()) {
           if (condition.evaluate(o, ctx)) {
             return true;
           }
         }
         return false;
       } else {
-        Object rightValue = expression.execute(currentRecord, ctx);
+        var rightValue = expression.execute(currentRecord, ctx);
         return map.containsValue(rightValue); // TODO type conversions...?
       }
     }
@@ -80,12 +81,12 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    for (String propertyName : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(propertyName);
+    for (var propertyName : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(propertyName);
       if (leftValue instanceof Map map) {
         if (condition != null) {
-          boolean found = false;
-          for (Object o : map.values()) {
+          var found = false;
+          for (var o : map.values()) {
             if (condition.evaluate(o, ctx)) {
               found = true;
               break;
@@ -95,7 +96,7 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
             return false;
           }
         } else {
-          Object rightValue = expression.execute(currentRecord, ctx);
+          var rightValue = expression.execute(currentRecord, ctx);
           if (!map.containsValue(rightValue)) {
             return false;
           }
@@ -108,17 +109,17 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    for (String propertyName : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(propertyName);
+    for (var propertyName : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(propertyName);
       if (leftValue instanceof Map map) {
         if (condition != null) {
-          for (Object o : map.values()) {
+          for (var o : map.values()) {
             if (condition.evaluate(o, ctx)) {
               return true;
             }
           }
         } else {
-          Object rightValue = expression.execute(currentRecord, ctx);
+          var rightValue = expression.execute(currentRecord, ctx);
           if (map.containsValue(rightValue)) {
             return true;
           }
@@ -188,7 +189,7 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
 
   @Override
   public SQLContainsValueCondition copy() {
-    SQLContainsValueCondition result = new SQLContainsValueCondition(-1);
+    var result = new SQLContainsValueCondition(-1);
     result.left = left.copy();
     result.operator = operator;
     result.condition = condition == null ? null : condition.copy();
@@ -227,7 +228,7 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLContainsValueCondition that = (SQLContainsValueCondition) o;
+    var that = (SQLContainsValueCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -243,19 +244,20 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (operator != null ? operator.hashCode() : 0);
     result = 31 * result + (condition != null ? condition.hashCode() : 0);
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
-    List<String> expressionX =
+    var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
+    var expressionX =
         expression == null ? null : expression.getMatchPatternInvolvedAliases();
-    List<String> conditionX = condition == null ? null : condition.getMatchPatternInvolvedAliases();
+    var conditionX = condition == null ? null : condition.getMatchPatternInvolvedAliases();
 
     List<String> result = new ArrayList<String>();
     if (leftX != null) {
@@ -295,10 +297,10 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
   }
 
   public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<MetadataPath> path = left.getPath();
+    var path = left.getPath();
     if (path.isPresent()) {
       if (expression != null && expression.isEarlyCalculated(ctx)) {
-        Object value = expression.execute((Result) null, ctx);
+        var value = expression.execute((Result) null, ctx);
         return info.findByValueIndex(path.get(), value, ctx);
       }
     }

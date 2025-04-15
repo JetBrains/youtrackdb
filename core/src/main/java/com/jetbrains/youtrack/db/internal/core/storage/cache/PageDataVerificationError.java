@@ -47,7 +47,7 @@ public class PageDataVerificationError {
       return false;
     }
 
-    PageDataVerificationError that = (PageDataVerificationError) o;
+    var that = (PageDataVerificationError) o;
 
     if (incorrectCheckSum != that.incorrectCheckSum) {
       return false;
@@ -63,7 +63,7 @@ public class PageDataVerificationError {
 
   @Override
   public int hashCode() {
-    int result = (incorrectMagicNumber ? 1 : 0);
+    var result = (incorrectMagicNumber ? 1 : 0);
     result = 31 * result + (incorrectCheckSum ? 1 : 0);
     result = 31 * result + (int) (pageIndex ^ (pageIndex >>> 32));
     result = 31 * result + fileName.hashCode();

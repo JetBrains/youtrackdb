@@ -19,11 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandGetDictionary extends ServerCommandAuthenticatedDbAbstract {
@@ -31,31 +28,9 @@ public class ServerCommandGetDictionary extends ServerCommandAuthenticatedDbAbst
   private static final String[] NAMES = {"GET|dictionary/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     iRequest.getData().commandInfo = "Dictionary lookup";
-
-    String[] urlParts =
-        checkSyntax(iRequest.getUrl(), 3, "Syntax error: dictionary/<database>/<key>");
-
-    DatabaseSessionInternal db = null;
-
-    try {
-      db = getProfiledDatabaseInstance(iRequest);
-
-      final DBRecord record = db.getDictionary().get(urlParts[2]);
-      if (record == null) {
-        throw new RecordNotFoundException(
-            null, "Key '" + urlParts[2] + "' was not found in the database dictionary");
-      }
-
-      iResponse.writeRecord(record);
-
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-    }
-    return false;
+    throw new UnsupportedOperationException("Dictionary lookup is not supported");
   }
 
   @Override

@@ -66,14 +66,14 @@ public class LuceneNativeFacetTest {
   public static void main(String[] args) throws Exception {
     System.out.println("Facet counting example:");
     System.out.println("-----------------------");
-    LuceneNativeFacetTest example = new LuceneNativeFacetTest();
-    List<FacetResult> results1 = example.runFacetOnly();
+    var example = new LuceneNativeFacetTest();
+    var results1 = example.runFacetOnly();
     System.out.println("Author: " + results1.get(0));
     System.out.println("Publish Date: " + results1.get(1));
 
     System.out.println("Facet counting example (combined facets and search):");
     System.out.println("-----------------------");
-    List<FacetResult> results = example.runSearch();
+    var results = example.runSearch();
     System.out.println("Author: " + results.get(0));
     System.out.println("Publish Date: " + results.get(1));
 
@@ -83,7 +83,7 @@ public class LuceneNativeFacetTest {
 
     System.out.println("Facet drill-sideways example (Publish Date/2010):");
     System.out.println("---------------------------------------------");
-    for (FacetResult result : example.runDrillSideways()) {
+    for (var result : example.runDrillSideways()) {
       System.out.println(result);
     }
   }
@@ -124,14 +124,14 @@ public class LuceneNativeFacetTest {
    * Build the example index.
    */
   private void index() throws IOException {
-    IndexWriter indexWriter =
+    var indexWriter =
         new IndexWriter(
             indexDir, new IndexWriterConfig(new WhitespaceAnalyzer()).setOpenMode(OpenMode.CREATE));
 
     // Writes facet ords to a separate directory from the main index
-    DirectoryTaxonomyWriter taxoWriter = new DirectoryTaxonomyWriter(taxoDir);
+    var taxoWriter = new DirectoryTaxonomyWriter(taxoDir);
 
-    Document doc = new Document();
+    var doc = new Document();
     doc.add(new FacetField("Author", "Bob"));
     doc.add(new FacetField("Publish Date", "2010", "10", "15"));
     indexWriter.addDocument(config.build(taxoWriter, doc));
@@ -164,11 +164,11 @@ public class LuceneNativeFacetTest {
    * User runs a query and counts facets only without collecting the matching documents.
    */
   private List<FacetResult> facetsOnly() throws IOException {
-    DirectoryReader indexReader = DirectoryReader.open(indexDir);
-    IndexSearcher searcher = new IndexSearcher(indexReader);
+    var indexReader = DirectoryReader.open(indexDir);
+    var searcher = new IndexSearcher(indexReader);
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDir);
 
-    FacetsCollector fc = new FacetsCollector();
+    var fc = new FacetsCollector();
 
     // MatchAllDocsQuery is for "browsing" (counts facets
     // for all non-deleted docs in the index); normally
@@ -194,11 +194,11 @@ public class LuceneNativeFacetTest {
    * User runs a query and counts facets.
    */
   private List<FacetResult> facetsWithSearch() throws IOException {
-    DirectoryReader indexReader = DirectoryReader.open(indexDir);
-    IndexSearcher searcher = new IndexSearcher(indexReader);
+    var indexReader = DirectoryReader.open(indexDir);
+    var searcher = new IndexSearcher(indexReader);
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDir);
 
-    FacetsCollector fc = new FacetsCollector();
+    var fc = new FacetsCollector();
 
     // MatchAllDocsQuery is for "browsing" (counts facets
     // for all non-deleted docs in the index); normally
@@ -223,22 +223,22 @@ public class LuceneNativeFacetTest {
    * User drills down on 'Publish Date/2010', and we return facets for 'Author'
    */
   private FacetResult drillDown() throws IOException {
-    DirectoryReader indexReader = DirectoryReader.open(indexDir);
-    IndexSearcher searcher = new IndexSearcher(indexReader);
+    var indexReader = DirectoryReader.open(indexDir);
+    var searcher = new IndexSearcher(indexReader);
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDir);
 
     // Passing no baseQuery means we drill down on all
     // documents ("browse only"):
-    DrillDownQuery q = new DrillDownQuery(config);
+    var q = new DrillDownQuery(config);
 
     // Now user drills down on Publish Date/2010:
     q.add("Publish Date", "2010");
-    FacetsCollector fc = new FacetsCollector();
+    var fc = new FacetsCollector();
     FacetsCollector.search(searcher, q, 10, fc);
 
     // Retrieve results
     Facets facets = new FastTaxonomyFacetCounts(taxoReader, config, fc);
-    FacetResult result = facets.getTopChildren(10, "Author");
+    var result = facets.getTopChildren(10, "Author");
 
     indexReader.close();
     taxoReader.close();
@@ -251,23 +251,23 @@ public class LuceneNativeFacetTest {
    * 'Author', using DrillSideways.
    */
   private List<FacetResult> drillSideways() throws IOException {
-    DirectoryReader indexReader = DirectoryReader.open(indexDir);
-    IndexSearcher searcher = new IndexSearcher(indexReader);
+    var indexReader = DirectoryReader.open(indexDir);
+    var searcher = new IndexSearcher(indexReader);
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDir);
 
     // Passing no baseQuery means we drill down on all
     // documents ("browse only"):
-    DrillDownQuery q = new DrillDownQuery(config);
+    var q = new DrillDownQuery(config);
 
     // Now user drills down on Publish Date/2010:
     q.add("Publish Date", "2010");
 
-    DrillSideways ds = new DrillSideways(searcher, config, taxoReader);
-    DrillSidewaysResult result = ds.search(q, 10);
+    var ds = new DrillSideways(searcher, config, taxoReader);
+    var result = ds.search(q, 10);
 
     // Retrieve results
 
-    List<FacetResult> facets = result.facets.getAllDims(10);
+    var facets = result.facets.getAllDims(10);
 
     indexReader.close();
     taxoReader.close();

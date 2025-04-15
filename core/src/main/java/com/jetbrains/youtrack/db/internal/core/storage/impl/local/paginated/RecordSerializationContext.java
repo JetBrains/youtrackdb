@@ -22,10 +22,12 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBListenerAbstract;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import javax.annotation.Nullable;
+import javax.annotation.Nonnull;
 
 /**
  * @since 11/26/13
@@ -60,15 +62,16 @@ public class RecordSerializationContext {
   }
 
   public static RecordSerializationContext pushContext() {
-    final Deque<RecordSerializationContext> stack = SERIALIZATION_CONTEXT_STACK.get();
+    final var stack = SERIALIZATION_CONTEXT_STACK.get();
 
-    final RecordSerializationContext context = new RecordSerializationContext();
+    final var context = new RecordSerializationContext();
     stack.push(context);
     return context;
   }
 
+  @Nullable
   public static RecordSerializationContext getContext() {
-    final Deque<RecordSerializationContext> stack = SERIALIZATION_CONTEXT_STACK.get();
+    final var stack = SERIALIZATION_CONTEXT_STACK.get();
     if (stack.isEmpty()) {
       return null;
     }
@@ -76,13 +79,23 @@ public class RecordSerializationContext {
     return stack.peek();
   }
 
-  public static RecordSerializationContext pullContext() {
-    final Deque<RecordSerializationContext> stack = SERIALIZATION_CONTEXT_STACK.get();
+  @Nonnull
+  public static RecordSerializationContext peekContext() {
+    final var stack = SERIALIZATION_CONTEXT_STACK.get();
     if (stack.isEmpty()) {
       throw new IllegalStateException("Cannot find current serialization context");
     }
 
-    return stack.poll();
+    return stack.peek();
+  }
+
+  public static void pullContext() {
+    final var stack = SERIALIZATION_CONTEXT_STACK.get();
+    if (stack.isEmpty()) {
+      throw new IllegalStateException("Cannot find current serialization context");
+    }
+
+    stack.poll();
   }
 
   public void push(RecordSerializationOperation operation) {
@@ -90,8 +103,8 @@ public class RecordSerializationContext {
   }
 
   public void executeOperations(
-      AtomicOperation atomicOperation, AbstractPaginatedStorage storage) {
-    for (RecordSerializationOperation operation : operations) {
+      AtomicOperation atomicOperation, AbstractStorage storage) {
+    for (var operation : operations) {
       operation.execute(atomicOperation, storage);
     }
   }

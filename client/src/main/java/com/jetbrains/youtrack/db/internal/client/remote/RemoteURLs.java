@@ -2,19 +2,18 @@ package com.jetbrains.youtrack.db.internal.client.remote;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CONNECTION_FETCH_HOST_LIST;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.CONNECTION_STRATEGY;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Hashtable;
 import java.util.List;
+import javax.annotation.Nullable;
 import javax.naming.NamingException;
-import javax.naming.directory.Attribute;
-import javax.naming.directory.Attributes;
 import javax.naming.directory.DirContext;
 import javax.naming.directory.InitialDirContext;
 
@@ -28,7 +27,7 @@ public class RemoteURLs {
   private int nextServerToConnect;
 
   public RemoteURLs(String[] hosts, ContextConfiguration config) {
-    for (String host : hosts) {
+    for (var host : hosts) {
       addHost(host, config);
     }
     this.initialServerURLs = new ArrayList<String>(serverURLs);
@@ -44,6 +43,7 @@ public class RemoteURLs {
     return Collections.unmodifiableList(serverURLs);
   }
 
+  @Nullable
   public synchronized String removeAndGet(String url) {
     remove(url);
     LogManager.instance().debug(this, "Updated server list: %s...", serverURLs);
@@ -59,7 +59,7 @@ public class RemoteURLs {
     if (toAdd.size() > 0) {
       serverURLs.clear();
       this.nextServerToConnect = 0;
-      for (String host : toAdd) {
+      for (var host : toAdd) {
         addHost(host, clientConfiguration);
       }
     }
@@ -107,7 +107,7 @@ public class RemoteURLs {
 
   private static List<String> parseAddressesFromUrl(String url) {
     List<String> addresses = new ArrayList<>();
-    int dbPos = url.indexOf('/');
+    var dbPos = url.indexOf('/');
     if (dbPos == -1) {
       // SHORT FORM
       addresses.add(url);
@@ -120,7 +120,7 @@ public class RemoteURLs {
 
   public synchronized String parseServerUrls(
       String url, ContextConfiguration contextConfiguration) {
-    int dbPos = url.indexOf('/');
+    var dbPos = url.indexOf('/');
     String name;
     if (dbPos == -1) {
       // SHORT FORM
@@ -129,8 +129,8 @@ public class RemoteURLs {
       name = url.substring(url.lastIndexOf('/') + 1);
     }
     String lastHost = null;
-    List<String> hosts = parseAddressesFromUrl(url);
-    for (String host : hosts) {
+    var hosts = parseAddressesFromUrl(url);
+    for (var host : hosts) {
       lastHost = host;
       addHost(host, contextConfiguration);
     }
@@ -138,7 +138,7 @@ public class RemoteURLs {
     if (serverURLs.size() == 1
         && contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.NETWORK_BINARY_DNS_LOADBALANCING_ENABLED)) {
-      List<String> toAdd = fetchHostsFromDns(lastHost, contextConfiguration);
+      var toAdd = fetchHostsFromDns(lastHost, contextConfiguration);
       serverURLs.addAll(toAdd);
     }
     this.initialServerURLs = new ArrayList<String>(serverURLs);
@@ -162,7 +162,7 @@ public class RemoteURLs {
 
     List<String> toAdd = new ArrayList<>();
     try {
-      final Hashtable<String, String> env = new Hashtable<String, String>();
+      final var env = new Hashtable<String, String>();
       env.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory");
       env.put(
           "com.sun.jndi.ldap.connect.timeout",
@@ -170,21 +170,21 @@ public class RemoteURLs {
               GlobalConfiguration.NETWORK_BINARY_DNS_LOADBALANCING_TIMEOUT));
 
       final DirContext ictx = new InitialDirContext(env);
-      final String hostName =
+      final var hostName =
           !primaryServer.contains(":")
               ? primaryServer
               : primaryServer.substring(0, primaryServer.indexOf(':'));
-      final Attributes attrs = ictx.getAttributes(hostName, new String[]{"TXT"});
-      final Attribute attr = attrs.get("TXT");
+      final var attrs = ictx.getAttributes(hostName, new String[]{"TXT"});
+      final var attr = attrs.get("TXT");
       if (attr != null) {
-        for (int i = 0; i < attr.size(); ++i) {
-          String configuration = (String) attr.get(i);
+        for (var i = 0; i < attr.size(); ++i) {
+          var configuration = (String) attr.get(i);
           if (configuration.startsWith("\"")) {
             configuration = configuration.substring(1, configuration.length() - 1);
           }
           if (configuration != null) {
-            final String[] parts = configuration.split(" ");
-            for (String part : parts) {
+            final var parts = configuration.split(" ");
+            for (var part : parts) {
               if (part.startsWith("s=")) {
                 toAdd.add(part.substring("s=".length()));
               }
@@ -202,7 +202,7 @@ public class RemoteURLs {
     if (serverURLs.isEmpty()) {
       reloadOriginalURLs();
       if (serverURLs.isEmpty()) {
-        throw new StorageException(
+        throw new StorageException(null,
             "Cannot create a connection to remote server because url list is empty");
       }
     }
@@ -214,7 +214,7 @@ public class RemoteURLs {
       this.nextServerToConnect = 0;
     }
 
-    final String serverURL = serverURLs.get(this.nextServerToConnect);
+    final var serverURL = serverURLs.get(this.nextServerToConnect);
     if (session != null) {
       session.serverURLIndex = this.nextServerToConnect;
       session.currentUrl = serverURL;
@@ -233,7 +233,7 @@ public class RemoteURLs {
     if (serverURLs.isEmpty()) {
       reloadOriginalURLs();
       if (serverURLs.isEmpty()) {
-        throw new StorageException(
+        throw new StorageException(null,
             "Cannot create a connection to remote server because url list is empty");
       }
     }
@@ -256,7 +256,7 @@ public class RemoteURLs {
       serverURLIndex = 0;
     }
 
-    final String serverURL = serverURLs.get(serverURLIndex);
+    final var serverURL = serverURLs.get(serverURLIndex);
 
     if (session != null) {
       session.serverURLIndex = serverURLIndex;
@@ -319,14 +319,14 @@ public class RemoteURLs {
   public synchronized void updateDistributedNodes(
       List<String> hosts, ContextConfiguration clientConfiguration) {
     if (!clientConfiguration.getValueAsBoolean(CLIENT_CONNECTION_FETCH_HOST_LIST)) {
-      List<String> definedHosts = initialServerURLs;
-      for (String host : definedHosts) {
+      var definedHosts = initialServerURLs;
+      for (var host : definedHosts) {
         addHost(host, clientConfiguration);
       }
       return;
     }
     // UPDATE IT
-    for (String host : hosts) {
+    for (var host : hosts) {
       addHost(host, clientConfiguration);
     }
   }

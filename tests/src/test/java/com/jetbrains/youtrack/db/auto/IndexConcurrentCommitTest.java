@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -12,68 +12,68 @@ import org.testng.annotations.Test;
 public class IndexConcurrentCommitTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public IndexConcurrentCommitTest(boolean remote) {
-    super(remote);
+  public IndexConcurrentCommitTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   public void testConcurrentUpdate() {
-    SchemaClass personClass = database.getMetadata().getSchema().createClass("Person");
-    personClass.createProperty(database, "ssn", PropertyType.STRING)
-        .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE);
-    personClass.createProperty(database, "name", PropertyType.STRING)
-        .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var personClass = session.getMetadata().getSchema().createClass("Person");
+    personClass.createProperty("ssn", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    personClass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     try {
       // Transaction 1
-      database.begin();
+      session.begin();
 
       // Insert two people in a transaction
-      EntityImpl person1 = new EntityImpl("Person");
-      person1.field("name", "John Doe");
-      person1.field("ssn", "111-11-1111");
-      person1.save();
+      var person1 = ((EntityImpl) session.newEntity("Person"));
+      person1.setProperty("name", "John Doe");
+      person1.setProperty("ssn", "111-11-1111");
 
-      EntityImpl person2 = new EntityImpl("Person");
-      person2.field("name", "Jane Doe");
-      person2.field("ssn", "222-22-2222");
-      person2.save();
+      var person2 = ((EntityImpl) session.newEntity("Person"));
+      person2.setProperty("name", "Jane Doe");
+      person2.setProperty("ssn", "222-22-2222");
 
       // Commit
-      database.commit();
+      session.commit();
 
       // Ensure that the people made it in correctly
-      final ResultSet result1 = database.query("select from Person");
+      final var result1 = session.query("select from Person");
       while (result1.hasNext()) {
         System.out.println(result1.next());
       }
 
       // Transaction 2
-      database.begin();
+      session.begin();
+      person1 = session.load(person1.getIdentity());
+      person2 = session.load(person2.getIdentity());
 
       // Update the ssn for the second person
-      person2.field("ssn", "111-11-1111");
-      person2.save();
+      person2.setProperty("ssn", "111-11-1111");
 
       // Update the ssn for the first person
-      person1.field("ssn", "222-22-2222");
-      person1.save();
+      person1.setProperty("ssn", "222-22-2222");
 
       System.out.println("To be committed:");
       System.out.println(person1);
       System.out.println(person2);
       // Commit - We get a transaction failure!
-      database.commit();
+      session.commit();
 
       System.out.println("Success!");
     } catch (IndexException e) {
       System.out.println("Exception: " + e);
-      database.rollback();
+      session.rollback();
     }
 
-    final ResultSet result2 = database.command("select from Person");
+    session.begin();
+    final var result2 = session.execute("select from Person");
     System.out.println("After transaction 2");
     while (result2.hasNext()) {
       System.out.println(result2.next());
     }
+    session.commit();
   }
 }

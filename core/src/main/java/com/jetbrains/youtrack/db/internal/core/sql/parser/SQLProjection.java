@@ -2,14 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -17,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLProjection extends SimpleNode {
 
@@ -55,13 +54,13 @@ public class SQLProjection extends SimpleNode {
     if (items == null) {
       return;
     }
-    boolean first = true;
+    var first = true;
 
     if (distinct) {
       builder.append("DISTINCT ");
     }
     // print * before
-    for (SQLProjectionItem item : items) {
+    for (var item : items) {
       if (item.isAll()) {
         if (!first) {
           builder.append(", ");
@@ -73,7 +72,7 @@ public class SQLProjection extends SimpleNode {
     }
 
     // and then the rest of the projections
-    for (SQLProjectionItem item : items) {
+    for (var item : items) {
       if (!item.isAll()) {
         if (!first) {
           builder.append(", ");
@@ -90,13 +89,13 @@ public class SQLProjection extends SimpleNode {
     if (items == null) {
       return;
     }
-    boolean first = true;
+    var first = true;
 
     if (distinct) {
       builder.append("DISTINCT ");
     }
     // print * before
-    for (SQLProjectionItem item : items) {
+    for (var item : items) {
       if (item.isAll()) {
         if (!first) {
           builder.append(", ");
@@ -108,7 +107,7 @@ public class SQLProjection extends SimpleNode {
     }
 
     // and then the rest of the projections
-    for (SQLProjectionItem item : items) {
+    for (var item : items) {
       if (!item.isAll()) {
         if (!first) {
           builder.append(", ");
@@ -120,44 +119,69 @@ public class SQLProjection extends SimpleNode {
     }
   }
 
-  public Result calculateSingle(CommandContext iContext, Result iRecord) {
-    initExcludes(iContext);
+  public Result calculateSingle(CommandContext iContext, Result inResult) {
+    initExcludes();
     if (isExpand()) {
       throw new IllegalStateException(
           "This is an expand projection, it cannot be calculated as a single result" + this);
     }
 
     if (items.isEmpty()
-        || (items.size() == 1 && items.get(0).isAll()) && items.get(0).nestedProjection == null) {
-      return iRecord;
+        || (items.size() == 1 && items.getFirst().isAll()) && items.getFirst().nestedProjection == null) {
+      return inResult;
     }
 
-    ResultInternal result = new ResultInternal(iContext.getDatabase());
-    for (SQLProjectionItem item : items) {
+    var session = iContext.getDatabaseSession();
+    if (items.size() == 1) {
+      var item = items.getFirst();
+
+      if (!item.exclude && excludes.isEmpty()) {
+        var executionResult = item.execute(inResult, iContext);
+        var projectionAlias = item.getAlias();
+
+        if (executionResult instanceof Result projectionResult && projectionAlias == null) {
+          if (projectionResult.isEntity()) {
+            var entity = projectionResult.asEntity();
+            if (entity.isEmbedded()) {
+              var result = new ResultInternal(session);
+              for (var propertyName : entity.getPropertyNames()) {
+                result.setProperty(propertyName, entity.getProperty(propertyName));
+              }
+            }
+
+            return entity;
+          }
+
+          return projectionResult;
+        }
+
+        var result = new ResultInternal(session);
+        result.setProperty(item.getProjectionAliasAsString(), executionResult);
+        return result;
+      }
+    }
+
+    var result = new ResultInternal(session);
+    for (var item : items) {
       if (item.exclude) {
         continue;
       }
       if (item.isAll()) {
-        iRecord
-            .getEntity()
-            .ifPresent(
-                (e) -> {
-                  if (e.getRecord() instanceof EntityImpl) {
-                    ((EntityImpl) e.getRecord()).deserializeFields();
-                  }
-                });
-        for (String alias : iRecord.getPropertyNames()) {
+        if (inResult.isEntity()) {
+          ((EntityImpl) inResult.asEntity()).deserializeProperties();
+        }
+        for (var alias : inResult.getPropertyNames()) {
           if (this.excludes.contains(alias)) {
             continue;
           }
-          Object val = SQLProjectionItem.convert(iRecord.getProperty(alias), iContext);
+          var val = SQLProjectionItem.convert(inResult.getProperty(alias), iContext);
           if (item.nestedProjection != null) {
             val = item.nestedProjection.apply(item.expression, val, iContext);
           }
           result.setProperty(alias, val);
         }
-        if (iRecord.getEntity().isPresent()) {
-          Entity x = iRecord.getEntity().get();
+        if (inResult.isEntity()) {
+          var x = (EntityImpl) inResult.asEntity();
           if (!this.excludes.contains("@rid")) {
             result.setProperty("@rid", x.getIdentity());
           }
@@ -165,27 +189,32 @@ public class SQLProjection extends SimpleNode {
             result.setProperty("@version", x.getVersion());
           }
           if (!this.excludes.contains("@class")) {
-            result.setProperty(
-                "@class", x.getSchemaType().map(clazz -> clazz.getName()).orElse(null));
+            var clazz = x.getImmutableSchemaClass(session);
+            if (clazz != null) {
+              result.setProperty("@class", clazz.getName());
+            }
           }
         }
       } else {
-        result.setProperty(item.getProjectionAliasAsString(), item.execute(iRecord, iContext));
+        result.setProperty(item.getProjectionAliasAsString(), item.execute(inResult, iContext));
+      }
+
+      if (inResult instanceof ResultInternal resultInternal) {
+        for (var key : resultInternal.getMetadataKeys()) {
+          if (!result.getMetadataKeys().contains(key)) {
+            result.setMetadata(key, resultInternal.getMetadata(key));
+          }
+        }
       }
     }
 
-    for (String key : iRecord.getMetadataKeys()) {
-      if (!result.getMetadataKeys().contains(key)) {
-        result.setMetadata(key, iRecord.getMetadata(key));
-      }
-    }
     return result;
   }
 
-  private void initExcludes(CommandContext iContext) {
+  private void initExcludes() {
     if (excludes == null) {
-      this.excludes = new HashSet<String>();
-      for (SQLProjectionItem item : items) {
+      this.excludes = new HashSet<>();
+      for (var item : items) {
         if (item.exclude) {
           this.excludes.add(item.getProjectionAliasAsString());
         }
@@ -193,20 +222,25 @@ public class SQLProjection extends SimpleNode {
     }
   }
 
-  public LegacyResultSet calculateExpand(CommandContext iContext, Result iRecord) {
-    if (!isExpand()) {
-      throw new IllegalStateException("This is not an expand projection:" + this);
+  public boolean isExpand() {
+    final var isExpand = items != null && items.stream().anyMatch(SQLProjectionItem::isExpand);
+    if (isExpand && items.size() > 1) {
+      throw new CommandSQLParsingException(
+          "Cannot execute a query with expand() together with other projections");
     }
-    throw new UnsupportedOperationException("Implement expand in projection");
+
+    return isExpand;
   }
 
-  public boolean isExpand() {
-    return items != null && items.size() == 1 && items.get(0).isExpand();
+  @Nullable
+  public String getExpandAlias() {
+    final var alias = isExpand() ? items.getFirst().getAlias() : null;
+    return alias == null ? null : alias.getStringValue();
   }
 
   public void validate() {
     if (items != null && items.size() > 1) {
-      for (SQLProjectionItem item : items) {
+      for (var item : items) {
         if (item.isExpand()) {
           throw new CommandSQLParsingException(
               "Cannot execute a query with expand() together with other projections");
@@ -216,20 +250,20 @@ public class SQLProjection extends SimpleNode {
   }
 
   public SQLProjection getExpandContent() {
-    SQLProjection result = new SQLProjection(-1);
+    var result = new SQLProjection(-1);
     result.items = new ArrayList<>();
-    result.items.add(this.items.get(0).getExpandContent());
+    result.items.add(this.items.getFirst().getExpandContent());
     return result;
   }
 
   public Set<String> getAllAliases() {
-    return items.stream().map(i -> i.getProjectionAliasAsString()).collect(Collectors.toSet());
+    return items.stream().map(SQLProjectionItem::getProjectionAliasAsString).collect(Collectors.toSet());
   }
 
   public SQLProjection copy() {
-    SQLProjection result = new SQLProjection(-1);
+    var result = new SQLProjection(-1);
     if (items != null) {
-      result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+      result.items = items.stream().map(SQLProjectionItem::copy).collect(Collectors.toList());
     }
     result.distinct = distinct;
     return result;
@@ -244,7 +278,7 @@ public class SQLProjection extends SimpleNode {
       return false;
     }
 
-    SQLProjection that = (SQLProjection) o;
+    var that = (SQLProjection) o;
 
     return Objects.equals(items, that.items);
   }
@@ -264,14 +298,14 @@ public class SQLProjection extends SimpleNode {
 
   public void extractSubQueries(SubQueryCollector collector) {
     if (items != null) {
-      for (SQLProjectionItem item : items) {
+      for (var item : items) {
         item.extractSubQueries(collector);
       }
     }
   }
 
   public boolean refersToParent() {
-    for (SQLProjectionItem item : items) {
+    for (var item : items) {
       if (item.refersToParent()) {
         return true;
       }
@@ -280,7 +314,7 @@ public class SQLProjection extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("distinct", distinct);
     if (items != null) {
       result.setProperty(
@@ -296,8 +330,8 @@ public class SQLProjection extends SimpleNode {
       items = new ArrayList<>();
 
       List<Result> ser = fromResult.getProperty("items");
-      for (Result x : ser) {
-        SQLProjectionItem item = new SQLProjectionItem(-1);
+      for (var x : ser) {
+        var item = new SQLProjectionItem(-1);
         item.deserialize(x);
         items.add(item);
       }
@@ -306,7 +340,7 @@ public class SQLProjection extends SimpleNode {
 
   public boolean isCacheable(DatabaseSessionInternal session) {
     if (items != null) {
-      for (SQLProjectionItem item : items) {
+      for (var item : items) {
         if (!item.isCacheable(session)) {
           return false;
         }

@@ -24,16 +24,12 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ClassTrigger;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
@@ -46,6 +42,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SchemaImmutableClass implements SchemaClassInternal {
 
@@ -69,13 +67,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final Map<String, SchemaPropertyInternal> properties;
   private Map<String, SchemaProperty> allPropertiesMap;
   private Collection<SchemaProperty> allProperties;
-  private final ClusterSelectionStrategy clusterSelection;
-  private final int[] clusterIds;
-  private final int[] polymorphicClusterIds;
+  private final CollectionSelectionStrategy collectionSelection;
+  private final int[] collectionIds;
+  private final int[] polymorphicCollectionIds;
   private final Collection<String> baseClassesNames;
   private final List<String> superClassesNames;
 
-  private final String shortName;
   private final Map<String, String> customFields;
   private final String description;
 
@@ -84,69 +81,72 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final List<SchemaImmutableClass> superClasses;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
   private Collection<SchemaImmutableClass> subclasses;
-  private boolean restricted;
   private boolean isVertexType;
   private boolean isEdgeType;
-  private boolean triggered;
   private boolean function;
   private boolean scheduler;
   private boolean sequence;
-  private boolean ouser;
-  private boolean orole;
+  private boolean user;
+  private boolean role;
   private boolean securityPolicy;
   private HashSet<Index> indexes;
 
-  public SchemaImmutableClass(DatabaseSessionInternal session, final SchemaClassInternal oClass,
+  @Nonnull
+  private final SchemaClassImpl original;
+
+
+  public SchemaImmutableClass(@Nonnull DatabaseSessionInternal session,
+      @Nonnull final SchemaClassImpl oClass,
       final ImmutableSchema schema) {
-    isAbstract = oClass.isAbstract();
-    strictMode = oClass.isStrictMode();
+
+    isAbstract = oClass.isAbstract(session);
+    strictMode = oClass.isStrictMode(session);
     this.schema = schema;
 
-    superClassesNames = oClass.getSuperClassesNames();
+    superClassesNames = oClass.getSuperClassesNames(session);
     superClasses = new ArrayList<>(superClassesNames.size());
 
-    name = oClass.getName();
-    streamAbleName = oClass.getStreamableName();
-    clusterSelection = oClass.getClusterSelection();
-    clusterIds = oClass.getClusterIds();
-    polymorphicClusterIds = oClass.getPolymorphicClusterIds();
+    name = oClass.getName(session);
+    streamAbleName = oClass.getStreamableName(session);
+    collectionSelection = oClass.getCollectionSelection(session);
+    collectionIds = oClass.getCollectionIds(session);
+    polymorphicCollectionIds = oClass.getPolymorphicCollectionIds(session);
 
-    baseClassesNames = new ArrayList<String>();
-    for (SchemaClass baseClass : oClass.getSubclasses(session)) {
-      baseClassesNames.add(baseClass.getName());
+    baseClassesNames = new ArrayList<>();
+    for (var baseClass : oClass.getSubclasses(session)) {
+      baseClassesNames.add(baseClass.getName(session));
     }
-
-    shortName = oClass.getShortName();
 
     properties = new HashMap<>();
-    for (SchemaProperty p : oClass.declaredProperties()) {
-      properties.put(p.getName(),
-          new ImmutableSchemaProperty(session, (SchemaPropertyInternal) p, this));
+    for (var p : oClass.declaredProperties(session)) {
+      properties.put(p.getName(session),
+          new ImmutableSchemaProperty(session, p, this));
     }
 
-    Map<String, String> customFields = new HashMap<String, String>();
-    for (String key : oClass.getCustomKeys()) {
-      customFields.put(key, oClass.getCustom(key));
+    Map<String, String> customFields = new HashMap<>();
+    for (var key : oClass.getCustomKeys(session)) {
+      customFields.put(key, oClass.getCustom(session, key));
     }
 
     this.customFields = Collections.unmodifiableMap(customFields);
-    this.description = oClass.getDescription();
+    this.description = oClass.getDescription(session);
+
+    this.original = oClass;
   }
 
-  public void init(DatabaseSession session) {
+  public void init(DatabaseSessionInternal session) {
     if (!inited) {
-      initSuperClasses((DatabaseSessionInternal) session);
-      initBaseClasses();
+      initSuperClasses(session);
 
-      final Collection<SchemaProperty> allProperties = new ArrayList<SchemaProperty>();
-      final Map<String, SchemaProperty> allPropsMap = new HashMap<String, SchemaProperty>(20);
-      for (int i = superClasses.size() - 1; i >= 0; i--) {
+      final Collection<SchemaProperty> allProperties = new ArrayList<>();
+      final Map<String, SchemaProperty> allPropsMap = new HashMap<>(20);
+      for (var i = superClasses.size() - 1; i >= 0; i--) {
         allProperties.addAll(superClasses.get(i).allProperties);
         allPropsMap.putAll(superClasses.get(i).allPropertiesMap);
       }
       allProperties.addAll(properties.values());
       for (SchemaProperty p : properties.values()) {
-        final String propName = p.getName();
+        final var propName = p.getName();
 
         if (!allPropsMap.containsKey(propName)) {
           allPropsMap.put(propName, p);
@@ -155,16 +155,14 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
       this.allProperties = Collections.unmodifiableCollection(allProperties);
       this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
-      this.restricted = isSubClassOf(session, SecurityShared.RESTRICTED_CLASSNAME);
-      this.isVertexType = isSubClassOf(session, SchemaClass.VERTEX_CLASS_NAME);
-      this.isEdgeType = isSubClassOf(session, SchemaClass.EDGE_CLASS_NAME);
-      this.triggered = isSubClassOf(session, ClassTrigger.CLASSNAME);
-      this.function = isSubClassOf(session, FunctionLibraryImpl.CLASSNAME);
-      this.scheduler = isSubClassOf(session, ScheduledEvent.CLASS_NAME);
-      this.sequence = isSubClassOf(session, DBSequence.CLASS_NAME);
-      this.ouser = isSubClassOf(session, SecurityUserIml.CLASS_NAME);
-      this.orole = isSubClassOf(session, Role.CLASS_NAME);
-      this.securityPolicy = SecurityPolicy.class.getSimpleName().equals(this.name);
+      this.isVertexType = isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
+      this.isEdgeType = isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
+      this.function = isSubClassOf(FunctionLibraryImpl.CLASSNAME);
+      this.scheduler = isSubClassOf(ScheduledEvent.CLASS_NAME);
+      this.sequence = isSubClassOf(DBSequence.CLASS_NAME);
+      this.user = isSubClassOf(SecurityUserImpl.CLASS_NAME);
+      this.role = isSubClassOf(Role.CLASS_NAME);
+      this.securityPolicy = isSubClassOf(SecurityPolicy.CLASS_NAME);
       this.indexes = new HashSet<>();
       getRawIndexes(session, indexes);
     }
@@ -182,7 +180,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setAbstract(DatabaseSession session, boolean iAbstract) {
+  public SchemaClass setAbstract(boolean iAbstract) {
     throw new UnsupportedOperationException();
   }
 
@@ -192,26 +190,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setStrictMode(DatabaseSession session, boolean iMode) {
+  public void setStrictMode(boolean iMode) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  @Deprecated
-  public SchemaClass getSuperClass(DatabaseSession session) {
-    initSuperClasses((DatabaseSessionInternal) session);
-
-    return superClasses.isEmpty() ? null : superClasses.get(0);
-  }
-
-  @Override
-  @Deprecated
-  public SchemaClass setSuperClass(DatabaseSession session, SchemaClass iSuperClass) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public List<SchemaClass> getSuperClasses(DatabaseSession session) {
+  public List<SchemaClass> getSuperClasses() {
     return Collections.unmodifiableList(superClasses);
   }
 
@@ -226,17 +210,17 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setSuperClasses(DatabaseSession session, List<? extends SchemaClass> classes) {
+  public SchemaClass setSuperClasses(List<? extends SchemaClass> classes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaClass addSuperClass(DatabaseSession session, SchemaClass superClass) {
+  public SchemaClass addSuperClass(SchemaClass superClass) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeSuperClass(DatabaseSession session, SchemaClass superClass) {
+  public void removeSuperClass(SchemaClass superClass) {
     throw new UnsupportedOperationException();
   }
 
@@ -246,7 +230,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setName(DatabaseSession session, String iName) {
+  public SchemaClass setName(String iName) {
     throw new UnsupportedOperationException();
   }
 
@@ -256,69 +240,48 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Collection<SchemaProperty> declaredProperties() {
+  public Collection<SchemaProperty> getDeclaredProperties() {
     return Collections.unmodifiableCollection(properties.values());
   }
 
   @Override
-  public Collection<SchemaProperty> properties(DatabaseSession session) {
+  public Collection<SchemaProperty> getProperties() {
     return allProperties;
   }
 
   @Override
-  public Map<String, SchemaProperty> propertiesMap(DatabaseSession session) {
+  public Map<String, SchemaProperty> getPropertiesMap() {
     return allPropertiesMap;
   }
 
-  public void getIndexedProperties(DatabaseSessionInternal session,
-      Collection<SchemaProperty> indexedProperties) {
-    for (SchemaProperty p : properties.values()) {
-      if (areIndexed(session, p.getName())) {
-        indexedProperties.add(p);
-      }
-    }
-    initSuperClasses(session);
-    for (SchemaImmutableClass superClass : superClasses) {
-      superClass.getIndexedProperties(session, indexedProperties);
-    }
+  @Override
+  public SchemaProperty getProperty(String propertyName) {
+    return getPropertyInternal(propertyName);
   }
 
   @Override
-  public Collection<SchemaProperty> getIndexedProperties(DatabaseSession session) {
-    Collection<SchemaProperty> indexedProps = new HashSet<SchemaProperty>();
-    getIndexedProperties((DatabaseSessionInternal) session, indexedProps);
-    return indexedProps;
-  }
-
-  @Override
-  public SchemaProperty getProperty(DatabaseSession session, String propertyName) {
-    return getPropertyInternal(session, propertyName);
-  }
-
-  @Override
-  public SchemaPropertyInternal getPropertyInternal(DatabaseSession session, String propertyName) {
-    initSuperClasses((DatabaseSessionInternal) session);
-
+  public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     var p = properties.get(propertyName);
+
     if (p != null) {
       return p;
     }
 
-    for (int i = 0; i < superClasses.size() && p == null; i++) {
-      p = superClasses.get(i).getPropertyInternal(session, propertyName);
+    for (var i = 0; i < superClasses.size() && p == null; i++) {
+      p = superClasses.get(i).getPropertyInternal(propertyName);
     }
 
     return p;
   }
 
   @Override
-  public SchemaProperty createProperty(DatabaseSession session, String iPropertyName,
+  public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaProperty createProperty(DatabaseSession session, String iPropertyName,
+  public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType,
       SchemaClass iLinkedClass) {
     throw new UnsupportedOperationException();
@@ -326,82 +289,53 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
 
   @Override
-  public SchemaProperty createProperty(DatabaseSession session, String iPropertyName,
+  public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType,
       PropertyType iLinkedType) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void dropProperty(DatabaseSession session, String iPropertyName) {
+  public void dropProperty(String iPropertyName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean existsProperty(DatabaseSession session, String propertyName) {
-    boolean result = properties.containsKey(propertyName);
+  public boolean existsProperty(String propertyName) {
+    var result = properties.containsKey(propertyName);
     if (result) {
       return true;
     }
-    for (SchemaImmutableClass superClass : superClasses) {
-      result = superClass.existsProperty(session, propertyName);
+    for (var superClass : superClasses) {
+      result = superClass.existsProperty(propertyName);
+
       if (result) {
         return true;
       }
     }
+
     return false;
   }
 
   @Override
-  public int getClusterForNewInstance(final EntityImpl entity) {
-    return clusterSelection.getCluster(this, entity);
+  public int getCollectionForNewInstance(final EntityImpl entity) {
+    return collectionSelection.getCollection(entity.getBoundedToSession(), this, entity);
   }
 
 
   @Override
-  public int[] getClusterIds() {
-    return clusterIds;
+  public int[] getCollectionIds() {
+    return collectionIds;
+  }
+
+
+  public CollectionSelectionStrategy getCollectionSelection() {
+    return collectionSelection;
   }
 
   @Override
-  public SchemaClass addClusterId(DatabaseSession session, int iId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public ClusterSelectionStrategy getClusterSelection() {
-    return clusterSelection;
-  }
-
-
-  @Override
-  public SchemaClass setClusterSelection(DatabaseSession session, String iStrategyName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaClass setClusterSelection(DatabaseSession session,
-      ClusterSelectionStrategy clusterSelection) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaClass addCluster(DatabaseSession session, String iClusterName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaClass truncateCluster(DatabaseSession session, String clusterName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaClass removeClusterId(DatabaseSession session, int iId) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int[] getPolymorphicClusterIds() {
-    return Arrays.copyOf(polymorphicClusterIds, polymorphicClusterIds.length);
+  public int[] getPolymorphicCollectionIds() {
+    return Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length);
   }
 
   public ImmutableSchema getSchema() {
@@ -409,83 +343,78 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Collection<SchemaClass> getSubclasses(DatabaseSession session) {
+  public Collection<SchemaClass> getSubclasses() {
     initBaseClasses();
-
-    ArrayList<SchemaClass> result = new ArrayList<SchemaClass>();
-    for (SchemaClass c : subclasses) {
-      result.add(c);
-    }
-
-    return result;
+    return new ArrayList<>(subclasses);
   }
 
   @Override
-  public Collection<SchemaClass> getAllSubclasses(DatabaseSession session) {
+  public Collection<SchemaClass> getAllSubclasses() {
     initBaseClasses();
 
-    final Set<SchemaClass> set = new HashSet<SchemaClass>();
-    set.addAll(getSubclasses(session));
+    final Set<SchemaClass> set = new HashSet<>(getSubclasses());
 
-    for (SchemaImmutableClass c : subclasses) {
-      set.addAll(c.getAllSubclasses(session));
+    for (var c : subclasses) {
+      set.addAll(c.getAllSubclasses());
     }
 
     return set;
   }
 
   @Override
-  public Collection<SchemaClass> getAllSuperClasses(DatabaseSession session) {
-    Set<SchemaClass> ret = new HashSet<SchemaClass>();
+  public Collection<SchemaClass> getAllSuperClasses() {
+    Set<SchemaClass> ret = new HashSet<>();
     getAllSuperClasses(ret);
     return ret;
   }
 
   private void getAllSuperClasses(Set<SchemaClass> set) {
     set.addAll(superClasses);
-    for (SchemaImmutableClass superClass : superClasses) {
+    for (var superClass : superClasses) {
       superClass.getAllSuperClasses(set);
     }
   }
 
 
-  public long count(DatabaseSession session) {
+  public long count(DatabaseSessionInternal session) {
     return count(session, true);
   }
 
-  public long count(DatabaseSession session, boolean isPolymorphic) {
-    return getDatabase().countClass(name, isPolymorphic);
+  public long count(DatabaseSessionInternal session, boolean isPolymorphic) {
+    assert session.assertIfNotActive();
+    return session.countClass(name, isPolymorphic);
   }
 
-  public long countImpl(boolean isPolymorphic) {
+  public long countImpl(boolean isPolymorphic, DatabaseSessionInternal session) {
+    assert session.assertIfNotActive();
+
     if (isPolymorphic) {
-      return getDatabase()
-          .countClusterElements(
-              SchemaClassImpl.readableClusters(getDatabase(), polymorphicClusterIds, name));
+      return session
+          .countCollectionElements(
+              SchemaClassImpl.readableCollections(session, polymorphicCollectionIds, name));
     }
 
-    return getDatabase()
-        .countClusterElements(SchemaClassImpl.readableClusters(getDatabase(), clusterIds, name));
+    return session
+        .countCollectionElements(SchemaClassImpl.readableCollections(session, collectionIds, name));
   }
 
   @Override
-  public void truncate(DatabaseSession session) {
+  public void truncate() {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean isSubClassOf(DatabaseSession session, final String iClassName) {
+  public boolean isSubClassOf(final String iClassName) {
     if (iClassName == null) {
       return false;
     }
 
-    if (iClassName.equalsIgnoreCase(name) || iClassName.equalsIgnoreCase(shortName)) {
+    if (iClassName.equalsIgnoreCase(name)) {
       return true;
     }
 
-    final int s = superClasses.size();
-    for (int i = 0; i < s; ++i) {
-      if (superClasses.get(i).isSubClassOf(session, iClassName)) {
+    for (var superClass : superClasses) {
+      if (superClass.isSubClassOf(iClassName)) {
         return true;
       }
     }
@@ -494,7 +423,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean isSubClassOf(DatabaseSession session, final SchemaClass clazz) {
+  public boolean isSubClassOf(final SchemaClass clazz) {
     if (clazz == null) {
       return false;
     }
@@ -502,9 +431,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       return true;
     }
 
-    final int s = superClasses.size();
-    for (int i = 0; i < s; ++i) {
-      if (superClasses.get(i).isSubClassOf(session, clazz)) {
+    for (var superClass : superClasses) {
+      if (superClass.isSubClassOf(clazz)) {
         return true;
       }
     }
@@ -512,18 +440,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean isSuperClassOf(DatabaseSession session, SchemaClass clazz) {
-    return clazz != null && clazz.isSubClassOf(session, this);
-  }
-
-  @Override
-  public String getShortName() {
-    return shortName;
-  }
-
-  @Override
-  public SchemaClass setShortName(DatabaseSession session, String shortName) {
-    throw new UnsupportedOperationException();
+  public boolean isSuperClassOf(SchemaClass clazz) {
+    return clazz != null && clazz.isSubClassOf(this);
   }
 
   @Override
@@ -532,78 +450,67 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setDescription(DatabaseSession session, String iDescription) {
+  public SchemaClass setDescription(String iDescription) {
     throw new UnsupportedOperationException();
   }
 
 
-  public Object get(DatabaseSession session, ATTRIBUTES iAttribute) {
+  public Object get(ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
-    switch (iAttribute) {
-      case NAME:
-        return name;
-      case SHORTNAME:
-        return shortName;
-      case SUPERCLASS:
-        return getSuperClass(session);
-      case SUPERCLASSES:
-        return getSuperClasses(session);
-      case STRICT_MODE:
-        return strictMode;
-      case ABSTRACT:
-        return isAbstract;
-      case CLUSTER_SELECTION:
-        return clusterSelection;
-      case CUSTOM:
-        return customFields;
-      case DESCRIPTION:
-        return description;
-    }
+    return switch (iAttribute) {
+      case NAME -> name;
+      case SUPERCLASSES -> getSuperClasses();
+      case STRICT_MODE -> strictMode;
+      case ABSTRACT -> isAbstract;
+      case CUSTOM -> customFields;
+      case DESCRIPTION -> description;
+    };
 
-    throw new IllegalArgumentException("Cannot find attribute '" + iAttribute + "'");
   }
 
   @Override
-  public void createIndex(DatabaseSession session, String iName, INDEX_TYPE iType,
+  public void createIndex(String iName, INDEX_TYPE iType,
       String... fields) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void createIndex(DatabaseSession session, String iName, String iType,
+  public void createIndex(String iName, String iType,
       String... fields) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public void createIndex(
-      DatabaseSession session, String iName, INDEX_TYPE iType,
+      String iName, INDEX_TYPE iType,
       ProgressListener iProgressListener,
       String... fields) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSession session, Collection<String> fields) {
-    initSuperClasses((DatabaseSessionInternal) session);
+  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
+      Collection<String> fields) {
+    initSuperClasses(session);
 
     final Set<String> result = new HashSet<>(getClassInvolvedIndexes(session, fields));
 
-    for (SchemaImmutableClass superClass : superClasses) {
+    for (var superClass : superClasses) {
       result.addAll(superClass.getInvolvedIndexes(session, fields));
     }
     return result;
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSession session, Collection<String> fields) {
-    initSuperClasses((DatabaseSessionInternal) session);
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+      Collection<String> fields) {
+    initSuperClasses(session);
 
     final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, fields));
-    for (SchemaImmutableClass superClass : superClasses) {
+    for (var superClass : superClasses) {
       result.addAll(superClass.getInvolvedIndexesInternal(session, fields));
     }
 
@@ -611,51 +518,54 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSession session, String... fields) {
+  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
     return getInvolvedIndexes(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSession session, String... fields) {
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
     return getInvolvedIndexesInternal(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSession session, Collection<String> fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+      Collection<String> fields) {
     return getClassInvolvedIndexesInternal(session, fields).stream().map(Index::getName)
         .collect(HashSet::new, HashSet::add, HashSet::addAll);
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSession session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
       Collection<String> fields) {
-    final DatabaseSessionInternal database = getDatabase();
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-    return indexManager.getClassInvolvedIndexes(database, name, fields);
+    final var indexManager = session.getSharedContext().getIndexManager();
+    return indexManager.getClassInvolvedIndexes(session, name, fields);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSession session, String... fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+    assert session.assertIfNotActive();
     return getClassInvolvedIndexes(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSession session, String... fields) {
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+      String... fields) {
+    assert session.assertIfNotActive();
     return getClassInvolvedIndexesInternal(session, Arrays.asList(fields));
   }
 
   @Override
-  public boolean areIndexed(DatabaseSession session, Collection<String> fields) {
-    final DatabaseSessionInternal database = getDatabase();
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-    final boolean currentClassResult = indexManager.areIndexed(name, fields);
+  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
+    assert session.assertIfNotActive();
+    final var indexManager = session.getSharedContext().getIndexManager();
+    final var currentClassResult = indexManager.areIndexed(session, name, fields);
 
-    initSuperClasses((DatabaseSessionInternal) session);
+    initSuperClasses(session);
 
     if (currentClassResult) {
       return true;
     }
-    for (SchemaImmutableClass superClass : superClasses) {
+    for (var superClass : superClasses) {
       if (superClass.areIndexed(session, fields)) {
         return true;
       }
@@ -664,72 +574,71 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean areIndexed(DatabaseSession session, String... fields) {
+  public boolean areIndexed(DatabaseSessionInternal session, String... fields) {
+    assert session.assertIfNotActive();
     return areIndexed(session, Arrays.asList(fields));
   }
 
   @Override
-  public Set<String> getClassIndexes(DatabaseSession session) {
+  public Set<String> getClassIndexes() {
     return this.indexes.stream().map(Index::getName).collect(HashSet::new, HashSet::add,
         HashSet::addAll);
   }
 
   @Override
-  public String getClusterSelectionStrategyName() {
-    return clusterSelection.getName();
-  }
-
-  @Override
-  public SchemaProperty createProperty(DatabaseSession session, String iPropertyName,
-      PropertyType iType, PropertyType iLinkedType, boolean unsafe) {
+  public SchemaProperty createProperty(String iPropertyName,
+      PropertyTypeInternal iType, PropertyTypeInternal iLinkedType, boolean unsafe) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public SchemaProperty createProperty(DatabaseSession session, String iPropertyName,
-      PropertyType iType, SchemaClass iLinkedClass, boolean unsafe) {
+  public SchemaProperty createProperty(String iPropertyName,
+      PropertyTypeInternal iType, SchemaClass iLinkedClass, boolean unsafe) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void createIndex(DatabaseSession session, String iName, String iType,
-      ProgressListener iProgressListener, Map<String, ?> metadata, String algorithm,
+  public void createIndex(String iName, String iType,
+      ProgressListener iProgressListener, Map<String, Object> metadata, String algorithm,
       String... fields) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void createIndex(DatabaseSession session, String iName, String iType,
-      ProgressListener iProgressListener, Map<String, ?> metadata, String... fields) {
+  public void createIndex(String iName, String iType,
+      ProgressListener iProgressListener, Map<String, Object> metadata, String... fields) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Set<Index> getClassIndexesInternal(DatabaseSession session) {
+  public Set<Index> getClassIndexesInternal() {
     return this.indexes;
   }
 
   @Override
-  public Index getClassIndex(DatabaseSession session, String name) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    return database
-        .getMetadata()
-        .getIndexManagerInternal()
-        .getClassIndex(database, this.name, name);
+  public Index getClassIndex(DatabaseSessionInternal session, String name) {
+    assert session.assertIfNotActive();
+    return session
+        .getSharedContext()
+        .getIndexManager()
+        .getClassIndex(session, this.name, name);
   }
 
-  public void getClassIndexes(DatabaseSession session, final Collection<Index> indexes) {
-    final DatabaseSessionInternal database = getDatabase();
-    database.getMetadata().getIndexManagerInternal().getClassIndexes(database, name, indexes);
+  public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+    assert session.assertIfNotActive();
+    session.getSharedContext().getIndexManager()
+        .getClassIndexes(session, name, indexes);
   }
 
-  public void getRawClassIndexes(final Collection<Index> indexes) {
-    getDatabase().getMetadata().getIndexManagerInternal().getClassRawIndexes(name, indexes);
+  public void getRawClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+    assert session.assertIfNotActive();
+    session.getSharedContext().getIndexManager()
+        .getClassRawIndexes(session, name, indexes);
   }
 
   @Override
-  public void getIndexesInternal(DatabaseSession session, final Collection<Index> indexes) {
-    initSuperClasses((DatabaseSessionInternal) session);
+  public void getIndexesInternal(DatabaseSessionInternal session, final Collection<Index> indexes) {
+    initSuperClasses(session);
 
     getClassIndexes(session, indexes);
     for (SchemaClassInternal superClass : superClasses) {
@@ -737,55 +646,28 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
-  public void getRawIndexes(DatabaseSession session, final Collection<Index> indexes) {
-    initSuperClasses((DatabaseSessionInternal) session);
+  public void getRawIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+    initSuperClasses(session);
 
-    getRawClassIndexes(indexes);
-    for (SchemaImmutableClass superClass : superClasses) {
+    getRawClassIndexes(session, indexes);
+    for (var superClass : superClasses) {
       superClass.getRawIndexes(session, indexes);
     }
   }
 
   @Override
-  public Set<String> getIndexes(DatabaseSession session) {
+  public Set<String> getIndexes() {
     return this.indexes.stream().map(Index::getName).collect(HashSet::new, HashSet::add,
         HashSet::addAll);
   }
 
   @Override
-  public Set<Index> getIndexesInternal(DatabaseSession session) {
+  public Set<Index> getIndexesInternal() {
     return this.indexes;
   }
 
   public Set<Index> getRawIndexes() {
     return indexes;
-  }
-
-  @Override
-  public int hashCode() {
-    final int prime = 31;
-    int result = super.hashCode();
-    result = prime * result;
-    return result;
-  }
-
-  @Override
-  public boolean equals(final Object obj) {
-    if (this == obj) {
-      return true;
-    }
-    if (obj == null) {
-      return false;
-    }
-    if (!SchemaClass.class.isAssignableFrom(obj.getClass())) {
-      return false;
-    }
-    final SchemaClass other = (SchemaClass) obj;
-    if (name == null) {
-      return other.getName() == null;
-    } else {
-      return name.equals(other.getName());
-    }
   }
 
   @Override
@@ -799,17 +681,17 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setCustom(DatabaseSession session, String iName, String iValue) {
+  public SchemaClass setCustom(String iName, String iValue) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeCustom(DatabaseSession session, String iName) {
+  public void removeCustom(String iName) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void clearCustom(DatabaseSession session) {
+  public void clearCustom() {
     throw new UnsupportedOperationException();
   }
 
@@ -819,38 +701,26 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean hasClusterId(final int clusterId) {
-    return Arrays.binarySearch(clusterIds, clusterId) >= 0;
+  public boolean hasCollectionId(int collectionId) {
+    return Arrays.binarySearch(collectionIds, collectionId) >= 0;
   }
 
   @Override
-  public boolean hasPolymorphicClusterId(final int clusterId) {
-    return Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0;
+  public boolean hasPolymorphicCollectionId(final int collectionId) {
+    return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
   }
 
-  @Override
-  public int compareTo(final SchemaClass other) {
-    return name.compareTo(other.getName());
-  }
 
   @Override
-  public SchemaClass set(DatabaseSession session, ATTRIBUTES attribute, Object value) {
+  public SchemaClass set(ATTRIBUTES attribute, Object value) {
     throw new UnsupportedOperationException();
-  }
-
-  protected DatabaseSessionInternal getDatabase() {
-    return DatabaseRecordThreadLocal.instance().get();
-  }
-
-  private Map<String, String> getCustomInternal() {
-    return customFields;
   }
 
   private void initSuperClasses(DatabaseSessionInternal session) {
     if (superClassesNames != null && superClassesNames.size() != superClasses.size()) {
       superClasses.clear();
-      for (String superClassName : superClassesNames) {
-        SchemaImmutableClass superClass = (SchemaImmutableClass) schema.getClass(superClassName);
+      for (var superClassName : superClassesNames) {
+        var superClass = (SchemaImmutableClass) schema.getClass(superClassName);
         superClass.init(session);
         superClasses.add(superClass);
       }
@@ -859,9 +729,9 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   private void initBaseClasses() {
     if (subclasses == null) {
-      final List<SchemaImmutableClass> result = new ArrayList<SchemaImmutableClass>(
+      final List<SchemaImmutableClass> result = new ArrayList<>(
           baseClassesNames.size());
-      for (String clsName : baseClassesNames) {
+      for (var clsName : baseClassesNames) {
         result.add((SchemaImmutableClass) schema.getClass(clsName));
       }
 
@@ -869,23 +739,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
-  public boolean isRestricted() {
-    return restricted;
-  }
-
-  @Override
-  public boolean isEdgeType(
-      DatabaseSession unused) { // todo update interfaces to have immutable one without session?
+  public boolean isEdgeType() {
     return isEdgeType;
   }
 
-  @Override
-  public boolean isVertexType(DatabaseSession unused) {
+  public boolean isVertexType() {
     return isVertexType;
-  }
-
-  public boolean isTriggered() {
-    return triggered;
   }
 
   public boolean isFunction() {
@@ -896,15 +755,44 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return scheduler;
   }
 
-  public boolean isOuser() {
-    return ouser;
+  public boolean isUser() {
+    return user;
   }
 
-  public boolean isOrole() {
-    return orole;
+  public boolean isRole() {
+    return role;
   }
 
   public boolean isSequence() {
     return sequence;
+  }
+
+  @Override
+  public SchemaClassImpl getImplementation() {
+    return original;
+  }
+
+  @Override
+  public int hashCode() {
+    return name.hashCode();
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (obj == this) {
+      return true;
+    }
+
+    if (obj instanceof SchemaClassInternal schemaClass) {
+      return schemaClass.getBoundToSession() == null && name.equals(schemaClass.getName());
+    }
+
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return null;
   }
 }

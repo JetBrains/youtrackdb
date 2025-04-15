@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -29,18 +28,17 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.text.SocketChannelTextServer;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
 import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent;
 import com.jetbrains.youtrack.db.internal.server.monitoring.HttpRequestEvent.Error;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
@@ -53,7 +51,7 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.d
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.delete.ServerCommandDeleteIndex;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.delete.ServerCommandDeleteProperty;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetClass;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetCluster;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetCollection;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetConnect;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetConnections;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetDatabase;
@@ -114,6 +112,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
+import javax.annotation.Nullable;
 
 public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     implements ONetworkHttpExecutor {
@@ -125,8 +124,8 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
   private final StringBuilder requestContent = new StringBuilder(512);
   protected ClientConnection connection;
   protected SocketChannelTextServer channel;
-  protected SecurityUserIml account;
-  protected OHttpRequest request;
+  protected SecurityUserImpl account;
+  protected HttpRequest request;
   protected HttpResponse response;
   protected HttpNetworkCommandManager cmdManager;
   private String responseCharSet;
@@ -149,14 +148,14 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       throws IOException {
     configuration = iConfiguration;
 
-    final boolean installDefaultCommands =
+    final var installDefaultCommands =
         iConfiguration.getValueAsBoolean(
             GlobalConfiguration.NETWORK_HTTP_INSTALL_DEFAULT_COMMANDS);
     if (installDefaultCommands) {
       registerStatelessCommands(iListener);
     }
 
-    final String addHeaders =
+    final var addHeaders =
         iConfiguration.getValueAsString("network.http.additionalResponseHeaders", null);
     if (addHeaders != null) {
       additionalResponseHeaders = addHeaders.split(";");
@@ -230,7 +229,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       response.setStaticEncoding(HttpUtils.CONTENT_ACCEPT_GZIP_ENCODED);
     }
 
-    final long begin = System.currentTimeMillis();
+    final var begin = System.currentTimeMillis();
 
     boolean isChain;
     do {
@@ -242,15 +241,15 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
         command = request.getUrl().substring(1);
       }
 
-      final String commandString = getCommandString(command, request.getHttpMethod());
+      final var commandString = getCommandString(command, request.getHttpMethod());
 
-      final ServerCommand cmd = (ServerCommand) cmdManager.getCommand(commandString);
-      Map<String, String> requestParams = cmdManager.extractUrlTokens(commandString);
+      final var cmd = (ServerCommand) cmdManager.getCommand(commandString);
+      var requestParams = cmdManager.extractUrlTokens(commandString);
       if (requestParams != null) {
         if (request.getParameters() == null) {
           request.setParameters(new HashMap<String, String>());
         }
-        for (Map.Entry<String, String> entry : requestParams.entrySet()) {
+        for (var entry : requestParams.entrySet()) {
           request
               .getParameters()
               .put(entry.getKey(), URLDecoder.decode(entry.getValue(), StandardCharsets.UTF_8));
@@ -299,7 +298,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     connection.getStats().lastCommandInfo = connection.getData().commandInfo;
     connection.getStats().lastCommandDetail = connection.getData().commandDetail;
 
-    connection.getStats().activeQueries = getActiveQueries(connection.getDatabase());
+    connection.getStats().activeQueries = getActiveQueries(connection.getDatabaseSession());
 
     connection.getStats().lastCommandExecutionTime = System.currentTimeMillis() - begin;
     connection.getStats().totalCommandExecutionTime +=
@@ -309,18 +308,19 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     ServerPluginHelper.invokeHandlerCallbackOnAfterClientRequest(server, connection, (byte) -1);
   }
 
+  @Nullable
   private List<String> getActiveQueries(DatabaseSessionInternal database) {
     if (database == null) {
       return null;
     }
     try {
 
-      Map<String, QueryDatabaseState> queries = database.getActiveQueries();
+      var queries = database.getActiveQueries();
       return queries.values().stream()
           .map(x -> x.getResultSet().getExecutionPlan())
-          .filter(x -> (x.isPresent() && x.get() instanceof InternalExecutionPlan))
+          .filter(x -> (x instanceof InternalExecutionPlan))
           .map(InternalExecutionPlan.class::cast)
-          .map(x -> x.getStatement())
+          .map(InternalExecutionPlan::getStatement)
           .collect(Collectors.toList());
     } catch (Exception e) {
       e.printStackTrace();
@@ -356,7 +356,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     }
   }
 
-  public OHttpRequest getRequest() {
+  public HttpRequest getRequest() {
     return request;
   }
 
@@ -369,7 +369,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     return channel;
   }
 
-  public SecurityUserIml getAccount() {
+  public SecurityUserImpl getAccount() {
     return account;
   }
 
@@ -393,12 +393,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     return cmdManager;
   }
 
-  protected void handleError(Throwable e, OHttpRequest iRequest) {
+  protected void handleError(Throwable e, HttpRequest iRequest) {
     if (LogManager.instance().isDebugEnabled()) {
       LogManager.instance().debug(this, "Caught exception", e);
     }
 
-    int errorCode = 500;
+    var errorCode = 500;
     String errorReason = null;
     String errorMessage = null;
     String responseHeaders = null;
@@ -436,14 +436,14 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
             errorCode = HttpUtils.STATUS_AUTH_CODE;
             errorReason = HttpUtils.STATUS_AUTH_DESCRIPTION;
 
-            String xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
+            var xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
             if (xRequestedWithHeader == null || !xRequestedWithHeader.equals("XMLHttpRequest")) {
               // Defaults to "WWW-Authenticate: Basic" if not an AJAX Request.
               responseHeaders =
                   server
                       .getSecurity()
                       .getAuthenticationHeader(
-                          ((SecurityAccessException) cause).getDatabaseName());
+                          ((SecurityAccessException) cause).getDbName());
             }
             errorMessage = null;
           } else {
@@ -466,9 +466,9 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
     if (errorMessage == null) {
       // FORMAT GENERIC MESSAGE BY READING THE EXCEPTION STACK
-      final StringBuilder buffer = new StringBuilder(256);
+      final var buffer = new StringBuilder(256);
       buffer.append(e);
-      Throwable cause = e.getCause();
+      var cause = e.getCause();
       while (cause != null && cause != cause.getCause()) {
         buffer.append("\r\n--> ");
         buffer.append(cause);
@@ -507,7 +507,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       final String iContent,
       final boolean iKeepAlive)
       throws IOException {
-    final boolean empty = iContent == null || iContent.length() == 0;
+    final var empty = iContent == null || iContent.length() == 0;
 
     sendStatus(empty && iCode == 200 ? 204 : iCode, iReason);
     sendResponseHeaders(iContentType, iKeepAlive);
@@ -516,7 +516,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       writeLine(iHeaders);
     }
 
-    final byte[] binaryContent = empty ? null : iContent.getBytes(utf8);
+    final var binaryContent = empty ? null : iContent.getBytes(utf8);
 
     writeLine(HttpUtils.HEADER_CONTENT_LENGTH + (empty ? 0 : binaryContent.length));
 
@@ -550,27 +550,25 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       writeLine(iHeaders);
     }
 
-    EntityImpl response = new EntityImpl();
-    EntityImpl error = new EntityImpl();
+    var response = new HashMap<String, Object>();
+    var error = new HashMap<String, Object>();
 
-    error.field("code", iCode);
-    error.field("reason", iCode);
-    error.field("content", iContent);
+    error.put("code", iCode);
+    error.put("reason", iCode);
+    error.put("content", iContent);
 
-    List<EntityImpl> errors = new ArrayList<EntityImpl>();
+    List<Map<String, Object>> errors = new ArrayList<>();
     errors.add(error);
 
-    response.field("errors", errors);
+    response.put("errors", errors);
 
-    binaryContent = response.toJSON("prettyPrint").getBytes(utf8);
+    binaryContent = JSONSerializerJackson.mapToJson(response).getBytes(utf8);
 
     writeLine(
-        HttpUtils.HEADER_CONTENT_LENGTH + (binaryContent != null ? binaryContent.length : 0));
+        HttpUtils.HEADER_CONTENT_LENGTH + binaryContent.length);
     writeLine(null);
 
-    if (binaryContent != null) {
-      channel.writeBytes(binaryContent);
-    }
+    channel.writeBytes(binaryContent);
     channel.flush();
   }
 
@@ -594,21 +592,21 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     writeLine("Server: YouTrackDB");
     writeLine("Connection: " + (iKeepAlive ? "Keep-Alive" : "close"));
     if (getAdditionalResponseHeaders() != null) {
-      for (String h : getAdditionalResponseHeaders()) {
+      for (var h : getAdditionalResponseHeaders()) {
         writeLine(h);
       }
     }
   }
 
-  protected void readAllContent(final OHttpRequest iRequest) throws IOException {
+  protected void readAllContent(final HttpRequest iRequest) throws IOException {
     iRequest.setContent(null);
 
     int in;
     char currChar;
-    int contentLength = -1;
-    boolean endOfHeaders = false;
+    var contentLength = -1;
+    var endOfHeaders = false;
 
-    final StringBuilder request = new StringBuilder(512);
+    final var request = new StringBuilder(512);
 
     while (!channel.socket.isInputShutdown()) {
       in = channel.read();
@@ -620,10 +618,10 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
       if (currChar == '\r') {
         if (request.length() > 0 && !endOfHeaders) {
-          final String line = request.toString();
+          final var line = request.toString();
           if (StringSerializerHelper.startsWithIgnoreCase(line, HttpUtils.HEADER_AUTHORIZATION)) {
             // STORE AUTHORIZATION INFORMATION INTO THE REQUEST
-            final String auth = line.substring(HttpUtils.HEADER_AUTHORIZATION.length());
+            final var auth = line.substring(HttpUtils.HEADER_AUTHORIZATION.length());
             if (StringSerializerHelper.startsWithIgnoreCase(
                 auth, HttpUtils.AUTHORIZATION_BASIC)) {
               iRequest.setAuthorization(
@@ -649,11 +647,11 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
                 line.substring(HttpUtils.HEADER_CONNECTION.length())
                     .equalsIgnoreCase("Keep-Alive"));
           } else if (StringSerializerHelper.startsWithIgnoreCase(line, HttpUtils.HEADER_COOKIE)) {
-            final String sessionPair = line.substring(HttpUtils.HEADER_COOKIE.length());
+            final var sessionPair = line.substring(HttpUtils.HEADER_COOKIE.length());
 
-            final String[] sessionItems = sessionPair.split(";");
-            for (String sessionItem : sessionItems) {
-              final String[] sessionPairItems = sessionItem.trim().split("=");
+            final var sessionItems = sessionPair.split(";");
+            for (var sessionItem : sessionItems) {
+              final var sessionPairItems = sessionItem.trim().split("=");
               if (sessionPairItems.length == 2
                   && HttpUtils.OSESSIONID.equals(sessionPairItems[0])) {
                 iRequest.setSessionId(sessionPairItems[1]);
@@ -742,7 +740,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
               new HttpMultipartBaseInputStream(channel.inStream, currChar, contentLength));
           return;
         } else {
-          byte[] buffer = new byte[contentLength];
+          var buffer = new byte[contentLength];
           buffer[0] = (byte) currChar;
 
           channel.read(buffer, 1, contentLength - 1);
@@ -791,7 +789,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       channel.socket.setSoTimeout(socketTimeout);
       connection.getStats().lastCommandReceived = -1;
 
-      char c = (char) channel.read();
+      var c = (char) channel.read();
 
       if (channel.inStream.available() == 0) {
         event.setError(Error.CONNECTION_CLOSED);
@@ -818,7 +816,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
         c = (char) channel.read();
 
         if (c == '\r') {
-          final String[] words = requestContent.toString().split(" ");
+          final var words = requestContent.toString().split(" ");
           if (words.length < 3) {
             LogManager.instance()
                 .warn(
@@ -839,7 +837,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
           request.setHttpMethod(words[0].toUpperCase(Locale.ENGLISH));
           request.setUrl(words[1].trim());
 
-          final int parametersPos = request.getUrl().indexOf('?');
+          final var parametersPos = request.getUrl().indexOf('?');
           if (parametersPos > -1) {
             request.setParameters(
                 HttpUtils.getParameters(request.getUrl().substring(parametersPos)));
@@ -938,6 +936,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     }
   }
 
+  @Nullable
   protected String deCompress(byte[] zipBytes) {
     if (zipBytes == null || zipBytes.length == 0) {
       return null;
@@ -948,13 +947,13 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     try {
       in = new ByteArrayInputStream(zipBytes);
       gzip = new GZIPInputStream(in, 16384); // 16KB
-      byte[] buffer = new byte[1024];
+      var buffer = new byte[1024];
       baos = new ByteArrayOutputStream();
-      int len = -1;
+      var len = -1;
       while ((len = gzip.read(buffer, 0, buffer.length)) != -1) {
         baos.write(buffer, 0, len);
       }
-      String newstr = baos.toString(StandardCharsets.UTF_8);
+      var newstr = baos.toString(StandardCharsets.UTF_8);
       return newstr;
     } catch (Exception ex) {
       LogManager.instance().error(this, "Error on decompressing HTTP response", ex);
@@ -984,7 +983,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     cmdManager.registerCommand(new ServerCommandGetConnect());
     cmdManager.registerCommand(new ServerCommandGetDisconnect());
     cmdManager.registerCommand(new ServerCommandGetClass());
-    cmdManager.registerCommand(new ServerCommandGetCluster());
+    cmdManager.registerCommand(new ServerCommandGetCollection());
     cmdManager.registerCommand(new ServerCommandGetDatabase());
     cmdManager.registerCommand(new ServerCommandGetDictionary());
     cmdManager.registerCommand(new ServerCommandGetDocument());
@@ -1027,7 +1026,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     cmdManager.registerCommand(new ServerCommandGetSSO());
     cmdManager.registerCommand(new ServerCommandGetPing());
 
-    for (ServerCommandConfiguration c : iListener.getStatefulCommands()) {
+    for (var c : iListener.getStatefulCommands()) {
       try {
         cmdManager.registerCommand(ServerNetworkListener.createCommand(server, c));
       } catch (Exception e) {
@@ -1036,7 +1035,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       }
     }
 
-    for (ServerCommand c : iListener.getStatelessCommands()) {
+    for (var c : iListener.getStatelessCommands()) {
       cmdManager.registerCommand(c);
     }
   }
@@ -1053,9 +1052,9 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
   }
 
   public static String getCommandString(final String command, String method) {
-    final int getQueryPosition = command.indexOf('?');
+    final var getQueryPosition = command.indexOf('?');
 
-    final StringBuilder commandString = new StringBuilder(256);
+    final var commandString = new StringBuilder(256);
     commandString.append(method);
     commandString.append(COMMAND_SEPARATOR);
 
@@ -1076,6 +1075,6 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
   @Override
   public void setDatabase(DatabaseSessionInternal db) {
-    connection.setDatabase(db);
+    connection.setSession(db);
   }
 }

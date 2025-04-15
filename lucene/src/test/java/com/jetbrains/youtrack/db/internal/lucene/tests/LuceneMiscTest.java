@@ -22,10 +22,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Ignore;
@@ -39,40 +35,40 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testDoubleLucene() {
 
-    db.command("create class Test extends V");
-    db.command("create property Test.attr1 string");
-    db.command("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
-    db.command("create property Test.attr2 string");
-    db.command("create index Test.attr2 on Test(attr2) FULLTEXT ENGINE LUCENE");
+    session.execute("create class Test extends V");
+    session.execute("create property Test.attr1 string");
+    session.execute("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
+    session.execute("create property Test.attr2 string");
+    session.execute("create index Test.attr2 on Test(attr2) FULLTEXT ENGINE LUCENE");
 
-    db.begin();
-    db.command("insert into Test set attr1='foo', attr2='bar'");
-    db.command("insert into Test set attr1='bar', attr2='foo'");
-    db.commit();
+    session.begin();
+    session.execute("insert into Test set attr1='foo', attr2='bar'");
+    session.execute("insert into Test set attr1='bar', attr2='foo'");
+    session.commit();
 
-    ResultSet results =
-        db.query(
+    var results =
+        session.query(
             "select from Test where search_index('Test.attr1',\"foo*\") =true OR"
                 + " search_index('Test.attr2', \"foo*\")=true  ");
     assertThat(results).hasSize(2);
     results.close();
 
     results =
-        db.query(
+        session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'bar') = true OR"
                 + " SEARCH_FIELDS(['attr2'], 'bar*' )= true ");
     assertThat(results).hasSize(2);
     results.close();
 
     results =
-        db.query(
+        session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'foo*') = true AND"
                 + " SEARCH_FIELDS(['attr2'], 'bar*') = true");
     assertThat(results).hasSize(1);
     results.close();
 
     results =
-        db.query(
+        session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'bar*') = true AND"
                 + " SEARCH_FIELDS(['attr2'], 'foo*')= true");
     assertThat(results).hasSize(1);
@@ -82,20 +78,20 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testSubLucene() {
 
-    db.command("create class Person extends V");
+    session.execute("create class Person extends V");
 
-    db.command("create property Person.name string");
+    session.execute("create property Person.name string");
 
-    db.command("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Person.name on Person(name) FULLTEXT ENGINE LUCENE");
 
-    db.begin();
-    db.command("insert into Person set name='Enrico', age=18");
-    db.commit();
+    session.begin();
+    session.execute("insert into Person set name='Enrico', age=18");
+    session.commit();
 
-    String query =
+    var query =
         "select  from (select from Person where age = 18) where search_fields(['name'],'Enrico') ="
             + " true";
-    ResultSet results = db.query(query);
+    var results = session.query(query);
 
     assertThat(results).hasSize(1);
     results.close();
@@ -105,7 +101,7 @@ public class LuceneMiscTest extends LuceneBaseTest {
     query =
         "select  from (select name from Person where age = 18) where"
             + " search_index('Person.name','Enrico') = true";
-    results = db.query(query);
+    results = session.query(query);
     assertThat(results).hasSize(1);
     results.close();
   }
@@ -113,69 +109,68 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Test
   public void testNamedParams() {
 
-    db.command("create class Test extends V");
+    session.execute("create class Test extends V");
 
-    db.command("create property Test.attr1 string");
+    session.execute("create property Test.attr1 string");
 
-    db.command("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Test.attr1 on Test(attr1) FULLTEXT ENGINE LUCENE");
 
-    db.begin();
-    db.command("insert into Test set attr1='foo', attr2='bar'");
-    db.commit();
+    session.begin();
+    session.execute("insert into Test set attr1='foo', attr2='bar'");
+    session.commit();
 
-    String query = "select from Test where  search_class( :name) =true";
+    session.begin();
+    var query = "select from Test where  search_class( :name) =true";
     Map params = new HashMap();
     params.put("name", "FOO or");
-    ResultSet results = db.command(query, params);
+    var results = session.execute(query, params);
 
     assertThat(results).hasSize(1);
+    session.commit();
   }
 
   @Test
   @Ignore
   public void dottedNotationTest() {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass e = schema.getClass("E");
-    SchemaClass author = schema.createClass("Author", v);
-    author.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var e = schema.getClass("E");
+    var author = schema.createClass("Author", v);
+    author.createProperty("name", PropertyType.STRING);
 
-    SchemaClass song = schema.createClass("Song", v);
-    song.createProperty(db, "title", PropertyType.STRING);
+    var song = schema.createClass("Song", v);
+    song.createProperty("title", PropertyType.STRING);
 
-    SchemaClass authorOf = schema.createClass("AuthorOf", e);
-    authorOf.createProperty(db, "in", PropertyType.LINK, song);
-    db.commit();
+    var authorOf = schema.createClass("AuthorOf", e);
+    authorOf.createProperty("in", PropertyType.LINK, song);
+    session.commit();
 
-    db.command("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE");
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
+    session.execute("create index AuthorOf.in on AuthorOf (in) NOTUNIQUE");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
 
-    Vertex authorVertex = db.newVertex("Author");
+    var authorVertex = session.newVertex("Author");
     authorVertex.setProperty("name", "Bob Dylan");
 
-    db.begin();
-    db.save(authorVertex);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    Vertex songVertex = db.newVertex("Song");
+    var songVertex = session.newVertex("Song");
     songVertex.setProperty("title", "hurricane");
 
-    db.begin();
-    db.save(songVertex);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    Edge edge = authorVertex.addEdge(songVertex, "AuthorOf");
-    db.begin();
-    db.save(edge);
-    db.commit();
+    session.begin();
+    authorVertex.addEdge(songVertex, "AuthorOf");
+    session.commit();
 
-    ResultSet results = db.query("select from AuthorOf");
+    var results = session.query("select from AuthorOf");
 
     assertThat(results).hasSize(1);
 
     results.close();
-    results = db.query("select from AuthorOf where in.title lucene 'hurricane'");
+    results = session.query("select from AuthorOf where in.title lucene 'hurricane'");
 
     assertThat(results).hasSize(1);
     results.close();

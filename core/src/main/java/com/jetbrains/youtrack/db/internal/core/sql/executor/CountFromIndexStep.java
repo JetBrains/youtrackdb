@@ -3,8 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIndexIdentifier;
@@ -40,22 +38,21 @@ public class CountFromIndexStep extends AbstractExecutionStep {
   }
 
   private Result produce(CommandContext ctx) {
-    final DatabaseSessionInternal database = ctx.getDatabase();
-    IndexInternal idx =
+    final var database = ctx.getDatabaseSession();
+    var idx =
         database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, target.getIndexName())
-            .getInternal();
-    long size = idx.size(database);
-    ResultInternal result = new ResultInternal(database);
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(database, target.getIndexName());
+    var size = idx.size(database);
+    var result = new ResultInternal(database);
     result.setProperty(alias, size);
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ CALCULATE INDEX SIZE: " + target;
   }
 }

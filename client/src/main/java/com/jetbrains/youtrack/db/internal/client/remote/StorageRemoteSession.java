@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
@@ -33,6 +33,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -75,7 +76,7 @@ public class StorageRemoteSession {
   }
 
   public synchronized StorageRemoteNodeSession getOrCreateServerSession(final String serverURL) {
-    StorageRemoteNodeSession session = sessions.get(serverURL);
+    var session = sessions.get(serverURL);
     if (session == null) {
       session = new StorageRemoteNodeSession(serverURL, uniqueClientSessionId);
       sessions.put(serverURL, session);
@@ -104,15 +105,16 @@ public class StorageRemoteSession {
     if (sessions.isEmpty()) {
       return -1;
     }
-    final StorageRemoteNodeSession curSession = sessions.values().iterator().next();
+    final var curSession = sessions.values().iterator().next();
     return curSession.getSessionId();
   }
 
+  @Nullable
   public String getServerUrl() {
     if (sessions.isEmpty()) {
       return null;
     }
-    final StorageRemoteNodeSession curSession = sessions.values().iterator().next();
+    final var curSession = sessions.values().iterator().next();
     return curSession.getServerURL();
   }
 
@@ -138,13 +140,13 @@ public class StorageRemoteSession {
 
   public void closeAllSessions(
       RemoteConnectionManager connectionManager, ContextConfiguration clientConfiguration) {
-    for (StorageRemoteNodeSession nodeSession : getAllServerSessions()) {
+    for (var nodeSession : getAllServerSessions()) {
       SocketChannelBinaryAsynchClient network = null;
       try {
         network =
             StorageRemote.getNetwork(
                 nodeSession.getServerURL(), connectionManager, clientConfiguration);
-        CloseRequest request = new CloseRequest();
+        var request = new CloseRequest();
         network.beginRequest(request.getCommand(), this);
         request.write(null, network, this);
         network.endRequest();

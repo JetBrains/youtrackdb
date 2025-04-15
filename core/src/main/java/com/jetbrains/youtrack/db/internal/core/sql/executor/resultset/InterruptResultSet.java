@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.exception.CommandInterruptedException;
-import com.jetbrains.youtrack.db.api.query.Result;
 
 public class InterruptResultSet implements ExecutionStream {
 
@@ -16,7 +16,8 @@ public class InterruptResultSet implements ExecutionStream {
   @Override
   public boolean hasNext(CommandContext ctx) {
     if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
-      throw new CommandInterruptedException("The command has been interrupted");
+      throw new CommandInterruptedException(ctx.getDatabaseSession(),
+          "The command has been interrupted");
     }
     return source.hasNext(ctx);
   }
@@ -24,7 +25,8 @@ public class InterruptResultSet implements ExecutionStream {
   @Override
   public Result next(CommandContext ctx) {
     if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
-      throw new CommandInterruptedException("The command has been interrupted");
+      throw new CommandInterruptedException(ctx.getDatabaseSession(),
+          "The command has been interrupted");
     }
     return source.next(ctx);
   }

@@ -13,12 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
-import org.locationtech.spatial4j.shape.Shape;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -36,15 +36,16 @@ public class STSrid extends SQLFunctionAbstract {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
 
-    Shape shape = factory.fromObject(iParams[0]);
+    var shape = factory.fromObject(iParams[0]);
     return factory.getSRID(shape);
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

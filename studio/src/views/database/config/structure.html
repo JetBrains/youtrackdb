@@ -1,12 +1,12 @@
 <div ng-controller="StructureController" class="col-md-12">
   <div class="row">
     <p>
-      <b>Clusters
+      <b>Collections
       </b> are sets of records grouped by a mean. Any mean you want to
-      assign. You can use a Cluster like a Table of the Relational DBMS
+      assign. You can use a Collection like a Table of the Relational DBMS
       world, namely to group records of the same type. Or you could
       want to group records by different logics. <br/> There
-      are two kinds of clusters: <b>Physical</b> and <b>In-memory</b>.The first one is persistent, the second one
+      are two kinds of collections: <b>Physical</b> and <b>In-memory</b>.The first one is persistent, the second one
       is volatile.
     </p>
   </div>
@@ -28,13 +28,13 @@
       </tr>
       </thead>
       <tbody>
-      <tr ng-repeat="cluster in clusters | orderBy:'name'">
-        <td>{{ cluster.id }}</td>
-        <td>{{ cluster.name }}</td>
-        <td>{{ cluster.records }}</td>
+      <tr ng-repeat="collection in collections | orderBy:'name'">
+        <td>{{ collection.id }}</td>
+        <td>{{ collection.name }}</td>
+        <td>{{ collection.records }}</td>
         <td>
           <select type="text" ng-options="opt for opt in conflictStrategies"
-                  ng-change="changeStrategy(cluster)" ng-model="cluster.conflictStrategy">
+                  ng-change="changeStrategy(collection)" ng-model="collection.conflictStrategy">
 
           </select>
         </td>

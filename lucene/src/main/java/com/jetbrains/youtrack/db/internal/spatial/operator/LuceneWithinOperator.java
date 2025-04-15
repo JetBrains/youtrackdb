@@ -13,13 +13,13 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegac
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegacyImpl;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
@@ -47,22 +48,23 @@ public class LuceneWithinOperator extends QueryTargetOperator {
 
   @Override
   public Object evaluateRecord(
-      Identifiable iRecord,
+      Result iRecord,
       EntityImpl iCurrentResult,
       SQLFilterCondition iCondition,
       Object iLeft,
       Object iRight,
       CommandContext iContext,
       final EntitySerializer serializer) {
-    List<Number> left = (List<Number>) iLeft;
+    var left = (List<Number>) iLeft;
 
-    double lat = left.get(0).doubleValue();
-    double lon = left.get(1).doubleValue();
+    var lat = left.get(0).doubleValue();
+    var lon = left.get(1).doubleValue();
 
     Shape shape = SpatialContext.GEO.makePoint(lon, lat);
 
-    Shape shape1 =
-        shapeFactory.makeShape(iContext.getDatabase(), new SpatialCompositeKey((List<?>) iRight),
+    var shape1 =
+        shapeFactory.makeShape(iContext.getDatabaseSession(),
+            new SpatialCompositeKey((List<?>) iRight),
             SpatialContext.GEO);
 
     return shape.relate(shape1) == SpatialRelation.WITHIN;
@@ -77,20 +79,20 @@ public class LuceneWithinOperator extends QueryTargetOperator {
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
     iContext.setVariable("$luceneIndex", true);
-    return index
-        .getInternal()
-        .getRids(iContext.getDatabase(),
+    return index.getRids(iContext.getDatabaseSession(),
             new SpatialCompositeKey(keyParams).setOperation(SpatialOperation.IsWithin)
                 .setContext(iContext))
         .map(
             (rid) -> new RawPair<>(new SpatialCompositeKey(keyParams).setContext(iContext), rid));
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
@@ -98,7 +100,7 @@ public class LuceneWithinOperator extends QueryTargetOperator {
 
   @Override
   public IndexSearchResult getOIndexSearchResult(
-      SchemaClass iSchemaClass,
+      SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {

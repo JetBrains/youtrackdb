@@ -11,6 +11,6 @@ public class AscComparator implements Comparator<RawPair<Object, RID>> {
 
   @Override
   public int compare(RawPair<Object, RID> entryOne, RawPair<Object, RID> entryTwo) {
-    return DefaultComparator.INSTANCE.compare(entryOne.first, entryTwo.first);
+    return DefaultComparator.INSTANCE.compare(entryOne.first(), entryTwo.first());
   }
 }

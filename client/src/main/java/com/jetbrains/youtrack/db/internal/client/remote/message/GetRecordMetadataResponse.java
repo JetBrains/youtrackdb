@@ -43,8 +43,8 @@ public class GetRecordMetadataResponse implements BinaryResponse {
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    RecordId recordId = network.readRID();
-    int version = network.readVersion();
+    var recordId = network.readRID();
+    var version = network.readVersion();
     metadata = new RecordMetadata(recordId, version);
   }
 

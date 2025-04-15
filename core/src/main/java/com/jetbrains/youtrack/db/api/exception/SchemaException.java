@@ -19,14 +19,20 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class SchemaException extends CoreException implements HighLevelException {
-
-  private static final long serialVersionUID = -8486291378415776372L;
-
   public SchemaException(SchemaException exception) {
     super(exception);
+  }
+
+  public SchemaException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public SchemaException(DatabaseSession session, String message) {
+    super(session, message);
   }
 
   public SchemaException(String message) {

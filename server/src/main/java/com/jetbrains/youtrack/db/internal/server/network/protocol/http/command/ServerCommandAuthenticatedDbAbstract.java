@@ -22,26 +22,23 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.server.OTokenHandler;
+import com.jetbrains.youtrack.db.internal.server.TokenHandler;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequestException;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpSession;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Database based authenticated command. Authenticates against the database taken as second
@@ -58,17 +55,17 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
   public static final char DBNAME_DIR_SEPARATOR = '$';
   public static final String SESSIONID_UNAUTHORIZED = "-";
   public static final String SESSIONID_LOGOUT = "!";
-  private volatile OTokenHandler tokenHandler;
+  private volatile TokenHandler tokenHandler;
 
   @Override
-  public boolean beforeExecute(final OHttpRequest iRequest, HttpResponse iResponse)
+  public boolean beforeExecute(final HttpRequest iRequest, HttpResponse iResponse)
       throws IOException {
     super.beforeExecute(iRequest, iResponse);
 
     try {
       init();
 
-      final String[] urlParts = iRequest.getUrl().substring(1).split("/");
+      final var urlParts = iRequest.getUrl().substring(1).split("/");
       if (urlParts.length < 2) {
         throw new HttpRequestException(
             "Syntax error in URL. Expected is: <command>/<database>[/...]");
@@ -110,7 +107,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
         return iRequest.getBearerToken().getToken().getIsValid();
       } else {
         // HTTP basic authentication
-        final List<String> authenticationParts =
+        final var authenticationParts =
             iRequest.getAuthorization() != null
                 ? StringSerializerHelper.split(iRequest.getAuthorization(), ':')
                 : null;
@@ -179,14 +176,14 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
         }
       }
     } catch (Exception e) {
-      throw BaseException.wrapException(new HttpRequestException("Error on authentication"), e);
+      throw BaseException.wrapException(new HttpRequestException("Error on authentication"), e,
+          (String) null);
     } finally {
       // clear local cache to ensure that zomby records will not pile up in cache.
       try {
         if (iRequest.getDatabaseName() != null) {
-          DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest);
-          if (db != null && !db.getTransaction().isActive()) {
-            db.activateOnCurrentThread();
+          var db = getProfiledDatabaseSessionInstance(iRequest);
+          if (db != null && !db.getTransactionInternal().isActive()) {
             db.getLocalCache().clear();
           }
         }
@@ -197,15 +194,14 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
   }
 
   @Override
-  public boolean afterExecute(final OHttpRequest iRequest, HttpResponse iResponse)
+  public boolean afterExecute(final HttpRequest iRequest, HttpResponse iResponse)
       throws IOException {
-    DatabaseRecordThreadLocal.instance().remove();
     iRequest.getExecutor().setDatabase(null);
     return true;
   }
 
   protected boolean authenticate(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final List<String> iAuthenticationParts,
       final String iDatabaseName)
@@ -213,7 +209,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     DatabaseSessionInternal db = null;
     try {
       db =
-          server.openDatabase(
+          server.openSession(
               iDatabaseName, iAuthenticationParts.get(0), iAuthenticationParts.get(1));
       // if (db.geCurrentUser() == null)
       // // MAYBE A PREVIOUS ROOT REALM? UN AUTHORIZE
@@ -221,8 +217,8 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
 
       // Set user rid after authentication
       iRequest.getData().currentUserId =
-          db.geCurrentUser() == null ? "<server user>"
-              : db.geCurrentUser().getIdentity(db).toString();
+          db.getCurrentUser() == null ? "<server user>"
+              : db.getCurrentUser().getIdentity().toString();
 
       // AUTHENTICATED: CREATE THE SESSION
       iRequest.setSessionId(
@@ -250,18 +246,18 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
   }
 
   protected void sendAuthorizationRequest(
-      final OHttpRequest iRequest, final HttpResponse iResponse, final String iDatabaseName)
+      final HttpRequest iRequest, final HttpResponse iResponse, final String iDatabaseName)
       throws IOException {
     // UNAUTHORIZED
     iRequest.setSessionId(SESSIONID_UNAUTHORIZED);
 
     String header = null;
-    String xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
+    var xRequestedWithHeader = iRequest.getHeader("X-Requested-With");
     if (xRequestedWithHeader == null || !xRequestedWithHeader.equals("XMLHttpRequest")) {
       // Defaults to "WWW-Authenticate: Basic" if not an AJAX Request.
       header = server.getSecurity().getAuthenticationHeader(iDatabaseName);
 
-      Map<String, String> headers = server.getSecurity().getAuthenticationHeaders(iDatabaseName);
+      var headers = server.getSecurity().getAuthenticationHeaders(iDatabaseName);
       headers.entrySet().forEach(s -> iResponse.addHeader(s.getKey(), s.getValue()));
     }
 
@@ -270,7 +266,6 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
           iResponse,
           HttpUtils.STATUS_AUTH_CODE,
           HttpUtils.STATUS_AUTH_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
           "401 Unauthorized.",
           header);
     } else {
@@ -283,7 +278,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     }
   }
 
-  protected DatabaseSessionInternal getProfiledDatabaseInstance(final OHttpRequest iRequest)
+  protected DatabaseSessionInternal getProfiledDatabaseSessionInstance(final HttpRequest iRequest)
       throws InterruptedException {
     if (iRequest.getBearerToken() != null) {
       return getProfiledDatabaseInstanceToken(iRequest);
@@ -292,62 +287,58 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     }
   }
 
-  protected DatabaseSessionInternal getProfiledDatabaseInstanceToken(final OHttpRequest iRequest)
+  protected DatabaseSessionInternal getProfiledDatabaseInstanceToken(final HttpRequest iRequest)
       throws InterruptedException {
     // after authentication, if current login user is different compare with current DB user, reset
     // DB user to login user
-    DatabaseSessionInternal localDatabase = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (localDatabase == null) {
-      localDatabase = server.openDatabase(iRequest.getDatabaseName(), iRequest.getBearerToken());
-    } else {
-      RID currentUserId = iRequest.getBearerToken().getToken().getUserId();
-      if (currentUserId != null && localDatabase.geCurrentUser() != null) {
-        if (!currentUserId.equals(
-            localDatabase.geCurrentUser().getIdentity(localDatabase).getIdentity())) {
-          EntityImpl userDoc = localDatabase.load(currentUserId);
-          localDatabase.setUser(new SecurityUserIml(localDatabase, userDoc));
-        }
+
+    var localDatabase = server.openSession(iRequest.getDatabaseName(), iRequest.getBearerToken());
+
+    var currentUserId = iRequest.getBearerToken().getToken().getUserId();
+    if (currentUserId != null && localDatabase.getCurrentUser() != null) {
+      if (!currentUserId.equals(
+          localDatabase.getCurrentUser().getIdentity().getIdentity())) {
+        EntityImpl userDoc = localDatabase.load(currentUserId);
+        localDatabase.setUser(new SecurityUserImpl(localDatabase, userDoc));
       }
     }
 
-    iRequest.getData().lastDatabase = localDatabase.getName();
+    iRequest.getData().lastDatabase = localDatabase.getDatabaseName();
     iRequest.getData().lastUser =
-        localDatabase.geCurrentUser() != null ? localDatabase.geCurrentUser().getName(localDatabase)
+        localDatabase.getCurrentUser() != null ? localDatabase.getCurrentUser()
+            .getName(localDatabase)
             : null;
     return localDatabase.getDatabaseOwner();
   }
 
   protected DatabaseSessionInternal getProfiledDatabaseInstanceBasic(
-      final OHttpRequest iRequest) {
-    final HttpSession session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
+      final HttpRequest iRequest) {
+    final var session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
 
     if (session == null) {
       throw new SecurityAccessException(iRequest.getDatabaseName(), "No session active");
     }
 
     // after authentication, if current login user is different compare with current DB user, reset
-    // DB user to login user
-    DatabaseSessionInternal localDatabase = DatabaseRecordThreadLocal.instance().getIfDefined();
+    //DB user to login user
+    var localDatabase =
+        server.openSession(
+            iRequest.getDatabaseName(), session.getUserName(), session.getUserPassword());
 
-    if (localDatabase == null) {
-      localDatabase =
-          server.openDatabase(
-              iRequest.getDatabaseName(), session.getUserName(), session.getUserPassword());
-    } else {
-      String currentUserId = iRequest.getData().currentUserId;
-      if (currentUserId != null && !currentUserId.isEmpty()
-          && localDatabase.geCurrentUser() != null) {
-        if (!currentUserId.equals(
-            localDatabase.geCurrentUser().getIdentity(localDatabase).toString())) {
-          EntityImpl userDoc = localDatabase.load(new RecordId(currentUserId));
-          localDatabase.setUser(new SecurityUserIml(localDatabase, userDoc));
-        }
+    var currentUserId = iRequest.getData().currentUserId;
+    if (currentUserId != null && !currentUserId.isEmpty()
+        && localDatabase.getCurrentUser() != null) {
+      if (!currentUserId.equals(
+          localDatabase.getCurrentUser().getIdentity().toString())) {
+        EntityImpl userDoc = localDatabase.load(new RecordId(currentUserId));
+        localDatabase.setUser(new SecurityUserImpl(localDatabase, userDoc));
       }
     }
 
-    iRequest.getData().lastDatabase = localDatabase.getName();
+    iRequest.getData().lastDatabase = localDatabase.getDatabaseName();
     iRequest.getData().lastUser =
-        localDatabase.geCurrentUser() != null ? localDatabase.geCurrentUser().getName(localDatabase)
+        localDatabase.getCurrentUser() != null ? localDatabase.getCurrentUser()
+            .getName(localDatabase)
             : null;
     iRequest.getExecutor().setDatabase(localDatabase);
     return localDatabase.getDatabaseOwner();

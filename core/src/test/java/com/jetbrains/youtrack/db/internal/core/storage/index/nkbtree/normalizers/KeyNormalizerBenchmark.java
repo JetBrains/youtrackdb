@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.nkbtree.normalizers;
 
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.Collator;
@@ -25,7 +25,6 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.profile.StackProfiler;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 @State(Scope.Thread)
@@ -39,16 +38,16 @@ public class KeyNormalizerBenchmark {
   private KeyNormalizer keyNormalizer;
 
   private CompositeKey binaryCompositeKey;
-  private PropertyType[] binaryTypes;
+  private PropertyTypeInternal[] binaryTypes;
 
   private CompositeKey dateCompositeKey;
-  private PropertyType[] dateTypes;
+  private PropertyTypeInternal[] dateTypes;
 
   private CompositeKey dateTimeCompositeKey;
-  private PropertyType[] dateTimeTypes;
+  private PropertyTypeInternal[] dateTimeTypes;
 
   public static void main(String[] args) throws RunnerException {
-    final Options opt =
+    final var opt =
         new OptionsBuilder()
             .include("KeyNormalizerBenchmark.*")
             .addProfiler(StackProfiler.class, "detailLine=true;excludePackages=true;period=1")
@@ -69,38 +68,38 @@ public class KeyNormalizerBenchmark {
 
   private void binaryFixture() {
     keyNormalizer = new KeyNormalizer();
-    final byte[] binaryKey = new byte[]{1, 2, 3, 4, 5, 6};
+    final var binaryKey = new byte[]{1, 2, 3, 4, 5, 6};
     binaryCompositeKey = new CompositeKey();
     binaryCompositeKey.addKey(binaryKey);
-    binaryTypes = new PropertyType[1];
-    binaryTypes[0] = PropertyType.BINARY;
+    binaryTypes = new PropertyTypeInternal[1];
+    binaryTypes[0] = PropertyTypeInternal.BINARY;
   }
 
   private void dateFixture() {
-    final Date key = new GregorianCalendar(2013, Calendar.NOVEMBER, 5).getTime();
+    final var key = new GregorianCalendar(2013, Calendar.NOVEMBER, 5).getTime();
     dateCompositeKey = new CompositeKey();
     dateCompositeKey.addKey(key);
-    dateTypes = new PropertyType[1];
-    dateTypes[0] = PropertyType.DATE;
+    dateTypes = new PropertyTypeInternal[1];
+    dateTypes[0] = PropertyTypeInternal.DATE;
   }
 
   private void dateTimeFixture() {
-    final LocalDateTime ldt = LocalDateTime.of(2013, 11, 5, 3, 3, 3);
-    final Date key = Date.from(ldt.atZone(ZoneId.systemDefault()).toInstant());
+    final var ldt = LocalDateTime.of(2013, 11, 5, 3, 3, 3);
+    final var key = Date.from(ldt.atZone(ZoneId.systemDefault()).toInstant());
     dateTimeCompositeKey = new CompositeKey();
     dateTimeCompositeKey.addKey(key);
-    dateTimeTypes = new PropertyType[1];
-    dateTimeTypes[0] = PropertyType.DATETIME;
+    dateTimeTypes = new PropertyTypeInternal[1];
+    dateTimeTypes[0] = PropertyTypeInternal.DATETIME;
   }
 
   // final ByteArrayOutputStream bos = new ByteArrayOutputStream();
 
   @Benchmark
   public void normalizeCompositeNull() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(null);
 
-    final PropertyType[] types = new PropertyType[1];
+    final var types = new PropertyTypeInternal[1];
     types[0] = null;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
@@ -108,132 +107,132 @@ public class KeyNormalizerBenchmark {
 
   @Benchmark
   public void normalizeCompositeAddKeyNull() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(null);
   }
 
   @Benchmark
   public void normalizeCompositeNullInt() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(null);
     compositeKey.addKey(5);
 
-    final PropertyType[] types = new PropertyType[2];
+    final var types = new PropertyTypeInternal[2];
     types[0] = null;
-    types[1] = PropertyType.INTEGER;
+    types[1] = PropertyTypeInternal.INTEGER;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeInt() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(5);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.INTEGER;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.INTEGER;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeFloat() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(1.5f);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.FLOAT;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.FLOAT;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeDouble() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(1.5d);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.DOUBLE;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.DOUBLE;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeBoolean() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(true);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.BOOLEAN;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.BOOLEAN;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeLong() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(5L);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.LONG;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.LONG;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeByte() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey((byte) 3);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.BYTE;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.BYTE;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeShort() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey((short) 3);
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.SHORT;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.SHORT;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeDecimal() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(new BigDecimal("3.14159265359"));
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.DECIMAL;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.DECIMAL;
 
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeString() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey("abcd");
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.STRING;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.STRING;
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
   @Benchmark
   public void normalizeCompositeTwoStrings() {
-    final CompositeKey compositeKey = new CompositeKey();
-    final String key = "abcd";
+    final var compositeKey = new CompositeKey();
+    final var key = "abcd";
     compositeKey.addKey(key);
-    final String secondKey = "test";
+    final var secondKey = "test";
     compositeKey.addKey(secondKey);
 
-    final PropertyType[] types = new PropertyType[2];
-    types[0] = PropertyType.STRING;
-    types[1] = PropertyType.STRING;
+    final var types = new PropertyTypeInternal[2];
+    types[0] = PropertyTypeInternal.STRING;
+    types[1] = PropertyTypeInternal.STRING;
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 
@@ -254,11 +253,11 @@ public class KeyNormalizerBenchmark {
 
   @Benchmark
   public void decimalNormalizer() {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(new BigDecimal(new BigInteger("20"), 2));
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = PropertyType.DECIMAL;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.DECIMAL;
     keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }
 }

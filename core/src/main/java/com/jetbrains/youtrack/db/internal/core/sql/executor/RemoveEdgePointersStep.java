@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -19,40 +19,41 @@ public class RemoveEdgePointersStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
 
-    return upstream.map(this::mapResult);
+    return upstream.map(RemoveEdgePointersStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
+  private static Result mapResult(Result result, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     var propNames = result.getPropertyNames();
-    for (String propName :
+    for (var propName :
         propNames.stream().filter(x -> x.startsWith("in_") || x.startsWith("out_")).toList()) {
-      Object val = result.getProperty(propName);
-      if (val instanceof Entity) {
-        if (((Entity) val).getSchemaType().map(x -> x.isSubClassOf(ctx.getDatabase(), "E"))
-            .orElse(false)) {
+      var val = result.getProperty(propName);
+      if (val instanceof EntityImpl entity) {
+        var schemaClass = entity.getImmutableSchemaClass(session);
+        if (schemaClass != null && schemaClass.isSubClassOf("E")) {
           ((ResultInternal) result).removeProperty(propName);
         }
       } else if (val instanceof Iterable<?> iterable) {
-        for (Object o : iterable) {
-          if (o instanceof Entity) {
-            if (((Entity) o).getSchemaType().map(x -> x.isSubClassOf(ctx.getDatabase(), "E"))
-                .orElse(false)) {
+        for (var o : iterable) {
+          if (o instanceof EntityImpl entity) {
+            var schemaClass = entity.getImmutableSchemaClass(session);
+            if (schemaClass != null && schemaClass.isSubClassOf("E")) {
               ((ResultInternal) result).removeProperty(propName);
-              break;
             }
           }
         }
       }
     }
+
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ CHECK AND EXCLUDE (possible) EXISTING EDGES ");
     if (profilingEnabled) {

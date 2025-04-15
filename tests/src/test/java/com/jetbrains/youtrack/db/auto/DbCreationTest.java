@@ -19,7 +19,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
@@ -59,8 +58,6 @@ public class DbCreationTest {
 
   private void initODB() {
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
 
     if (remoteDB) {
       youTrackDB =
@@ -70,7 +67,7 @@ public class DbCreationTest {
               "D2AFD02F20640EC8B7A5140F34FCA49D2289DB1F0D0598BB9DE8AAA75A0792F3",
               configBuilder.build());
     } else {
-      final String buildDirectory = System.getProperty("buildDirectory", ".");
+      final var buildDirectory = System.getProperty("buildDirectory", ".");
       youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", configBuilder.build());
     }
   }
@@ -81,7 +78,7 @@ public class DbCreationTest {
       youTrackDB.drop(DB_NAME);
     }
 
-    youTrackDB.create(DB_NAME, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
   }
 
   @Test(dependsOnMethods = {"testDbCreationDefault"})
@@ -92,7 +89,7 @@ public class DbCreationTest {
   @Test(dependsOnMethods = {"testDbExists"})
   public void testDbOpen() {
     var database = youTrackDB.open(DB_NAME, "admin", "admin");
-    Assert.assertNotNull(database.getName());
+    Assert.assertNotNull(database.getDatabaseName());
     database.close();
   }
 
@@ -100,12 +97,9 @@ public class DbCreationTest {
   public void testDbOpenWithLastAsSlash() {
     youTrackDB.close();
 
-    String url = calculateURL() + "/";
+    var url = calculateURL() + "/";
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-
     try (var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build())) {
       var database = odb.open(DB_NAME, "admin", "admin");
       database.close();
@@ -119,8 +113,8 @@ public class DbCreationTest {
     if (remoteDB) {
       url = "remote:localhost";
     } else {
-      final String buildDirectory = System.getProperty("buildDirectory", ".");
-      url = "plocal:" + buildDirectory + "/test-db";
+      final var buildDirectory = System.getProperty("buildDirectory", ".");
+      url = "disk:" + buildDirectory + "/test-db";
     }
     return url;
   }
@@ -128,8 +122,8 @@ public class DbCreationTest {
   @Test(dependsOnMethods = {"testDbOpenWithLastAsSlash"})
   public void testChangeLocale() {
     try (var database = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin")) {
-      database.command(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage()).close();
-      database.command(" ALTER DATABASE LOCALE_COUNTRY  ?", Locale.GERMANY.getCountry()).close();
+      database.execute(" ALTER DATABASE LOCALE_LANGUAGE  ?", Locale.GERMANY.getLanguage()).close();
+      database.execute(" ALTER DATABASE LOCALE_COUNTRY  ?", Locale.GERMANY.getCountry()).close();
 
       Assert.assertEquals(
           database.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE), Locale.GERMANY.getLanguage());
@@ -147,9 +141,9 @@ public class DbCreationTest {
   @Test(dependsOnMethods = {"testChangeLocale"})
   public void testRoles() {
     try (var database = youTrackDB.open(DB_NAME, "admin", "admin")) {
-      database.begin();
-      database.query("select from ORole where name = 'admin'").close();
-      database.commit();
+      var tx = database.begin();
+      tx.query("select from ORole where name = 'admin'").close();
+      tx.commit();
     }
   }
 
@@ -162,14 +156,12 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
     var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");
     }
 
-    odb.create("sub", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
     var db = odb.open("sub", "admin", "admin");
     db.close();
 
@@ -185,15 +177,12 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    configBuilder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-
     var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");
     }
 
-    odb.create("sub", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
     var db = odb.cachedPool("sub", "admin", "admin");
     db.close();
 
@@ -202,7 +191,7 @@ public class DbCreationTest {
 
   @Test(dependsOnMethods = {"testSubFolderDbCreateConnPool"})
   public void testOpenCloseConnectionPool() {
-    for (int i = 0; i < 500; i++) {
+    for (var i = 0; i < 500; i++) {
       youTrackDB.cachedPool(DB_NAME, "admin", "admin").acquire().close();
     }
   }
@@ -213,8 +202,8 @@ public class DbCreationTest {
       return;
     }
 
-    for (int i = 0; i < 3; ++i) {
-      String dbName = "a" + i + "$db";
+    for (var i = 0; i < 3; ++i) {
+      var dbName = "a" + i + "$db";
       try {
         youTrackDB.drop(dbName);
         Assert.fail();
@@ -222,14 +211,14 @@ public class DbCreationTest {
         // ignore
       }
 
-      youTrackDB.create(dbName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
       Assert.assertTrue(youTrackDB.exists(dbName));
 
       youTrackDB.open(dbName, "admin", "admin").close();
     }
 
-    for (int i = 0; i < 3; ++i) {
-      String dbName = "a" + i + "$db";
+    for (var i = 0; i < 3; ++i) {
+      var dbName = "a" + i + "$db";
       Assert.assertTrue(youTrackDB.exists(dbName));
       youTrackDB.drop(dbName);
       Assert.assertFalse(youTrackDB.exists(dbName));
@@ -237,17 +226,17 @@ public class DbCreationTest {
   }
 
   public void testDbIsNotRemovedOnSecondTry() {
-    youTrackDB.create(DB_NAME + "Remove", DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.create(DB_NAME + "Remove", DatabaseType.DISK, "admin", "admin", "admin");
 
     try {
-      youTrackDB.create(DB_NAME + "Remove", DatabaseType.PLOCAL, "admin", "admin", "admin");
+      youTrackDB.create(DB_NAME + "Remove", DatabaseType.DISK, "admin", "admin", "admin");
       Assert.fail();
     } catch (CoreException e) {
       // ignore all is correct
     }
 
     if (!remoteDB) {
-      final String buildDirectory = System.getProperty("buildDirectory", ".");
+      final var buildDirectory = System.getProperty("buildDirectory", ".");
       var path = buildDirectory + "/test-db/" + DB_NAME + "Remove";
       Assert.assertTrue(new File(path).exists());
     }

@@ -16,9 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Extracts a sub string from the original.
@@ -36,10 +37,11 @@ public class SQLMethodSubString extends AbstractSQLMethod {
     return "subString(<from-index> [,<to-index>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -48,9 +50,9 @@ public class SQLMethodSubString extends AbstractSQLMethod {
     }
 
     if (iParams.length > 1) {
-      int from = Integer.parseInt(iParams[0].toString());
-      int to = Integer.parseInt(iParams[1].toString());
-      String thisString = iThis.toString();
+      var from = Integer.parseInt(iParams[0].toString());
+      var to = Integer.parseInt(iParams[1].toString());
+      var thisString = iThis.toString();
       if (from < 0) {
         from = 0;
       }
@@ -66,8 +68,8 @@ public class SQLMethodSubString extends AbstractSQLMethod {
 
       return thisString.substring(from, to);
     } else {
-      int from = Integer.parseInt(iParams[0].toString());
-      String thisString = iThis.toString();
+      var from = Integer.parseInt(iParams[0].toString());
+      var thisString = iThis.toString();
       if (from < 0) {
         from = 0;
       }

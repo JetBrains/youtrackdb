@@ -28,7 +28,7 @@ public class ClientConnectionManagerTest {
   private Token token;
 
   @Mock
-  private OTokenHandler handler;
+  private TokenHandler handler;
 
   @Mock
   private YouTrackDBServer server;
@@ -45,43 +45,43 @@ public class ClientConnectionManagerTest {
 
   @Test
   public void testSimpleConnectDisconnect() throws IOException {
-    ClientConnectionManager manager = new ClientConnectionManager(server);
-    ClientConnection ret = manager.connect(protocol);
+    var manager = new ClientConnectionManager(server);
+    var ret = manager.connect(protocol);
     assertNotNull(ret);
-    ClientConnection ret1 = manager.getConnection(ret.getId(), protocol);
+    var ret1 = manager.getConnection(ret.getId(), protocol);
     assertSame(ret, ret1);
     manager.disconnect(ret);
 
-    ClientConnection ret2 = manager.getConnection(ret.getId(), protocol);
+    var ret2 = manager.getConnection(ret.getId(), protocol);
     assertNull(ret2);
   }
 
   @Test
   @Ignore
   public void testTokenConnectDisconnect() throws IOException {
-    byte[] atoken = new byte[]{};
+    var atoken = new byte[]{};
 
-    ClientConnectionManager manager = new ClientConnectionManager(server);
-    ClientConnection ret = manager.connect(protocol);
+    var manager = new ClientConnectionManager(server);
+    var ret = manager.connect(protocol);
     manager.connect(protocol, ret, atoken);
     assertNotNull(ret);
-    ClientSessions sess = manager.getSession(ret);
+    var sess = manager.getSession(ret);
     assertNotNull(sess);
     assertEquals(sess.getConnections().size(), 1);
-    ClientConnection ret1 = manager.getConnection(ret.getId(), protocol);
+    var ret1 = manager.getConnection(ret.getId(), protocol);
     assertSame(ret, ret1);
-    ClientConnection ret2 = manager.reConnect(protocol, atoken);
+    var ret2 = manager.reConnect(protocol, atoken);
     assertNotSame(ret1, ret2);
     assertEquals(sess.getConnections().size(), 2);
     manager.disconnect(ret);
 
     assertEquals(sess.getConnections().size(), 1);
-    ClientConnection ret3 = manager.getConnection(ret.getId(), protocol);
+    var ret3 = manager.getConnection(ret.getId(), protocol);
     assertNull(ret3);
 
     manager.disconnect(ret2);
     assertEquals(sess.getConnections().size(), 0);
-    ClientConnection ret4 = manager.getConnection(ret2.getId(), protocol);
+    var ret4 = manager.getConnection(ret2.getId(), protocol);
     assertNull(ret4);
   }
 }

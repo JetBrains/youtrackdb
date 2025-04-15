@@ -18,12 +18,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Converts a document in JSON string.
@@ -41,40 +41,35 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     return "toJSON([<format>])";
   }
 
+  @Nullable
   @Override
   public Object execute(
-      Object iThis,
-      Identifiable iCurrentRecord,
+      Object current,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    if (iThis == null) {
+    if (current == null) {
       return null;
     }
 
-    final String format = iParams.length > 0 ? ((String) iParams[0]).replace("\"", "") : null;
+    final var format = iParams.length > 0 ? ((String) iParams[0]).replace("\"", "") : null;
 
-    if (iThis instanceof Result) {
-      iThis = ((Result) iThis).toEntity();
+    if (current instanceof Result result && result.isEntity()) {
+      current = result.asEntity();
     }
-    if (iThis instanceof DBRecord record) {
 
-      if (record.isUnloaded()) {
-        record = iContext.getDatabase().bindToSession(record);
-      }
-
+    if (current instanceof DBRecord record) {
       return iParams.length == 1 ? record.toJSON(format) : record.toJSON();
-    } else if (iThis instanceof Map) {
+    } else if (current instanceof Map) {
 
-      final EntityImpl entity = new EntityImpl();
       //noinspection unchecked
-      entity.fromMap((Map<String, Object>) iThis);
-      return iParams.length == 1 ? entity.toJSON(format) : entity.toJSON();
-    } else if (MultiValue.isMultiValue(iThis)) {
-      StringBuilder builder = new StringBuilder();
+      return JSONSerializerJackson.mapToJson((Map<String, Object>) current);
+    } else if (MultiValue.isMultiValue(current)) {
+      var builder = new StringBuilder();
       builder.append("[");
-      boolean first = true;
-      for (Object o : MultiValue.getMultiValueIterable(iThis)) {
+      var first = true;
+      for (var o : MultiValue.getMultiValueIterable(current)) {
         if (!first) {
           builder.append(",");
         }

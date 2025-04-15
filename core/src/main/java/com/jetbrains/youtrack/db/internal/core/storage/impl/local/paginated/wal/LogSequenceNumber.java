@@ -51,7 +51,7 @@ public class LogSequenceNumber implements Comparable<LogSequenceNumber> {
       return false;
     }
 
-    LogSequenceNumber that = (LogSequenceNumber) o;
+    var that = (LogSequenceNumber) o;
 
     if (segment != that.segment) {
       return false;
@@ -61,7 +61,7 @@ public class LogSequenceNumber implements Comparable<LogSequenceNumber> {
 
   @Override
   public int hashCode() {
-    int result = (int) (segment ^ (segment >>> 32));
+    var result = (int) (segment ^ (segment >>> 32));
     result = 31 * result + position;
     return result;
   }

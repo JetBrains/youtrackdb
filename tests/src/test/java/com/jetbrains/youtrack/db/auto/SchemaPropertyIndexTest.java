@@ -18,9 +18,9 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Map;
@@ -43,44 +43,44 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass oClass = schema.createClass("PropertyIndexTestClass");
-    oClass.createProperty(database, "prop0", PropertyType.LINK);
-    oClass.createProperty(database, "prop1", PropertyType.STRING);
-    oClass.createProperty(database, "prop2", PropertyType.INTEGER);
-    oClass.createProperty(database, "prop3", PropertyType.BOOLEAN);
-    oClass.createProperty(database, "prop4", PropertyType.INTEGER);
-    oClass.createProperty(database, "prop5", PropertyType.STRING);
+    final Schema schema = session.getMetadata().getSchema();
+    final var oClass = schema.createClass("PropertyIndexTestClass");
+    oClass.createProperty("prop0", PropertyType.LINK);
+    oClass.createProperty("prop1", PropertyType.STRING);
+    oClass.createProperty("prop2", PropertyType.INTEGER);
+    oClass.createProperty("prop3", PropertyType.BOOLEAN);
+    oClass.createProperty("prop4", PropertyType.INTEGER);
+    oClass.createProperty("prop5", PropertyType.STRING);
   }
 
   @AfterClass
   public void afterClass() throws Exception {
-    if (database.isClosed()) {
-      database = createSessionInstance();
+    if (session.isClosed()) {
+      session = createSessionInstance();
     }
 
-    database.begin();
-    database.command("delete from PropertyIndexTestClass");
-    database.commit();
+    session.begin();
+    session.execute("delete from PropertyIndexTestClass");
+    session.commit();
 
-    database.command("drop class PropertyIndexTestClass");
+    session.execute("drop class PropertyIndexTestClass");
 
     super.afterClass();
   }
 
   @Test
   public void testCreateUniqueIndex() {
-    var schema = database.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    final SchemaProperty propOne = oClass.getProperty(database, "prop1");
+    final var propOne = oClass.getProperty("prop1");
 
-    propOne.createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+    propOne.createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
         Map.of("ignoreNullValues", true));
 
-    final Collection<Index> indexes = oClass.getInvolvedIndexesInternal(database, "prop1");
+    final Collection<Index> indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
     IndexDefinition indexDefinition = null;
 
-    for (final Index index : indexes) {
+    for (final var index : indexes) {
       if (index.getName().equals("PropertyIndexTestClass.prop1")) {
         indexDefinition = index.getDefinition();
         break;
@@ -92,35 +92,35 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     Assert.assertEquals(indexDefinition.getFields().size(), 1);
     Assert.assertTrue(indexDefinition.getFields().contains("prop1"));
     Assert.assertEquals(indexDefinition.getTypes().length, 1);
-    Assert.assertEquals(indexDefinition.getTypes()[0], PropertyType.STRING);
+    Assert.assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
   }
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void createAdditionalSchemas() {
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass oClass = schema.getClass("PropertyIndexTestClass");
+    final Schema schema = session.getMetadata().getSchema();
+    final var oClass = schema.getClass("PropertyIndexTestClass");
 
-    oClass.createIndex(database,
+    oClass.createIndex(
         "propOne0",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop0", "prop1"});
-    oClass.createIndex(database,
+    oClass.createIndex(
         "propOne1",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
-    oClass.createIndex(database,
+    oClass.createIndex(
         "propOne2",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop3"});
-    oClass.createIndex(database,
+    oClass.createIndex(
         "propOne3",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop2", "prop3"});
-    oClass.createIndex(database,
+    oClass.createIndex(
         "propOne4",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
@@ -129,22 +129,22 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetIndexes() {
-    var schema = database.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    oClass.getProperty(database, "prop1");
+    oClass.getProperty("prop1");
 
-    var indexes = oClass.getInvolvedIndexesInternal(database, "prop1");
+    var indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
     Assert.assertEquals(indexes.size(), 1);
     Assert.assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
   }
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetAllIndexes() {
-    var schema = database.getMetadata().getSchema();
+    var schema = session.getMetadata().getSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
-    var propOne = oClass.getPropertyInternal(database,"prop1");
+    var propOne = oClass.getPropertyInternal("prop1");
 
-    final Collection<Index> indexes = propOne.getAllIndexesInternal(database);
+    final var indexes = propOne.getAllIndexesInternal();
     Assert.assertEquals(indexes.size(), 5);
     Assert.assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
     Assert.assertNotNull(containsIndex(indexes, "propOne0"));
@@ -155,149 +155,154 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testIsIndexedNonIndexedField() {
-    var schema = database.getMetadata().getSchema();
-    var oClass = schema.getClass("PropertyIndexTestClass");
-    var propThree = oClass.getProperty(database, "prop3");
+    var schema = session.getMetadata().getSchema();
+    var oClass = schema.getClassInternal("PropertyIndexTestClass");
+    var propThree = oClass.getPropertyInternal("prop3");
 
-    Assert.assertTrue(propThree.getAllIndexes(database).isEmpty());
+    Assert.assertTrue(propThree.getAllIndexes().isEmpty());
   }
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void testIsIndexedIndexedField() {
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass oClass = schema.getClass("PropertyIndexTestClass");
-    final SchemaProperty propOne = oClass.getProperty(database, "prop1");
-    Assert.assertFalse(propOne.getAllIndexes(database).isEmpty());
+    var schema = session.getMetadata().getSchema();
+    var oClass = schema.getClassInternal("PropertyIndexTestClass");
+    var propOne = oClass.getPropertyInternal("prop1");
+    Assert.assertFalse(propOne.getAllIndexes().isEmpty());
   }
 
   @Test(dependsOnMethods = {"testIsIndexedIndexedField"})
   public void testIndexingCompositeRIDAndOthers() throws Exception {
     checkEmbeddedDB();
 
-    long prev0 =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne0")
-            .getInternal()
-            .size(database);
-    long prev1 =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne1")
-            .getInternal()
-            .size(database);
+    var prev0 =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne0")
 
-    database.begin();
-    EntityImpl doc =
-        new EntityImpl("PropertyIndexTestClass").fields("prop1", "testComposite3");
-    doc.save();
-    new EntityImpl("PropertyIndexTestClass").fields("prop0", doc, "prop1", "testComposite1")
-        .save();
-    new EntityImpl("PropertyIndexTestClass").fields("prop0", doc).save();
-    database.commit();
+            .size(session);
+    var prev1 =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne1")
+
+            .size(session);
+
+    session.begin();
+    var doc =
+        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop1",
+            "testComposite3");
+
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc, "prop1",
+        "testComposite1");
+
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc);
+
+    session.commit();
 
     Assert.assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne0")
-            .getInternal()
-            .size(database),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne0")
+
+            .size(session),
         prev0 + 1);
     Assert.assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne1")
-            .getInternal()
-            .size(database),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne1")
+
+            .size(session),
         prev1);
   }
 
   @Test(dependsOnMethods = {"testIndexingCompositeRIDAndOthers"})
   public void testIndexingCompositeRIDAndOthersInTx() throws Exception {
-    database.begin();
+    session.begin();
 
-    long prev0 =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne0")
-            .getInternal()
-            .size(database);
-    long prev1 =
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne1")
-            .getInternal()
-            .size(database);
+    var prev0 =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne0")
 
-    EntityImpl doc =
-        new EntityImpl("PropertyIndexTestClass").fields("prop1", "testComposite34");
-    doc.save();
-    new EntityImpl("PropertyIndexTestClass").fields("prop0", doc, "prop1", "testComposite33")
-        .save();
-    new EntityImpl("PropertyIndexTestClass").fields("prop0", doc).save();
+            .size(session);
+    var prev1 =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne1")
 
-    database.commit();
+            .size(session);
+
+    var doc =
+        ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop1",
+            "testComposite34");
+
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc, "prop1",
+        "testComposite33");
+
+    ((EntityImpl) session.newEntity("PropertyIndexTestClass")).properties("prop0", doc);
+
+    session.commit();
 
     Assert.assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne0")
-            .getInternal()
-            .size(database),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne0")
+
+            .size(session),
         prev0 + 1);
     Assert.assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "propOne1")
-            .getInternal()
-            .size(database),
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "propOne1")
+
+            .size(session),
         prev1);
   }
 
   @Test
   public void testDropIndexes() throws Exception {
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass oClass = schema.getClass("PropertyIndexTestClass");
+    var schema = session.getMetadata().getSchema();
+    var oClass = schema.getClassInternal("PropertyIndexTestClass");
 
-    oClass.createIndex(database,
+    oClass.createIndex(
         "PropertyIndexFirstIndex",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop4"});
 
-    oClass.createIndex(database,
+    oClass.createIndex(
         "PropertyIndexSecondIndex",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop4"});
 
-    var indexes = oClass.getInvolvedIndexes(database, "prop4");
+    var indexes = oClass.getInvolvedIndexes(session, "prop4");
     for (var index : indexes) {
-      database.getMetadata().getIndexManagerInternal().dropIndex(database, index);
+      session.getSharedContext().getIndexManager().dropIndex(session, index);
     }
 
     Assert.assertNull(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "PropertyIndexFirstIndex"));
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "PropertyIndexFirstIndex"));
     Assert.assertNull(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(database, "PropertyIndexSecondIndex"));
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(session, "PropertyIndexSecondIndex"));
   }
 
   private static Index containsIndex(final Collection<Index> indexes, final String indexName) {
-    for (final Index index : indexes) {
+    for (final var index : indexes) {
       if (index.getName().equals(indexName)) {
         return index;
       }

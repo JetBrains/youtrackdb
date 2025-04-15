@@ -20,23 +20,23 @@
 
 package com.jetbrains.youtrack.db.internal.core.engine.local;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.AsyncReadCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.LockFreeReadCache;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +46,7 @@ import java.util.List;
  */
 public class EngineLocalPaginated extends EngineAbstract {
 
-  public static final String NAME = "plocal";
+  public static final String NAME = "disk";
 
   private volatile ReadCache readCache;
 
@@ -58,7 +58,7 @@ public class EngineLocalPaginated extends EngineAbstract {
 
   private static int getOpenFilesLimit() {
     if (GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger() > 0) {
-      final Object[] additionalArgs =
+      final var additionalArgs =
           new Object[]{GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger()};
       LogManager.instance()
           .info(
@@ -68,15 +68,15 @@ public class EngineLocalPaginated extends EngineAbstract {
       return GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger();
     }
 
-    final int defaultLimit = 512;
-    final int recommendedLimit = 256 * 1024;
+    final var defaultLimit = 512;
+    final var recommendedLimit = 256 * 1024;
 
     return Native.instance().getOpenFilesLimit(true, recommendedLimit, defaultLimit);
   }
 
   @Override
   public void startup() {
-    final String userName = System.getProperty("user.name", "unknown");
+    final var userName = System.getProperty("user.name", "unknown");
     LogManager.instance().info(this, "System is started under an effective user : `%s`", userName);
     if (Native.instance().isOsRoot()) {
       LogManager.instance()
@@ -90,30 +90,30 @@ public class EngineLocalPaginated extends EngineAbstract {
     MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
     super.startup();
 
-    final long diskCacheSize =
+    final var diskCacheSize =
         calculateReadCacheMaxMemory(
             GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024);
-    final int pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
 
     if (GlobalConfiguration.DIRECT_MEMORY_PREALLOCATE.getValueAsBoolean()) {
-      final int pageCount = (int) (diskCacheSize / pageSize);
+      final var pageCount = (int) (diskCacheSize / pageSize);
       LogManager.instance().info(this, "Allocation of " + pageCount + " pages.");
 
-      final ByteBufferPool bufferPool = ByteBufferPool.instance(null);
+      final var bufferPool = ByteBufferPool.instance(null);
       final List<Pointer> pages = new ArrayList<>(pageCount);
 
-      for (int i = 0; i < pageCount; i++) {
+      for (var i = 0; i < pageCount; i++) {
         pages.add(bufferPool.acquireDirect(true, Intention.PAGE_PRE_ALLOCATION));
       }
 
-      for (final Pointer pointer : pages) {
+      for (final var pointer : pages) {
         bufferPool.release(pointer);
       }
 
       pages.clear();
     }
 
-    readCache = new AsyncReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
   }
 
   private static long calculateReadCacheMaxMemory(final long cacheSize) {
@@ -142,7 +142,7 @@ public class EngineLocalPaginated extends EngineAbstract {
       YouTrackDBInternal context) {
     try {
 
-      return new LocalPaginatedStorage(
+      return new LocalStorage(
           dbName,
           dbName,
           storageId,
@@ -152,14 +152,14 @@ public class EngineLocalPaginated extends EngineAbstract {
           doubleWriteLogMaxSegSize,
           context);
     } catch (Exception e) {
-      final String message =
+      final var message =
           "Error on opening database: "
               + dbName
               + ". Current location is: "
               + new java.io.File(".").getAbsolutePath();
       LogManager.instance().error(this, message, e);
 
-      throw BaseException.wrapException(new DatabaseException(message), e);
+      throw BaseException.wrapException(new DatabaseException(dbName, message), e, dbName);
     }
   }
 

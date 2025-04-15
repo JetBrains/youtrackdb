@@ -2,8 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
@@ -15,13 +13,13 @@ public class SleepStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBasic() {
-    long begin = System.currentTimeMillis();
-    ResultSet result = db.command("sleep 1000");
+    var begin = System.currentTimeMillis();
+    var result = session.execute("sleep 1000");
     Assert.assertTrue(System.currentTimeMillis() - begin >= 1000);
     printExecutionPlan(null, result);
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals("sleep", item.getProperty("operation"));
     Assert.assertFalse(result.hasNext());
   }

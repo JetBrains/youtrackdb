@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security.binary;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.BinaryTokenPayload;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenMetaInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenPayload;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenPayloadDeserializer;
@@ -15,6 +13,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class BinaryTokenSerializer implements TokenMetaInfo {
 
@@ -39,21 +38,17 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
     associetedTypes = createMap(entityTypes);
   }
 
-  private TokenPayloadDeserializer getForType(String type) {
-    switch (type) {
-      // The "node" token is for backward compatibility for old distributed binary, may be removed
-      // if we do not support runtime compatibility with 3.1 or less
-      case "node":
-        return new DistributedBinaryTokenPayloadDeserializer();
-      case "YouTrackDB":
-        return new BinaryTokenPayloadDeserializer();
+  private static TokenPayloadDeserializer getForType(String type) {
+    if ("YouTrackDB".equals(type)) {
+      return new BinaryTokenPayloadDeserializer();
     }
+
     throw new DatabaseException("Unknown payload type");
   }
 
   public BinaryTokenSerializer() {
     this(
-        new String[]{"plocal", "memory"},
+        new String[]{"disk", "memory"},
         new String[]{"dafault"},
         new String[]{"HmacSHA256"},
         new String[]{"YouTrackDB", "node"});
@@ -61,33 +56,34 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
 
   public Map<String, Byte> createMap(String[] entries) {
     Map<String, Byte> newMap = new HashMap<String, Byte>();
-    for (int i = 0; i < entries.length; i++) {
+    for (var i = 0; i < entries.length; i++) {
       newMap.put(entries[i], (byte) i);
     }
     return newMap;
   }
 
   public BinaryToken deserialize(InputStream stream) throws IOException {
-    DataInputStream input = new DataInputStream(stream);
+    var input = new DataInputStream(stream);
 
-    YouTrackDBJwtHeader header = new YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setType(types[input.readByte()]);
     header.setKeyId(keys[input.readByte()]);
     header.setAlgorithm(algorithms[input.readByte()]);
 
-    BinaryToken token = new BinaryToken();
+    var token = new BinaryToken();
     token.setHeader(header);
 
-    BinaryTokenPayload payload = getForType(header.getType()).deserialize(input, this);
+    var payload = getForType(header.getType()).deserialize(input, this);
     token.setPayload(payload);
 
     return token;
   }
 
+  @Nullable
   protected static String readString(DataInputStream input) throws IOException {
-    short s = input.readShort();
+    var s = input.readShort();
     if (s >= 0) {
-      byte[] str = new byte[s];
+      var str = new byte[s];
       input.readFully(str);
       return new String(str, StandardCharsets.UTF_8);
     }
@@ -96,8 +92,8 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
 
   public void serialize(BinaryToken token, OutputStream stream) throws IOException {
 
-    DataOutputStream output = new DataOutputStream(stream);
-    TokenHeader header = token.getHeader();
+    var output = new DataOutputStream(stream);
+    var header = token.getHeader();
     TokenPayload payload = token.getPayload();
     assert header.getType() == payload.getPayloadType();
     output.writeByte(associetedTypes.get(header.getType())); // type
@@ -110,7 +106,7 @@ public class BinaryTokenSerializer implements TokenMetaInfo {
     if (toWrite == null) {
       output.writeShort(-1);
     } else {
-      byte[] str = toWrite.getBytes(StandardCharsets.UTF_8);
+      var str = toWrite.getBytes(StandardCharsets.UTF_8);
       output.writeShort(str.length);
       output.write(str);
     }

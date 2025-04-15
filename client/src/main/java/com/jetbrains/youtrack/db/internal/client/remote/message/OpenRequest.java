@@ -7,8 +7,8 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -20,7 +20,7 @@ public class OpenRequest implements BinaryRequest<OpenResponse> {
   private String driverVersion = YouTrackDBConstants.getRawVersion();
   private short protocolVersion = ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION;
   private String clientId = null;
-  private String recordFormat = RecordSerializerNetwork.NAME;
+  private String recordFormat = RecordSerializerNetworkBase.NAME;
   private boolean useToken = true;
   private boolean supportsPush = true;
   private boolean collectStats = true;
@@ -39,7 +39,7 @@ public class OpenRequest implements BinaryRequest<OpenResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
+  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
     network.writeString(driverName);
     network.writeString(driverVersion);
@@ -55,8 +55,9 @@ public class OpenRequest implements BinaryRequest<OpenResponse> {
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
+      int protocolVersion,
+      RecordSerializerNetwork serializer)
       throws IOException {
 
     driverName = channel.readString();

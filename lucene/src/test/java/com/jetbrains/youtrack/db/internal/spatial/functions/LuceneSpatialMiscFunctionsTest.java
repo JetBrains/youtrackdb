@@ -16,7 +16,6 @@ package com.jetbrains.youtrack.db.internal.spatial.functions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.spatial.BaseSpatialLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.text.ParseException;
@@ -26,7 +25,6 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.locationtech.jts.geom.Polygon;
-import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
 
 /**
@@ -37,11 +35,11 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testStEquals() {
 
-    ResultSet execute =
-        db.query(
+    var execute =
+        session.query(
             "SELECT ST_Equals(ST_GeomFromText('LINESTRING(0 0, 10 10)'),"
                 + " ST_GeomFromText('LINESTRING(0 0, 5 5, 10 10)')) as ST_Equals");
-    Result next = execute.next();
+    var next = execute.next();
     Assert.assertEquals(next.getProperty("ST_Equals"), true);
     execute.close();
   }
@@ -49,11 +47,11 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testStEqualsPoint() {
 
-    ResultSet execute =
-        db.query(
+    var execute =
+        session.query(
             "select ST_Equals(ST_GeomFromText('POINT (55.78639 37.58378)'), ST_GeomFromText('POINT"
                 + " (55.78639 37.58378)')) as ST_Equals");
-    Result next = execute.next();
+    var next = execute.next();
     Assert.assertEquals(next.getProperty("ST_Equals"), true);
     execute.close();
   }
@@ -61,11 +59,11 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testStWithinPoint() {
 
-    ResultSet execute =
-        db.query(
+    var execute =
+        session.query(
             "select ST_Within(ST_GeomFromText('POINT (55.78639 37.58378)'), ST_GeomFromText('POINT"
                 + " (55.78639 37.58378)')) as ST_Within");
-    Result next = execute.next();
+    var next = execute.next();
     Assert.assertEquals(next.getProperty("ST_Within"), true);
     execute.close();
   }
@@ -73,11 +71,11 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testStContainsPoint() {
 
-    ResultSet execute =
-        db.query(
+    var execute =
+        session.query(
             "select ST_Contains(ST_GeomFromText('POINT (55.78639 37.58378)'),"
                 + " ST_GeomFromText('POINT (55.78639 37.58378)')) as ST_Contains");
-    Result next = execute.next();
+    var next = execute.next();
     Assert.assertEquals(next.getProperty("ST_Contains"), true);
     execute.close();
   }
@@ -87,18 +85,19 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Ignore
   public void testAsBinary() {
 
-    ResultSet execute =
-        db.command("SELECT ST_AsBinary(ST_GeomFromText('LINESTRING(0 0, 10 10)')) as ST_AsBinary");
-    Result next = execute.next();
+    var execute =
+        session.execute(
+            "SELECT ST_AsBinary(ST_GeomFromText('LINESTRING(0 0, 10 10)')) as ST_AsBinary");
+    var next = execute.next();
     Assert.assertNull(next.getProperty("ST_AsBinary"));
     execute.close();
   }
 
   @Test
   public void testEnvelope() {
-    ResultSet execute =
-        db.query("SELECT ST_AsText(ST_Envelope('LINESTRING(0 0, 1 3)')) as ST_AsText");
-    Result next = execute.next();
+    var execute =
+        session.query("SELECT ST_AsText(ST_Envelope('LINESTRING(0 0, 1 3)')) as ST_AsText");
+    var next = execute.next();
     Assert.assertEquals(next.getProperty("ST_AsText"), "POLYGON ((0 0, 0 3, 1 3, 1 0, 0 0))");
     execute.close();
   }
@@ -106,21 +105,21 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testBuffer() {
 
-    ResultSet execute =
-        db.query("SELECT ST_Buffer(ST_GeomFromText('POINT(100 90)'),50) as buffer;");
-    Result next = execute.next();
+    var execute =
+        session.query("SELECT ST_Buffer(ST_GeomFromText('POINT(100 90)'),50) as buffer;");
+    var next = execute.next();
     execute.close();
     Result buffer = next.getProperty("buffer");
     List coordinates = buffer.getProperty("coordinates");
     Assert.assertNotNull(coordinates);
     Assert.assertEquals(1, coordinates.size());
 
-    List<List<Double>> arrays = buildArrays1();
+    var arrays = buildArrays1();
 
-    List<List<Double>> exp = (List<List<Double>>) coordinates.get(0);
-    for (int i = 0; i < arrays.size(); i++) {
-      List<Double> expected = arrays.get(i);
-      List<Double> actual = exp.get(i);
+    var exp = (List<List<Double>>) coordinates.get(0);
+    for (var i = 0; i < arrays.size(); i++) {
+      var expected = arrays.get(i);
+      var actual = exp.get(i);
       Assert.assertEquals(expected.get(0), actual.get(0), 0.00000001d);
     }
 
@@ -141,7 +140,7 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
     // 109.13417161825431, 149.03926402016157 99.75451610080621, 150 90))");
 
     execute =
-        db.query(
+        session.query(
             "SELECT ST_Buffer(ST_GeomFromText('POINT(100 90)'), 50, { quadSegs : 2 }) as buffer;");
     next = execute.next();
     execute.close();
@@ -157,14 +156,14 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
     Assert.assertEquals(1, coordinates.size());
     arrays = buildArrays2();
     exp = (List<List<Double>>) coordinates.get(0);
-    for (int i = 0; i < arrays.size(); i++) {
-      List<Double> expected = arrays.get(i);
-      List<Double> actual = exp.get(i);
+    for (var i = 0; i < arrays.size(); i++) {
+      var expected = arrays.get(i);
+      var actual = exp.get(i);
       Assert.assertEquals(expected.get(0), actual.get(0), 0.00000001d);
     }
 
     execute =
-        db.query(
+        session.query(
             "SELECT ST_Buffer(ST_GeomFromText('LINESTRING(0 0,75 75,75 0)'), 10, { 'endCap' :"
                 + " 'square' }) as buffer;");
     next = execute.next();
@@ -198,9 +197,9 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
     Assert.assertEquals(1, coordinates.size());
     arrays = buildArrays3();
     exp = (List<List<Double>>) coordinates.get(0);
-    for (int i = 0; i < arrays.size(); i++) {
-      List<Double> expected = arrays.get(i);
-      List<Double> actual = exp.get(i);
+    for (var i = 0; i < arrays.size(); i++) {
+      var expected = arrays.get(i);
+      var actual = exp.get(i);
       Assert.assertEquals(expected.get(0), actual.get(0), 0.00000001d);
     }
   }
@@ -502,18 +501,18 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testDistance() {
 
-    ResultSet execute =
-        db.query(
+    var execute =
+        session.query(
             "SELECT ST_Distance(ST_GeomFromText('POINT(-72.1235"
                 + " 42.3521)'),ST_GeomFromText('LINESTRING(-72.1260 42.45, -72.123 42.1546)')) as"
                 + " ST_Distance");
-    Result next = execute.next();
+    var next = execute.next();
     execute.close();
     //      Assert.assertEquals(next.field("ST_Distance"), 0.0015056772638228177);
     assertThat(next.<Double>getProperty("ST_Distance")).isEqualTo(0.0015056772638228177);
 
     execute =
-        db.query(
+        session.query(
             "SELECT  ST_Distance( ST_GeomFromText('LINESTRING(13.45 52.47,13.46 52.48)'),"
                 + " ST_GeomFromText('LINESTRING(13.00 52.00,13.1 52.2)')) as ST_Distance");
     next = execute.next();
@@ -527,15 +526,17 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testDisjoint() {
 
-    ResultSet execute =
-        db.query("SELECT ST_Disjoint('POINT(0 0)', 'LINESTRING ( 2 0, 0 2 )') as ST_Disjoint;");
-    Result next = execute.next();
+    var execute =
+        session.query(
+            "SELECT ST_Disjoint('POINT(0 0)', 'LINESTRING ( 2 0, 0 2 )') as ST_Disjoint;");
+    var next = execute.next();
     execute.close();
 
     Assert.assertEquals(next.getProperty("ST_Disjoint"), true);
 
     execute =
-        db.query("SELECT ST_Disjoint('POINT(0 0)', 'LINESTRING ( 0 0, 0 2 )') as ST_Disjoint;");
+        session.query(
+            "SELECT ST_Disjoint('POINT(0 0)', 'LINESTRING ( 0 0, 0 2 )') as ST_Disjoint;");
     next = execute.next();
     execute.close();
 
@@ -545,11 +546,11 @@ public class LuceneSpatialMiscFunctionsTest extends BaseSpatialLuceneTest {
   @Test
   public void testWktPolygon() throws ParseException {
 
-    Shape shape = ShapeFactory.INSTANCE.fromObject("POLYGON((0 0, 10 0, 10 5, 0 5, 0 0))");
+    var shape = ShapeFactory.INSTANCE.fromObject("POLYGON((0 0, 10 0, 10 5, 0 5, 0 0))");
 
     Assert.assertTrue(shape instanceof JtsGeometry);
 
-    JtsGeometry geom = (JtsGeometry) shape;
+    var geom = (JtsGeometry) shape;
     Assert.assertTrue(geom.getGeom() instanceof Polygon);
   }
 }

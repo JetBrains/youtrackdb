@@ -1,11 +1,12 @@
 package com.jetbrains.youtrack.db.internal.common.exception;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.exception.BackupInProgressException;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import java.lang.reflect.InvocationTargetException;
+import javax.annotation.Nullable;
 
 /**
  * Enumeration with the error managed by YouTrackDB. This class has been introduced in v.2.2 and
@@ -36,7 +37,7 @@ public enum ErrorCode {
   private static final ErrorCode[] codes = new ErrorCode[6];
 
   static {
-    for (ErrorCode code : ErrorCode.values()) {
+    for (var code : ErrorCode.values()) {
       codes[code.code] = code;
     }
   }
@@ -74,15 +75,17 @@ public enum ErrorCode {
   }
 
   public void throwException(String message, Throwable parent) {
-    BaseException exc = newException(message, parent);
+    var exc = newException(message, parent);
     throw exc;
   }
 
+  @Nullable
   public BaseException newException(String message, Throwable parent) {
-    final String fullMessage = String.format("%1$06d_%2$06d - %3$s", category.code, code, message);
+    final var fullMessage = String.format("%1$06d_%2$06d - %3$s", category.code, code, message);
     try {
       return BaseException.wrapException(
-          exceptionClass.getConstructor(String.class).newInstance(fullMessage), parent);
+          exceptionClass.getConstructor(String.class).newInstance(fullMessage), parent,
+          (String) null);
     } catch (InstantiationException
              | IllegalAccessException
              | NoSuchMethodException

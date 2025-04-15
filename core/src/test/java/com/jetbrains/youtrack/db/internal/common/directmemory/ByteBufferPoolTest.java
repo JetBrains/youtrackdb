@@ -6,7 +6,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -31,16 +30,16 @@ public class ByteBufferPoolTest {
 
   @Test
   public void testByteBufferAllocationZeroPool() {
-    final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
-    final ByteBufferPool byteBufferPool = new ByteBufferPool(42, allocator, 0);
+    final var allocator = new DirectMemoryAllocator();
+    final var byteBufferPool = new ByteBufferPool(42, allocator, 0);
 
-    final Pointer pointerOne = byteBufferPool.acquireDirect(false, Intention.TEST);
+    final var pointerOne = byteBufferPool.acquireDirect(false, Intention.TEST);
     Assert.assertEquals(42, pointerOne.getNativeByteBuffer().capacity());
     Assert.assertEquals(42, allocator.getMemoryConsumption());
 
     Assert.assertEquals(0, byteBufferPool.getPoolSize());
 
-    final Pointer pointerTwo = byteBufferPool.acquireDirect(true, Intention.TEST);
+    final var pointerTwo = byteBufferPool.acquireDirect(true, Intention.TEST);
     Assert.assertEquals(42, pointerTwo.getNativeByteBuffer().capacity());
     Assert.assertEquals(84, allocator.getMemoryConsumption());
 
@@ -60,23 +59,23 @@ public class ByteBufferPoolTest {
 
   @Test
   public void testByteBufferAllocationTwoPagesPool() {
-    final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
-    final ByteBufferPool byteBufferPool = new ByteBufferPool(42, allocator, 2);
+    final var allocator = new DirectMemoryAllocator();
+    final var byteBufferPool = new ByteBufferPool(42, allocator, 2);
 
-    Pointer pointerOne = byteBufferPool.acquireDirect(false, Intention.TEST);
+    var pointerOne = byteBufferPool.acquireDirect(false, Intention.TEST);
 
     Assert.assertEquals(42, pointerOne.getNativeByteBuffer().capacity());
     Assert.assertEquals(0, byteBufferPool.getPoolSize());
     Assert.assertEquals(42, allocator.getMemoryConsumption());
 
-    Pointer pointerTwo = byteBufferPool.acquireDirect(true, Intention.TEST);
+    var pointerTwo = byteBufferPool.acquireDirect(true, Intention.TEST);
     Assert.assertEquals(42, pointerTwo.getNativeByteBuffer().capacity());
     Assert.assertEquals(0, byteBufferPool.getPoolSize());
     Assert.assertEquals(84, allocator.getMemoryConsumption());
 
     assertBufferIsClear(pointerTwo.getNativeByteBuffer());
 
-    Pointer pointerThree = byteBufferPool.acquireDirect(false, Intention.TEST);
+    var pointerThree = byteBufferPool.acquireDirect(false, Intention.TEST);
 
     Assert.assertEquals(42, pointerThree.getNativeByteBuffer().capacity());
     Assert.assertEquals(0, byteBufferPool.getPoolSize());
@@ -161,13 +160,13 @@ public class ByteBufferPoolTest {
   @Test
   @Ignore
   public void mtTest() throws Exception {
-    final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
-    final ByteBufferPool byteBufferPool = new ByteBufferPool(42, allocator, 600 * 8);
+    final var allocator = new DirectMemoryAllocator();
+    final var byteBufferPool = new ByteBufferPool(42, allocator, 600 * 8);
     final List<Future<Void>> futures = new ArrayList<>();
-    final AtomicBoolean stop = new AtomicBoolean();
+    final var stop = new AtomicBoolean();
 
-    final ExecutorService executorService = Executors.newCachedThreadPool();
-    for (int i = 0; i < 8; i++) {
+    final var executorService = Executors.newCachedThreadPool();
+    for (var i = 0; i < 8; i++) {
       futures.add(executorService.submit(new Allocator(byteBufferPool, stop)));
     }
 
@@ -175,7 +174,7 @@ public class ByteBufferPoolTest {
 
     stop.set(true);
 
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -208,31 +207,31 @@ public class ByteBufferPoolTest {
       try {
         while (!stop.get()) {
           if (allocatedPointers.size() < 500) {
-            Pointer pointer = pool.acquireDirect(false, Intention.TEST);
+            var pointer = pool.acquireDirect(false, Intention.TEST);
             allocatedPointers.add(pointer);
           } else if (allocatedPointers.size() < 1000) {
             if (random.nextDouble() <= 0.5) {
-              Pointer pointer = pool.acquireDirect(false, Intention.TEST);
+              var pointer = pool.acquireDirect(false, Intention.TEST);
               allocatedPointers.add(pointer);
             } else {
-              final int bufferToRemove = random.nextInt(allocatedPointers.size());
-              final Pointer pointer = allocatedPointers.remove(bufferToRemove);
+              final var bufferToRemove = random.nextInt(allocatedPointers.size());
+              final var pointer = allocatedPointers.remove(bufferToRemove);
               pool.release(pointer);
             }
           } else {
             if (random.nextDouble() <= 0.4) {
-              Pointer pointer = pool.acquireDirect(false, Intention.TEST);
+              var pointer = pool.acquireDirect(false, Intention.TEST);
               allocatedPointers.add(pointer);
             } else {
-              final int bufferToRemove = random.nextInt(allocatedPointers.size());
-              final Pointer pointer = allocatedPointers.remove(bufferToRemove);
+              final var bufferToRemove = random.nextInt(allocatedPointers.size());
+              final var pointer = allocatedPointers.remove(bufferToRemove);
               pool.release(pointer);
             }
           }
         }
 
         System.out.println("Allocated buffers " + allocatedPointers.size());
-        for (Pointer pointer : allocatedPointers) {
+        for (var pointer : allocatedPointers) {
           pool.release(pointer);
         }
       } catch (Exception | Error e) {

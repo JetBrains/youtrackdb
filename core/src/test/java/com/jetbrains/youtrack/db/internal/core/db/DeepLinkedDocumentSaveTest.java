@@ -14,20 +14,21 @@ public class DeepLinkedDocumentSaveTest extends DbTestBase {
   public void testLinkedTx() {
     final Set<EntityImpl> docs = new HashSet<>();
 
-    db.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSchema().createClass("Test");
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("Test");
     docs.add(doc);
-    for (int i = 0; i < 3000; i++) {
-      docs.add(doc = new EntityImpl("Test").field("linked", doc));
+    for (var i = 0; i < 3000; i++) {
+      doc = (EntityImpl) session.newEntity("Test");
+      doc.setProperty("linked", doc);
+      docs.add(doc);
     }
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    assertEquals(3001, db.countClass("Test"));
+    assertEquals(3001, session.countClass("Test"));
 
-    for (EntityImpl d : docs) {
+    for (var d : docs) {
       assertEquals(1, d.getVersion());
     }
   }

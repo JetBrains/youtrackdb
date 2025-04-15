@@ -20,17 +20,60 @@
 
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 public abstract class BaseException extends RuntimeException {
 
-  private static final long serialVersionUID = 3882447822497861424L;
+  @Nullable
+  private String dbName;
 
-  public static BaseException wrapException(final BaseException exception, final Throwable cause) {
+  public static BaseException wrapException(final BaseException exception, final Throwable cause,
+      @Nullable DatabaseSession session) {
+    return wrapException(exception, cause, session != null ? session.getDatabaseName() : null);
+  }
+
+
+  public static BaseException wrapException(final BaseException exception, final Throwable cause,
+      @Nullable String dbName) {
+    if (cause instanceof BaseException baseCause && baseCause.dbName == null) {
+      if (dbName != null) {
+        baseCause.dbName = dbName;
+      } else {
+        baseCause.dbName = exception.dbName;
+      }
+    }
+
     if (cause instanceof HighLevelException) {
       return (BaseException) cause;
     }
 
     exception.initCause(cause);
+
+    if (exception.dbName == null) {
+      if (dbName != null) {
+        exception.dbName = dbName;
+      } else if (cause instanceof BaseException baseCause) {
+        exception.dbName = baseCause.dbName;
+      }
+    }
+
     return exception;
+  }
+
+  public BaseException(final String message, @Nullable DatabaseSession session) {
+    super(message);
+
+    if (session != null) {
+      this.dbName = session.getDatabaseName();
+    }
+  }
+
+  public BaseException(final String message, @Nullable String dbName) {
+    super(message);
+
+    this.dbName = dbName;
   }
 
   public BaseException(final String message) {
@@ -44,5 +87,21 @@ public abstract class BaseException extends RuntimeException {
    */
   public BaseException(final BaseException exception) {
     super(exception.getMessage(), exception.getCause());
+    this.dbName = exception.dbName;
+  }
+
+  @Nullable
+  public String getDbName() {
+    return dbName;
+  }
+
+  public void setDbName(@Nullable String dbName) {
+    this.dbName = dbName;
+  }
+
+  public void setDbName(@Nonnull DatabaseSession db) {
+    if (this.dbName == null) {
+      this.dbName = db.getDatabaseName();
+    }
   }
 }

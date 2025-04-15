@@ -31,6 +31,7 @@ import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
 import javax.management.MBeanException;
@@ -98,10 +99,10 @@ public class Native {
   public int getOpenFilesLimit(boolean verbose, int recommended, int defLimit) {
     if (IOUtils.isOsLinux()) {
       try {
-        final RLimit rLimit = posix.getrlimit(Native.RLIMIT_NOFILE);
+        final var rLimit = posix.getrlimit(Native.RLIMIT_NOFILE);
         if (rLimit.rlimCur() > 0) {
           if (verbose) {
-            final Object[] additionalArgs =
+            final var additionalArgs =
                 new Object[]{rLimit.rlimCur(), rLimit.rlimCur() / 2 - 512};
             LogManager.instance()
                 .info(
@@ -154,6 +155,7 @@ public class Native {
    * YouTrackDB instance is running inside container. If <code>null</code> is returned then it was
    * impossible to detect amount of memory on machine.
    */
+  @Nullable
   public MemoryLimitResult getMemoryLimit(final boolean printSteps) {
     // Perform several steps here:
     // 1. Fetch physical size available on machine
@@ -162,8 +164,8 @@ public class Native {
     // 4. Fetch cgroup hard limit
     // 5. Return the minimal value from the list of results
 
-    long memoryLimit = getPhysicalMemorySize();
-    boolean insideContainer = false;
+    var memoryLimit = getPhysicalMemorySize();
+    var insideContainer = false;
 
     if (printSteps) {
       LogManager.instance()
@@ -177,9 +179,9 @@ public class Native {
 
     if (IOUtils.isOsLinux()) {
       try {
-        final RLimit rLimit = posix.getrlimit(Native.RLIMIT_AS);
+        final var rLimit = posix.getrlimit(Native.RLIMIT_AS);
         if (printSteps) {
-          final Object[] additionalArgs =
+          final var additionalArgs =
               new Object[]{
                   rLimit.rlimCur(), convertToMB(rLimit.rlimCur()), convertToGB(rLimit.rlimCur())
               };
@@ -192,7 +194,7 @@ public class Native {
         memoryLimit = updateMemoryLimit(memoryLimit, rLimit.rlimCur());
 
         if (printSteps) {
-          final Object[] additionalArgs =
+          final var additionalArgs =
               new Object[]{
                   rLimit.rlimMax(), convertToMB(rLimit.rlimMax()), convertToGB(rLimit.rlimMax())
               };
@@ -209,19 +211,19 @@ public class Native {
         }
       }
 
-      final String memoryCGroupPath = findMemoryGCGroupPath();
+      final var memoryCGroupPath = findMemoryGCGroupPath();
       if (memoryCGroupPath != null) {
         if (printSteps) {
           LogManager.instance().info(this, "Path to 'memory' cgroup is '%s'", memoryCGroupPath);
         }
-        final String memoryCGroupRoot = findMemoryGCRoot();
+        final var memoryCGroupRoot = findMemoryGCRoot();
 
         if (printSteps) {
           LogManager.instance()
               .info(this, "Mounting path for memory cgroup controller is '%s'", memoryCGroupRoot);
         }
 
-        File memoryCGroup = new File(memoryCGroupRoot, memoryCGroupPath);
+        var memoryCGroup = new File(memoryCGroupRoot, memoryCGroupPath);
         if (!memoryCGroup.exists()) {
           if (printSteps) {
             LogManager.instance()
@@ -236,10 +238,10 @@ public class Native {
           insideContainer = true;
         }
 
-        final long softMemoryLimit = fetchCGroupSoftMemoryLimit(memoryCGroup, printSteps);
+        final var softMemoryLimit = fetchCGroupSoftMemoryLimit(memoryCGroup, printSteps);
         memoryLimit = updateMemoryLimit(memoryLimit, softMemoryLimit);
 
-        final long hardMemoryLimit = fetchCGroupHardMemoryLimit(memoryCGroup, printSteps);
+        final var hardMemoryLimit = fetchCGroupHardMemoryLimit(memoryCGroup, printSteps);
         memoryLimit = updateMemoryLimit(memoryLimit, hardMemoryLimit);
       }
     }
@@ -284,16 +286,16 @@ public class Native {
   }
 
   private long fetchCGroupSoftMemoryLimit(final File memoryCGroup, final boolean printSteps) {
-    final File softMemoryCGroupLimit = new File(memoryCGroup, "memory.soft_limit_in_bytes");
+    final var softMemoryCGroupLimit = new File(memoryCGroup, "memory.soft_limit_in_bytes");
     if (softMemoryCGroupLimit.exists()) {
       try {
-        final FileReader memoryLimitReader = new FileReader(softMemoryCGroupLimit);
-        try (final BufferedReader bufferedMemoryLimitReader =
+        final var memoryLimitReader = new FileReader(softMemoryCGroupLimit);
+        try (final var bufferedMemoryLimitReader =
             new BufferedReader(memoryLimitReader)) {
           try {
-            final String cgroupMemoryLimitValueStr = bufferedMemoryLimitReader.readLine();
+            final var cgroupMemoryLimitValueStr = bufferedMemoryLimitReader.readLine();
             try {
-              final long cgroupMemoryLimitValue = Long.parseLong(cgroupMemoryLimitValueStr);
+              final var cgroupMemoryLimitValue = Long.parseLong(cgroupMemoryLimitValueStr);
 
               if (printSteps) {
                 LogManager.instance()
@@ -339,17 +341,17 @@ public class Native {
   }
 
   private long fetchCGroupHardMemoryLimit(final File memoryCGroup, final boolean printSteps) {
-    final File hardMemoryCGroupLimit = new File(memoryCGroup, "memory.limit_in_bytes");
+    final var hardMemoryCGroupLimit = new File(memoryCGroup, "memory.limit_in_bytes");
     if (hardMemoryCGroupLimit.exists()) {
       try {
-        final FileReader memoryLimitReader = new FileReader(hardMemoryCGroupLimit);
+        final var memoryLimitReader = new FileReader(hardMemoryCGroupLimit);
 
-        try (final BufferedReader bufferedMemoryLimitReader =
+        try (final var bufferedMemoryLimitReader =
             new BufferedReader(memoryLimitReader)) {
           try {
-            final String cgroupMemoryLimitValueStr = bufferedMemoryLimitReader.readLine();
+            final var cgroupMemoryLimitValueStr = bufferedMemoryLimitReader.readLine();
             try {
-              final long cgroupMemoryLimitValue = Long.parseLong(cgroupMemoryLimitValueStr);
+              final var cgroupMemoryLimitValue = Long.parseLong(cgroupMemoryLimitValueStr);
 
               if (printSteps) {
                 LogManager.instance()
@@ -398,16 +400,16 @@ public class Native {
     String memoryCGroupPath = null;
 
     // fetch list of cgroups to which given process belongs to
-    final File cgroupList = new File("/proc/self/cgroup");
+    final var cgroupList = new File("/proc/self/cgroup");
     if (cgroupList.exists()) {
       try {
-        final FileReader cgroupListReader = new FileReader(cgroupList);
+        final var cgroupListReader = new FileReader(cgroupList);
 
-        try (final BufferedReader bufferedCGroupReader = new BufferedReader(cgroupListReader)) {
+        try (final var bufferedCGroupReader = new BufferedReader(cgroupListReader)) {
           String cgroupData;
           try {
             while ((cgroupData = bufferedCGroupReader.readLine()) != null) {
-              final String[] cgroupParts = cgroupData.split(":");
+              final var cgroupParts = cgroupData.split(":");
               // we need only memory controller
               if (cgroupParts[1].equals("memory")) {
                 memoryCGroupPath = cgroupParts[2];
@@ -447,26 +449,26 @@ public class Native {
     String memoryCGroupRoot = null;
 
     // fetch all mount points and find one to which cgroup memory controller is mounted
-    final File procMounts = new File("/proc/mounts");
+    final var procMounts = new File("/proc/mounts");
     if (procMounts.exists()) {
       final FileReader mountsReader;
       try {
         mountsReader = new FileReader(procMounts);
-        try (BufferedReader bufferedMountsReader = new BufferedReader(mountsReader)) {
+        try (var bufferedMountsReader = new BufferedReader(mountsReader)) {
           String fileSystem;
           while ((fileSystem = bufferedMountsReader.readLine()) != null) {
             // file system type \s+ mount point \s+ etc.
-            final String[] fsParts = fileSystem.split("\\s+");
+            final var fsParts = fileSystem.split("\\s+");
             if (fsParts.length == 0) {
               continue;
             }
 
-            final String fsType = fsParts[2];
+            final var fsType = fsParts[2];
             // all cgroup controllers have "cgroup" as file system type
             if (fsType.equals("cgroup")) {
               // get mounting path of cgroup
-              final String fsMountingPath = fsParts[1];
-              final String[] fsPathParts = fsMountingPath.split(File.separator);
+              final var fsMountingPath = fsParts[1];
+              final var fsPathParts = fsMountingPath.split(File.separator);
               if (fsPathParts[fsPathParts.length - 1].equals("memory")) {
                 memoryCGroupRoot = fsMountingPath;
               }
@@ -501,8 +503,8 @@ public class Native {
     long osMemory = -1;
 
     try {
-      final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
-      final Object attribute =
+      final var mBeanServer = ManagementFactory.getPlatformMBeanServer();
+      final var attribute =
           mBeanServer.getAttribute(
               new ObjectName("java.lang", "type", "OperatingSystem"), "TotalPhysicalMemorySize");
 
@@ -578,7 +580,7 @@ public class Native {
 
   public long blockSize(String path) {
     // TODO:When upgrading to java 11 use FileStore.getBlockSize()
-    try (RandomAccessFile file = new RandomAccessFile(path, "r")) {
+    try (var file = new RandomAccessFile(path, "r")) {
       return posix.fstat(file.getFD()).blockSize();
     } catch (Exception e) {
       LogManager.instance().warn(this, "Error detecting block size ignoring", e);

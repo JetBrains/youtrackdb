@@ -26,7 +26,7 @@ public class AtomicUnitStartMetadataRecord extends AtomicUnitStartRecord {
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
-    int len = buffer.getInt();
+    var len = buffer.getInt();
     this.metadata = new byte[len];
     buffer.get(this.metadata);
   }

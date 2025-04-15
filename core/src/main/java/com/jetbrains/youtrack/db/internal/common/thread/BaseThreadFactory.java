@@ -12,7 +12,7 @@ abstract class BaseThreadFactory implements ThreadFactory {
 
   @Override
   public final Thread newThread(final Runnable r) {
-    final Thread thread = new Thread(parentThreadGroup, r);
+    final var thread = new Thread(parentThreadGroup, r);
     thread.setDaemon(true);
     thread.setName(nextThreadName());
     return thread;

@@ -19,11 +19,10 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.exception.FastConcurrentModificationException;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -50,23 +49,18 @@ public class ConcurrentModificationException extends NeedRetryException
     this.recordOperation = exception.recordOperation;
   }
 
-  protected ConcurrentModificationException(final String message) {
-    super(message);
+  protected ConcurrentModificationException(String dbName, final String message) {
+    super(dbName, message);
   }
 
   public ConcurrentModificationException(
-      final RID iRID,
+      String dbName, final RID iRID,
       final int iDatabaseVersion,
       final int iRecordVersion,
       final int iRecordOperation) {
-    super(
+    super(dbName,
         makeMessage(iRecordOperation, iRID, iDatabaseVersion, iRecordVersion),
         ErrorCode.MVCC_ERROR);
-
-    if (FastConcurrentModificationException.enabled()) {
-      throw new IllegalStateException(
-          "Fast-throw is enabled. Use FastConcurrentModificationException.instance() instead");
-    }
 
     rid = iRID;
     databaseVersion = iDatabaseVersion;
@@ -108,9 +102,9 @@ public class ConcurrentModificationException extends NeedRetryException
 
   private static String makeMessage(
       int recordOperation, RID rid, int databaseVersion, int recordVersion) {
-    final String operation = RecordOperation.getName(recordOperation);
+    final var operation = RecordOperation.getName(recordOperation);
 
-    String sb =
+    var sb =
         "Cannot "
             + operation
             + " the record "

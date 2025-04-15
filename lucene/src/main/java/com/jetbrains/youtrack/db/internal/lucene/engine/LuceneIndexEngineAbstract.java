@@ -19,26 +19,26 @@ package com.jetbrains.youtrack.db.internal.lucene.engine;
 import static com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory.AnalyzerKind.INDEX;
 import static com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory.AnalyzerKind.QUERY;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneIndexType;
@@ -49,11 +49,10 @@ import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChangesMultiRid;
 import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChangesSingleRid;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileSystem;
+import java.io.StringWriter;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimerTask;
@@ -64,7 +63,6 @@ import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -74,7 +72,6 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Version;
@@ -137,15 +134,15 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void init(IndexMetadata im) {
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
     this.indexDefinition = im.getIndexDefinition();
     this.metadata = im.getMetadata();
 
-    LuceneAnalyzerFactory fc = new LuceneAnalyzerFactory();
+    var fc = new LuceneAnalyzerFactory();
     indexAnalyzer = fc.createAnalyzer(indexDefinition, INDEX, metadata);
     queryAnalyzer = fc.createAnalyzer(indexDefinition, QUERY, metadata);
 
-    checkCollectionIndex(indexDefinition);
+    checkCollectionIndex(session, indexDefinition);
 
     flushIndexInterval =
         Optional.ofNullable((Integer) metadata.get("flushIndexInterval"))
@@ -195,21 +192,21 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   private boolean shouldClose() {
-    //noinspection resource
     return !(directory.getDirectory() instanceof RAMDirectory)
         && System.currentTimeMillis() - lastAccess.get() > closeAfterInterval;
   }
 
-  private void checkCollectionIndex(IndexDefinition indexDefinition) {
+  private void checkCollectionIndex(DatabaseSessionInternal session,
+      IndexDefinition indexDefinition) {
+    var fields = indexDefinition.getFields();
 
-    List<String> fields = indexDefinition.getFields();
+    var aClass =
+        session.getMetadata().getSchema().getClass(indexDefinition.getClassName());
+    for (var field : fields) {
+      var property = aClass.getProperty(field);
 
-    SchemaClass aClass =
-        getDatabase().getMetadata().getSchema().getClass(indexDefinition.getClassName());
-    for (String field : fields) {
-      SchemaProperty property = aClass.getProperty(getDatabase(), field);
-
-      if (property.getType().isEmbedded() && property.getLinkedType() != null) {
+      if (PropertyTypeInternal.convertFromPublicType(property.getType()).isEmbedded()
+          && property.getLinkedType() != null) {
         collectionFields.put(field, true);
       } else {
         collectionFields.put(field, false);
@@ -218,18 +215,14 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   private void reOpen(Storage storage) throws IOException {
-    //noinspection resource
     if (indexWriter != null
         && indexWriter.isOpen()
         && directory.getDirectory() instanceof RAMDirectory) {
       // don't waste time reopening an in memory index
       return;
     }
-    open(storage);
-  }
 
-  protected static DatabaseSessionInternal getDatabase() {
-    return DatabaseRecordThreadLocal.instance().get();
+    open(storage);
   }
 
   private synchronized void open(Storage storage) throws IOException {
@@ -238,7 +231,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
       return;
     }
 
-    LuceneDirectoryFactory directoryFactory = new LuceneDirectoryFactory();
+    var directoryFactory = new LuceneDirectoryFactory();
 
     directory = directoryFactory.createDirectory(storage, name, metadata);
 
@@ -255,23 +248,31 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
 
     scheduleCommitTask();
 
-    addMetadataDocumentIfNotPresent();
+    addMetadataDocumentIfNotPresent(storage);
   }
 
-  private void addMetadataDocumentIfNotPresent() {
+  private void addMetadataDocumentIfNotPresent(Storage storage) {
 
-    final IndexSearcher searcher = searcher();
-
+    final var searcher = searcher(storage);
     try {
-      final TopDocs topDocs =
+      final var topDocs =
           searcher.search(new TermQuery(new Term("_CLASS", "JSON_METADATA")), 1);
+      var jsonFactory = new JsonFactory();
       if (topDocs.totalHits == 0) {
-        var metaDoc = new EntityImpl();
-        metaDoc.fromMap(metadata);
-        String metaAsJson = metaDoc.toJSON();
-        String defAsJson = indexDefinition.toStream(new EntityImpl()).toJSON();
+        var metaAsJson = JSONSerializerJackson.mapToJson(metadata);
 
-        Document lMetaDoc = new Document();
+        String defAsJson;
+        var jsonWriter = new StringWriter();
+        try (var jsonGenerator = jsonFactory.createGenerator(jsonWriter)) {
+          indexDefinition.toJson(jsonGenerator);
+          defAsJson = jsonWriter.toString();
+        } catch (IOException e) {
+          throw BaseException.wrapException(
+              new SerializationException(storage.getName(),
+                  "Error while converting index definition to JSON"), e, storage.getName());
+        }
+
+        var lMetaDoc = new Document();
         lMetaDoc.add(new StringField("_META_JSON", metaAsJson, Field.Store.YES));
         lMetaDoc.add(new StringField("_DEF_JSON", defAsJson, Field.Store.YES));
         lMetaDoc.add(
@@ -284,7 +285,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     } catch (IOException e) {
       LogManager.instance().error(this, "Error while retrieving index metadata", e);
     } finally {
-      release(searcher);
+      release(storage, searcher);
     }
   }
 
@@ -349,28 +350,28 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
         }
       }
 
-      final AbstractPaginatedStorage storageLocalAbstract = (AbstractPaginatedStorage) storage;
-      if (storageLocalAbstract instanceof LocalPaginatedStorage localStorage) {
-        File storagePath = localStorage.getStoragePath().toFile();
+      final var storageLocalAbstract = (AbstractStorage) storage;
+      if (storageLocalAbstract instanceof LocalStorage localStorage) {
+        var storagePath = localStorage.getStoragePath().toFile();
         deleteIndexFolder(storagePath);
       }
     } catch (IOException e) {
       throw BaseException.wrapException(
-          new StorageException("Error during deletion of Lucene index " + name), e);
+          new StorageException(storage.getName(), "Error during deletion of Lucene index " + name),
+          e, storage.getName());
     }
   }
 
   private void deleteIndexFolder(File baseStoragePath) throws IOException {
-    @SuppressWarnings("resource") final String[] files = directory.getDirectory().listAll();
-    for (String fileName : files) {
-      //noinspection resource
+    final var files = directory.getDirectory().listAll();
+    for (var fileName : files) {
       directory.getDirectory().deleteFile(fileName);
     }
     directory.getDirectory().close();
-    String indexPath = directory.getPath();
+    var indexPath = directory.getPath();
     if (indexPath != null) {
-      File indexDir = new File(indexPath);
-      final FileSystem fileSystem = FileSystems.getDefault();
+      var indexDir = new File(indexPath);
+      final var fileSystem = FileSystems.getDefault();
       while (true) {
         if (Files.isSameFile(
             fileSystem.getPath(baseStoragePath.getCanonicalPath()),
@@ -379,7 +380,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
         }
         // delete only if dir is empty, otherwise stop deleting process
         // last index will remove all upper dirs
-        final File[] indexDirFiles = indexDir.listFiles();
+        final var indexDirFiles = indexDir.listFiles();
         if (indexDirFiles != null && indexDirFiles.length == 0) {
           FileUtils.deleteRecursively(indexDir, true);
           indexDir = indexDir.getParentFile();
@@ -411,11 +412,11 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public boolean remove(Object key, Identifiable value) {
+  public boolean remove(Storage storage, Object key, Identifiable value) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(storage);
 
-    Query query = deleteQuery(key, value);
+    var query = deleteQuery(storage, key, value);
     if (query != null) {
       deleteDocument(query);
     }
@@ -423,11 +424,11 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public boolean remove(Object key) {
+  public boolean remove(Storage storage, Object key) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(storage);
     try {
-      final Query query = new QueryParser("", queryAnalyzer()).parse((String) key);
+      final var query = new QueryParser("", queryAnalyzer()).parse((String) key);
       deleteDocument(query);
       return true;
     } catch (org.apache.lucene.queryparser.classic.ParseException e) {
@@ -444,7 +445,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
             .error(
                 this,
                 "Error on deleting entity by query '%s' to Lucene index",
-                new IndexException("Error deleting entity"),
+                new IndexException(storage.getName(), "Error deleting entity"),
                 query);
       }
     } catch (IOException e) {
@@ -454,8 +455,8 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   private boolean isCollectionDelete() {
-    boolean collectionDelete = false;
-    for (Boolean aBoolean : collectionFields.values()) {
+    var collectionDelete = false;
+    for (var aBoolean : collectionFields.values()) {
       collectionDelete = collectionDelete || aBoolean;
     }
     return collectionDelete;
@@ -471,43 +472,39 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     }
   }
 
-  protected void openIfClosed() {
-    openIfClosed(getDatabase().getStorage());
-  }
-
   @Override
   public boolean isCollectionIndex() {
     return isCollectionDelete();
   }
 
   @Override
-  public IndexSearcher searcher() {
+  public IndexSearcher searcher(Storage storage) {
     try {
       updateLastAccess();
-      openIfClosed();
+      openIfClosed(storage);
       nrt.waitForGeneration(reopenToken);
       return searcherManager.acquire();
     } catch (Exception e) {
       LogManager.instance().error(this, "Error on get searcher from Lucene index", e);
       throw BaseException.wrapException(
-          new LuceneIndexException("Error on get searcher from Lucene index"), e);
+          new LuceneIndexException("Error on get searcher from Lucene index"), e,
+          storage.getName());
     }
   }
 
   @Override
-  public long sizeInTx(LuceneTxChanges changes) {
+  public long sizeInTx(LuceneTxChanges changes, Storage storage) {
     updateLastAccess();
-    openIfClosed();
-    IndexSearcher searcher = searcher();
+    openIfClosed(storage);
+    var searcher = searcher(storage);
     try {
-      @SuppressWarnings("resource")
-      IndexReader reader = searcher.getIndexReader();
+      var reader = searcher.getIndexReader();
 
       // we subtract metadata document added during open
       return changes == null ? reader.numDocs() - 1 : reader.numDocs() + changes.numDocs() - 1;
     } finally {
 
-      release(searcher);
+      release(storage, searcher);
     }
   }
 
@@ -523,9 +520,9 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public Query deleteQuery(Object key, Identifiable value) {
+  public Query deleteQuery(Storage storage, Object key, Identifiable value) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(storage);
 
     return LuceneIndexType.createDeleteQuery(value, indexDefinition.getFields(), key);
   }
@@ -535,9 +532,9 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void clear(AtomicOperation atomicOperation) {
+  public void clear(Storage storage, AtomicOperation atomicOperation) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(storage);
     try {
       reopenToken = indexWriter.deleteAll();
     } catch (IOException e) {
@@ -589,14 +586,14 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     throw new UnsupportedOperationException("Cannot iterate over a lucene index");
   }
 
-  public long size(final IndexEngineValuesTransformer transformer) {
-    return sizeInTx(null);
+  public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
+    return sizeInTx(null, storage);
   }
 
   @Override
-  public void release(IndexSearcher searcher) {
+  public void release(Storage storage, IndexSearcher searcher) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(storage);
 
     try {
       searcherManager.release(searcher);
@@ -611,7 +608,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(Object key) {
+  public boolean acquireAtomicExclusiveLock() {
     return true; // do nothing
   }
 
@@ -621,7 +618,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public synchronized void freeze(boolean throwException) {
+  public synchronized void freeze(DatabaseSessionInternal db, boolean throwException) {
     try {
       closeNRT();
       cancelCommitTask();
@@ -632,10 +629,10 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
   }
 
   @Override
-  public void release() {
+  public void release(DatabaseSessionInternal db) {
     try {
       close();
-      reOpen(getDatabase().getStorage());
+      reOpen(db.getStorage());
     } catch (IOException e) {
       LogManager.instance().error(this, "Error on releasing Lucene index:: " + indexName(), e);
     }

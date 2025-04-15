@@ -13,23 +13,23 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryTargetOperator;
 import com.jetbrains.youtrack.db.internal.lucene.operator.LuceneOperatorUtil;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -45,7 +45,7 @@ public abstract class LuceneSpatialOperator extends QueryTargetOperator {
 
   @Override
   public IndexSearchResult getOIndexSearchResult(
-      SchemaClass iSchemaClass,
+      SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {
@@ -56,7 +56,7 @@ public abstract class LuceneSpatialOperator extends QueryTargetOperator {
   // TODO HANDLE EVALUATE RECORD
   @Override
   public Object evaluateRecord(
-      Identifiable iRecord,
+      Result iRecord,
       EntityImpl iCurrentResult,
       SQLFilterCondition iCondition,
       Object iLeft,
@@ -64,7 +64,7 @@ public abstract class LuceneSpatialOperator extends QueryTargetOperator {
       CommandContext iContext,
       final EntitySerializer serializer) {
 
-    SQLFunction function = SQLEngine.getInstance().getFunction(iContext.getDatabase(), keyword);
+    var function = SQLEngine.getFunction(iContext.getDatabaseSession(), keyword);
     return function.execute(
         this, iRecord, iCurrentResult, new Object[]{iLeft, iCondition.getRight()}, iContext);
   }
@@ -74,11 +74,13 @@ public abstract class LuceneSpatialOperator extends QueryTargetOperator {
     return IndexReuseType.INDEX_OPERATOR;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

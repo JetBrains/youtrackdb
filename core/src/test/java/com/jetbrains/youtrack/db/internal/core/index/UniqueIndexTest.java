@@ -1,15 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Direction;
-import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -20,182 +19,172 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test
   public void compositeIndexWithEdgesTestOne() {
-    var linkClass = db.createLightweightEdgeClass("Link");
+    var linkClass = session.createLightweightEdgeClass("Link");
 
-    var entityClass = db.createVertexClass("Entity");
+    var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(db, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(db, "type", PropertyType.STRING);
-    entityClass.createIndex(db, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
-    db.begin();
-    var firstEntity = db.newVertex(entityClass);
+    session.begin();
+    var firstEntity = session.newVertex(entityClass);
     firstEntity.setProperty("type", "type1");
 
-    var secondEntity = db.newVertex(entityClass);
+    var secondEntity = session.newVertex(entityClass);
     secondEntity.setProperty("type", "type2");
 
-    var thirdEntity = db.newVertex(entityClass);
+    var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
     firstEntity.addLightWeightEdge(thirdEntity, linkClass);
     secondEntity.addLightWeightEdge(thirdEntity, linkClass);
 
-    firstEntity.save();
-    secondEntity.save();
+    session.commit();
 
-    db.commit();
-
-    db.begin();
-    secondEntity = db.bindToSession(secondEntity);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    secondEntity = activeTx.load(secondEntity);
     secondEntity.setProperty("type", "type1");
-    secondEntity.save();
     try {
-      db.commit();
+      session.commit();
       Assert.fail();
     } catch (RecordDuplicatedException e) {
-      db.rollback();
+      session.rollback();
     }
   }
 
   @Test
   public void compositeIndexWithEdgesTestTwo() {
-    var linkClass = db.createLightweightEdgeClass("Link");
+    var linkClass = session.createLightweightEdgeClass("Link");
 
-    var entityClass = db.createVertexClass("Entity");
+    var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(db, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(db, "type", PropertyType.STRING);
-    entityClass.createIndex(db, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
-    db.begin();
-    var firstEntity = db.newVertex(entityClass);
+    session.begin();
+    var firstEntity = session.newVertex(entityClass);
     firstEntity.setProperty("type", "type1");
 
-    var secondEntity = db.newVertex(entityClass);
+    var secondEntity = session.newVertex(entityClass);
     secondEntity.setProperty("type", "type2");
 
-    var thirdEntity = db.newVertex(entityClass);
+    var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
     firstEntity.addLightWeightEdge(thirdEntity, linkClass);
     secondEntity.addLightWeightEdge(thirdEntity, linkClass);
 
-    firstEntity.save();
-    secondEntity.save();
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void compositeIndexWithEdgesTestThree() {
-    var linkClass = db.createLightweightEdgeClass("Link");
+    var linkClass = session.createLightweightEdgeClass("Link");
 
-    var entityClass = db.createVertexClass("Entity");
+    var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(db, edgeOutPropertyName, PropertyType.LINKBAG);
+    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
-    entityClass.createProperty(db, "type", PropertyType.STRING);
-    entityClass.createIndex(db, "typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createProperty("type", PropertyType.STRING);
+    entityClass.createIndex("typeLink", SchemaClass.INDEX_TYPE.UNIQUE, "type",
         edgeOutPropertyName);
 
-    db.begin();
-    var firstEntity = db.newVertex(entityClass);
+    session.begin();
+    var firstEntity = session.newVertex(entityClass);
     firstEntity.setProperty("type", "type1");
 
-    var secondEntity = db.newVertex(entityClass);
+    var secondEntity = session.newVertex(entityClass);
     secondEntity.setProperty("type", "type1");
 
-    var thirdEntity = db.newVertex(entityClass);
+    var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
     firstEntity.addLightWeightEdge(thirdEntity, linkClass);
 
-    firstEntity.save();
-    secondEntity.save();
-    db.commit();
+    session.commit();
   }
 
   @Test()
   public void testUniqueOnUpdate() {
-    final Schema schema = db.getMetadata().getSchema();
-    SchemaClass userClass = schema.createClass("User");
-    userClass.createProperty(db, "MailAddress", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    final Schema schema = session.getMetadata().getSchema();
+    var userClass = schema.createClass("User");
+    userClass.createProperty("MailAddress", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
-    db.begin();
-    EntityImpl john = new EntityImpl("User");
-    john.field("MailAddress", "john@doe.com");
-    db.save(john);
-    db.commit();
+    session.begin();
+    var john = (EntityImpl) session.newEntity("User");
+    john.setProperty("MailAddress", "john@doe.com");
+    session.commit();
 
-    db.begin();
-    EntityImpl jane = new EntityImpl("User");
-    jane.field("MailAddress", "jane@doe.com");
-    EntityImpl id = jane;
-    jane.save();
-    db.save(jane);
-    db.commit();
+    session.begin();
+    var jane = (EntityImpl) session.newEntity("User");
+    jane.setProperty("MailAddress", "jane@doe.com");
+    var id = jane;
+
+    session.commit();
 
     try {
-      db.begin();
-      EntityImpl toUp = db.load(id.getIdentity());
-      toUp.field("MailAddress", "john@doe.com");
-      db.save(toUp);
-      db.commit();
+      session.begin();
+      EntityImpl toUp = session.load(id.getIdentity());
+      toUp.setProperty("MailAddress", "john@doe.com");
+      session.commit();
       Assert.fail("Expected record duplicate exception");
     } catch (RecordDuplicatedException ex) {
       // ignore
     }
-    EntityImpl fromDb = db.load(id.getIdentity());
-    Assert.assertEquals(fromDb.field("MailAddress"), "jane@doe.com");
+    session.begin();
+    EntityImpl fromDb = session.load(id.getIdentity());
+    Assert.assertEquals(fromDb.getProperty("MailAddress"), "jane@doe.com");
+    session.commit();
   }
 
   @Test
   public void testUniqueOnUpdateNegativeVersion() {
-    final Schema schema = db.getMetadata().getSchema();
-    SchemaClass userClass = schema.createClass("User");
-    userClass.createProperty(db, "MailAddress", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    final Schema schema = session.getMetadata().getSchema();
+    var userClass = schema.createClass("User");
+    userClass.createProperty("MailAddress", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
-    db.begin();
-    EntityImpl jane = new EntityImpl("User");
-    jane.field("MailAddress", "jane@doe.com");
-    jane.save();
-    db.commit();
+    session.begin();
+    var jane = (EntityImpl) session.newEntity("User");
+    jane.setProperty("MailAddress", "jane@doe.com");
+
+    session.commit();
 
     final RID rid = jane.getIdentity();
 
     reOpen("admin", "adminpwd");
 
-    db.begin();
-    EntityImpl joneJane = db.load(rid);
+    session.begin();
+    var joneJane = session.loadEntity(rid);
 
-    joneJane.field("MailAddress", "john@doe.com");
-    joneJane.field("@version", -1);
-
-    joneJane.save();
-    db.commit();
+    joneJane.setProperty("MailAddress", "john@doe.com");
+    session.commit();
 
     reOpen("admin", "adminpwd");
 
     try {
-      db.begin();
-      EntityImpl toUp = new EntityImpl("User");
-      toUp.field("MailAddress", "john@doe.com");
+      session.begin();
+      var toUp = (EntityImpl) session.newEntity("User");
+      toUp.setProperty("MailAddress", "john@doe.com");
 
-      db.save(toUp);
-      db.commit();
+      session.commit();
 
       Assert.fail("Expected record duplicate exception");
     } catch (RecordDuplicatedException ex) {
       // ignore
     }
 
-    final ResultSet result = db.query("select from User where MailAddress = 'john@doe.com'");
+    session.begin();
+    final var result = session.query("select from User where MailAddress = 'john@doe.com'");
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
   }
 }

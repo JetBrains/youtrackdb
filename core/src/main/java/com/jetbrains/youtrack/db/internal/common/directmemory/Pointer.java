@@ -66,7 +66,7 @@ public final class Pointer {
       return false;
     }
 
-    Pointer pointer1 = (Pointer) o;
+    var pointer1 = (Pointer) o;
 
     if (pointer != pointer1.pointer) {
       return false;
@@ -80,7 +80,7 @@ public final class Pointer {
       return hash;
     }
 
-    int result = (int) (pointer ^ (pointer >>> 32));
+    var result = (int) (pointer ^ (pointer >>> 32));
     result = 31 * result + size;
 
     hash = result;

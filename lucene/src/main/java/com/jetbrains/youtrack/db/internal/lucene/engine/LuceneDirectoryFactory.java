@@ -29,7 +29,7 @@ public class LuceneDirectoryFactory {
 
   public LuceneDirectory createDirectory(
       final Storage storage, final String indexName, final Map<String, ?> metadata) {
-    final String luceneType =
+    final var luceneType =
         metadata.containsKey(DIRECTORY_TYPE) ? metadata.get(DIRECTORY_TYPE).toString()
             : DIRECTORY_MMAP;
     if (storage.getType().equals(DatabaseType.MEMORY.name().toLowerCase())
@@ -51,7 +51,7 @@ public class LuceneDirectoryFactory {
     } else {
       luceneBasePath = OLUCENE_BASE_DIR;
     }
-    final Path luceneIndexPath =
+    final var luceneIndexPath =
         Paths.get(storage.getConfiguration().getDirectory(), luceneBasePath, indexName);
     try {
       Directory dir = null;

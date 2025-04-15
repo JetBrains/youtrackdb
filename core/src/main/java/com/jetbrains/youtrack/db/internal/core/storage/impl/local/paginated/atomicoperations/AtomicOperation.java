@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.ato
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtreebonsai.local.BonsaiBucketPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Set;
@@ -21,9 +21,9 @@ public interface AtomicOperation {
 
   AtomicOperationMetadata<?> getMetadata(String key);
 
-  void addDeletedRidBag(BonsaiBucketPointer rootPointer);
+  void addDeletedRidBag(LinkBagBucketPointer rootPointer);
 
-  Set<BonsaiBucketPointer> getDeletedBonsaiPointers();
+  Set<LinkBagBucketPointer> getDeletedBonsaiPointers();
 
   CacheEntry addPage(long fileId) throws IOException;
 
@@ -59,9 +59,9 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  void addDeletedRecordPosition(final int clusterId, final int pageIndex, final int recordPosition);
+  void addDeletedRecordPosition(final int collectionId, final int pageIndex, final int recordPosition);
 
-  IntSet getBookedRecordPositions(final int clusterId, final int pageIndex);
+  IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 
   void incrementComponentOperations();
 

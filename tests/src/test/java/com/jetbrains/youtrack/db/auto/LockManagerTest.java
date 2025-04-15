@@ -238,8 +238,8 @@ public class LockManagerTest {
     @Override
     public void run() {
       try {
-        for (int i = 0; i < cyclesByProcess; i++) {
-          for (Callable<?> res : resources) {
+        for (var i = 0; i < cyclesByProcess; i++) {
+          for (var res : resources) {
             if (exceptions.size() > 0) {
               return;
             }
@@ -258,7 +258,7 @@ public class LockManagerTest {
   @Test
   public void testConcurrentAccess() throws Throwable {
 
-    final long start = System.currentTimeMillis();
+    final var start = System.currentTimeMillis();
 
     // for (int i = 0; i < 10; i++)
     resources.add(new ResourceRead());
@@ -268,7 +268,7 @@ public class LockManagerTest {
 
     System.out.println("Starting " + THREADS + " threads: ");
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       if (i % THREADS / 10 == 0) {
         System.out.print('.');
       }
@@ -276,13 +276,13 @@ public class LockManagerTest {
       processes.add(new Thread(new Process()));
     }
 
-    for (Thread thread : processes) {
+    for (var thread : processes) {
       thread.start();
     }
 
     System.out.println("\nOk, waiting for end: ");
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (var i = 0; i < THREADS; ++i) {
       if (i % THREADS / 10 == 0) {
         System.out.print('.');
       }
@@ -299,7 +299,7 @@ public class LockManagerTest {
 
     // Pulish exceptions.
     if (exceptions.size() > 0) {
-      for (Throwable exc : exceptions) {
+      for (var exc : exceptions) {
         exc.printStackTrace();
       }
       throw exceptions.get(0);

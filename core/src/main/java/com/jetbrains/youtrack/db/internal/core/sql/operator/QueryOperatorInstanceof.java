@@ -21,17 +21,16 @@ package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
+import javax.annotation.Nullable;
 
 /**
  * EQUALS operator.
@@ -44,31 +43,32 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
+    var session = iContext.getDatabaseSession();
+    final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
 
-    // we already have this session here, but in the future it's probably a good idea to pass it from outside
-    DatabaseSessionInternal databaseSessionInternal = DatabaseRecordThreadLocal.instance().get();
-    final Schema schema =
-        databaseSessionInternal.getMetadata().getImmutableSchemaSnapshot();
-
-    final String baseClassName = iRight.toString();
-    final SchemaClass baseClass = schema.getClass(baseClassName);
+    final var baseClassName = iRight.toString();
+    final var baseClass = schema.getClass(baseClassName);
     if (baseClass == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Class '" + baseClassName + "' is not defined in database schema");
     }
 
     SchemaClass cls = null;
-    DBRecord record;
     if (iLeft instanceof Identifiable) {
       // GET THE RECORD'S CLASS
-      record = ((Identifiable) iLeft).getRecord();
+      var transaction = iContext.getDatabaseSession().getActiveTransaction();
+      var record = transaction.load(((Identifiable) iLeft));
       if (record instanceof EntityImpl) {
-        cls = EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record));
+        SchemaImmutableClass result = null;
+        if (record != null) {
+          result = ((EntityImpl) record).getImmutableSchemaClass(session);
+        }
+        cls = result;
       }
     } else if (iLeft instanceof String)
     // GET THE CLASS BY NAME
@@ -76,7 +76,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       cls = schema.getClass((String) iLeft);
     }
 
-    return cls != null && cls.isSubClassOf(databaseSessionInternal, baseClass);
+    return cls != null && cls.isSubClassOf(baseClass);
   }
 
   @Override
@@ -84,11 +84,13 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

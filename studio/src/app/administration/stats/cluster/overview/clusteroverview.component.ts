@@ -13,11 +13,11 @@ import {
 import { MetricService } from "../../../../core/services";
 
 @Component({
-  selector: "cluster-management-overview",
-  templateUrl: "./clusteroverview.component.html",
+  selector: "collection-management-overview",
+  templateUrl: "./collectionoverview.component.html",
   styles: [""]
 })
-class ClusterOverviewComponent implements OnInit, OnChanges {
+class CollectionOverviewComponent implements OnInit, OnChanges {
   @Input()
   private stats;
   handle: any;
@@ -106,4 +106,4 @@ class ClusterOverviewComponent implements OnInit, OnChanges {
   }
 }
 
-export { ClusterOverviewComponent };
+export { CollectionOverviewComponent };

@@ -2,9 +2,6 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
-import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.junit.Assert;
@@ -19,40 +16,42 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    db.execute("sql", getScriptFromStream(stream));
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    session.runScript("sql", getScriptFromStream(stream));
   }
 
   @Test
   public void shouldSearchWithLeadingWildcard() {
 
     // enabling leading wildcard
-    db.command(
+    session.execute(
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
             + " {\"allowLeadingWildcard\": true}");
 
+    session.begin();
     // querying with leading wildcard
-    ResultSet docs = db.query("select * from Song where search_class(\"(title:*tain)\") = true");
+    var docs = session.query("select * from Song where search_class(\"(title:*tain)\") = true");
 
     assertThat(docs).hasSize(4);
     docs.close();
+    session.commit();
   }
 
   @Test
   public void shouldSearchWithLowercaseExpandedTerms() {
 
     // enabling leading wildcard
-    db.command(
+    session.execute(
         "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE metadata {\"default\": \""
             + KeywordAnalyzer.class.getCanonicalName()
             + "\", \"lowercaseExpandedTerms\": false}");
 
-    ResultSet docs = db.query("select * from Song where search_class('Hunter') =true");
+    var docs = session.query("select * from Song where search_class('Hunter') =true");
 
     assertThat(docs).hasSize(97);
     docs.close();
 
-    docs = db.query("select * from Song where search_class('HUNTER')=true");
+    docs = session.query("select * from Song where search_class('HUNTER')=true");
 
     assertThat(docs).hasSize(0);
     docs.close();
@@ -62,12 +61,12 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void shouldFailIfLeadingWild() {
 
     // enabling leading wildcard
-    db.command(
+    session.execute(
         "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
             + " {\"allowLeadingWildcard\": true}");
 
     // querying with leading wildcard
-    ResultSet docs = db.query("select * from Song where search_class ('title:*tain')=true");
+    var docs = session.query("select * from Song where search_class ('title:*tain')=true");
 
     assertThat(docs).hasSize(4);
     docs.close();
@@ -76,13 +75,14 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromQuery() throws Exception {
     // enabling leading wildcard
-    db.command("create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute(
+        "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
-    ResultSet rs =
-        db.query(
+    var rs =
+        session.query(
             "select * from Song where search_class ('(title:forever)^2 OR author:Boudleaux')=true");
-    List<String> boostedDocs =
+    var boostedDocs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
     assertThat(boostedDocs).hasSize(5);
@@ -99,9 +99,9 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
             "ALL I HAVE TO DO IS DREAM");
 
     rs =
-        db.query(
+        session.query(
             "select * from Song where search_class ('(title:forever) OR author:Boudleaux')=true");
-    List<String> docs =
+    var docs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
     assertThat(docs).hasSize(5);
@@ -119,14 +119,15 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromMap() throws Exception {
     // enabling leading wildcard
-    db.command("create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute(
+        "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
-    ResultSet rs =
-        db.query(
+    var rs =
+        session.query(
             "select * from Song where search_class ('title:forever OR author:Boudleaux' ,"
                 + " {'boost':{ 'title': 2  }  })=true");
-    List<String> boostedDocs =
+    var boostedDocs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
     assertThat(boostedDocs).hasSize(5);
@@ -143,9 +144,9 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
             "ALL I HAVE TO DO IS DREAM");
 
     rs =
-        db.query(
+        session.query(
             "select * from Song where search_class ('(title:forever) OR author:Boudleaux')=true");
-    List<String> docs =
+    var docs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
     assertThat(docs).hasSize(5);
@@ -164,14 +165,15 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   @Test
   public void shouldUseBoostsFromMapAndSyntax() throws Exception {
     // enabling leading wildcard
-    db.command("create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute(
+        "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
-    ResultSet rs =
-        db.query(
+    var rs =
+        session.query(
             "select $score from Song where search_class ('title:forever OR author:Boudleaux' ,"
                 + " {'boost':{ 'title': 2  }  })=true order by $score desc");
-    List<Float> boostedDocs =
+    var boostedDocs =
         rs.stream().map(r -> r.<Float>getProperty("$score")).collect(Collectors.toList());
 
     assertThat(boostedDocs).hasSize(5);
@@ -179,10 +181,10 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     rs.close();
 
     rs =
-        db.query(
+        session.query(
             "select $score from Song where search_class ('(title:forever)^2 OR"
                 + " author:Boudleaux')=true order by $score desc");
-    List<Float> docs =
+    var docs =
         rs.stream().map(r -> r.<Float>getProperty("$score")).collect(Collectors.toList());
 
     assertThat(docs).hasSize(5);
@@ -198,11 +200,12 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void ahouldOverrideAnalyzer() throws Exception {
 
     // enabling leading wildcard
-    db.command("create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
+    session.execute(
+        "create index Song.title_author on Song (title,author) FULLTEXT ENGINE LUCENE ");
 
     // querying with boost
-    ResultSet resultSet =
-        db.query(
+    var resultSet =
+        session.query(
             "select * from Song where search_class ('title:forever OR author:boudleaux' , "
                 + "{'customAnalysis': true, "
                 + "  \"query\": \"org.apache.lucene.analysis.core.KeywordAnalyzer\" } "

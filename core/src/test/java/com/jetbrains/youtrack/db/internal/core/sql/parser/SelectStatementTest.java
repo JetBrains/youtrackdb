@@ -12,7 +12,6 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -21,8 +20,8 @@ import org.junit.Test;
 public class SelectStatementTest {
 
   protected SimpleNode checkRightSyntax(String query) {
-    SimpleNode result = checkSyntax(query, true);
-    StringBuilder builder = new StringBuilder();
+    var result = checkSyntax(query, true);
+    var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntax(builder.toString(), true);
   }
@@ -32,7 +31,7 @@ public class SelectStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -60,9 +59,9 @@ public class SelectStatementTest {
 
   @Test
   public void testParserSimpleSelect1() {
-    SimpleNode stm = checkRightSyntax("select from Foo");
+    var stm = checkRightSyntax("select from Foo");
     assertTrue(stm instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) stm;
+    var select = (SQLSelectStatement) stm;
     assertNull(select.getProjection());
     assertNotNull(select.getTarget());
     assertNull(select.getWhereClause());
@@ -70,9 +69,9 @@ public class SelectStatementTest {
 
   @Test
   public void testParserSimpleSelect2() {
-    SimpleNode stm = checkRightSyntax("select bar from Foo");
+    var stm = checkRightSyntax("select bar from Foo");
     assertTrue(stm instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) stm;
+    var select = (SQLSelectStatement) stm;
     assertNotNull(select.getProjection());
     assertNotNull(select.getProjection().getItems());
     assertEquals(select.getProjection().getItems().size(), 1);
@@ -146,104 +145,105 @@ public class SelectStatementTest {
 
   @Test
   public void testIn() {
-    SimpleNode result = checkRightSyntax("select count(*) from OFunction where name in [\"a\"]");
+    var result = checkRightSyntax("select count(*) from OFunction where name in [\"a\"]");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testNotIn() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select count(*) from OFunction where name not in [\"a\"]");
     // result.dump("    ");
     assertTrue(result instanceof SQLStatement);
-    SQLStatement stm = (SQLStatement) result;
+    var stm = (SQLStatement) result;
   }
 
   @Test
   public void testMath1() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select * from sqlSelectIndexReuseTestClass where prop1 = 1 + 1");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
+  @Test
   public void testMath2() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select * from sqlSelectIndexReuseTestClass where prop1 = foo + 1");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testMath5() {
-    SimpleNode result =
+    var result =
         checkRightSyntax(
             "select * from sqlSelectIndexReuseTestClass where prop1 = foo + 1 * bar - 5");
 
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testFetchPlan1() {
-    SimpleNode result = checkRightSyntax("select 'Ay' as a , 'bEE' as b from Foo fetchplan *:1");
+    var result = checkRightSyntax("select 'Ay' as a , 'bEE' as b from Foo fetchplan *:1");
 
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testFetchPlan2() {
-    SimpleNode result = checkRightSyntax("select 'Ay' as a , 'bEE' as b fetchplan *:1");
+    var result = checkRightSyntax("select 'Ay' as a , 'bEE' as b fetchplan *:1");
 
     assertTrue(result instanceof SQLSelectWithoutTargetStatement);
-    SQLSelectWithoutTargetStatement select = (SQLSelectWithoutTargetStatement) result;
+    var select = (SQLSelectWithoutTargetStatement) result;
   }
 
   @Test
   public void testContainsWithCondition() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select from Profile where customReferences.values() CONTAINS 'a'");
 
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testNamedParam() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select from JavaComplexTestClass where enumField = :enumItem");
 
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testBoolean() {
-    SimpleNode result = checkRightSyntax("select from Foo where bar = true");
+    var result = checkRightSyntax("select from Foo where bar = true");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testDottedAtField() {
-    SimpleNode result = checkRightSyntax("select from City where country.@class = 'Country'");
+    var result = checkRightSyntax("select from City where country.@class = 'Country'");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testQuotedFieldNameFrom() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select `from` from City where country.@class = 'Country'");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
@@ -261,35 +261,35 @@ public class SelectStatementTest {
 
   @Test
   public void testLongDotted() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select from Profile where location.city.country.name = 'Spain'");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testInIsNotAReservedWord() {
-    SimpleNode result =
+    var result =
         checkRightSyntax("select count(*) from TRVertex where in.type() not in [\"LINKSET\"] ");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectStatement);
-    SQLSelectStatement select = (SQLSelectStatement) result;
+    var select = (SQLSelectStatement) result;
   }
 
   @Test
   public void testSelectFunction() {
-    SimpleNode result = checkRightSyntax("select max(1,2,7,0,-2,3), 'pluto'");
+    var result = checkRightSyntax("select max(1,2,7,0,-2,3), 'pluto'");
     // result.dump("    ");
     assertTrue(result instanceof SQLSelectWithoutTargetStatement);
-    SQLSelectWithoutTargetStatement select = (SQLSelectWithoutTargetStatement) result;
+    var select = (SQLSelectWithoutTargetStatement) result;
   }
 
   @Test
   public void testEscape1() {
-    SimpleNode result =
+    var result =
         checkRightSyntax(
-            "select from cluster:internal where \"\\u005C\\u005C\" = \"\\u005C\\u005C\" ");
+            "select from ouser where \"\\u005C\\u005C\" = \"\\u005C\\u005C\" ");
     assertTrue(result instanceof SQLSelectStatement);
   }
 
@@ -300,15 +300,15 @@ public class SelectStatementTest {
 
   @Test
   public void testEmptyCollection() {
-    String query = "select from bar where name not in :param1";
-    YouTrackDBSql osql = getParserFor(query);
+    var query = "select from bar where name not in :param1";
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
-      SQLSelectStatement stm = (SQLSelectStatement) result;
+      var stm = (SQLSelectStatement) result;
       Map<Object, Object> params = new HashMap<Object, Object>();
       params.put("param1", new HashSet<Object>());
 
-      StringBuilder parsed = new StringBuilder();
+      var parsed = new StringBuilder();
       stm.toString(params, parsed);
       assertEquals(parsed.toString(), "SELECT FROM bar WHERE name NOT IN []");
     } catch (Exception e) {
@@ -319,8 +319,8 @@ public class SelectStatementTest {
   @Test
   public void testEscape2() {
     try {
-      SimpleNode result =
-          checkWrongSyntax("select from cluster:internal where \"\\u005C\" = \"\\u005C\" ");
+      var result =
+          checkWrongSyntax("select from collection:internal where \"\\u005C\" = \"\\u005C\" ");
       fail();
     } catch (Error e) {
 
@@ -427,11 +427,6 @@ public class SelectStatementTest {
   }
 
   @Test
-  public void testClusterList() {
-    checkRightSyntax("select from cluster:[foo,bar]");
-  }
-
-  @Test
   public void checkOrderBySyntax() {
     checkRightSyntax("select from test order by something ");
     checkRightSyntax("select from test order by something, somethingElse ");
@@ -466,11 +461,12 @@ public class SelectStatementTest {
         "select from Foo where (a=2 and b=3 and (a = 4 and (b=5 and d lucene 'foo')))) or select"
             + " from Foo where (a=2 and b=3 and (a = 4 and (b=5 and d lucene 'foo'))))");
 
-    checkWrongSyntax("select from cluster:foo where a lucene 'b'");
+    checkWrongSyntax("select from collection:foo where a lucene 'b'");
     checkWrongSyntax("select from #12:0 where a lucene 'b'");
     checkWrongSyntax("select from [#12:0, #12:1] where a lucene 'b'");
   }
 
+  @Test
   public void testBacktick() {
     checkRightSyntax("select `foo` from foo where `foo` = 'bar'");
     checkRightSyntax("select `SELECT` from foo where `SELECT` = 'bar'");
@@ -587,12 +583,12 @@ public class SelectStatementTest {
     checkRightSyntax("select `matches` from foo where `matches` = 'bar'");
     checkRightSyntax("select `key` from foo where `key` = 'bar'");
     checkRightSyntax("select `instanceof` from foo where `instanceof` = 'bar'");
-    checkRightSyntax("select `cluster` from foo where `cluster` = 'bar'");
+    checkRightSyntax("select `collection` from foo where `collection` = 'bar'");
 
-    checkRightSyntax("select `foo-bar` from foo where `cluster` = 'bar'");
+    checkRightSyntax("select `foo-bar` from foo where `collection` = 'bar'");
 
-    checkWrongSyntax("select `cluster from foo where `cluster` = 'bar'");
-    checkWrongSyntax("select `cluster from foo where cluster` = 'bar'");
+    checkWrongSyntax("select `collection from foo where `collection` = 'bar'");
+    checkWrongSyntax("select `collection from foo where collection` = 'bar'");
   }
 
   @Test
@@ -603,9 +599,9 @@ public class SelectStatementTest {
 
   @Test
   public void testFlatten() {
-    SQLSelectStatement stm =
+    var stm =
         (SQLSelectStatement) checkRightSyntax("select from ouser where name = 'foo'");
-    List<SQLAndBlock> flattended = stm.whereClause.flatten();
+    var flattended = stm.whereClause.flatten();
     assertTrue(((SQLBinaryCondition) flattended.get(0).subBlocks.get(0)).left.isBaseIdentifier());
     assertFalse(((SQLBinaryCondition) flattended.get(0).subBlocks.get(0)).right.isBaseIdentifier());
     assertFalse(
@@ -629,11 +625,6 @@ public class SelectStatementTest {
   }
 
   @Test
-  public void testSelectFromClusterNumber() {
-    checkRightSyntax("select from cluster:12");
-  }
-
-  @Test
   public void testReservedWordsAsNamedParams() {
     // issue #5493
     checkRightSyntax("select from V limit :limit");
@@ -654,7 +645,7 @@ public class SelectStatementTest {
   }
 
   private void printTree(String s) {
-    YouTrackDBSql osql = getParserFor(s);
+    var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
 
@@ -723,17 +714,17 @@ public class SelectStatementTest {
   @Test
   public void testRidString() {
     checkRightSyntax("select \"@rid\" as v from V");
-    SimpleNode stm2 = checkRightSyntax("select {\"@rid\": \"#12:0\"} as v from V");
+    var stm2 = checkRightSyntax("select {\"@rid\": \"#12:0\"} as v from V");
     System.out.println(stm2);
   }
 
   @Test
   public void testTranslateLucene() {
-    SQLSelectStatement stm =
+    var stm =
         (SQLSelectStatement) checkRightSyntax("select from V where name LUCENE 'foo'");
     stm.whereClause.getBaseExpression().translateLuceneOperator();
     Assert.assertTrue(
-        stm.whereClause.toString().contains("search_fields([\"name\"], 'foo') = true"));
+        stm.whereClause.toString().contains("search_fields([\"name\"], \"foo\") = true"));
     Assert.assertFalse(stm.whereClause.toString().contains("LUCENE"));
   }
 
@@ -784,24 +775,13 @@ public class SelectStatementTest {
     checkWrongSyntax("select from V order by foo asc collate ");
   }
 
-  @Test
-  public void testQueryIndex() {
-    checkRightSyntax("select from index:foo WHERE key = 'foo'");
-    checkRightSyntax("select from index:foo WHERE key = ['foo', 'bar']");
-    checkRightSyntax("select from index:foo WHERE key > 10");
-    checkRightSyntax("select from index:foo WHERE key CONTAINS 'foo'");
-    checkRightSyntax("select from index:foo WHERE key BETWEEN 'bar' AND 'foo'");
-  }
-
   protected void checkGenericStatement(String query, String expectedGeneric) {
-    SimpleNode result = checkSyntax(query, true);
+    var result = checkSyntax(query, true);
     Assert.assertEquals(expectedGeneric, result.toGenericStatement());
   }
 
   @Test
   public void testGenericStatementGeneration() {
-    checkGenericStatement(
-        "select from index:foo WHERE key = 'foo'", "SELECT FROM INDEX:foo WHERE key = ?");
     checkGenericStatement(
         "select from Clazz WHERE key = ['foo', 'bar']", "SELECT FROM Clazz WHERE key = [?, ?]");
     checkGenericStatement("select from test WHERE key > 10", "SELECT FROM test WHERE key > ?");
@@ -815,7 +795,7 @@ public class SelectStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

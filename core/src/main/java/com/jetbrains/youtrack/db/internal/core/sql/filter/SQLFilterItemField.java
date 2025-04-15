@@ -22,26 +22,22 @@ package com.jetbrains.youtrack.db.internal.core.sql.filter;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
-import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
-import com.jetbrains.youtrack.db.internal.core.sql.method.SQLMethodRuntime;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodField;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Represent an object field as value in the query condition.
@@ -94,10 +90,10 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     }
   }
 
-  public SQLFilterItemField(DatabaseSessionInternal session, final String iName,
+  public SQLFilterItemField(DatabaseSessionInternal db, final String iName,
       final SchemaClass iClass) {
     this.name = IOUtils.getStringContent(iName);
-    collate = getCollateForField(session, iClass, name);
+    collate = getCollateForField(db, iClass, name);
     if (iClass != null) {
       collatePreset = true;
     }
@@ -114,9 +110,10 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   public Object getValue(
-      final Identifiable iRecord, final Object iCurrentResult, final CommandContext iContext) {
+      final Result iRecord, final Object iCurrentResult, final CommandContext iContext) {
+    var session = iContext.getDatabaseSession();
     if (iRecord == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "expression item '" + name + "' cannot be resolved because current record is NULL");
     }
 
@@ -125,8 +122,6 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         return iRecord.getIdentity();
       }
     }
-
-    final EntityImpl entity = iRecord.getRecord();
 
     if (preLoadedFieldsArray == null
         && preLoadedFields != null
@@ -138,51 +133,51 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       preLoadedFields.toArray(preLoadedFieldsArray);
     }
 
-    // UNMARSHALL THE SINGLE FIELD
-    if (preLoadedFieldsArray != null && !entity.deserializeFields(preLoadedFieldsArray)) {
-      return null;
-    }
-
-    final Object v = stringValue == null ? entity.rawField(name) : stringValue;
-
-    if (!collatePreset) {
-      SchemaClass schemaClass = EntityInternalUtils.getImmutableSchemaClass(entity);
+    final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
+    if (!collatePreset && iRecord.isEntity()) {
+      var entity = (EntityImpl) iRecord.asEntity();
+      SchemaImmutableClass result = null;
+      result = entity.getImmutableSchemaClass(session);
+      SchemaClass schemaClass = result;
       if (schemaClass != null) {
-        collate = getCollateForField(iContext.getDatabase(), schemaClass, name);
+        collate = getCollateForField(session, schemaClass, name);
       }
     }
 
     return transformValue(iRecord, iContext, v);
   }
 
-  public BinaryField getBinaryField(final Identifiable iRecord) {
+  @Nullable
+  public BinaryField getBinaryField(DatabaseSessionInternal session, final Identifiable iRecord) {
     if (iRecord == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "expression item '" + name + "' cannot be resolved because current record is NULL");
     }
 
-    if (operationsChain != null && operationsChain.size() > 0)
+    if (operationsChain != null && !operationsChain.isEmpty())
     // CANNOT USE BINARY FIELDS
     {
       return null;
     }
 
-    final EntityImpl rec = iRecord.getRecord();
-    PropertyEncryption encryption = EntityInternalUtils.getPropertyEncryption(rec);
-    BytesContainer serialized = new BytesContainer(rec.toStream());
-    byte version = serialized.bytes[serialized.offset++];
-    EntitySerializer serializer = RecordSerializerBinary.INSTANCE.getSerializer(version);
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().get();
+    var transaction = session.getActiveTransaction();
+    final EntityImpl rec = transaction.load(iRecord);
+    var encryption = rec.propertyEncryption;
+    var serialized = new BytesContainer(rec.toStream());
+    var version = serialized.bytes[serialized.offset++];
+    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(version);
 
     // check for embedded objects, they have invalid ID and they are serialized with class name
-    return serializer.deserializeField(
-        db,
+    SchemaImmutableClass result = null;
+    if (rec != null) {
+      result = rec.getImmutableSchemaClass(session);
+    }
+    return serializer.deserializeField(session,
         serialized,
-        EntityInternalUtils.getImmutableSchemaClass(rec),
+        result,
         name,
         rec.isEmbedded(),
-        db.getMetadata().getImmutableSchemaSnapshot(),
-        encryption);
+        session.getMetadata().getImmutableSchemaSnapshot(), encryption);
   }
 
   public String getRoot(DatabaseSession session) {
@@ -218,7 +213,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
       return true;
     }
 
-    for (Pair<SQLMethodRuntime, Object[]> pair : operationsChain) {
+    for (var pair : operationsChain) {
       if (!pair.getKey().getMethod().getName().equals(SQLMethodField.NAME)) {
         return false;
       }
@@ -253,32 +248,35 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
    * get the collate of this expression, based on the fully evaluated field chain starting from the
    * passed object.
    *
-   * @param object the root element (entity?) of this field chain
+   * @param session
+   * @param object  the root element (entity?) of this field chain
    * @return the collate, null if no collate is defined
    */
-  public Collate getCollate(DatabaseSession session, Object object) {
+  @Nullable
+  public Collate getCollate(DatabaseSessionInternal session, Object object) {
     if (collate != null || operationsChain == null || !isFieldChain()) {
       return collate;
     }
     if (!(object instanceof Identifiable)) {
       return null;
     }
-    FieldChain chain = getFieldChain();
+    var chain = getFieldChain();
     try {
-      EntityImpl lastDoc = ((Identifiable) object).getRecord();
-      for (int i = 0; i < chain.getItemCount() - 1; i++) {
-        Object nextDoc = lastDoc.field(chain.getItemName(i));
+      var transaction1 = session.getActiveTransaction();
+      EntityImpl lastDoc = transaction1.load(((Identifiable) object));
+      for (var i = 0; i < chain.getItemCount() - 1; i++) {
+        var nextDoc = lastDoc.getProperty(chain.getItemName(i));
         if (!(nextDoc instanceof Identifiable)) {
           return null;
         }
-        lastDoc = ((Identifiable) nextDoc).getRecord();
+        var transaction = session.getActiveTransaction();
+        lastDoc = transaction.load(((Identifiable) nextDoc));
       }
-      SchemaClass schemaClass = EntityInternalUtils.getImmutableSchemaClass(lastDoc);
+      var schemaClass = lastDoc.getImmutableSchemaClass(session);
       if (schemaClass == null) {
         return null;
       }
-      SchemaProperty property = schemaClass.getProperty(
-          session,
+      var property = schemaClass.getProperty(
           chain.getItemName(chain.getItemCount() - 1));
       if (property == null) {
         return null;

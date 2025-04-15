@@ -30,6 +30,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 public class HttpNetworkCommandManager {
 
@@ -51,10 +52,10 @@ public class HttpNetworkCommandManager {
   }
 
   public Object getCommand(final String iName) {
-    ServerCommand cmd = exactCommands.get(iName);
+    var cmd = exactCommands.get(iName);
 
     if (cmd == null) {
-      for (Entry<String, ServerCommand> entry : restCommands.entrySet()) {
+      for (var entry : restCommands.entrySet()) {
         if (matches(entry.getKey(), iName)) {
           return entry.getValue();
         }
@@ -65,8 +66,8 @@ public class HttpNetworkCommandManager {
       // TODO: OPTIMIZE SEARCH!
       String partLeft;
       String partRight;
-      for (Entry<String, ServerCommand> entry : wildcardCommands.entrySet()) {
-        final int wildcardPos = entry.getKey().indexOf('*');
+      for (var entry : wildcardCommands.entrySet()) {
+        final var wildcardPos = entry.getKey().indexOf('*');
         partLeft = entry.getKey().substring(0, wildcardPos);
         partRight = entry.getKey().substring(wildcardPos + 1);
 
@@ -90,7 +91,7 @@ public class HttpNetworkCommandManager {
    * @param iServerCommandInstance
    */
   public void registerCommand(final ServerCommand iServerCommandInstance) {
-    for (String name : iServerCommandInstance.getNames()) {
+    for (var name : iServerCommandInstance.getNames()) {
       if (StringSerializerHelper.contains(name, '{')) {
         restCommands.put(name, iServerCommandInstance);
       } else if (StringSerializerHelper.contains(name, '*')) {
@@ -104,35 +105,36 @@ public class HttpNetworkCommandManager {
 
   public Map<String, String> extractUrlTokens(String requestUrl) {
     Map<String, String> result = new HashMap<String, String>();
-    String urlPattern = findUrlPattern(requestUrl);
+    var urlPattern = findUrlPattern(requestUrl);
     if (urlPattern == null) {
       return result;
     }
-    String matcherUrl =
+    var matcherUrl =
         PatternConst.PATTERN_REST_URL.matcher(urlPattern).replaceAll(URL_PART_PATTERN);
 
     matcherUrl = matcherUrl.substring(matcherUrl.indexOf('|') + 1);
     requestUrl = requestUrl.substring(requestUrl.indexOf('|') + 1);
 
-    Pattern pattern = Pattern.compile(matcherUrl);
-    Matcher matcher = pattern.matcher(requestUrl);
+    var pattern = Pattern.compile(matcherUrl);
+    var matcher = pattern.matcher(requestUrl);
     if (matcher.find()) {
-      Matcher templateMatcher = PatternConst.PATTERN_REST_URL.matcher(urlPattern);
-      int i = 1;
+      var templateMatcher = PatternConst.PATTERN_REST_URL.matcher(urlPattern);
+      var i = 1;
       String key;
       while (templateMatcher.find()) {
         key = templateMatcher.group();
         key = key.substring(1);
         key = key.substring(0, key.length() - 1);
-        String value = matcher.group(i++);
+        var value = matcher.group(i++);
         result.put(key, value);
       }
     }
     return result;
   }
 
+  @Nullable
   protected String findUrlPattern(String requestUrl) {
-    for (Entry<String, ServerCommand> entry : restCommands.entrySet()) {
+    for (var entry : restCommands.entrySet()) {
       if (matches(entry.getKey(), requestUrl)) {
         return entry.getKey();
       }
@@ -145,7 +147,7 @@ public class HttpNetworkCommandManager {
   }
 
   private boolean matches(String urlPattern, String requestUrl) {
-    String matcherUrl =
+    var matcherUrl =
         PatternConst.PATTERN_REST_URL.matcher(urlPattern).replaceAll(URL_PART_PATTERN);
 
     if (!matcherUrl

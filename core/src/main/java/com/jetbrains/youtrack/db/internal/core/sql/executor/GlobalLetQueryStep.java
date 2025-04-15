@@ -6,9 +6,9 @@ import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -30,11 +30,11 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
     super(ctx, profilingEnabled);
     this.varName = varName;
 
-    BasicCommandContext subCtx = new BasicCommandContext();
+    var subCtx = new BasicCommandContext();
     if (scriptVars != null) {
       scriptVars.forEach(subCtx::declareScriptVariable);
     }
-    subCtx.setDatabase(ctx.getDatabase());
+    subCtx.setDatabaseSession(ctx.getDatabaseSession());
     subCtx.setParent(ctx);
     if (query.toString().contains("?")) {
       // with positional parameters, you cannot know if a parameter has the same ordinal as the one
@@ -56,7 +56,8 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
   }
 
   private void calculate(CommandContext ctx) {
-    ctx.setVariable(varName.getStringValue(), toList(new LocalResultSet(subExecutionPlan)));
+    ctx.setVariable(varName.getStringValue(),
+        toList(new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan)));
   }
 
   private List<Result> toList(LocalResultSet oLocalResultSet) {
@@ -70,7 +71,7 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces
         + "+ LET (once)\n"
         + spaces
@@ -86,11 +87,11 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
   }
 
   private String box(String spaces, String s) {
-    String[] rows = s.split("\n");
-    StringBuilder result = new StringBuilder();
+    var rows = s.split("\n");
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+-------------------------\n");
-    for (String row : rows) {
+    for (var row : rows) {
       result.append(spaces);
       result.append("| ");
       result.append(row);

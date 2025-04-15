@@ -18,4 +18,3 @@
 
 com.jetbrains.youtrack.db.internal.core.sql.DefaultCommandExecutorSQLFactory
 com.jetbrains.youtrack.db.internal.core.sql.DynamicSQLElementFactory
-com.jetbrains.youtrack.db.internal.core.sql.LiveCommandExecutorSQLFactory

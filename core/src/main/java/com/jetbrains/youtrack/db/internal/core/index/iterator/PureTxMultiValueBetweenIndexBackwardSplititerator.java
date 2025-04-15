@@ -12,6 +12,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public class PureTxMultiValueBetweenIndexBackwardSplititerator
     implements Spliterator<RawPair<Object, RID>> {
@@ -47,7 +48,7 @@ public class PureTxMultiValueBetweenIndexBackwardSplititerator
       toKey = this.oIndexTxAwareMultiValue.enhanceToCompositeKeyBetweenDesc(toKey, toInclusive);
     }
 
-    final Object[] keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);
+    final var keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);
     if (keys.length == 0) {
       nextKey = null;
     } else {
@@ -57,14 +58,14 @@ public class PureTxMultiValueBetweenIndexBackwardSplititerator
   }
 
   private RawPair<Object, RID> nextEntryInternal() {
-    final Identifiable identifiable = valuesIterator.next();
+    final var identifiable = valuesIterator.next();
     return new RawPair<>(key, identifiable.getIdentity());
   }
 
   @Override
   public boolean tryAdvance(Consumer<? super RawPair<Object, RID>> action) {
     if (valuesIterator.hasNext()) {
-      final RawPair<Object, RID> entry = nextEntryInternal();
+      final var entry = nextEntryInternal();
       action.accept(entry);
       return true;
     }
@@ -90,11 +91,12 @@ public class PureTxMultiValueBetweenIndexBackwardSplititerator
     }
 
     valuesIterator = result.iterator();
-    final RawPair<Object, RID> entry = nextEntryInternal();
+    final var entry = nextEntryInternal();
     action.accept(entry);
     return true;
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<Object, RID>> trySplit() {
     return null;
@@ -113,6 +115,6 @@ public class PureTxMultiValueBetweenIndexBackwardSplititerator
   @Override
   public Comparator<? super RawPair<Object, RID>> getComparator() {
     return (entryOne, entryTwo) ->
-        -DefaultComparator.INSTANCE.compare(entryOne.first, entryTwo.first);
+        -DefaultComparator.INSTANCE.compare(entryOne.first(), entryTwo.first());
   }
 }

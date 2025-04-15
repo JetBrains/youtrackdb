@@ -23,37 +23,37 @@ public class LiveQueryMessagesTests extends DbTestBase {
   public void testRequestWriteRead() throws IOException {
     Map<String, Object> params = new HashMap<>();
     params.put("par", "value");
-    SubscribeLiveQueryRequest request = new SubscribeLiveQueryRequest("select from Some", params);
-    MockChannel channel = new MockChannel();
+    var request = new SubscribeLiveQueryRequest("select from Some", params);
+    var channel = new MockChannel();
     request.write(null, channel, null);
     channel.close();
-    SubscribeLiveQueryRequest requestRead = new SubscribeLiveQueryRequest();
-    requestRead.read(db, channel, -1, new RecordSerializerNetworkV37());
+    var requestRead = new SubscribeLiveQueryRequest();
+    requestRead.read(session, channel, -1, new RecordSerializerNetworkV37());
     assertEquals("select from Some", requestRead.getQuery());
     assertEquals(requestRead.getParams(), params);
   }
 
   @Test
   public void testSubscribeResponseWriteRead() throws IOException {
-    SubscribeLiveQueryResponse response = new SubscribeLiveQueryResponse(20);
-    MockChannel channel = new MockChannel();
+    var response = new SubscribeLiveQueryResponse(20);
+    var channel = new MockChannel();
     response.write(null, channel, 0, null);
     channel.close();
-    SubscribeLiveQueryResponse responseRead = new SubscribeLiveQueryResponse();
-    responseRead.read(db, channel, null);
+    var responseRead = new SubscribeLiveQueryResponse();
+    responseRead.read(session, channel, null);
     assertEquals(20, responseRead.getMonitorId());
   }
 
   @Test
   public void testLiveQueryErrorPushRequest() throws IOException {
 
-    LiveQueryPushRequest pushRequest =
+    var pushRequest =
         new LiveQueryPushRequest(10, 20, ErrorCode.GENERIC_ERROR, "the message");
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     pushRequest.write(null, channel);
     channel.close();
-    LiveQueryPushRequest pushRequestRead = new LiveQueryPushRequest();
-    pushRequestRead.read(db, channel);
+    var pushRequestRead = new LiveQueryPushRequest();
+    pushRequestRead.read(session, channel);
     assertEquals(10, pushRequestRead.getMonitorId());
     assertEquals(LiveQueryPushRequest.ERROR, pushRequestRead.getStatus());
     assertEquals(20, pushRequestRead.getErrorIdentifier());
@@ -65,22 +65,24 @@ public class LiveQueryMessagesTests extends DbTestBase {
   public void testLiveQueryPushRequest() throws IOException {
 
     List<LiveQueryResult> events = new ArrayList<>();
-    ResultInternal res = new ResultInternal(db);
+    var res = new ResultInternal(session);
     res.setProperty("one", "one");
     res.setProperty("two", 10);
     events.add(new LiveQueryResult(LiveQueryResult.CREATE_EVENT, res, null));
     events.add(
         new LiveQueryResult(
-            LiveQueryResult.UPDATE_EVENT, new ResultInternal(db), new ResultInternal(db)));
-    events.add(new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(db), null));
+            LiveQueryResult.UPDATE_EVENT, new ResultInternal(session),
+            new ResultInternal(session)));
+    events.add(
+        new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(session), null));
 
-    LiveQueryPushRequest pushRequest =
+    var pushRequest =
         new LiveQueryPushRequest(10, LiveQueryPushRequest.END, events);
-    MockChannel channel = new MockChannel();
+    var channel = new MockChannel();
     pushRequest.write(null, channel);
     channel.close();
-    LiveQueryPushRequest pushRequestRead = new LiveQueryPushRequest();
-    pushRequestRead.read(db, channel);
+    var pushRequestRead = new LiveQueryPushRequest();
+    pushRequestRead.read(session, channel);
 
     assertEquals(10, pushRequestRead.getMonitorId());
     assertEquals(LiveQueryPushRequest.END, pushRequestRead.getStatus());

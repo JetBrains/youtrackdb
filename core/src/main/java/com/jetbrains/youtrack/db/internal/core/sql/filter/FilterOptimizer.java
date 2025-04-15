@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -36,12 +37,13 @@ public class FilterOptimizer {
     filter.setRootCondition(optimize(filter.getRootCondition(), indexMatch));
   }
 
+  @Nullable
   private SQLFilterCondition optimize(
       SQLFilterCondition condition, IndexSearchResult indexMatch) {
     if (condition == null) {
       return null;
     }
-    QueryOperator operator = condition.getOperator();
+    var operator = condition.getOperator();
     while (operator == null) {
       if (condition.getRight() == null && condition.getLeft() instanceof SQLFilterCondition) {
         condition = (SQLFilterCondition) condition.getLeft();
@@ -51,7 +53,7 @@ public class FilterOptimizer {
       }
     }
 
-    final IndexReuseType reuseType =
+    final var reuseType =
         operator.getIndexReuseType(condition.getLeft(), condition.getRight());
     switch (reuseType) {
       case INDEX_METHOD:
@@ -96,7 +98,7 @@ public class FilterOptimizer {
       Object valueCandidate) {
     if (fieldCandidate instanceof SQLFilterItemField field) {
       if (operator instanceof QueryOperatorEquals) {
-        for (Map.Entry<String, Object> e : indexMatch.fieldValuePairs.entrySet()) {
+        for (var e : indexMatch.fieldValuePairs.entrySet()) {
           if (isSameField(field, e.getKey()) && isSameValue(valueCandidate, e.getValue())) {
             return true;
           }

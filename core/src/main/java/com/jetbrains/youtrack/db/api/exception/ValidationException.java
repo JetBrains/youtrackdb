@@ -19,16 +19,21 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class ValidationException extends CoreException implements HighLevelException {
-
   public ValidationException(ValidationException exception) {
     super(exception, ErrorCode.VALIDATION_ERROR);
   }
 
-  public ValidationException(String string) {
-    super(string, null, ErrorCode.VALIDATION_ERROR);
+  public ValidationException(String dbName, String string) {
+    super(dbName, string, null, ErrorCode.VALIDATION_ERROR);
+  }
+
+  public ValidationException(DatabaseSession session, String string) {
+    super(session != null ? session.getDatabaseName() : null, string, null,
+        ErrorCode.VALIDATION_ERROR);
   }
 }

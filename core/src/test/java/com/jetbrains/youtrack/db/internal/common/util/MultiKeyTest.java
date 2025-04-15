@@ -15,35 +15,35 @@ public class MultiKeyTest {
 
   @Test
   public void testEqualsDifferentSize() {
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
-    final MultiKey anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
+    final var anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
 
     assertNotEquals(multiKey, anotherMultiKey);
   }
 
   @Test
   public void testEqualsDifferentItems() {
-    final MultiKey multiKey = new MultiKey(Arrays.asList("b", "c"));
-    final MultiKey anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
+    final var multiKey = new MultiKey(Arrays.asList("b", "c"));
+    final var anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
 
     assertNotEquals(multiKey, anotherMultiKey);
   }
 
   @Test
   public void testEqualsTheSame() {
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
     assertEquals(multiKey, multiKey);
   }
 
   @Test
   public void testEqualsNull() {
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
     assertNotEquals(null, multiKey);
   }
 
   @Test
   public void testEqualsDifferentClass() {
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
     assertNotEquals("a", multiKey);
   }
 
@@ -51,11 +51,11 @@ public class MultiKeyTest {
   public void testEmptyKeyEquals() {
     final Map<MultiKey, Object> multiKeyMap = new HashMap<MultiKey, Object>();
 
-    final MultiKey multiKey = new MultiKey(Collections.emptyList());
+    final var multiKey = new MultiKey(Collections.emptyList());
     multiKeyMap.put(multiKey, new Object());
 
-    final MultiKey anotherMultiKey = new MultiKey(Collections.emptyList());
-    final Object mapResult = multiKeyMap.get(anotherMultiKey);
+    final var anotherMultiKey = new MultiKey(Collections.emptyList());
+    final var mapResult = multiKeyMap.get(anotherMultiKey);
 
     assertNotNull(mapResult);
   }
@@ -64,11 +64,11 @@ public class MultiKeyTest {
   public void testOneKeyMap() {
     final Map<MultiKey, Object> multiKeyMap = new HashMap<MultiKey, Object>();
 
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
     multiKeyMap.put(multiKey, new Object());
 
-    final MultiKey anotherMultiKey = new MultiKey(Collections.singletonList("a"));
-    final Object mapResult = multiKeyMap.get(anotherMultiKey);
+    final var anotherMultiKey = new MultiKey(Collections.singletonList("a"));
+    final var mapResult = multiKeyMap.get(anotherMultiKey);
 
     assertNotNull(mapResult);
   }
@@ -77,11 +77,11 @@ public class MultiKeyTest {
   public void testOneKeyNotInMap() {
     final Map<MultiKey, Object> multiKeyMap = new HashMap<MultiKey, Object>();
 
-    final MultiKey multiKey = new MultiKey(Collections.singletonList("a"));
+    final var multiKey = new MultiKey(Collections.singletonList("a"));
     multiKeyMap.put(multiKey, new Object());
 
-    final MultiKey anotherMultiKey = new MultiKey(Collections.singletonList("b"));
-    final Object mapResult = multiKeyMap.get(anotherMultiKey);
+    final var anotherMultiKey = new MultiKey(Collections.singletonList("b"));
+    final var mapResult = multiKeyMap.get(anotherMultiKey);
 
     assertNull(mapResult);
   }
@@ -90,11 +90,11 @@ public class MultiKeyTest {
   public void testTwoKeyMap() {
     final Map<MultiKey, Object> multiKeyMap = new HashMap<MultiKey, Object>();
 
-    final MultiKey multiKey = new MultiKey(Arrays.asList("a", "b"));
+    final var multiKey = new MultiKey(Arrays.asList("a", "b"));
     multiKeyMap.put(multiKey, new Object());
 
-    final MultiKey anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
-    final Object mapResult = multiKeyMap.get(anotherMultiKey);
+    final var anotherMultiKey = new MultiKey(Arrays.asList("a", "b"));
+    final var mapResult = multiKeyMap.get(anotherMultiKey);
 
     assertNotNull(mapResult);
   }
@@ -103,11 +103,11 @@ public class MultiKeyTest {
   public void testTwoKeyMapReordered() {
     final Map<MultiKey, Object> multiKeyMap = new HashMap<MultiKey, Object>();
 
-    final MultiKey multiKey = new MultiKey(Arrays.asList("a", "b"));
+    final var multiKey = new MultiKey(Arrays.asList("a", "b"));
     multiKeyMap.put(multiKey, new Object());
 
-    final MultiKey anotherMultiKey = new MultiKey(Arrays.asList("b", "a"));
-    final Object mapResult = multiKeyMap.get(anotherMultiKey);
+    final var anotherMultiKey = new MultiKey(Arrays.asList("b", "a"));
+    final var mapResult = multiKeyMap.get(anotherMultiKey);
 
     assertNotNull(mapResult);
   }

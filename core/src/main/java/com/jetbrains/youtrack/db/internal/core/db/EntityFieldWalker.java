@@ -21,11 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.IdentifiableMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -59,8 +57,9 @@ public class EntityFieldWalker {
       DatabaseSessionInternal session, EntityImpl entity, EntityPropertiesVisitor fieldWalker) {
     final Set<EntityImpl> walked = Collections.newSetFromMap(new IdentityHashMap<>());
 
-    if (entity.getIdentity().isValid()) {
-      entity = session.bindToSession(entity);
+    if (entity.getIdentity().isValidPosition()) {
+      var activeTx = session.getActiveTransaction();
+      entity = activeTx.load(entity);
     }
 
     walkDocument(session, entity, fieldWalker, walked);
@@ -82,28 +81,30 @@ public class EntityFieldWalker {
     }
 
     walked.add(entity);
-    boolean oldLazyLoad = entity.isLazyLoad();
+    var oldLazyLoad = entity.isLazyLoad();
     entity.setLazyLoad(false);
 
-    final boolean updateMode = fieldWalker.updateMode();
+    final var updateMode = fieldWalker.updateMode();
 
-    final SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass(entity);
-    for (String fieldName : entity.fieldNames()) {
+    SchemaImmutableClass result = null;
+    result = entity.getImmutableSchemaClass(session);
+    final SchemaClass clazz = result;
+    for (var fieldName : entity.propertyNames()) {
 
-      final PropertyType concreteType = entity.fieldType(fieldName);
-      PropertyType fieldType = concreteType;
+      final var concreteType = entity.getPropertyType(fieldName);
+      var fieldType = concreteType;
 
       PropertyType linkedType = null;
       if (fieldType == null && clazz != null) {
-        SchemaProperty property = clazz.getProperty(session, fieldName);
+        var property = clazz.getProperty(fieldName);
         if (property != null) {
           fieldType = property.getType();
           linkedType = property.getLinkedType();
         }
       }
 
-      Object fieldValue = entity.field(fieldName, fieldType);
-      Object newValue = fieldWalker.visitField(session, fieldType, linkedType, fieldValue);
+      var fieldValue = entity.getPropertyInternal(fieldName);
+      var newValue = fieldWalker.visitField(session, fieldType, linkedType, fieldValue);
 
       boolean updated;
       if (updateMode) {
@@ -119,11 +120,11 @@ public class EntityFieldWalker {
       // 3. entity is not not embedded.
       if (!updated
           && fieldValue != null
-          && !(PropertyType.LINK.equals(fieldType)
-          || PropertyType.LINKBAG.equals(fieldType)
-          || PropertyType.LINKLIST.equals(fieldType)
-          || PropertyType.LINKSET.equals(fieldType)
-          || (fieldValue instanceof IdentifiableMultiValue))) {
+          && !(PropertyType.LINK == fieldType
+          || PropertyType.LINKBAG == fieldType
+          || PropertyType.LINKLIST == fieldType
+          || PropertyType.LINKSET == fieldType
+          || PropertyType.LINKMAP == fieldType)) {
         if (fieldWalker.goDeeper(fieldType, linkedType, fieldValue)) {
           if (fieldValue instanceof Map) {
             walkMap(session, (Map) fieldValue, fieldType, fieldWalker, walked);
@@ -162,7 +163,7 @@ public class EntityFieldWalker {
       PropertyType fieldType,
       EntityPropertiesVisitor fieldWalker,
       Set<EntityImpl> walked) {
-    for (Object value : map.values()) {
+    for (var value : map.values()) {
       if (value instanceof EntityImpl entity) {
         // only embedded documents are walked
         if (PropertyType.EMBEDDEDMAP.equals(fieldType) || entity.isEmbedded()) {
@@ -178,7 +179,7 @@ public class EntityFieldWalker {
       PropertyType fieldType,
       EntityPropertiesVisitor fieldWalker,
       Set<EntityImpl> walked) {
-    for (Object value : iterable) {
+    for (var value : iterable) {
       if (value instanceof EntityImpl entity) {
         // only embedded documents are walked
         if (PropertyType.EMBEDDEDLIST.equals(fieldType)
@@ -197,7 +198,7 @@ public class EntityFieldWalker {
       Object newValue,
       PropertyType concreteType) {
     if (fieldValue != newValue) {
-      entity.field(fieldName, newValue, concreteType);
+      entity.setProperty(fieldName, newValue, concreteType);
       return true;
     }
 

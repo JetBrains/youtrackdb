@@ -31,7 +31,7 @@ public class LeOperatorTest {
 
   @Test
   public void test() {
-    SQLLeOperator op = new SQLLeOperator(-1);
+    var op = new SQLLeOperator(-1);
     Assert.assertTrue(op.execute(1, 1));
     Assert.assertFalse(op.execute(1, 0));
     Assert.assertTrue(op.execute(0, 1));

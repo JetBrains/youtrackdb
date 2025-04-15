@@ -122,7 +122,7 @@ public abstract class AbstractWALRecord implements WriteableWALRecord {
       return false;
     }
 
-    AbstractWALRecord that = (AbstractWALRecord) o;
+    var that = (AbstractWALRecord) o;
 
     return Objects.equals(logSequenceNumber, that.logSequenceNumber);
   }
@@ -138,7 +138,7 @@ public abstract class AbstractWALRecord implements WriteableWALRecord {
   }
 
   protected String toString(final String iToAppend) {
-    final StringBuilder buffer = new StringBuilder(getClass().getName());
+    final var buffer = new StringBuilder(getClass().getName());
     buffer.append("{lsn =").append(logSequenceNumber);
 
     if (iToAppend != null) {

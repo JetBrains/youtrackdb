@@ -20,12 +20,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.IndexSearchResult;
@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorMu
 import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorPlus;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Query Operators. Remember to handle the operator in OQueryItemCondition.
@@ -131,7 +132,7 @@ public abstract class QueryOperator {
   }
 
   public abstract Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       final Object iLeft,
@@ -148,8 +149,9 @@ public abstract class QueryOperator {
    */
   public abstract IndexReuseType getIndexReuseType(Object iLeft, Object iRight);
 
+  @Nullable
   public IndexSearchResult getOIndexSearchResult(
-      SchemaClass iSchemaClass,
+      SchemaClassInternal iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {
@@ -222,11 +224,11 @@ public abstract class QueryOperator {
     final Class<?> thisClass = this.getClass();
     final Class<?> otherClass = other.getClass();
 
-    int thisPosition = -1;
-    int otherPosition = -1;
-    for (int i = 0; i < DEFAULT_OPERATORS_ORDER.length; i++) {
+    var thisPosition = -1;
+    var otherPosition = -1;
+    for (var i = 0; i < DEFAULT_OPERATORS_ORDER.length; i++) {
       // subclass of default operators inherit their parent ordering
-      final Class<?> clazz = DEFAULT_OPERATORS_ORDER[i];
+      final var clazz = DEFAULT_OPERATORS_ORDER[i];
       if (clazz.isAssignableFrom(thisClass)) {
         thisPosition = i;
       }

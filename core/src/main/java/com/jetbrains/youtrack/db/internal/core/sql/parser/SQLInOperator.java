@@ -31,7 +31,7 @@ public class SQLInOperator extends SimpleNode implements SQLBinaryCompareOperato
       }
       if (left instanceof Iterator iterator) {
         while (iterator.hasNext()) {
-          Object next = iterator.next();
+          var next = iterator.next();
           if (!((Collection) right).contains(next)) {
             return false;
           }
@@ -46,12 +46,12 @@ public class SQLInOperator extends SimpleNode implements SQLBinaryCompareOperato
       if (left instanceof Iterable) {
         left = ((Iterable) left).iterator();
       }
-      Iterator leftIterator = (Iterator) left;
+      var leftIterator = (Iterator) left;
       while (leftIterator.hasNext()) {
-        Object leftItem = leftIterator.next();
-        boolean found = false;
+        var leftItem = leftIterator.next();
+        var found = false;
         while (rightIterator.hasNext()) {
-          Object rightItem = rightIterator.next();
+          var rightItem = rightIterator.next();
           if (leftItem != null && leftItem.equals(rightItem)) {
             found = true;
             break;

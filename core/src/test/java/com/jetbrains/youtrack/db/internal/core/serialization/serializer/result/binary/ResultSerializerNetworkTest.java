@@ -24,9 +24,9 @@ public class ResultSerializerNetworkTest {
     try (var youTrackDB = new YouTrackDBImpl("memory", YouTrackDBConfig.defaultConfig())) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var db = (DatabaseSessionInternal) youTrackDB.open("test", "admin", "admin")) {
-        ResultSerializerNetwork serializer = new ResultSerializerNetwork();
+        var serializer = new ResultSerializerNetwork();
 
-        ResultInternal original = new ResultInternal(db);
+        var original = new ResultInternal(db);
         original.setProperty("string", "foo");
         original.setProperty("integer", 12);
         original.setProperty("float", 12.4f);
@@ -34,7 +34,7 @@ public class ResultSerializerNetworkTest {
         original.setProperty("boolean", true);
         original.setProperty("rid", new RecordId("#12:0"));
 
-        ResultInternal embeddedProj = new ResultInternal(db);
+        var embeddedProj = new ResultInternal(db);
         embeddedProj.setProperty("name", "bar");
         original.setProperty("embeddedProj", embeddedProj);
 
@@ -48,11 +48,11 @@ public class ResultSerializerNetworkTest {
         set.add("barx");
         original.setProperty("set", "set");
 
-        BytesContainer bytes = new BytesContainer();
-        serializer.serialize(original, bytes);
+        var bytes = new BytesContainer();
+        serializer.serialize(db, original, bytes);
 
         bytes.offset = 0;
-        ResultInternal deserialized = serializer.deserialize(db, bytes);
+        var deserialized = serializer.deserialize(db, bytes);
         Assert.assertEquals(original, deserialized);
       }
     }

@@ -5,8 +5,8 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -28,21 +28,28 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    var upstream = prev.start(ctx);
+    return upstream.map(CheckSafeDeleteStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
+  private static Result mapResult(Result result, CommandContext ctx) {
     if (result.isEntity()) {
-      var elem = result.toEntity();
-      SchemaClass clazz = EntityInternalUtils.getImmutableSchemaClass((EntityImpl) elem);
+      var session = ctx.getDatabaseSession();
+      var elem = result.asEntityOrNull();
+
+      SchemaImmutableClass res = null;
+      if (elem != null) {
+        res = ((EntityImpl) elem).getImmutableSchemaClass(session);
+      }
+      SchemaClass clazz = res;
+
       if (clazz != null) {
-        if (clazz.getName().equalsIgnoreCase("V") || clazz.isSubClassOf(ctx.getDatabase(), "V")) {
-          throw new CommandExecutionException(
+        if (clazz.getName().equalsIgnoreCase("V") || clazz.isSubClassOf("V")) {
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Cannot safely delete a vertex, please use DELETE VERTEX or UNSAFE");
         }
-        if (clazz.getName().equalsIgnoreCase("E") || clazz.isSubClassOf(ctx.getDatabase(), "E")) {
-          throw new CommandExecutionException(
+        if (clazz.getName().equalsIgnoreCase("E") || clazz.isSubClassOf("E")) {
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Cannot safely delete an edge, please use DELETE EDGE or UNSAFE");
         }
       }
@@ -52,8 +59,8 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ CHECK SAFE DELETE");
     if (profilingEnabled) {

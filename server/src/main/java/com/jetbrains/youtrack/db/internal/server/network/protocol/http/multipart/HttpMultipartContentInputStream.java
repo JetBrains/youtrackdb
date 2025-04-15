@@ -57,7 +57,7 @@ public class HttpMultipartContentInputStream extends InputStream {
       return -1;
     }
 
-    int value = nextByte;
+    var value = nextByte;
     nextByte = wrappedInputStream.read();
     if (((char) nextByte) == '\r') {
       bufferData();
@@ -109,9 +109,9 @@ public class HttpMultipartContentInputStream extends InputStream {
   }
 
   protected void bufferData() throws IOException {
-    boolean checkingEnd = true;
-    int boundaryCursor = 0;
-    final ArrayList<Integer> buffer = new ArrayList<Integer>();
+    var checkingEnd = true;
+    var boundaryCursor = 0;
+    final var buffer = new ArrayList<Integer>();
     int b;
     while (checkingEnd && (b = wrappedInputStream.read()) > -1) {
       buffer.add(b);

@@ -54,17 +54,17 @@
             </div>
 
             <div class="form-group"
-                 ng-class="{ 'has-error' : (classForm.clusterNumber.$error.min || classForm.clusterNumber.$error.number)}">
-              <label class="control-label col-md-2"> Number of Clusters</label>
+                 ng-class="{ 'has-error' : (classForm.collectionNumber.$error.min || classForm.collectionNumber.$error.number)}">
+              <label class="control-label col-md-2"> Number of Collections</label>
               <div class="col-md-10">
-                <input type="number" name="clusterNumber" min="1" class="form-control"
-                       ng-model="$ctrl.property['clusters']"/>
+                <input type="number" name="collectionNumber" min="1" class="form-control"
+                       ng-model="$ctrl.property['collections']"/>
               </div>
               <div class="col-md-10 col-md-offset-2">
-                <span ng-show="classForm.clusterNumber.$error.min"
-                      class="help-block help-block-sm ">Number of clusters should be >= 1</span>
+                <span ng-show="classForm.collectionNumber.$error.min"
+                      class="help-block help-block-sm ">Number of collections should be >= 1</span>
 
-                <span ng-show="classForm.clusterNumber.$error.number"
+                <span ng-show="classForm.collectionNumber.$error.number"
                       class="help-block help-block-sm ">Invalid Number</span>
               </div>
             </div>

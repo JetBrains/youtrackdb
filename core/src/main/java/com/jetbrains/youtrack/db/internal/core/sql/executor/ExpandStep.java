@@ -17,61 +17,86 @@ import java.util.Map;
  */
 public class ExpandStep extends AbstractExecutionStep {
 
-  public ExpandStep(CommandContext ctx, boolean profilingEnabled) {
+  private final String expandAlias;
+
+  public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
     super(ctx, profilingEnabled);
+    this.expandAlias = expandAlias;
   }
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new CommandExecutionException("Cannot expand without a target");
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Cannot expand without a target");
     }
-    ExecutionStream resultSet = prev.start(ctx);
-    return resultSet.flatMap(ExpandStep::nextResults);
+    var resultSet = prev.start(ctx);
+    return resultSet.flatMap(this::nextResults);
   }
 
-  private static ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
+  private ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
     if (nextAggregateItem.getPropertyNames().isEmpty()) {
       return ExecutionStream.empty();
     }
-    if (nextAggregateItem.getPropertyNames().size() > 1) {
-      throw new IllegalStateException("Invalid EXPAND on record " + nextAggregateItem);
+
+    Object projValue;
+    if (nextAggregateItem.isEntity()) {
+      projValue = nextAggregateItem.asEntity();
+    } else {
+      if (nextAggregateItem.getPropertyNames().size() > 1) {
+        throw new IllegalStateException("Invalid EXPAND on record " + nextAggregateItem);
+      }
+      var propName = nextAggregateItem.getPropertyNames().getFirst();
+      projValue = nextAggregateItem.getProperty(propName);
     }
 
-    String propName = nextAggregateItem.getPropertyNames().iterator().next();
-    Object projValue = nextAggregateItem.getProperty(propName);
-    if (projValue == null) {
-      return ExecutionStream.empty();
-    }
-    if (projValue instanceof Identifiable) {
-      DBRecord rec;
-      try {
-        rec = ((Identifiable) projValue).getRecord();
-      } catch (RecordNotFoundException rnf) {
+    var db = ctx.getDatabaseSession();
+    switch (projValue) {
+      case null -> {
         return ExecutionStream.empty();
       }
+      case Identifiable identifiable -> {
+        if (expandAlias != null) {
+          throw new CommandExecutionException(db,
+              "Cannot expand a record with a non-null alias: " + expandAlias);
+        }
+        DBRecord rec;
+        try {
+          var transaction = db.getActiveTransaction();
+          rec = transaction.load(identifiable);
+        } catch (RecordNotFoundException rnf) {
+          return ExecutionStream.empty();
+        }
 
-      ResultInternal res = new ResultInternal(ctx.getDatabase(), rec);
-      return ExecutionStream.singleton(res);
-    } else if (projValue instanceof Result) {
-      return ExecutionStream.singleton((Result) projValue);
-    } else if (projValue instanceof Iterator) {
-      //noinspection unchecked
-      return ExecutionStream.iterator((Iterator<Object>) projValue);
-    } else if (projValue instanceof Iterable) {
-      //noinspection unchecked
-      return ExecutionStream.iterator(((Iterable<Object>) projValue).iterator());
-    } else if (projValue instanceof Map) {
-      return ExecutionStream.iterator(((Map) projValue).entrySet().iterator());
-    } else {
-      return ExecutionStream.empty();
+        var res = new ResultInternal(ctx.getDatabaseSession(), rec);
+        return ExecutionStream.singleton(res);
+      }
+      case Result result -> {
+        return ExecutionStream.singleton(result);
+      }
+      case Iterator<?> iterator -> {
+        return ExecutionStream.iterator(iterator, expandAlias);
+      }
+      case Iterable<?> iterable -> {
+        return ExecutionStream.iterator(iterable.iterator(), expandAlias);
+      }
+      case Map<?, ?> map -> {
+        if (expandAlias != null) {
+          throw new CommandExecutionException(db,
+              "Cannot expand a map with a non-null alias: " + expandAlias);
+        }
+        return ExecutionStream.iterator(map.entrySet().iterator(), null);
+      }
+      default -> {
+        return ExecutionStream.empty();
+      }
     }
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ EXPAND";
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ EXPAND";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

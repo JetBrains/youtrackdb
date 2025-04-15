@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 
 /**
  * YouTrackDB wrapper class to use from scripts.
@@ -48,7 +48,7 @@ public class ScriptYouTrackDbWrapper {
       return new ScriptDocumentDatabaseWrapper((DatabaseSessionInternal) db);
     }
 
-    throw new ConfigurationException(
+    throw new ConfigurationException(db.getDatabaseName(),
         "No valid database instance found in context: " + db + ", class: " + db.getClass());
   }
 }

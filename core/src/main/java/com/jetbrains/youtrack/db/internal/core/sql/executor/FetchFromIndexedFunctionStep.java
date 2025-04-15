@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
@@ -37,7 +37,7 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    Iterator<Identifiable> fullResult = init(ctx);
+    var fullResult = init(ctx);
     return ExecutionStream.loadIterator(fullResult).interruptable();
   }
 
@@ -47,7 +47,7 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result =
+    var result =
         ExecutionStepInternal.getIndent(depth, indent)
             + "+ FETCH FROM INDEXED FUNCTION "
             + functionCondition.toString();
@@ -58,18 +58,18 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
-    result.setProperty("functionCondition", this.functionCondition.serialize(db));
-    result.setProperty("queryTarget", this.queryTarget.serialize(db));
+  public Result serialize(DatabaseSessionInternal session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
+    result.setProperty("functionCondition", this.functionCondition.serialize(session));
+    result.setProperty("queryTarget", this.queryTarget.serialize(session));
 
     return result;
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       functionCondition = new SQLBinaryCondition(-1);
       functionCondition.deserialize(fromResult.getProperty("functionCondition "));
 
@@ -77,7 +77,7 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
       queryTarget.deserialize(fromResult.getProperty("functionCondition "));
 
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 }

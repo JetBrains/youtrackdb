@@ -20,7 +20,6 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_S
 import static com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.ADDRESS_SEPARATOR;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -31,35 +30,23 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.CONNECTION
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.db.SharedContextRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedStatusRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedStatusResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ListDatabasesRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ListDatabasesResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ListGlobalConfigurationsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ListGlobalConfigurationsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigurationRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigurationResponse;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.CachedDatabasePoolFactory;
 import com.jetbrains.youtrack.db.internal.core.db.CachedDatabasePoolFactoryImpl;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolImpl;
@@ -71,11 +58,10 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.security.CredentialInterceptor;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import java.io.IOException;
@@ -129,7 +115,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     youTrack.addYouTrackDB(this);
     cachedPoolFactory = createCachedDatabasePoolFactory(this.configurations);
     urls = new RemoteURLs(hosts, this.configurations.getConfiguration());
-    int size =
+    var size =
         this.configurations
             .getConfiguration()
             .getValueAsInteger(GlobalConfiguration.EXECUTOR_POOL_MAX_SIZE);
@@ -146,7 +132,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   protected CachedDatabasePoolFactory createCachedDatabasePoolFactory(YouTrackDBConfigImpl config) {
-    int capacity =
+    var capacity =
         config.getConfiguration().getValueAsInteger(GlobalConfiguration.DB_CACHED_POOL_CAPACITY);
     long timeout =
         config
@@ -171,7 +157,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   public DatabaseSessionInternal open(
       String name, String user, String password, YouTrackDBConfig config) {
     checkOpen();
-    YouTrackDBConfigImpl resolvedConfig = solveConfig((YouTrackDBConfigImpl) config);
+    var resolvedConfig = solveConfig((YouTrackDBConfigImpl) config);
     try {
       StorageRemote storage;
       synchronized (this) {
@@ -181,13 +167,13 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
           storages.put(name, storage);
         }
       }
-      DatabaseSessionRemote db =
+      var session =
           new DatabaseSessionRemote(storage, getOrCreateSharedContext(storage));
-      db.internalOpen(user, password, resolvedConfig);
-      return db;
+      session.internalOpen(user, password, resolvedConfig);
+      return session;
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new DatabaseException("Cannot open database '" + name + "'"), e);
+          new DatabaseException(name, "Cannot open database '" + name + "'"), e, name);
     }
   }
 
@@ -210,22 +196,23 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       DatabaseType databaseType,
       YouTrackDBConfig config) {
 
-    config = solveConfig((YouTrackDBConfigImpl) config);
+    var configImpl = (YouTrackDBConfigImpl) config;
+    configImpl = solveConfig(configImpl);
 
     if (name == null || name.length() <= 0 || name.contains("`")) {
-      final String message = "Cannot create unnamed remote storage. Check your syntax";
+      final var message = "Cannot create unnamed remote storage. Check your syntax";
       LogManager.instance().error(this, message, null);
-      throw new StorageException(message);
+      throw new StorageException(name, message);
     }
-    String create = String.format("CREATE DATABASE `%s` %s ", name, databaseType.name());
+    var create = String.format("CREATE DATABASE `%s` %s ", name, databaseType.name());
     Map<String, Object> parameters = new HashMap<String, Object>();
-    Set<String> keys = config.getConfiguration().getContextKeys();
+    var keys = configImpl.getConfiguration().getContextKeys();
     if (!keys.isEmpty()) {
       List<String> entries = new ArrayList<String>();
-      for (String key : keys) {
-        GlobalConfiguration globalKey = GlobalConfiguration.findByKey(key);
+      for (var key : keys) {
+        var globalKey = GlobalConfiguration.findByKey(key);
         entries.add(String.format("\"%s\": :%s", key, globalKey.name()));
-        parameters.put(globalKey.name(), config.getConfiguration().getValue(globalKey));
+        parameters.put(globalKey.name(), configImpl.getConfiguration().getValue(globalKey));
       }
       create += String.format("{\"config\":{%s}}", String.join(",", entries));
     }
@@ -246,18 +233,18 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
           storages.put(name, storage);
         } catch (Exception e) {
           throw BaseException.wrapException(
-              new DatabaseException("Cannot open database '" + name + "'"), e);
+              new DatabaseException(name, "Cannot open database '" + name + "'"), e, name);
         }
       }
     }
-    DatabaseSessionRemotePooled db =
+    var db =
         new DatabaseSessionRemotePooled(pool, storage, getOrCreateSharedContext(storage));
     db.internalOpen(user, password, pool.getConfig());
     return db;
   }
 
   public synchronized void closeStorage(StorageRemote remote) {
-    SharedContext ctx = sharedContexts.get(remote.getName());
+    var ctx = sharedContexts.get(remote.getName());
     if (ctx != null) {
       ctx.close();
       sharedContexts.remove(remote.getName());
@@ -266,42 +253,30 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     remote.shutdown();
   }
 
-  public EntityImpl getServerInfo(String username, String password) {
-    ServerInfoRequest request = new ServerInfoRequest();
-    ServerInfoResponse response = connectAndSend(null, username, password, request);
-    EntityImpl res = new EntityImpl();
-    res.fromJSON(response.getResult());
-
-    return res;
-  }
-
-  public EntityImpl getClusterStatus(String username, String password) {
-    DistributedStatusRequest request = new DistributedStatusRequest();
-    DistributedStatusResponse response = connectAndSend(null, username, password, request);
-
-    LogManager.instance()
-        .debug(this, "Cluster status %s", response.getClusterConfig().toJSON("prettyPrint"));
-    return response.getClusterConfig();
+  public Map<String, Object> getServerInfo(String username, String password) {
+    var request = new ServerInfoRequest();
+    var response = connectAndSend(null, username, password, request);
+    return JSONSerializerJackson.mapFromJson(response.getResult());
   }
 
   public String getGlobalConfiguration(
       String username, String password, GlobalConfiguration config) {
-    GetGlobalConfigurationRequest request = new GetGlobalConfigurationRequest(config.getKey());
-    GetGlobalConfigurationResponse response = connectAndSend(null, username, password, request);
+    var request = new GetGlobalConfigurationRequest(config.getKey());
+    var response = connectAndSend(null, username, password, request);
     return response.getValue();
   }
 
   public void setGlobalConfiguration(
       String username, String password, GlobalConfiguration config, String iConfigValue) {
-    String value = iConfigValue != null ? iConfigValue : "";
-    SetGlobalConfigurationRequest request =
+    var value = iConfigValue != null ? iConfigValue : "";
+    var request =
         new SetGlobalConfigurationRequest(config.getKey(), value);
-    SetGlobalConfigurationResponse response = connectAndSend(null, username, password, request);
+    var response = connectAndSend(null, username, password, request);
   }
 
   public Map<String, String> getGlobalConfigurations(String username, String password) {
-    ListGlobalConfigurationsRequest request = new ListGlobalConfigurationsRequest();
-    ListGlobalConfigurationsResponse response = connectAndSend(null, username, password, request);
+    var request = new ListGlobalConfigurationsRequest();
+    var response = connectAndSend(null, username, password, request);
     return response.getConfigs();
   }
 
@@ -311,17 +286,17 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
 
   @Override
   public synchronized boolean exists(String name, String user, String password) {
-    ExistsDatabaseRequest request = new ExistsDatabaseRequest(name, null);
-    ExistsDatabaseResponse response = connectAndSend(name, user, password, request);
+    var request = new ExistsDatabaseRequest(name, null);
+    var response = connectAndSend(name, user, password, request);
     return response.isExists();
   }
 
   @Override
   public synchronized void drop(String name, String user, String password) {
-    DropDatabaseRequest request = new DropDatabaseRequest(name, null);
+    var request = new DropDatabaseRequest(name, null);
     connectAndSend(name, user, password, request);
 
-    SharedContext ctx = sharedContexts.get(name);
+    var ctx = sharedContexts.get(name);
     if (ctx != null) {
       ctx.close();
       sharedContexts.remove(name);
@@ -340,8 +315,8 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   public Map<String, String> getDatabases(String user, String password) {
-    ListDatabasesRequest request = new ListDatabasesRequest();
-    ListDatabasesResponse response = connectAndSend(null, user, password, request);
+    var request = new ListDatabasesRequest();
+    var response = connectAndSend(null, user, password, request);
     return response.getDatabases();
   }
 
@@ -354,15 +329,15 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       String path,
       YouTrackDBConfig config) {
     if (name == null || name.length() <= 0) {
-      final String message = "Cannot create unnamed remote storage. Check your syntax";
+      final var message = "Cannot create unnamed remote storage. Check your syntax";
       LogManager.instance().error(this, message, null);
-      throw new StorageException(message);
+      throw new StorageException(name, message);
     }
 
-    CreateDatabaseRequest request =
+    var request =
         new CreateDatabaseRequest(name, type.name().toLowerCase(), null, path);
 
-    CreateDatabaseResponse response = connectAndSend(name, user, password, request);
+    var response = connectAndSend(name, user, password, request);
   }
 
   public <T extends BinaryResponse> T connectAndSend(
@@ -385,7 +360,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   public DatabasePoolInternal openPool(
       String name, String user, String password, YouTrackDBConfig config) {
     checkOpen();
-    DatabasePoolImpl pool = new DatabasePoolImpl(this, name, user, password,
+    var pool = new DatabasePoolImpl(this, name, user, password,
         solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;
@@ -400,7 +375,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   public DatabasePoolInternal cachedPool(
       String database, String user, String password, YouTrackDBConfig config) {
     checkOpen();
-    DatabasePoolInternal pool =
+    var pool =
         cachedPoolFactory.get(database, user, password, solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;
@@ -436,7 +411,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       storagesCopy = new ArrayList<>(storages.values());
     }
 
-    for (StorageRemote stg : storagesCopy) {
+    for (var stg : storagesCopy) {
       try {
         LogManager.instance().info(this, "- shutdown storage: %s ...", stg.getName());
         stg.shutdown();
@@ -460,7 +435,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       config.setParent(this.configurations);
       return config;
     } else {
-      YouTrackDBConfigImpl cfg = (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig();
+      var cfg = (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig();
       cfg.setParent(this.configurations);
       return cfg;
     }
@@ -510,7 +485,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
 
   @Override
   public synchronized void forceDatabaseClose(String databaseName) {
-    StorageRemote remote = storages.get(databaseName);
+    var remote = storages.get(databaseName);
     if (remote != null) {
       closeStorage(remote);
     }
@@ -534,7 +509,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
 
   protected synchronized SharedContext getOrCreateSharedContext(StorageRemote storage) {
 
-    SharedContext result = sharedContexts.get(storage.getName());
+    var result = sharedContexts.get(storage.getName());
     if (result == null) {
       result = createSharedContext(storage);
       sharedContexts.put(storage.getName(), result);
@@ -543,7 +518,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   private SharedContext createSharedContext(StorageRemote storage) {
-    SharedContextRemote context = new SharedContextRemote(storage, this);
+    var context = new SharedContextRemote(storage, this);
     storage.setSharedContext(context);
     return context;
   }
@@ -583,26 +558,26 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   public void releaseDatabase(String database, String user, String password) {
-    ReleaseDatabaseRequest request = new ReleaseDatabaseRequest(database, null);
-    ReleaseDatabaseResponse response = connectAndSend(database, user, password, request);
+    var request = new ReleaseDatabaseRequest(database, null);
+    var response = connectAndSend(database, user, password, request);
   }
 
   public void freezeDatabase(String database, String user, String password) {
-    FreezeDatabaseRequest request = new FreezeDatabaseRequest(database, null);
-    FreezeDatabaseResponse response = connectAndSend(database, user, password, request);
+    var request = new FreezeDatabaseRequest(database, null);
+    var response = connectAndSend(database, user, password, request);
   }
 
   @Override
   public ResultSet executeServerStatementPositionalParams(String statement, String user,
       String pw,
       Object... params) {
-    int recordsPerPage =
+    var recordsPerPage =
         getContextConfiguration()
             .getValueAsInteger(GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE);
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    ServerQueryRequest request =
+    var request =
         new ServerQueryRequest(
             "sql",
             statement,
@@ -610,7 +585,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
             ServerQueryRequest.COMMAND,
             RecordSerializerNetworkV37Client.INSTANCE, recordsPerPage);
 
-    ServerQueryResponse response = connectAndSend(null, user, pw, request);
+    var response = connectAndSend(null, user, pw, request);
     return new RemoteResultSet(
         null,
         response.getQueryId(),
@@ -623,20 +598,20 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   @Override
   public ResultSet executeServerStatementNamedParams(String statement, String user, String pw,
       Map<String, Object> params) {
-    int recordsPerPage =
+    var recordsPerPage =
         getContextConfiguration()
             .getValueAsInteger(GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE);
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    ServerQueryRequest request =
+    var request =
         new ServerQueryRequest("sql",
             statement,
             params,
             ServerQueryRequest.COMMAND,
             RecordSerializerNetworkV37Client.INSTANCE, recordsPerPage);
 
-    ServerQueryResponse response = connectAndSend(null, user, pw, request);
+    var response = connectAndSend(null, user, pw, request);
 
     return new RemoteResultSet(
         null,
@@ -661,7 +636,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
           } finally {
             network.endRequest();
           }
-          T response = request.createResponse();
+          var response = request.createResponse();
           try {
             StorageRemote.beginResponse(null, network, session1);
             response.read(null, network, session1);
@@ -680,9 +655,9 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
       StorageRemoteSession session) {
 
     SocketChannelBinaryAsynchClient network = null;
-    ContextConfiguration config = getContextConfiguration();
+    var config = getContextConfiguration();
     try {
-      String serverUrl =
+      var serverUrl =
           urls.getNextAvailableServerURL(false, session, config, CONNECTION_STRATEGY.STICKY);
       do {
         try {
@@ -695,7 +670,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
         }
       } while (network == null);
 
-      T res = operation.execute(network, session);
+      var res = operation.execute(network, session);
       connectionManager.release(network);
       return res;
     } catch (Exception e) {
@@ -703,7 +678,8 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
         connectionManager.release(network);
       }
       session.closeAllSessions(connectionManager, config);
-      throw BaseException.wrapException(new StorageException(errorMessage), e);
+      throw BaseException.wrapException(new StorageException(session.currentUrl, errorMessage), e,
+          session.currentUrl);
     }
   }
 
@@ -713,17 +689,17 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   }
 
   private <T> T connectAndExecute(
-      String name, String user, String password, SessionOperation<T> operation) {
+      String dbName, String user, String password, SessionOperation<T> operation) {
     checkOpen();
-    StorageRemoteSession newSession = new StorageRemoteSession(-1);
-    int retry = configurations.getConfiguration().getValueAsInteger(NETWORK_SOCKET_RETRY);
+    var newSession = new StorageRemoteSession(-1);
+    var retry = configurations.getConfiguration().getValueAsInteger(NETWORK_SOCKET_RETRY);
     while (retry > 0) {
       try {
-        CredentialInterceptor ci = SecurityManager.instance().newCredentialInterceptor();
+        var ci = SecurityManager.instance().newCredentialInterceptor();
 
         String username;
         String foundPassword;
-        String url = buildUrl(name);
+        var url = buildUrl(dbName);
         if (ci != null) {
           ci.intercept(url, user, password);
           username = ci.getUsername();
@@ -732,11 +708,11 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
           username = user;
           foundPassword = password;
         }
-        Connect37Request request = new Connect37Request(username, foundPassword);
+        var request = new Connect37Request(username, foundPassword);
 
         networkAdminOperation(
             (network, session) -> {
-              StorageRemoteNodeSession nodeSession =
+              var nodeSession =
                   session.getOrCreateServerSession(network.getServerURL());
               try {
                 network.beginRequest(request.getCommand(), session);
@@ -744,13 +720,14 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
               } finally {
                 network.endRequest();
               }
-              ConnectResponse response = request.createResponse();
+              var response = request.createResponse();
               try {
                 network.beginResponse(null, nodeSession.getSessionId(), true);
                 response.read(null, network, session);
               } finally {
                 network.endResponse();
               }
+              //noinspection ReturnOfNull
               return null;
             },
             "Cannot connect to the remote server/database '" + url + "'",
@@ -761,17 +738,29 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
         retry--;
         if (retry == 0) {
           throw BaseException.wrapException(
-              new DatabaseException(
+              new DatabaseException(dbName,
                   "Reached maximum retry limit on admin operations, the server may be offline"),
-              e);
+              e, dbName);
         }
       } finally {
         newSession.closeAllSessions(connectionManager, configurations.getConfiguration());
       }
     }
     // SHOULD NEVER REACH THIS POINT
-    throw new DatabaseException(
+    throw new DatabaseException(dbName,
         "Reached maximum retry limit on admin operations, the server may be offline");
+  }
+
+  @Override
+  public DatabasePoolInternal openPoolNoAuthenticate(String name, String user,
+      YouTrackDBConfig config) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public DatabaseSessionInternal poolOpenNoAuthenticate(String name, String user,
+      DatabasePoolInternal pool) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

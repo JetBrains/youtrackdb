@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class SQLFloatingPoint extends SQLNumber {
 
@@ -22,6 +23,7 @@ public class SQLFloatingPoint extends SQLNumber {
     super(p, id);
   }
 
+  @Nullable
   @Override
   public Number getValue() {
     if (finalValue != null) {
@@ -41,7 +43,7 @@ public class SQLFloatingPoint extends SQLNumber {
       }
     } else {
       try {
-        double returnValue = Double.parseDouble(stringValue) * sign;
+        var returnValue = Double.parseDouble(stringValue) * sign;
         if (Math.abs(returnValue) < Float.MAX_VALUE) {
           finalValue = (float) returnValue;
         } else {
@@ -79,7 +81,7 @@ public class SQLFloatingPoint extends SQLNumber {
 
   @Override
   public SQLFloatingPoint copy() {
-    SQLFloatingPoint result = new SQLFloatingPoint(-1);
+    var result = new SQLFloatingPoint(-1);
     result.sign = sign;
     result.stringValue = stringValue;
     return result;
@@ -94,7 +96,7 @@ public class SQLFloatingPoint extends SQLNumber {
       return false;
     }
 
-    SQLFloatingPoint that = (SQLFloatingPoint) o;
+    var that = (SQLFloatingPoint) o;
 
     if (sign != that.sign) {
       return false;
@@ -104,13 +106,13 @@ public class SQLFloatingPoint extends SQLNumber {
 
   @Override
   public int hashCode() {
-    int result = sign;
+    var result = sign;
     result = 31 * result + (stringValue != null ? stringValue.hashCode() : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("sign", sign);
     result.setProperty("stringValue", stringValue);
     result.setProperty("finalValue", finalValue);

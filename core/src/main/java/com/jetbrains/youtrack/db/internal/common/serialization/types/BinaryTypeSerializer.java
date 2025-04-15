@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -38,44 +39,75 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
     return length + IntegerSerializer.INT_SIZE;
   }
 
-  public int getObjectSize(byte[] object, Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] object,
+      Object... hints) {
+    return object.length + IntegerSerializer.INT_SIZE;
+  }
+
+  public static int getObjectSizeStatic(byte[] object) {
     return object.length + IntegerSerializer.INT_SIZE;
   }
 
   public void serialize(
-      final byte[] object, final byte[] stream, final int startPosition, final Object... hints) {
-    int len = object.length;
-    IntegerSerializer.INSTANCE.serializeLiteral(len, stream, startPosition);
+      final byte[] object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
+    var len = object.length;
+    IntegerSerializer.serializeLiteral(len, stream, startPosition);
     System.arraycopy(object, 0, stream, startPosition + IntegerSerializer.INT_SIZE, len);
   }
 
-  public byte[] deserialize(final byte[] stream, final int startPosition) {
-    final int len = IntegerSerializer.INSTANCE.deserializeLiteral(stream, startPosition);
+  public static void serializeStatic(
+      final byte[] object, final byte[] stream, final int startPosition) {
+    var len = object.length;
+    IntegerSerializer.serializeLiteral(len, stream, startPosition);
+    System.arraycopy(object, 0, stream, startPosition + IntegerSerializer.INT_SIZE, len);
+  }
+
+  public byte[] deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
+    final var len = IntegerSerializer.deserializeLiteral(stream, startPosition);
     return Arrays.copyOfRange(
         stream,
         startPosition + IntegerSerializer.INT_SIZE,
         startPosition + IntegerSerializer.INT_SIZE + len);
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
-    return IntegerSerializer.INSTANCE.deserializeLiteral(stream, startPosition)
+  public static byte[] deserializeStatic(final byte[] stream, final int startPosition) {
+    final var len = IntegerSerializer.deserializeLiteral(stream, startPosition);
+    return Arrays.copyOfRange(
+        stream,
+        startPosition + IntegerSerializer.INT_SIZE,
+        startPosition + IntegerSerializer.INT_SIZE + len);
+  }
+
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
+    return IntegerSerializer.deserializeLiteral(stream, startPosition)
         + IntegerSerializer.INT_SIZE;
   }
 
-  public int getObjectSizeNative(byte[] stream, int startPosition) {
-    return IntegerSerializer.INSTANCE.deserializeNative(stream, startPosition)
+  public static int getObjectSizeStatic(final byte[] stream, final int startPosition) {
+    return IntegerSerializer.deserializeLiteral(stream, startPosition)
+        + IntegerSerializer.INT_SIZE;
+  }
+
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
+    return IntegerSerializer.deserializeNative(stream, startPosition)
         + IntegerSerializer.INT_SIZE;
   }
 
   public void serializeNativeObject(
-      byte[] object, byte[] stream, int startPosition, Object... hints) {
-    final int len = object.length;
-    IntegerSerializer.INSTANCE.serializeNative(len, stream, startPosition);
+      byte[] object, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
+      Object... hints) {
+    final var len = object.length;
+    IntegerSerializer.serializeNative(len, stream, startPosition);
     System.arraycopy(object, 0, stream, startPosition + IntegerSerializer.INT_SIZE, len);
   }
 
-  public byte[] deserializeNativeObject(byte[] stream, int startPosition) {
-    final int len = IntegerSerializer.INSTANCE.deserializeNative(stream, startPosition);
+  public byte[] deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
+    final var len = IntegerSerializer.deserializeNative(stream, startPosition);
     return Arrays.copyOfRange(
         stream,
         startPosition + IntegerSerializer.INT_SIZE,
@@ -95,7 +127,8 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
   }
 
   @Override
-  public byte[] preprocess(byte[] value, Object... hints) {
+  public byte[] preprocess(BinarySerializerFactory serializerFactory, byte[] value,
+      Object... hints) {
     return value;
   }
 
@@ -103,8 +136,9 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(byte[] object, ByteBuffer buffer, Object... hints) {
-    final int len = object.length;
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, byte[] object,
+      ByteBuffer buffer, Object... hints) {
+    final var len = object.length;
     buffer.putInt(len);
     buffer.put(object);
   }
@@ -113,19 +147,21 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
    * {@inheritDoc}
    */
   @Override
-  public byte[] deserializeFromByteBufferObject(ByteBuffer buffer) {
-    final int len = buffer.getInt();
-    final byte[] result = new byte[len];
+  public byte[] deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
+    final var len = buffer.getInt();
+    final var result = new byte[len];
     buffer.get(result);
     return result;
   }
 
   @Override
-  public byte[] deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
-    final int len = buffer.getInt(offset);
+  public byte[] deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
+    final var len = buffer.getInt(offset);
     offset += Integer.BYTES;
 
-    final byte[] result = new byte[len];
+    final var result = new byte[len];
     buffer.get(offset, result);
 
     return result;
@@ -135,12 +171,14 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return buffer.getInt() + IntegerSerializer.INT_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return buffer.getInt(offset) + IntegerSerializer.INT_SIZE;
   }
 
@@ -149,8 +187,9 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
    */
   @Override
   public byte[] deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
-    final int len = walChanges.getIntValue(buffer, offset);
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
+    final var len = walChanges.getIntValue(buffer, offset);
     offset += IntegerSerializer.INT_SIZE;
     return walChanges.getBinaryValue(buffer, offset, len);
   }

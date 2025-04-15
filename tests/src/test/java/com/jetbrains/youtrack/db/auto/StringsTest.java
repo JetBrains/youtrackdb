@@ -18,16 +18,22 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.internal.common.parser.StringParser;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import java.util.List;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
+import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "internal")
-public class StringsTest {
+@Test
+public class StringsTest extends BaseDBTest {
+
+  @Parameters(value = "remote")
+  public StringsTest(@Optional Boolean remote) {
+    super(remote != null && remote);
+  }
 
   @Test
   public void splitArray() {
-    List<String> pieces =
+    var pieces =
         StringSerializerHelper.smartSplit(
             "first, orders : ['this is mine', 'that is your']",
             new char[]{','},
@@ -45,9 +51,10 @@ public class StringsTest {
     Assert.assertTrue(pieces.get(1).contains("this is mine"));
   }
 
+  @Test
   public void replaceAll() {
-    String test1 = "test string number 1";
-    String test2 =
+    var test1 = "test string number 1";
+    var test2 =
         "test \\string\\ \"number\" \\2\\ \\\\ \"\"\"\" test String number 2 test string number 2";
     Assert.assertEquals(StringParser.replaceAll(test1, "", ""), test1);
     Assert.assertEquals(StringParser.replaceAll(test1, "1", "10"), test1 + "0");
@@ -67,7 +74,7 @@ public class StringsTest {
         StringParser.replaceAll(test2, "\\\\", "replacement"),
         "test \\string\\ \"number\" \\2\\ replacement \"\"\"\" test String number 2 test string"
             + " number 2");
-    String subsequentReplaceTest = StringParser.replaceAll(test2, "\\", "");
+    var subsequentReplaceTest = StringParser.replaceAll(test2, "\\", "");
     subsequentReplaceTest = StringParser.replaceAll(subsequentReplaceTest, "\"", "");
     subsequentReplaceTest =
         StringParser.replaceAll(
@@ -76,32 +83,38 @@ public class StringsTest {
         subsequentReplaceTest, "text replacement 1   test String number 2 text replacement 1");
   }
 
+  @Test
   public void testNoEmptyFields() {
-    List<String> pieces =
+    var pieces =
         StringSerializerHelper.split(
             "1811000032;03/27/2014;HA297000610K;+3415.4000;+3215.4500;+0.0000;+1117.0000;+916.7500;3583;890;+64.8700;4;4;+198.0932",
             ';');
     Assert.assertEquals(pieces.size(), 14);
   }
 
+  @Test
   public void testEmptyFields() {
-    List<String> pieces =
+    var pieces =
         StringSerializerHelper.split(
             "1811000032;03/27/2014;HA297000960C;+0.0000;+0.0000;+0.0000;+0.0000;+0.0000;0;0;+0.0000;;5;+0.0000",
             ';');
     Assert.assertEquals(pieces.size(), 14);
   }
 
+  @Test
   public void testDocumentSelfReference() {
-    EntityImpl document = new EntityImpl();
-    document.field("selfref", document);
+    session.begin();
+    var document = session.newEntity();
+    document.setProperty("selfref", document);
 
-    EntityImpl docTwo = new EntityImpl();
-    docTwo.field("ref", document);
-    document.field("ref", docTwo);
+    var docTwo = session.newEntity();
+    docTwo.setProperty("ref", document);
+    document.setProperty("ref", docTwo);
 
-    String value = document.toString();
+    var value = document.toString();
 
-    Assert.assertEquals(value, "{selfref:<recursion:rid=#-1:-1>,ref:{ref:<recursion:rid=#-1:-1>}}");
+    Assert.assertEquals(value,
+        "O#7:-2{ref:#7:-3,selfref:#7:-2} v0");
+    session.commit();
   }
 }

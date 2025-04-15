@@ -11,7 +11,7 @@ public class CreateIndexCommandTest extends DbTestBase {
 
   @Test(expected = IndexException.class)
   public void testCreateIndexOnMissingPropertyWithCollate() {
-    db.getMetadata().getSchema().createClass("Test");
-    db.command(" create index Test.test on Test(test collate ci) UNIQUE").close();
+    session.getMetadata().getSchema().createClass("Test");
+    session.execute(" create index Test.test on Test(test collate ci) UNIQUE").close();
   }
 }

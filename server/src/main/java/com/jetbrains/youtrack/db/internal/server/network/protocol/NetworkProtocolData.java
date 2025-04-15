@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
 
 /**
  * Saves all the important information about the network connection. Useful for monitoring and
@@ -49,7 +49,7 @@ public class NetworkProtocolData {
   public CommandRequestText command = null;
   public boolean supportsLegacyPushMessages = true;
   public boolean collectStats = true;
-  private RecordSerializer serializer;
+  private RecordSerializerNetwork serializer;
 
   public String getSerializationImpl() {
     return serializationImpl;
@@ -57,18 +57,20 @@ public class NetworkProtocolData {
 
   public void setSerializationImpl(String serializationImpl) {
     if (serializationImpl.equals(RecordSerializerBinary.NAME)) {
-      serializationImpl = RecordSerializerNetwork.NAME;
+      serializationImpl = RecordSerializerNetworkBase.NAME;
     }
+
     this.serializationImpl = serializationImpl;
-    serializer = RecordSerializerFactory.instance().getFormat(serializationImpl);
+    serializer = (RecordSerializerNetwork) RecordSerializerFactory.instance()
+        .getFormat(serializationImpl);
   }
 
-  public void setSerializer(RecordSerializer serializer) {
+  public void setSerializer(RecordSerializerNetwork serializer) {
     this.serializer = serializer;
     this.serializationImpl = serializer.getName();
   }
 
-  public RecordSerializer getSerializer() {
+  public RecordSerializerNetwork getSerializer() {
     return serializer;
   }
 }

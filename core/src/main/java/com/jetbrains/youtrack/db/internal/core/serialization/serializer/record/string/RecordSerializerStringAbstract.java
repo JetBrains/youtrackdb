@@ -22,20 +22,16 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerAnyStreamable;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
-import java.io.Serializable;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -44,23 +40,25 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 @SuppressWarnings("serial")
-public abstract class RecordSerializerStringAbstract implements RecordSerializer, Serializable {
+public abstract class RecordSerializerStringAbstract {
 
   private static final char DECIMAL_SEPARATOR = '.';
   private static final String MAX_INTEGER_AS_STRING = String.valueOf(Integer.MAX_VALUE);
   private static final int MAX_INTEGER_DIGITS = MAX_INTEGER_AS_STRING.length();
 
+  @Nullable
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal db, final EntityImpl entity, PropertyType iType,
+      DatabaseSessionInternal session, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
     if (iType == null) {
-      iType = PropertyType.EMBEDDED;
+      iType = PropertyTypeInternal.EMBEDDED;
     }
 
     switch (iType) {
@@ -77,39 +75,30 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
       case DATE:
       case DATETIME:
       case LINK:
-        return simpleValueFromStream(db, iValue, iType);
+        return simpleValueFromStream(session, iValue, iType);
 
       case EMBEDDED: {
         // EMBEDED RECORD
-        final Object embeddedObject =
-            StringSerializerEmbedded.INSTANCE.fromStream(db, (String) iValue);
+        final var embeddedObject =
+            StringSerializerEmbedded.INSTANCE.fromStream(session, (String) iValue);
         if (embeddedObject instanceof EntityImpl) {
-          EntityInternalUtils.addOwner((EntityImpl) embeddedObject, entity);
+          ((EntityImpl) embeddedObject).setOwner(entity);
         }
 
         // EMBEDDED OBJECT
         return embeddedObject;
       }
 
-      case CUSTOM:
-        // RECORD
-        final Object result = StringSerializerAnyStreamable.INSTANCE.fromStream(db,
-            (String) iValue);
-        if (result instanceof EntityImpl) {
-          EntityInternalUtils.addOwner((EntityImpl) result, entity);
-        }
-        return result;
-
       case EMBEDDEDSET:
       case EMBEDDEDLIST: {
-        final String value = (String) iValue;
-        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionFromStream(db,
+        final var value = (String) iValue;
+        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionFromStream(session,
             entity, iType, null, null, value);
       }
 
       case EMBEDDEDMAP: {
-        final String value = (String) iValue;
-        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedMapFromStream(db,
+        final var value = (String) iValue;
+        return RecordSerializerCSVAbstract.embeddedMapFromStream(session,
             entity, null, value, null);
       }
     }
@@ -118,82 +107,119 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
         "Type " + iType + " not supported to convert value: " + iValue);
   }
 
-  public static Object convertValue(DatabaseSessionInternal db,
-      final String iValue, final PropertyType iExpectedType) {
-    final Object v = getTypeValue(db, iValue);
-    return PropertyType.convert(db, v, iExpectedType.getDefaultJavaType());
+  public static Object convertValue(DatabaseSessionInternal session,
+      final String iValue, final PropertyTypeInternal iExpectedType) {
+    final var v = getTypeValue(session, iValue);
+    return PropertyTypeInternal.convert(session, v, iExpectedType.getDefaultJavaType());
   }
 
   public static void fieldTypeToString(
-      final StringBuilder iBuffer, PropertyType iType, final Object iValue) {
+      DatabaseSessionInternal session, final StringWriter iBuffer, PropertyTypeInternal iType,
+      final Object iValue) {
     if (iValue == null) {
       return;
     }
 
     if (iType == null) {
       if (iValue instanceof RID) {
-        iType = PropertyType.LINK;
+        iType = PropertyTypeInternal.LINK;
       } else {
-        iType = PropertyType.EMBEDDED;
+        iType = PropertyTypeInternal.EMBEDDED;
       }
     }
 
     switch (iType) {
-      case STRING, BOOLEAN, INTEGER, FLOAT, DECIMAL, LONG, DOUBLE, SHORT, BYTE, BINARY, DATE,
-           DATETIME:
-        simpleValueToStream(iBuffer, iType, iValue);
+      case STRING:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case BOOLEAN:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case INTEGER:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case FLOAT:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case DECIMAL:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case LONG:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case DOUBLE:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case SHORT:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case BYTE:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case BINARY:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case DATE:
+        simpleValueToStream(session, iBuffer, iType, iValue);
+        break;
+
+      case DATETIME:
+        simpleValueToStream(session, iBuffer, iType, iValue);
         break;
 
       case LINK:
         if (iValue instanceof RecordId) {
-          ((RecordId) iValue).toString(iBuffer);
+          iBuffer.append(iValue.toString());
         } else {
-          ((RecordId) ((Identifiable) iValue).getIdentity()).toString(iBuffer);
+          iBuffer.append(((Identifiable) iValue).getIdentity().toString());
         }
         break;
 
       case EMBEDDEDSET:
         RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            DatabaseRecordThreadLocal.instance().getIfDefined(),
+            session,
             iBuffer,
             null,
             null,
             iValue,
-            true,
             true);
         break;
 
       case EMBEDDEDLIST:
         RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            DatabaseRecordThreadLocal.instance().getIfDefined(),
+            session,
             iBuffer,
             null,
             null,
             iValue,
-            true,
             false);
         break;
 
       case EMBEDDEDMAP:
         RecordSerializerSchemaAware2CSV.INSTANCE.embeddedMapToStream(
-            DatabaseRecordThreadLocal.instance().getIfDefined(),
+            session,
             iBuffer,
             null,
-            null,
-            iValue,
-            true);
+            iValue);
         break;
 
       case EMBEDDED:
         if (iValue instanceof EntityImpl) {
-          RecordSerializerSchemaAware2CSV.INSTANCE.toString((EntityImpl) iValue, iBuffer, null);
+          RecordSerializerSchemaAware2CSV.INSTANCE.toString(session, (EntityImpl) iValue, iBuffer,
+              null);
         } else {
-          StringSerializerEmbedded.INSTANCE.toStream(iBuffer, iValue);
+          StringSerializerEmbedded.INSTANCE.toStream(session, iBuffer, iValue);
         }
-        break;
-
-      case CUSTOM:
-        StringSerializerAnyStreamable.INSTANCE.toStream(iBuffer, iValue);
         break;
 
       default:
@@ -210,42 +236,41 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
    * @param iValue Value to parse
    * @return The closest type recognized
    */
-  public static PropertyType getType(final String iValue) {
+  @Nullable
+  public static PropertyTypeInternal getType(final String iValue) {
     if (iValue.length() == 0) {
       return null;
     }
 
-    final char firstChar = iValue.charAt(0);
+    final var firstChar = iValue.charAt(0);
 
     if (firstChar == RID.PREFIX)
     // RID
     {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     } else if (firstChar == '\'' || firstChar == '"') {
-      return PropertyType.STRING;
+      return PropertyTypeInternal.STRING;
     } else if (firstChar == StringSerializerHelper.BINARY_BEGINEND) {
-      return PropertyType.BINARY;
+      return PropertyTypeInternal.BINARY;
     } else if (firstChar == StringSerializerHelper.EMBEDDED_BEGIN) {
-      return PropertyType.EMBEDDED;
+      return PropertyTypeInternal.EMBEDDED;
     } else if (firstChar == StringSerializerHelper.LIST_BEGIN) {
-      return PropertyType.EMBEDDEDLIST;
+      return PropertyTypeInternal.EMBEDDEDLIST;
     } else if (firstChar == StringSerializerHelper.SET_BEGIN) {
-      return PropertyType.EMBEDDEDSET;
+      return PropertyTypeInternal.EMBEDDEDSET;
     } else if (firstChar == StringSerializerHelper.MAP_BEGIN) {
-      return PropertyType.EMBEDDEDMAP;
-    } else if (firstChar == StringSerializerHelper.CUSTOM_TYPE) {
-      return PropertyType.CUSTOM;
+      return PropertyTypeInternal.EMBEDDEDMAP;
     }
 
     // BOOLEAN?
     if (iValue.equalsIgnoreCase("true") || iValue.equalsIgnoreCase("false")) {
-      return PropertyType.BOOLEAN;
+      return PropertyTypeInternal.BOOLEAN;
     }
 
     // NUMBER OR STRING?
-    boolean integer = true;
-    for (int index = 0; index < iValue.length(); ++index) {
-      final char c = iValue.charAt(index);
+    var integer = true;
+    for (var index = 0; index < iValue.length(); ++index) {
+      final var c = iValue.charAt(index);
       if (c < '0' || c > '9') {
         if ((index == 0 && (c == '+' || c == '-'))) {
           continue;
@@ -264,59 +289,67 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
                 continue;
               }
             } else if (c == 'f') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.FLOAT;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.FLOAT;
             } else if (c == 'c') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DECIMAL;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DECIMAL;
             } else if (c == 'l') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.LONG;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.LONG;
             } else if (c == 'd') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DOUBLE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DOUBLE;
             } else if (c == 'b') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.BYTE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.BYTE;
             } else if (c == 'a') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DATE;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DATE;
             } else if (c == 't') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.DATETIME;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.DATETIME;
             } else if (c == 's') {
-              return index != (iValue.length() - 1) ? PropertyType.STRING : PropertyType.SHORT;
+              return index != (iValue.length() - 1) ? PropertyTypeInternal.STRING
+                  : PropertyTypeInternal.SHORT;
             } else if (c == 'e') { // eg. 1e-06
               try {
                 Double.parseDouble(iValue);
-                return PropertyType.DOUBLE;
+                return PropertyTypeInternal.DOUBLE;
               } catch (Exception ignore) {
-                return PropertyType.STRING;
+                return PropertyTypeInternal.STRING;
               }
             }
           }
 
-          return PropertyType.STRING;
+          return PropertyTypeInternal.STRING;
         }
       }
     }
 
     if (integer) {
       // AUTO CONVERT TO LONG IF THE INTEGER IS TOO BIG
-      final int numberLength = iValue.length();
+      final var numberLength = iValue.length();
       if (numberLength > MAX_INTEGER_DIGITS
           || (numberLength == MAX_INTEGER_DIGITS && iValue.compareTo(MAX_INTEGER_AS_STRING) > 0)) {
-        return PropertyType.LONG;
+        return PropertyTypeInternal.LONG;
       }
 
-      return PropertyType.INTEGER;
+      return PropertyTypeInternal.INTEGER;
     }
 
     // CHECK IF THE DECIMAL NUMBER IS A FLOAT OR DOUBLE
-    final double dou = Double.parseDouble(iValue);
+    final var dou = Double.parseDouble(iValue);
     if (dou <= Float.MAX_VALUE
         && dou >= Float.MIN_VALUE
         && Double.toString(dou).equals(Float.toString((float) dou))
         && (double) Double.valueOf(dou).floatValue() == dou) {
-      return PropertyType.FLOAT;
+      return PropertyTypeInternal.FLOAT;
     } else if (!Double.toString(dou).equals(iValue)) {
-      return PropertyType.DECIMAL;
+      return PropertyTypeInternal.DECIMAL;
     }
 
-    return PropertyType.DOUBLE;
+    return PropertyTypeInternal.DOUBLE;
   }
 
   /**
@@ -330,6 +363,7 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
    * @param iValue Value to parse
    * @return The closest type recognized
    */
+  @Nullable
   public static Object getTypeValue(DatabaseSessionInternal db, final String iValue) {
     if (iValue == null || iValue.equalsIgnoreCase("NULL")) {
       return null;
@@ -352,7 +386,7 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
       } else if (iValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
           && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.LIST_END) {
         // LIST
-        final ArrayList<String> coll = new ArrayList<String>();
+        final var coll = new ArrayList<String>();
         StringSerializerHelper.getCollection(
             iValue,
             0,
@@ -386,12 +420,12 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
       return new RecordId(iValue);
     }
 
-    boolean integer = true;
+    var integer = true;
     char c;
 
-    boolean stringStarBySign = false;
+    var stringStarBySign = false;
 
-    for (int index = 0; index < iValue.length(); ++index) {
+    for (var index = 0; index < iValue.length(); ++index) {
       c = iValue.charAt(index);
       if (c < '0' || c > '9') {
         if ((index == 0 && (c == '+' || c == '-'))) {
@@ -411,7 +445,7 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
               }
             }
 
-            final String v = iValue.substring(0, index);
+            final var v = iValue.substring(0, index);
 
             if (c == 'f') {
               return Float.valueOf(v);
@@ -455,11 +489,11 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
   }
 
   public static Object simpleValueFromStream(DatabaseSessionInternal db, final Object iValue,
-      final PropertyType iType) {
+      final PropertyTypeInternal iType) {
     switch (iType) {
       case STRING:
         if (iValue instanceof String) {
-          final String s = IOUtils.getStringContent(iValue);
+          final var s = IOUtils.getStringContent(iValue);
           return StringSerializerHelper.decode(s);
         }
         return iValue.toString();
@@ -536,7 +570,8 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
   }
 
   public static void simpleValueToStream(
-      final StringBuilder iBuffer, final PropertyType iType, final Object iValue) {
+      DatabaseSessionInternal session, final StringWriter iBuffer, final PropertyTypeInternal iType,
+      final Object iValue) {
     if (iValue == null || iType == null) {
       return;
     }
@@ -547,16 +582,12 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
         iBuffer.append('"');
         break;
 
-      case BOOLEAN:
-        iBuffer.append(iValue);
-        break;
-
-      case INTEGER:
-        iBuffer.append(iValue);
+      case BOOLEAN, INTEGER:
+        iBuffer.append(iValue.toString());
         break;
 
       case FLOAT:
-        iBuffer.append(iValue);
+        iBuffer.append(iValue.toString());
         iBuffer.append('f');
         break;
 
@@ -564,33 +595,33 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
         if (iValue instanceof BigDecimal) {
           iBuffer.append(((BigDecimal) iValue).toPlainString());
         } else {
-          iBuffer.append(iValue);
+          iBuffer.append(iValue.toString());
         }
         iBuffer.append('c');
         break;
 
       case LONG:
-        iBuffer.append(iValue);
+        iBuffer.append(iValue.toString());
         iBuffer.append('l');
         break;
 
       case DOUBLE:
-        iBuffer.append(iValue);
+        iBuffer.append(iValue.toString());
         iBuffer.append('d');
         break;
 
       case SHORT:
-        iBuffer.append(iValue);
+        iBuffer.append(iValue.toString());
         iBuffer.append('s');
         break;
 
       case BYTE:
-        if (iValue instanceof Character) {
-          iBuffer.append((int) ((Character) iValue).charValue());
+        if (iValue instanceof Character character) {
+          iBuffer.append(character);
         } else if (iValue instanceof String) {
-          iBuffer.append((int) ((String) iValue).charAt(0));
+          iBuffer.append(((String) iValue).charAt(0));
         } else {
-          iBuffer.append(iValue);
+          iBuffer.append(iValue.toString());
         }
         iBuffer.append('b');
         break;
@@ -609,50 +640,44 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
       case DATE:
         if (iValue instanceof Date) {
           // RESET HOURS, MINUTES, SECONDS AND MILLISECONDS
-          final Calendar calendar = DateHelper.getDatabaseCalendar();
+          final var calendar = DateHelper.getDatabaseCalendar(session);
           calendar.setTime((Date) iValue);
           calendar.set(Calendar.HOUR_OF_DAY, 0);
           calendar.set(Calendar.MINUTE, 0);
           calendar.set(Calendar.SECOND, 0);
           calendar.set(Calendar.MILLISECOND, 0);
 
-          iBuffer.append(calendar.getTimeInMillis());
+          iBuffer.append(String.valueOf(calendar.getTimeInMillis()));
         } else {
-          iBuffer.append(iValue);
+          iBuffer.append(iValue.toString());
         }
         iBuffer.append('a');
         break;
 
       case DATETIME:
         if (iValue instanceof Date) {
-          iBuffer.append(((Date) iValue).getTime());
+          iBuffer.append(String.valueOf(((Date) iValue).getTime()));
         } else {
-          iBuffer.append(iValue);
+          iBuffer.append(iValue.toString());
         }
         iBuffer.append('t');
         break;
     }
   }
 
-  public abstract RecordAbstract fromString(
-      DatabaseSessionInternal db, String iContent, RecordAbstract iRecord, String[] iFields);
+  public abstract <T extends DBRecord> T fromString(
+      DatabaseSessionInternal session, String iContent, RecordAbstract iRecord, String[] iFields);
 
-  public StringBuilder toString(
-      final DBRecord iRecord, final StringBuilder iOutput, final String iFormat) {
-    return toString(iRecord, iOutput, iFormat, true);
+  public StringWriter toString(
+      DatabaseSessionInternal db, final DBRecord iRecord, final StringWriter iOutput,
+      final String iFormat) {
+    return toString(db, iRecord, iOutput, iFormat, true);
   }
 
-  public DBRecord fromString(DatabaseSessionInternal db, final String iSource) {
-    return fromString(db, iSource, DatabaseRecordThreadLocal.instance().get().newInstance(), null);
+  public <T extends DBRecord> T fromString(DatabaseSessionInternal session, final String iSource) {
+    return fromString(session, iSource, null, null);
   }
 
-  @Override
-  public String[] getFieldNames(DatabaseSessionInternal db, EntityImpl reference,
-      byte[] iSource) {
-    return null;
-  }
-
-  @Override
   public RecordAbstract fromStream(
       DatabaseSessionInternal db, final byte[] iSource, final RecordAbstract iRecord,
       final String[] iFields) {
@@ -661,14 +686,14 @@ public abstract class RecordSerializerStringAbstract implements RecordSerializer
   }
 
   public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
-    return toString(iRecord, new StringBuilder(2048), null, true)
-        .toString()
-        .getBytes(StandardCharsets.UTF_8);
+      return toString(session, iRecord, new StringWriter(2048), null, true)
+          .toString()
+          .getBytes(StandardCharsets.UTF_8);
   }
 
-  protected abstract StringBuilder toString(
-      final DBRecord iRecord,
-      final StringBuilder iOutput,
+  protected abstract StringWriter toString(
+      DatabaseSessionInternal session, final DBRecord iRecord,
+      final StringWriter iOutput,
       final String iFormat,
       boolean autoDetectCollectionType);
 

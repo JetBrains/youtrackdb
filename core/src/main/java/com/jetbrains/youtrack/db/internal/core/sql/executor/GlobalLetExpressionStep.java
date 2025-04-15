@@ -40,14 +40,14 @@ public class GlobalLetExpressionStep extends AbstractExecutionStep {
     if (executed) {
       return;
     }
-    Object value = expression.execute((Result) null, ctx);
+    var value = expression.execute((Result) null, ctx);
     ctx.setVariable(varname.getStringValue(), value);
     executed = true;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ LET (once)\n" + spaces + "  " + varname + " = " + expression;
   }
 

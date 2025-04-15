@@ -1,4 +1,4 @@
 Manifest-Version: 1.0
 Implementation-Title: OrientDB Tools
-Main-Class: com.jetbrains.youtrack.db.internal.console.ConsoleDatabaseApp
+Main-Class: com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
 

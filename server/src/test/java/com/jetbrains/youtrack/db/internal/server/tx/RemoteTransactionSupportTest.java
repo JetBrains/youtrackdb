@@ -6,94 +6,80 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
 import java.util.ArrayList;
 import org.junit.Test;
 
-/**
- *
- */
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   private static final String FIELD_VALUE = "VALUE";
 
   public void beforeTest() {
-    GlobalConfiguration.CLASS_MINIMUM_CLUSTERS.setValue(1);
+    GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
     super.beforeTest();
 
-    db.createClass("SomeTx");
-    db.createClass("SomeTx2");
+    session.createClass("SomeTx");
+    session.createClass("SomeTx2");
 
-    SchemaClass klass = db.createClass("IndexedTx");
-    klass.createProperty(db, "name", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var klass = session.createClass("IndexedTx");
+    klass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    SchemaClass uniqueClass = db.createClass("UniqueIndexedTx");
-    uniqueClass.createProperty(db, "name", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    var uniqueClass = session.createClass("UniqueIndexedTx");
+    uniqueClass.createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
   }
 
   @Test
   public void testQueryUpdateUpdatedInTxTransaction() {
-    db.begin();
-    EntityImpl doc = new EntityImpl("SomeTx");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Joe");
-    Identifiable id = db.save(doc);
-    db.commit();
+    session.commit();
 
-    db.begin();
-    EntityImpl doc2 = db.load(id.getIdentity());
+    session.begin();
+    EntityImpl doc2 = session.load(((Identifiable) doc).getIdentity());
     doc2.setProperty("name", "Jane");
-    db.save(doc2);
-    ResultSet result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc3 = db.load(id.getIdentity());
+    EntityImpl doc3 = session.load(((Identifiable) doc).getIdentity());
     assertEquals("July", doc3.getProperty("name"));
-    db.rollback();
+    session.rollback();
   }
 
   @Test
   public void testResetUpdatedInTxTransaction() {
-    db.begin();
+    session.begin();
 
-    EntityImpl doc1 = new EntityImpl();
+    var doc1 = ((EntityImpl) session.newEntity());
     doc1.setProperty("name", "Jane");
-    db.save(doc1);
-    EntityImpl doc2 = new EntityImpl("SomeTx");
+    var doc2 = ((EntityImpl) session.newEntity("SomeTx"));
     doc2.setProperty("name", "Jane");
-    db.save(doc2);
-    ResultSet result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertEquals(1L, (long) result.next().getProperty("count"));
     assertEquals("July", doc2.getProperty("name"));
     result.close();
   }
 
   @Test
-  public void testQueryUpdateCreatedInTxTransaction() throws InterruptedException {
-    db.begin();
-    EntityImpl doc1 = new EntityImpl("SomeTx");
+  public void testQueryUpdateCreatedInTxTransaction() {
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
-    Identifiable id = db.save(doc1);
 
-    EntityImpl docx = new EntityImpl("SomeTx2");
+    var docx = ((EntityImpl) session.newEntity("SomeTx2"));
     docx.setProperty("name", "Jane");
-    db.save(docx);
 
-    ResultSet result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc2 = db.load(id.getIdentity());
+    EntityImpl doc2 = session.load(((Identifiable) doc1).getIdentity());
     assertEquals("July", doc2.getProperty("name"));
     assertFalse(result.hasNext());
     result.close();
@@ -101,308 +87,317 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testRollbackTxTransaction() {
-    db.begin();
-    EntityImpl doc = new EntityImpl("SomeTx");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    db.begin();
-    EntityImpl doc1 = new EntityImpl("SomeTx");
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
-    db.save(doc1);
 
-    ResultSet result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count"));
     result.close();
-    db.rollback();
+    session.rollback();
 
-    ResultSet result1 = db.command("select count(*) from SomeTx where name='Jane'");
+    var tx = session.begin();
+    var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testRollbackTxCheckStatusTransaction() {
-    db.begin();
-    EntityImpl doc = new EntityImpl("SomeTx");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    db.begin();
-    EntityImpl doc1 = new EntityImpl("SomeTx");
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane");
-    db.save(doc1);
 
-    ResultSet result = db.command("select count(*) from SomeTx where name='Jane' ");
+    var result = session.execute("select count(*) from SomeTx where name='Jane' ");
     assertTrue(result.hasNext());
     assertEquals(2L, (long) result.next().getProperty("count(*)"));
 
-    assertTrue(db.getTransaction().isActive());
+    assertTrue(session.getTransactionInternal().isActive());
     result.close();
-    db.rollback();
+    session.rollback();
 
-    ResultSet result1 = db.command("select count(*) from SomeTx where name='Jane'");
+    assertFalse(session.getTransactionInternal().isActive());
+
+    var tx = session.begin();
+    var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
     assertTrue(result1.hasNext());
     assertEquals(1L, (long) result1.next().getProperty("count(*)"));
 
-    assertFalse(db.getTransaction().isActive());
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testDownloadTransactionAtStart() {
-    db.begin();
+    session.begin();
 
-    db.command("insert into SomeTx set name ='Jane' ").close();
-    assertEquals(1, db.getTransaction().getEntryCount());
+    session.execute("insert into SomeTx set name ='Jane' ").close();
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    session.commit();
   }
 
   @Test
   public void testQueryUpdateCreatedInTxSQLTransaction() {
-    db.begin();
+    session.begin();
 
-    db.command("insert into SomeTx set name ='Jane' ").close();
+    session.execute("insert into SomeTx set name ='Jane' ").close();
 
-    ResultSet result = db.command("update SomeTx set name='July' where name = 'Jane' ");
+    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
     assertTrue(result.hasNext());
     assertEquals(1L, (long) result.next().getProperty("count"));
     result.close();
-    ResultSet result1 = db.query("select from SomeTx where name='July'");
+    var result1 = session.query("select from SomeTx where name='July'");
     assertTrue(result1.hasNext());
     assertEquals("July", result1.next().getProperty("name"));
     assertFalse(result.hasNext());
     result1.close();
+
+    session.commit();
   }
 
   @Test
   public void testQueryDeleteTxSQLTransaction() {
-    db.begin();
-    Entity someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    someTx.save();
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db.command("delete from SomeTx");
-    db.commit();
+    session.begin();
+    session.execute("delete from SomeTx");
+    session.commit();
 
-    ResultSet result = db.command("select from SomeTx");
+    var tx = session.begin();
+    var result = session.execute("select from SomeTx");
     assertFalse(result.hasNext());
     result.close();
+    tx.commit();
   }
 
   @Test
   public void testDoubleSaveTransaction() {
-    db.begin();
-    Entity someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    db.save(someTx);
-    db.save(someTx);
-    assertEquals(1, db.getTransaction().getEntryCount());
-    assertEquals(1, db.countClass("SomeTx"));
-    db.commit();
-    assertEquals(1, db.countClass("SomeTx"));
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    assertEquals(1, session.countClass("SomeTx"));
+    session.commit();
+    var tx = session.begin();
+    assertEquals(1, session.countClass("SomeTx"));
+    tx.commit();
   }
 
   @Test
   public void testDoubleSaveDoubleFlushTransaction() {
-    db.begin();
-    Entity someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    db.save(someTx);
-    db.save(someTx);
-    ResultSet result = db.query("select from SomeTx");
+    var result = session.query("select from SomeTx");
     assertEquals(1, result.stream().count());
     result.close();
-    db.save(someTx);
-    db.save(someTx);
-    result = db.query("select from SomeTx");
+    result = session.query("select from SomeTx");
     assertEquals(1, result.stream().count());
     result.close();
-    assertEquals(1, db.getTransaction().getEntryCount());
-    assertEquals(1, db.countClass("SomeTx"));
-    db.commit();
-    assertEquals(1, db.countClass("SomeTx"));
+    assertEquals(1, session.getTransactionInternal().getEntryCount());
+    assertEquals(1, session.countClass("SomeTx"));
+    session.commit();
+    var tx = session.begin();
+    assertEquals(1, session.countClass("SomeTx"));
+    tx.commit();
   }
 
   @Test
   public void testRefFlushedInTransaction() {
-    db.begin();
-    Entity someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    db.save(someTx);
 
-    Entity oneMore = db.newEntity("SomeTx");
+    var oneMore = session.newEntity("SomeTx");
     oneMore.setProperty("name", "bar");
     oneMore.setProperty("ref", someTx);
-    ResultSet result = db.query("select from SomeTx");
-    assertEquals(1, result.stream().count());
+
+    var result = session.query("select from SomeTx");
+    assertEquals(2, result.stream().count());
     result.close();
-    db.save(oneMore);
-    db.commit();
-    ResultSet result1 = db.query("select ref from SomeTx where name='bar'");
+    session.commit();
+
+    var tx = session.begin();
+    var result1 = session.query("select ref from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
-    assertEquals(someTx.getIdentity(), result1.next().getProperty("ref"));
+    assertEquals(someTx.getIdentity(), result1.next().getIdentity());
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testDoubleRefFlushedInTransaction() {
-    db.begin();
-    Entity someTx = db.newEntity("SomeTx");
+    session.begin();
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    db.save(someTx);
 
-    Entity oneMore = db.newEntity("SomeTx");
+    var oneMore = session.newEntity("SomeTx");
     oneMore.setProperty("name", "bar");
     oneMore.setProperty("ref", someTx.getIdentity());
 
-    ResultSet result = db.query("select from SomeTx");
-    assertEquals(1, result.stream().count());
-    result.close();
-
-    Entity ref2 = db.newEntity("SomeTx");
-    ref2.setProperty("name", "other");
-    db.save(ref2);
-
-    oneMore.setProperty("ref2", ref2.getIdentity());
-    result = db.query("select from SomeTx");
+    var result = session.query("select from SomeTx");
     assertEquals(2, result.stream().count());
     result.close();
 
-    db.save(oneMore);
-    ResultSet result1 = db.query("select ref,ref2 from SomeTx where name='bar'");
+    var ref2 = session.newEntity("SomeTx");
+    ref2.setProperty("name", "other");
+
+    oneMore.setProperty("ref2", ref2.getIdentity());
+
+    result = session.query("select from SomeTx");
+    assertEquals(3, result.stream().count());
+    result.close();
+
+    var result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
-    Result next = result1.next();
+    var next = result1.next();
     assertEquals(someTx.getIdentity(), next.getProperty("ref"));
     assertEquals(ref2.getIdentity(), next.getProperty("ref2"));
     result1.close();
 
-    db.commit();
-    result1 = db.query("select ref,ref2 from SomeTx where name='bar'");
+    session.commit();
+
+    var tx = session.begin();
+    result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
     assertTrue(result1.hasNext());
     next = result1.next();
     assertEquals(someTx.getIdentity(), next.getProperty("ref"));
     assertEquals(ref2.getIdentity(), next.getProperty("ref2"));
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testGenerateIdCounterTransaction() {
-    db.begin();
+    session.begin();
 
-    EntityImpl doc = new EntityImpl("SomeTx");
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "Jane");
-    db.save(doc);
 
-    db.command("insert into SomeTx set name ='Jane1' ").close();
-    db.command("insert into SomeTx set name ='Jane2' ").close();
+    session.execute("insert into SomeTx set name ='Jane1' ").close();
+    session.execute("insert into SomeTx set name ='Jane2' ").close();
 
-    EntityImpl doc1 = new EntityImpl("SomeTx");
+    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane3");
-    db.save(doc1);
 
-    doc1 = new EntityImpl("SomeTx");
+    doc1 = ((EntityImpl) session.newEntity("SomeTx"));
     doc1.setProperty("name", "Jane4");
-    db.save(doc1);
-    db.command("insert into SomeTx set name ='Jane2' ").close();
+    session.execute("insert into SomeTx set name ='Jane2' ").close();
 
-    ResultSet result = db.command("select count(*) from SomeTx");
-    System.out.println(result.getExecutionPlan().toString());
+    var result = session.execute("select count(*) from SomeTx");
+
     assertTrue(result.hasNext());
     assertEquals(6L, (long) result.next().getProperty("count(*)"));
     result.close();
-    assertTrue(db.getTransaction().isActive());
+    assertTrue(session.getTransactionInternal().isActive());
 
-    db.commit();
+    session.commit();
 
-    ResultSet result1 = db.command("select count(*) from SomeTx ");
+    var tx = session.begin();
+    var result1 = session.execute("select count(*) from SomeTx ");
     assertTrue(result1.hasNext());
     assertEquals(6L, (long) result1.next().getProperty("count(*)"));
     result1.close();
-    assertFalse(db.getTransaction().isActive());
+    tx.commit();
+
+    assertFalse(session.getTransactionInternal().isActive());
   }
 
   @Test
   public void testGraphInTx() {
-    db.createVertexClass("MyV");
-    db.createEdgeClass("MyE");
-    db.begin();
+    session.createVertexClass("MyV");
+    session.createEdgeClass("MyE");
 
-    Vertex v1 = db.newVertex("MyV");
-    Vertex v2 = db.newVertex("MyV");
-    Edge edge = v1.addEdge(v2, "MyE");
+    var tx = session.begin();
+    var v1 = tx.newVertex("MyV");
+    var v2 = tx.newVertex("MyV");
+    var edge = v1.addStateFulEdge(v2, "MyE");
     edge.setProperty("some", "value");
-    db.save(v1);
-    ResultSet result1 = db.query("select out_MyE from MyV  where out_MyE is not null");
+    var result1 = tx.query("select outE('MyE') as edges from MyV where outE('MyE').size() > 0");
     assertTrue(result1.hasNext());
-    ArrayList<Object> val = new ArrayList<>();
+    var val = new ArrayList<>();
     val.add(edge.getIdentity());
-    assertEquals(result1.next().getProperty("out_MyE"), val);
+    var edges = result1.next().getLinkList("edges");
+    assertEquals(tx.loadEdge(edges.getFirst()).getProperty("some"), "value");
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testRidbagsTx() {
-    db.begin();
+    var tx = session.begin();
+    var v1 = tx.newEntity("SomeTx");
+    var v2 = tx.newEntity("SomeTx");
 
-    Entity v1 = db.newEntity("SomeTx");
-    Entity v2 = db.newEntity("SomeTx");
-    db.save(v2);
-    RidBag ridbag = new RidBag(db);
+    var ridbag = new LinkBag(session);
     ridbag.add(v2.getIdentity());
     v1.setProperty("rids", ridbag);
-    db.save(v1);
-    ResultSet result1 = db.query("select rids from SomeTx where rids is not null");
+
+    var result1 = tx.query("select rids from SomeTx where rids is not null");
     assertTrue(result1.hasNext());
-    Entity v3 = db.newEntity("SomeTx");
-    db.save(v3);
-    ArrayList<Object> val = new ArrayList<>();
+
+    tx.newEntity("SomeTx");
+    var val = new ArrayList<>();
     val.add(v2.getIdentity());
     assertEquals(result1.next().getProperty("rids"), val);
     result1.close();
-    result1 = db.query("select rids from SomeTx where rids is not null");
+
+    result1 = tx.query("select rids from SomeTx where rids is not null");
     assertTrue(result1.hasNext());
     assertEquals(result1.next().getProperty("rids"), val);
     result1.close();
+    tx.commit();
   }
 
   @Test
   public void testProperIndexingOnDoubleInternalBegin() {
-    db.begin();
+    session.begin();
 
-    Entity idx = db.newEntity("IndexedTx");
+    var idx = session.newEntity("IndexedTx");
     idx.setProperty("name", FIELD_VALUE);
-    db.save(idx);
-    Entity someTx = db.newEntity("SomeTx");
+
+    var someTx = session.newEntity("SomeTx");
     someTx.setProperty("name", "foo");
-    DBRecord id = db.save(someTx);
-    try (ResultSet rs = db.query("select from ?", id)) {
-    }
 
-    db.commit();
-
-    // nothing is found (unexpected behaviour)
-    try (ResultSet rs = db.query("select * from IndexedTx where name = ?", FIELD_VALUE)) {
+    var id = (DBRecord) someTx;
+    try (var rs = session.query("select from ?", id)) {
       assertEquals(1, rs.stream().count());
     }
+
+    session.commit();
+
+    var tx = session.begin();
+    try (var rs = tx.query("select * from IndexedTx where name = ?", FIELD_VALUE)) {
+      assertEquals(1, rs.stream().count());
+    }
+    tx.commit();
   }
 
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateIndexTx() {
-    db.begin();
+    session.begin();
 
-    Entity v1 = db.newEntity("UniqueIndexedTx");
+    var v1 = session.newEntity("UniqueIndexedTx");
     v1.setProperty("name", "a");
-    db.save(v1);
 
-    Entity v2 = db.newEntity("UniqueIndexedTx");
+    var v2 = session.newEntity("UniqueIndexedTx");
     v2.setProperty("name", "a");
-    db.save(v2);
-    db.commit();
+    session.commit();
   }
 }

@@ -16,85 +16,82 @@ public class FunctionSqlTest extends DbTestBase {
 
   @Test
   public void functionSqlWithParameters() {
-    db.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSchema().createClass("Test");
 
-    db.begin();
-    EntityImpl doc1 = new EntityImpl("Test");
-    doc1.field("name", "Enrico");
-    db.save(doc1);
-    doc1 = new EntityImpl("Test");
-    doc1.setClassName("Test");
-    doc1.field("name", "Luca");
-    db.save(doc1);
-    db.commit();
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("Test"));
+    doc1.setProperty("name", "Enrico");
+    doc1 = ((EntityImpl) session.newEntity("Test"));
+    doc1.setProperty("name", "Luca");
+    session.commit();
 
-    db.begin();
-    Function function = new Function(db);
-    function.setName(db, "test");
-    function.setCode(db, "select from Test where name = :name");
-    function.setParameters(db,
+    session.begin();
+    var function = new Function(session);
+    function.setName("test");
+    function.setCode("select from Test where name = :name");
+    function.setParameters(
         new ArrayList<>() {
           {
             add("name");
           }
         });
-    function.save(db);
-    db.commit();
+    function.save(session);
+    session.commit();
 
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    Object result = function.executeInContext(context, "Enrico");
-
+    session.begin();
+    var result = function.executeInContext(context, "Enrico");
     Assert.assertEquals(1, ((LegacyResultSet<?>) result).size());
+    session.commit();
   }
 
   @Test
   public void functionSqlWithInnerFunctionJs() {
 
-    db.getMetadata().getSchema().createClass("Test");
-    db.begin();
-    EntityImpl doc1 = new EntityImpl("Test");
-    doc1.field("name", "Enrico");
-    db.save(doc1);
-    doc1 = new EntityImpl("Test");
-    doc1.setClassName("Test");
-    doc1.field("name", "Luca");
-    db.save(doc1);
-    db.commit();
+    session.getMetadata().getSchema().createClass("Test");
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("Test"));
+    doc1.setProperty("name", "Enrico");
+    doc1 = ((EntityImpl) session.newEntity("Test"));
+    doc1.setProperty("name", "Luca");
+    session.commit();
 
-    db.begin();
-    Function function = new Function(db);
-    function.setName(db, "test");
-    function.setCode(db,
+    session.begin();
+    var function = new Function(session);
+    function.setName("test");
+    function.setCode(
         "select name from Test where name = :name and hello(:name) = 'Hello Enrico'");
-    function.setParameters(db,
+    function.setParameters(
         new ArrayList<>() {
           {
             add("name");
           }
         });
-    function.save(db);
-    db.commit();
+    function.save(session);
+    session.commit();
 
-    db.begin();
-    Function function1 = new Function(db);
-    function1.setName(db, "hello");
-    function1.setLanguage(db, "javascript");
-    function1.setCode(db, "return 'Hello ' + name");
-    function1.setParameters(db,
+    session.begin();
+    var function1 = new Function(session);
+    function1.setName("hello");
+    function1.setLanguage("javascript");
+    function1.setCode("return 'Hello ' + name");
+    function1.setParameters(
         new ArrayList<>() {
           {
             add("name");
           }
         });
-    function1.save(db);
-    db.commit();
+    function1.save(session);
+    session.commit();
 
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    Object result = function.executeInContext(context, "Enrico");
+    session.begin();
+    var result = function.executeInContext(context, "Enrico");
     Assert.assertEquals(1, ((LegacyResultSet) result).size());
+    session.commit();
   }
 }

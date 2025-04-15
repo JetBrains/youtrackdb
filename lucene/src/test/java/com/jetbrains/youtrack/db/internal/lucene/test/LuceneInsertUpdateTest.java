@@ -19,15 +19,11 @@
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,70 +40,67 @@ public class LuceneInsertUpdateTest extends BaseLuceneTest {
   @Before
   public void init() {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass oClass = schema.createClass("City");
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createClass("City");
 
-    oClass.createProperty(db, "name", PropertyType.STRING);
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    oClass.createProperty("name", PropertyType.STRING);
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
   }
 
   @Test
   public void testInsertUpdateWithIndex() {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("City");
-    doc.field("name", "Rome");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("City"));
+    doc.setProperty("name", "Rome");
 
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    db.begin();
-    Index idx = db.getClassInternal("City").getClassIndex(db, "City.name");
+    session.begin();
+    var idx = session.getClassInternal("City").getClassIndex(session, "City.name");
     Collection<?> coll;
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);
 
-    Identifiable next = (Identifiable) coll.iterator().next();
-    doc = db.load(next.getIdentity());
-    Assert.assertEquals(doc.field("name"), "Rome");
+    var next = (Identifiable) coll.iterator().next();
+    doc = session.load(next.getIdentity());
+    Assert.assertEquals(doc.getProperty("name"), "Rome");
 
-    doc.field("name", "London");
+    doc.setProperty("name", "London");
 
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    db.begin();
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "Rome")) {
+    session.begin();
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);
 
     next = (Identifiable) coll.iterator().next();
-    doc = db.load(next.getIdentity());
-    Assert.assertEquals(doc.field("name"), "London");
+    doc = session.load(next.getIdentity());
+    Assert.assertEquals(doc.getProperty("name"), "London");
 
-    doc.field("name", "Berlin");
+    doc.setProperty("name", "Berlin");
 
-    db.save(doc);
-    db.commit();
+    session.commit();
 
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "London")) {
+    try (var stream = idx.getRids(session, "London")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 0);
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "Berlin")) {
+    try (var stream = idx.getRids(session, "Berlin")) {
       coll = stream.collect(Collectors.toList());
     }
     Assert.assertEquals(coll.size(), 1);

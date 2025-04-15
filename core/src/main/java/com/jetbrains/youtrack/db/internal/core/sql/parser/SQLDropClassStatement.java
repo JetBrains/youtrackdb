@@ -4,7 +4,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -27,33 +26,33 @@ public class SQLDropClassStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    var schema = db.getMetadata().getSchemaInternal();
+    var session = ctx.getDatabaseSession();
+    var schema = session.getMetadata().getSchemaInternal();
     String className;
     if (name != null) {
       className = name.getStringValue();
     } else {
       className = String.valueOf(nameParam.getValue(ctx.getInputParameters()));
     }
-    SchemaClassInternal clazz = schema.getClassInternal(className);
+    var clazz = schema.getClassInternal(className);
     if (clazz == null) {
       if (ifExists) {
         return ExecutionStream.empty();
       }
-      throw new CommandExecutionException("Class " + className + " does not exist");
+      throw new CommandExecutionException(session, "Class " + className + " does not exist");
     }
 
-    if (!unsafe && clazz.count(db) > 0) {
+    if (!unsafe && clazz.count(session) > 0) {
       // check vertex or edge
-      if (clazz.isVertexType(ctx.getDatabase())) {
-        throw new CommandExecutionException(
+      if (clazz.isVertexType()) {
+        throw new CommandExecutionException(session,
             "'DROP CLASS' command cannot drop class '"
                 + className
                 + "' because it contains Vertices. Use 'DELETE VERTEX' command first to avoid"
                 + " broken edges in a database, or apply the 'UNSAFE' keyword to force it");
-      } else if (clazz.isEdgeType(ctx.getDatabase())) {
+      } else if (clazz.isEdgeType()) {
         // FOUND EDGE CLASS
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(session,
             "'DROP CLASS' command cannot drop class '"
                 + className
                 + "' because it contains Edges. Use 'DELETE EDGE' command first to avoid broken"
@@ -63,7 +62,7 @@ public class SQLDropClassStatement extends DDLStatement {
 
     schema.dropClass(className);
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "drop class");
     result.setProperty("className", className);
     return ExecutionStream.singleton(result);
@@ -103,7 +102,7 @@ public class SQLDropClassStatement extends DDLStatement {
 
   @Override
   public SQLDropClassStatement copy() {
-    SQLDropClassStatement result = new SQLDropClassStatement(-1);
+    var result = new SQLDropClassStatement(-1);
     result.name = name == null ? null : name.copy();
     result.nameParam = nameParam == null ? null : nameParam.copy();
     result.ifExists = ifExists;
@@ -119,7 +118,7 @@ public class SQLDropClassStatement extends DDLStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLDropClassStatement that = (SQLDropClassStatement) o;
+    var that = (SQLDropClassStatement) o;
     return ifExists == that.ifExists
         && unsafe == that.unsafe
         && Objects.equals(name, that.name)

@@ -49,8 +49,8 @@ public class LiveQueryQueueThreadV2 extends Thread {
 
   @Override
   public void run() {
-    final int batchSize = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
-    final BlockingQueue<LiveQueryOp> queue = ops.getQueue();
+    final var batchSize = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    final var queue = ops.getQueue();
 
     long totalEventsServed = 0;
     while (!stopped) {
@@ -58,7 +58,7 @@ public class LiveQueryQueueThreadV2 extends Thread {
       try {
         items.add(queue.take()); // Blocking wait for start of batch
         while (items.size() < batchSize) {
-          final LiveQueryOp next = queue.poll(); // Fill batch until queue empty
+          final var next = queue.poll(); // Fill batch until queue empty
           if (next == null) {
             break;
           }
@@ -69,7 +69,7 @@ public class LiveQueryQueueThreadV2 extends Thread {
         continue;
       }
 
-      for (LiveQueryListenerV2 listener : ops.getSubscribers().values()) {
+      for (var listener : ops.getSubscribers().values()) {
         try {
           listener.onLiveResults(items);
         } catch (Exception e) {

@@ -19,11 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.geo;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Haversine formula to compute the distance between 2 gro points.
@@ -38,29 +39,30 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     super(NAME, 4, 5);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
     double distance;
 
-    final double[] values = new double[4];
+    final var values = new double[4];
 
-    for (int i = 0; i < iParams.length && i < 4; ++i) {
+    for (var i = 0; i < iParams.length && i < 4; ++i) {
       if (iParams[i] == null) {
         return null;
       }
 
-      values[i] = (Double) PropertyType.convert(iContext.getDatabase(), iParams[i],
-          Double.class);
+      values[i] = (Double) PropertyTypeInternal.DOUBLE.convert(iParams[i], null, null,
+          iContext.getDatabaseSession());
     }
 
-    final double deltaLat = Math.toRadians(values[2] - values[0]);
-    final double deltaLon = Math.toRadians(values[3] - values[1]);
+    final var deltaLat = Math.toRadians(values[2] - values[0]);
+    final var deltaLon = Math.toRadians(values[3] - values[1]);
 
-    final double a =
+    final var a =
         Math.pow(Math.sin(deltaLat / 2), 2)
             + Math.cos(Math.toRadians(values[0]))
             * Math.cos(Math.toRadians(values[2]))
@@ -68,7 +70,7 @@ public class SQLFunctionDistance extends SQLFunctionAbstract {
     distance = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * EARTH_RADIUS;
 
     if (iParams.length > 4) {
-      final String unit = iParams[4].toString();
+      final var unit = iParams[4].toString();
       if (unit.equalsIgnoreCase("km"))
         // ALREADY IN KM
         ;

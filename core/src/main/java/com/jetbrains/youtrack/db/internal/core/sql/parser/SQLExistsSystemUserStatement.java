@@ -3,9 +3,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,32 +26,34 @@ public class SQLExistsSystemUserStatement extends SQLSimpleExecServerStatement {
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
 
-    SystemDatabase systemDb = ctx.getServer().getSystemDatabase();
+    var systemDb = ctx.getServer().getSystemDatabase();
     var res = systemDb.executeWithDB(
         (db) -> {
-          ResultInternal result = new ResultInternal(db);
-          result.setProperty("operation", "exists system user");
-          if (name != null) {
-            result.setProperty("name", name.getStringValue());
-          } else {
-            result.setProperty("name", nameParam.getValue(ctx.getInputParameters()));
-          }
-          List<Object> params = new ArrayList<>();
-          if (name != null) {
-            params.add(name.getStringValue());
-          } else {
-            params.add(nameParam.getValue(ctx.getInputParameters()));
-          }
-          // INSERT INTO OUser SET
-
-          try (ResultSet rs = db.command("SELECT FROM OUser WHERE name = ?", params.toArray())) {
-            if (rs.hasNext()) {
-              result.setProperty("exists", true);
+          return db.computeInTx(transaction -> {
+            var result = new ResultInternal(db);
+            result.setProperty("operation", "exists system user");
+            if (name != null) {
+              result.setProperty("name", name.getStringValue());
             } else {
-              result.setProperty("exists", false);
+              result.setProperty("name", nameParam.getValue(ctx.getInputParameters()));
             }
-          }
-          return result;
+            List<Object> params = new ArrayList<>();
+            if (name != null) {
+              params.add(name.getStringValue());
+            } else {
+              params.add(nameParam.getValue(ctx.getInputParameters()));
+            }
+            // INSERT INTO OUser SET
+
+            try (var rs = db.execute("SELECT FROM OUser WHERE name = ?", params.toArray())) {
+              if (rs.hasNext()) {
+                result.setProperty("exists", true);
+              } else {
+                result.setProperty("exists", false);
+              }
+            }
+            return result.detach();
+          });
         });
 
     return ExecutionStream.singleton(res);
@@ -71,7 +71,7 @@ public class SQLExistsSystemUserStatement extends SQLSimpleExecServerStatement {
 
   @Override
   public SQLExistsSystemUserStatement copy() {
-    SQLExistsSystemUserStatement result = new SQLExistsSystemUserStatement(-1);
+    var result = new SQLExistsSystemUserStatement(-1);
     result.name = name == null ? null : name.copy();
     result.nameParam = nameParam == null ? null : nameParam.copy();
     return result;

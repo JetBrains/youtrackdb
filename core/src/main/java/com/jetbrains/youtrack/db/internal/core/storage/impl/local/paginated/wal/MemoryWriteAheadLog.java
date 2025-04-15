@@ -60,7 +60,7 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
 
   public LogSequenceNumber logAtomicOperationStartRecord(
       final boolean isRollbackSupported, final long unitId, byte[] metadata) {
-    final AtomicUnitStartMetadataRecord record =
+    final var record =
         new AtomicUnitStartMetadataRecord(isRollbackSupported, unitId, metadata);
     return log(record);
   }
@@ -76,7 +76,7 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
 
   @Override
   public LogSequenceNumber log(WriteableWALRecord record) {
-    final LogSequenceNumber lsn = new LogSequenceNumber(0, nextPosition.incrementAndGet());
+    final var lsn = new LogSequenceNumber(0, nextPosition.incrementAndGet());
     record.setLsn(lsn);
 
     return lsn;

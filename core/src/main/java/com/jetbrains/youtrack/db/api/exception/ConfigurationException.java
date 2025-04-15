@@ -19,14 +19,21 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class ConfigurationException extends CoreException implements HighLevelException {
 
-  private static final long serialVersionUID = -8486291378415776372L;
-
   public ConfigurationException(ConfigurationException exception) {
     super(exception);
+  }
+
+  public ConfigurationException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public ConfigurationException(DatabaseSession session, String message) {
+    this(session != null ? session.getDatabaseName() : null, message);
   }
 
   public ConfigurationException(String message) {

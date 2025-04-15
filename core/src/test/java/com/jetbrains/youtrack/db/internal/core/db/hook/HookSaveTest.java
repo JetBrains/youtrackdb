@@ -1,94 +1,92 @@
 package com.jetbrains.youtrack.db.internal.core.db.hook;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import javax.annotation.Nonnull;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class HookSaveTest extends DbTestBase {
 
   @Test
   public void testCreatedLinkedInHook() {
-    db.registerHook(
+    session.registerHook(
         new RecordHook() {
           @Override
-          public void onUnregister() {
+          public void onTrigger(@Nonnull TYPE iType,
+              @Nonnull DBRecord iRecord) {
+            if (iType != TYPE.AFTER_CREATE) {
+              return;
+            }
+
+            if (iRecord instanceof Entity entity) {
+              var cls = entity.getSchemaClass();
+              if (cls != null && cls.getName().equals("test")) {
+                var newEntity = session.getActiveTransaction().newEntity("another");
+                entity.setProperty("testNewLinkedRecord", newEntity);
+              }
+            }
           }
 
-          @Override
-          public RESULT onTrigger(TYPE iType, DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
-              return RESULT.RECORD_NOT_CHANGED;
-            }
-            EntityImpl doc = (EntityImpl) iRecord;
-            if (doc.containsField("test")) {
-              return RESULT.RECORD_NOT_CHANGED;
-            }
-            EntityImpl doc1 = new EntityImpl("test");
-            doc1.field("test", "value");
-            doc.field("testNewLinkedRecord", doc1);
-            return RESULT.RECORD_CHANGED;
-          }
-
-          @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return null;
-          }
         });
 
-    db.getMetadata().getSchema().createClass("test");
-    db.begin();
-    EntityImpl doc = db.save(new EntityImpl("test"));
-    db.commit();
+    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSchema().createClass("another");
 
-    EntityImpl newRef = db.bindToSession(doc).field("testNewLinkedRecord");
+    session.begin();
+    var entity = session.newEntity("test");
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var newRef = activeTx.<Entity>load(entity).getEntity("testNewLinkedRecord");
     assertNotNull(newRef);
-    assertNotNull(newRef.getIdentity().isPersistent());
+    assertTrue(newRef.getIdentity().isPersistent());
+    session.commit();
   }
 
   @Test
   public void testCreatedBackLinkedInHook() {
-    db.registerHook(
+    session.registerHook(
         new RecordHook() {
           @Override
-          public void onUnregister() {
-          }
-
-          @Override
-          public RESULT onTrigger(TYPE iType, DBRecord iRecord) {
-            if (iType != TYPE.BEFORE_CREATE) {
-              return RESULT.RECORD_NOT_CHANGED;
+          public void onTrigger(@Nonnull TYPE iType,
+              @Nonnull DBRecord iRecord) {
+            if (iType != TYPE.AFTER_CREATE) {
+              return;
             }
-            EntityImpl doc = (EntityImpl) iRecord;
-            if (doc.containsField("test")) {
-              return RESULT.RECORD_NOT_CHANGED;
-            }
-            EntityImpl doc1 = new EntityImpl("test");
-            doc1.field("test", "value");
-            doc.field("testNewLinkedRecord", doc1);
-            doc1.field("backLink", doc);
-            return RESULT.RECORD_CHANGED;
-          }
 
-          @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return null;
+            if (iRecord instanceof Entity entity) {
+              var cls = entity.getSchemaClass();
+              if (cls != null && cls.getName().equals("test")) {
+                var newEntity = HookSaveTest.this.session.newEntity("another");
+
+                entity.setProperty("testNewLinkedRecord", newEntity);
+                newEntity.setProperty("backLink", entity);
+              }
+            }
           }
         });
 
-    db.getMetadata().getSchema().createClass("test");
-    db.begin();
-    EntityImpl doc = db.save(new EntityImpl("test"));
-    db.commit();
+    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSchema().createClass("another");
 
-    EntityImpl newRef = db.bindToSession(doc).field("testNewLinkedRecord");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("test");
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var entity = activeTx.<EntityImpl>load(doc);
+    EntityImpl newRef = entity.getProperty("testNewLinkedRecord");
     assertNotNull(newRef);
-    assertNotNull(newRef.getIdentity().isPersistent());
+    assertTrue(newRef.getIdentity().isPersistent());
+    session.commit();
   }
 }

@@ -27,7 +27,7 @@ public class SQLNamedParameter extends SQLInputParameter {
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    Object finalValue = bindFromInputParams(params);
+    var finalValue = bindFromInputParams(params);
     if (finalValue == this) {
       builder.append(":" + paramName);
     } else if (finalValue instanceof String) {
@@ -48,7 +48,7 @@ public class SQLNamedParameter extends SQLInputParameter {
   public Object getValue(Map<Object, Object> params) {
     Object result = null;
     if (params != null) {
-      String key = paramName;
+      var key = paramName;
       if (params.containsKey(key)) {
         result = params.get(key);
       } else {
@@ -60,7 +60,7 @@ public class SQLNamedParameter extends SQLInputParameter {
 
   public Object bindFromInputParams(Map<Object, Object> params) {
     if (params != null) {
-      String key = paramName;
+      var key = paramName;
       if (params.containsKey(key)) {
         return toParsedTree(params.get(key));
       }
@@ -71,7 +71,7 @@ public class SQLNamedParameter extends SQLInputParameter {
 
   @Override
   public SQLNamedParameter copy() {
-    SQLNamedParameter result = new SQLNamedParameter(-1);
+    var result = new SQLNamedParameter(-1);
     result.paramName = paramName;
     result.paramNumber = paramNumber;
     return result;
@@ -86,7 +86,7 @@ public class SQLNamedParameter extends SQLInputParameter {
       return false;
     }
 
-    SQLNamedParameter that = (SQLNamedParameter) o;
+    var that = (SQLNamedParameter) o;
 
     if (paramNumber != that.paramNumber) {
       return false;
@@ -96,13 +96,13 @@ public class SQLNamedParameter extends SQLInputParameter {
 
   @Override
   public int hashCode() {
-    int result = paramNumber;
+    var result = paramNumber;
     result = 31 * result + (paramName != null ? paramName.hashCode() : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = (ResultInternal) super.serialize(db);
+    var result = (ResultInternal) super.serialize(db);
     result.setProperty("paramNumber", paramNumber);
     result.setProperty("paramName", paramName);
     return result;

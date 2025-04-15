@@ -45,8 +45,8 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
       String user,
       String password,
       YouTrackDBConfigImpl config) {
-    int max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
-    int min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
+    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
     this.factory = factory;
     this.config = config;
     pool =
@@ -70,9 +70,41 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
                 return true;
               }
             });
-
-    DatabaseRecordThreadLocal.instance().remove();
   }
+
+  public DatabasePoolImpl(
+      YouTrackDBInternal factory,
+      String database,
+      String user,
+      YouTrackDBConfigImpl config) {
+
+    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
+    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    this.factory = factory;
+    this.config = config;
+    pool =
+        new ResourcePool(
+            min,
+            max,
+            new ResourcePoolListener<Void, DatabaseSessionInternal>() {
+              @Override
+              public DatabaseSessionInternal createNewResource(
+                  Void iKey, Object... iAdditionalArgs) {
+                return factory.poolOpenNoAuthenticate(database, user, DatabasePoolImpl.this);
+              }
+
+              @Override
+              public boolean reuseResource(
+                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionInternal iValue) {
+                if (iValue.getStorage().isClosed(iValue)) {
+                  return false;
+                }
+                iValue.reuse();
+                return true;
+              }
+            });
+  }
+
 
   @Override
   public DatabaseSession acquire() throws AcquireTimeoutException {
@@ -96,7 +128,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
       pool = null;
     }
     if (p != null) {
-      for (DatabaseSessionInternal res : p.getAllResources()) {
+      for (var res : p.getAllResources()) {
         res.realClose();
       }
       p.close();
@@ -112,7 +144,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     if (p != null) {
       pool.returnResource(database);
     } else {
-      throw new DatabaseException("The pool is closed");
+      throw new DatabaseException(database.getDatabaseName(), "The pool is closed");
     }
     lastCloseTime = System.currentTimeMillis();
   }

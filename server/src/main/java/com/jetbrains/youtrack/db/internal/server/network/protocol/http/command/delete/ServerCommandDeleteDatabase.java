@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 
 public class ServerCommandDeleteDatabase extends ServerCommandAuthenticatedServerAbstract {
@@ -33,8 +33,8 @@ public class ServerCommandDeleteDatabase extends ServerCommandAuthenticatedServe
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: database/<database>");
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: database/<database>");
 
     iRequest.getData().commandInfo = "Drop database";
     iRequest.getData().commandDetail = urlParts[1];

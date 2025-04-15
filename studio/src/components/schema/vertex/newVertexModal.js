@@ -27,9 +27,9 @@ let NewVertexModalController = function ($scope, $element, $attrs, $location, $m
 
 
   ctrl.links = {
-    linkClusters: Database.getOWikiFor("Tutorial-Clusters.html")
+    linkCollections: Database.getOWikiFor("Tutorial-Collections.html")
   }
-  $translate("class.clusters", ctrl.links).then(function (data) {
+  $translate("class.collections", ctrl.links).then(function (data) {
     ctrl.hint = data;
   });
 

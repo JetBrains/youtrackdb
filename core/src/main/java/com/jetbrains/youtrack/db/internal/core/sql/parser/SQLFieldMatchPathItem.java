@@ -69,7 +69,7 @@ public class SQLFieldMatchPathItem extends SQLMatchPathItem {
       exp = new SQLSuffixIdentifier(field);
     }
     // TODO check possible results!
-    Object qR = this.exp.execute(startingPoint, iCommandContext);
+    var qR = this.exp.execute(startingPoint, iCommandContext);
     return (qR instanceof Iterable && !(qR instanceof EntityImpl))
         ? (Iterable) qR
         : Collections.singleton((Identifiable) qR);
@@ -86,7 +86,7 @@ public class SQLFieldMatchPathItem extends SQLMatchPathItem {
     if (!super.equals(o)) {
       return false;
     }
-    SQLFieldMatchPathItem that = (SQLFieldMatchPathItem) o;
+    var that = (SQLFieldMatchPathItem) o;
     return Objects.equals(field, that.field) && Objects.equals(exp, that.exp);
   }
 

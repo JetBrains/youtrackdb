@@ -57,7 +57,7 @@ LoginModule.controller("LoginController", ['$scope', '$rootScope', '$routeParams
     var modalScope = $scope.$new(false);
     modalScope.name = null;
     modalScope.creating = false;
-    modalScope.stype = "plocal";
+    modalScope.stype = "disk";
     modalScope.type = "graph";
     if (!$scope.sso) {
       modalScope.username = "root";
@@ -65,7 +65,7 @@ LoginModule.controller("LoginController", ['$scope', '$rootScope', '$routeParams
     modalScope.lightweight = false;
     modalScope.sso = $scope.sso;
     modalScope.types = ['document', 'graph']
-    modalScope.stypes = ['plocal', 'memory']
+    modalScope.stypes = ['disk', 'memory']
 
     var modalPromise = $modal({templateUrl: 'views/database/newDatabase.html', scope: modalScope, show: false});
     modalScope.createNew = function (name, type, stype, username, password, createAdmin, adminPassword, lightweight) {

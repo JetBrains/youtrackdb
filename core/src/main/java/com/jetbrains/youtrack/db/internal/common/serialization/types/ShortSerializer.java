@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverter;
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverterFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -43,12 +44,14 @@ public class ShortSerializer implements BinarySerializer<Short> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final ShortSerializer INSTANCE = new ShortSerializer();
 
-  public int getObjectSize(Short object, Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, Short object,
+      Object... hints) {
     return SHORT_SIZE;
   }
 
   public void serialize(
-      final Short object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Short object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     serializeLiteral(object, stream, startPosition);
   }
 
@@ -57,7 +60,8 @@ public class ShortSerializer implements BinarySerializer<Short> {
     stream[startPosition + 1] = (byte) ((value) & 0xFF);
   }
 
-  public Short deserialize(final byte[] stream, final int startPosition) {
+  public Short deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return deserializeLiteral(stream, startPosition);
   }
 
@@ -65,7 +69,8 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return (short) ((stream[startPosition] << 8) | (stream[startPosition + 1] & 0xff));
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return SHORT_SIZE;
   }
 
@@ -73,20 +78,23 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return ID;
   }
 
-  public int getObjectSizeNative(final byte[] stream, final int startPosition) {
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return SHORT_SIZE;
   }
 
   @Override
   public void serializeNativeObject(
-      final Short object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Short object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     checkBoundaries(stream, startPosition);
 
     CONVERTER.putShort(stream, startPosition, object, ByteOrder.nativeOrder());
   }
 
   @Override
-  public Short deserializeNativeObject(byte[] stream, int startPosition) {
+  public Short deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return CONVERTER.getShort(stream, startPosition, ByteOrder.nativeOrder());
@@ -113,7 +121,7 @@ public class ShortSerializer implements BinarySerializer<Short> {
   }
 
   @Override
-  public Short preprocess(Short value, Object... hints) {
+  public Short preprocess(BinarySerializerFactory serializerFactory, Short value, Object... hints) {
     return value;
   }
 
@@ -121,7 +129,8 @@ public class ShortSerializer implements BinarySerializer<Short> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Short object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, Short object,
+      ByteBuffer buffer, Object... hints) {
     buffer.putShort(object);
   }
 
@@ -129,12 +138,14 @@ public class ShortSerializer implements BinarySerializer<Short> {
    * {@inheritDoc}
    */
   @Override
-  public Short deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Short deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return buffer.getShort();
   }
 
   @Override
-  public Short deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Short deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
     return buffer.getShort(offset);
   }
 
@@ -142,12 +153,14 @@ public class ShortSerializer implements BinarySerializer<Short> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return SHORT_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return SHORT_SIZE;
   }
 
@@ -156,7 +169,8 @@ public class ShortSerializer implements BinarySerializer<Short> {
    */
   @Override
   public Short deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return walChanges.getShortValue(buffer, offset);
   }
 

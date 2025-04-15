@@ -14,12 +14,12 @@ public final class CASObjectArray<T> {
     Objects.requireNonNull(value);
 
     while (true) {
-      final int newIndex = size.get();
-      final int containerIndex = 31 - Integer.numberOfLeadingZeros(newIndex + 1);
-      final int containerSize = 1 << containerIndex;
-      final int indexInsideContainer = newIndex + 1 - containerSize;
+      final var newIndex = size.get();
+      final var containerIndex = 31 - Integer.numberOfLeadingZeros(newIndex + 1);
+      final var containerSize = 1 << containerIndex;
+      final var indexInsideContainer = newIndex + 1 - containerSize;
 
-      AtomicReferenceArray<T> container = containers.get(containerIndex);
+      var container = containers.get(containerIndex);
       if (container == null) {
         container = new AtomicReferenceArray<>(containerSize);
         if (!containers.compareAndSet(containerIndex, null, container)) {
@@ -38,7 +38,7 @@ public final class CASObjectArray<T> {
     Objects.requireNonNull(value);
     Objects.requireNonNull(placeholder);
 
-    final int size = this.size.get();
+    final var size = this.size.get();
 
     if (size <= index) {
       //noinspection StatementWithEmptyBody
@@ -47,9 +47,9 @@ public final class CASObjectArray<T> {
       }
     }
 
-    final int containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
-    final int containerSize = 1 << containerIndex;
-    final int indexInsideContainer = index + 1 - containerSize;
+    final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
+    final var containerSize = 1 << containerIndex;
+    final var indexInsideContainer = index + 1 - containerSize;
 
     AtomicReferenceArray<T> container;
     while (true) {
@@ -68,15 +68,15 @@ public final class CASObjectArray<T> {
     Objects.requireNonNull(value);
     Objects.requireNonNull(oldValue);
 
-    final int size = this.size.get();
+    final var size = this.size.get();
 
     if (size <= index) {
       throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
     }
 
-    final int containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
-    final int containerSize = 1 << containerIndex;
-    final int indexInsideContainer = index + 1 - containerSize;
+    final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
+    final var containerSize = 1 << containerIndex;
+    final var indexInsideContainer = index + 1 - containerSize;
 
     AtomicReferenceArray<T> container;
     while (true) {
@@ -92,15 +92,15 @@ public final class CASObjectArray<T> {
   }
 
   public T get(int index) {
-    final int size = this.size.get();
+    final var size = this.size.get();
 
     if (size <= index) {
       throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
     }
 
-    final int containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
-    final int containerSize = 1 << containerIndex;
-    final int indexInsideContainer = index + 1 - containerSize;
+    final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
+    final var containerSize = 1 << containerIndex;
+    final var indexInsideContainer = index + 1 - containerSize;
 
     AtomicReferenceArray<T> container;
     while (true) {

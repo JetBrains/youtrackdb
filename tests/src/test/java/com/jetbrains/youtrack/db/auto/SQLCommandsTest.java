@@ -16,17 +16,15 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.ClusterPositionMap;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.CollectionPositionMap;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import java.io.File;
-import java.util.Collection;
 import java.util.Locale;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
@@ -42,118 +40,125 @@ public class SQLCommandsTest extends BaseDBTest {
   }
 
   public void createProperty() {
-    Schema schema = database.getMetadata().getSchema();
-    if (!schema.existsClass("account")) {
-      schema.createClass("account");
+    Schema schema = session.getMetadata().getSchema();
+    if (!schema.existsClass("SQLCommandsTest_account")) {
+      schema.createClass("SQLCommandsTest_account");
     }
 
-    database.command("create property account.timesheet string").close();
+    session.execute("create property SQLCommandsTest_account.timesheet string").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty(database, "timesheet")
-            .getType(),
-        PropertyType.STRING);
+        session.getMetadata().getSchema()
+            .getClass("SQLCommandsTest_account")
+            .getProperty("timesheet").getType(),
+        PropertyType.STRING
+    );
   }
 
   @Test(dependsOnMethods = "createProperty")
   public void createLinkedClassProperty() {
-    database.command("create property account.knows embeddedmap account").close();
+    session.execute("create property SQLCommandsTest_account.knows embeddedmap SQLCommandsTest_account").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty(database, "knows")
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("knows")
             .getType(),
         PropertyType.EMBEDDEDMAP);
     Assert.assertEquals(
-        database
+        session
             .getMetadata()
             .getSchema()
-            .getClass("account")
-            .getProperty(database, "knows")
-            .getLinkedClass(database),
-        database.getMetadata().getSchema().getClass("account"));
+            .getClass("SQLCommandsTest_account")
+            .getProperty("knows")
+            .getLinkedClass(),
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account"));
   }
 
   @Test(dependsOnMethods = "createLinkedClassProperty")
   public void createLinkedTypeProperty() {
-    database.command("create property account.tags embeddedlist string").close();
+    session.execute("create property SQLCommandsTest_account.tags embeddedlist string").close();
 
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty(database, "tags")
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("tags")
             .getType(),
         PropertyType.EMBEDDEDLIST);
     Assert.assertEquals(
-        database.getMetadata().getSchema().getClass("account").getProperty(database, "tags")
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("tags")
             .getLinkedType(),
         PropertyType.STRING);
   }
 
   @Test(dependsOnMethods = "createLinkedTypeProperty")
   public void removeProperty() {
-    database.command("drop property account.timesheet").close();
-    database.command("drop property account.tags").close();
+    session.execute("drop property SQLCommandsTest_account.timesheet").close();
+    session.execute("drop property SQLCommandsTest_account.tags").close();
 
     Assert.assertFalse(
-        database.getMetadata().getSchema().getClass("account")
-            .existsProperty(database, "timesheet"));
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account")
+            .existsProperty("timesheet"));
     Assert.assertFalse(
-        database.getMetadata().getSchema().getClass("account").existsProperty(database, "tags"));
+        session.getMetadata().getSchema().getClass("SQLCommandsTest_account")
+            .existsProperty("tags"));
   }
 
   @Test(dependsOnMethods = "removeProperty")
   public void testSQLScript() {
-    String cmd = "";
+    var cmd = "";
     cmd += "select from ouser limit 1;begin;";
-    cmd += "let a = create vertex set script = true\n";
+    cmd += "let a = create vertex set script = true;";
     cmd += "let b = select from v limit 1;";
     cmd += "create edge from $a to $b;";
     cmd += "commit;";
     cmd += "return $a;";
 
-    Object result = database.command(new CommandScript("sql", cmd)).execute(database);
+    final var tx = session.begin();
+    var result = session.runScript("sql", cmd).findFirst(Result::asEntity);
 
-    Assert.assertTrue(result instanceof Identifiable);
-    Assert.assertTrue(((Identifiable) result).getRecord() instanceof EntityImpl);
+    Assert.assertTrue(tx.load(result) instanceof EntityImpl);
+    EntityImpl identifiable = tx.load(result);
+    var activeTx = session.getActiveTransaction();
+    EntityImpl entity = activeTx.load(identifiable);
     Assert.assertTrue(
-        database.bindToSession((EntityImpl) ((Identifiable) result).getRecord())
-            .field("script"));
+        entity.getProperty("script"));
+    session.commit();
   }
 
-  public void testClusterRename() {
-    if (database.getURL().startsWith("memory:")) {
+  public void testCollectionRename() {
+    if (session.getURL().startsWith("memory:")) {
       return;
     }
 
-    Collection<String> names = database.getClusterNames();
-    Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    var names = session.getCollectionNames();
+    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    database.command("create cluster testClusterRename").close();
+    session.execute("create collection testCollectionRename").close();
 
-    names = database.getClusterNames();
-    Assert.assertTrue(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    names = session.getCollectionNames();
+    Assert.assertTrue(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    database.command("alter cluster testClusterRename name testClusterRename42").close();
-    names = database.getClusterNames();
+    session.execute("alter collection testCollectionRename name testCollectionRename42").close();
+    names = session.getCollectionNames();
 
-    Assert.assertTrue(names.contains("testClusterRename42".toLowerCase(Locale.ENGLISH)));
-    Assert.assertFalse(names.contains("testClusterRename".toLowerCase(Locale.ENGLISH)));
+    Assert.assertTrue(names.contains("testCollectionRename42".toLowerCase(Locale.ENGLISH)));
+    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    if (!remoteDB && databaseType.equals(DatabaseType.PLOCAL)) {
-      String storagePath = database.getStorage().getConfiguration().getDirectory();
+    if (!remoteDB && databaseType.equals(DatabaseType.DISK)) {
+      var storagePath = session.getStorage().getConfiguration().getDirectory();
 
-      final WOWCache wowCache =
-          (WOWCache) ((LocalPaginatedStorage) database.getStorage()).getWriteCache();
+      final var wowCache =
+          (WOWCache) ((LocalStorage) session.getStorage()).getWriteCache();
 
-      File dataFile =
-          new File(
-              storagePath,
-              wowCache.nativeFileNameById(
-                  wowCache.fileIdByName("testClusterRename42" + PaginatedCluster.DEF_EXTENSION)));
-      File mapFile =
+      var dataFile =
           new File(
               storagePath,
               wowCache.nativeFileNameById(
                   wowCache.fileIdByName(
-                      "testClusterRename42" + ClusterPositionMap.DEF_EXTENSION)));
+                      "testCollectionRename42" + PaginatedCollection.DEF_EXTENSION)));
+      var mapFile =
+          new File(
+              storagePath,
+              wowCache.nativeFileNameById(
+                  wowCache.fileIdByName(
+                      "testCollectionRename42" + CollectionPositionMap.DEF_EXTENSION)));
 
       Assert.assertTrue(dataFile.exists());
       Assert.assertTrue(mapFile.exists());

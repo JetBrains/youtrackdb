@@ -16,11 +16,8 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -41,103 +39,100 @@ public class TraverseTestNew extends BaseDBTest {
   private Vertex nicoleKidman;
 
   @Parameters(value = "remote")
-  public TraverseTestNew(boolean remote) {
-    super(remote);
+  public TraverseTestNew(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
   public void init() {
 
-    database.createVertexClass("Movie");
-    database.createVertexClass("Actor");
+    session.createVertexClass("Movie");
+    session.createVertexClass("Actor");
 
-    tomCruise = database.newVertex("Actor");
+    tomCruise = session.newVertex("Actor");
     tomCruise.setProperty("name", "Tom Cruise");
     totalElements++;
-    megRyan = database.newVertex("Actor");
+    megRyan = session.newVertex("Actor");
     megRyan.setProperty("name", "Meg Ryan");
     totalElements++;
-    nicoleKidman = database.newVertex("Actor");
+    nicoleKidman = session.newVertex("Actor");
     nicoleKidman.setProperty("name", "Nicole Kidman");
     nicoleKidman.setProperty("attributeWithDotValue", "a.b");
 
-    database.begin();
-    nicoleKidman = database.save(nicoleKidman);
-    database.commit();
+    session.begin();
+    nicoleKidman = nicoleKidman;
+    session.commit();
 
     totalElements++;
 
-    Vertex topGun = database.newVertex("Movie");
+    var topGun = session.newVertex("Movie");
     topGun.setProperty("name", "Top Gun");
     topGun.setProperty("year", 1986);
 
-    database.begin();
-    topGun = database.save(topGun);
-    database.commit();
+    session.begin();
+    topGun = topGun;
+    session.commit();
 
     totalElements++;
-    Vertex missionImpossible = database.newVertex("Movie");
+    var missionImpossible = session.newVertex("Movie");
     missionImpossible.setProperty("name", "Mission: Impossible");
     missionImpossible.setProperty("year", 1996);
 
-    database.begin();
-    missionImpossible = database.save(missionImpossible);
-    database.commit();
+    session.begin();
+    missionImpossible = missionImpossible;
+    session.commit();
 
     totalElements++;
-    Vertex youHaveGotMail = database.newVertex("Movie");
+    var youHaveGotMail = session.newVertex("Movie");
     youHaveGotMail.setProperty("name", "You've Got Mail");
     youHaveGotMail.setProperty("year", 1998);
 
-    database.begin();
-    youHaveGotMail = database.save(youHaveGotMail);
-    database.commit();
+    session.begin();
+    youHaveGotMail = youHaveGotMail;
+    session.commit();
 
     totalElements++;
 
-    database.begin();
-    database.save(database.newRegularEdge(tomCruise, topGun, "actorIn"));
-    database.commit();
+    session.begin();
+    session.newStatefulEdge(tomCruise, topGun, "actorIn");
+    session.commit();
 
     totalElements++;
-    database.begin();
-    database.save(database.newRegularEdge(megRyan, topGun, "actorIn"));
-    database.commit();
+    session.begin();
+    session.newStatefulEdge(megRyan, topGun, "actorIn");
+    session.commit();
     totalElements++;
 
-    database.begin();
-    database.save(database.newRegularEdge(tomCruise, missionImpossible, "actorIn"));
-    database.commit();
+    session.begin();
+    session.newStatefulEdge(tomCruise, missionImpossible, "actorIn");
+    session.commit();
 
     totalElements++;
 
-    database.begin();
-    database.save(database.newRegularEdge(megRyan, youHaveGotMail, "actorIn"));
-    database.commit();
+    session.begin();
+    session.newStatefulEdge(megRyan, youHaveGotMail, "actorIn");
+    session.commit();
     totalElements++;
 
-    database.begin();
-    database.save(database.newRegularEdge(tomCruise, megRyan, "friend"));
-    database.commit();
+    session.begin();
+    session.newStatefulEdge(tomCruise, megRyan, "friend");
+    session.commit();
 
+    session.begin();
     totalElements++;
-    Edge e = database.newRegularEdge(tomCruise, nicoleKidman, "married");
+    var e = session.newStatefulEdge(tomCruise, nicoleKidman, "married");
     e.setProperty("year", 1990);
 
-    database.begin();
-    database.save(e);
-    database.commit();
-
     totalElements++;
 
-    database.commit();
+    session.commit();
   }
 
   public void traverseSQLAllFromActorNoWhereBreadthFrirst() {
-    ResultSet result1 =
-        database.query("traverse * from " + tomCruise.getIdentity() + " strategy BREADTH_FIRST");
+    var result1 =
+        session.query("traverse * from " + tomCruise.getIdentity() + " strategy BREADTH_FIRST");
 
-    for (int i = 0; i < totalElements; i++) {
+    for (var i = 0; i < totalElements; i++) {
       Assert.assertTrue(result1.hasNext());
       result1.next();
     }
@@ -145,10 +140,10 @@ public class TraverseTestNew extends BaseDBTest {
   }
 
   public void traverseSQLAllFromActorNoWhereDepthFrirst() {
-    ResultSet result1 =
-        database.query("traverse * from " + tomCruise.getIdentity() + " strategy DEPTH_FIRST");
+    var result1 =
+        session.query("traverse * from " + tomCruise.getIdentity() + " strategy DEPTH_FIRST");
 
-    for (int i = 0; i < totalElements; i++) {
+    for (var i = 0; i < totalElements; i++) {
       Assert.assertTrue(result1.hasNext());
       result1.next();
     }
@@ -157,8 +152,8 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseSQLOutFromActor1Depth() {
-    ResultSet result1 =
-        database.query("traverse out_ from " + tomCruise.getIdentity() + " while $depth <= 1");
+    var result1 =
+        session.query("traverse out_ from " + tomCruise.getIdentity() + " while $depth <= 1");
 
     Assert.assertTrue(result1.hasNext());
     result1.close();
@@ -166,64 +161,68 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseSQLMoviesOnly() {
-    ResultSet result1 =
-        database.query("select from ( traverse * from Movie ) where @class = 'Movie'");
+    var result1 =
+        session.query("select from ( traverse * from Movie ) where @class = 'Movie'");
     Assert.assertTrue(result1.hasNext());
     while (result1.hasNext()) {
-      Result d = result1.next();
+      var d = result1.next();
 
-      Assert.assertEquals(d.getEntity().get().getSchemaType().get().getName(), "Movie");
+      Assert.assertEquals(d.asEntity().getSchemaClassName(), "Movie");
     }
     result1.close();
   }
 
   @Test
   public void traverseSQLPerClassFields() {
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "select from ( traverse out() from "
                 + tomCruise.getIdentity()
                 + ") where @class = 'Movie'");
     Assert.assertTrue(result1.hasNext());
     while (result1.hasNext()) {
-      Result d = result1.next();
-      Assert.assertEquals(d.getEntity().get().getSchemaType().get().getName(), "Movie");
+      var d = result1.next();
+      Assert.assertEquals(d.asEntity().getSchemaClassName(), "Movie");
     }
     result1.close();
   }
 
   @Test
   public void traverseSQLMoviesOnlyDepth() {
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 1 ) where @class = 'Movie'");
     Assert.assertFalse(result1.hasNext());
     result1.close();
-    ResultSet result2 =
-        database.query(
+    var result2 =
+        session.query(
             "select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 ) where @class = 'Movie'");
     Assert.assertTrue(result2.hasNext());
-    int size2 = 0;
+    var size2 = 0;
     while (result2.hasNext()) {
-      EntityImpl d = result2.next().getEntity().get().getRecord();
-      Assert.assertEquals(d.getClassName(), "Movie");
+      Identifiable identifiable = result2.next().asEntity();
+      var transaction = session.getActiveTransaction();
+      EntityImpl d = transaction.load(identifiable);
+      Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size2++;
     }
     result2.close();
-    ResultSet result3 =
-        database.query(
+    var result3 =
+        session.query(
             "select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " ) where @class = 'Movie'");
     Assert.assertTrue(result3.hasNext());
-    int size3 = 0;
+    var size3 = 0;
     while (result3.hasNext()) {
-      EntityImpl d = result3.next().getEntity().get().getRecord();
-      Assert.assertEquals(d.getClassName(), "Movie");
+      Identifiable identifiable = result3.next().asEntity();
+      var transaction = session.getActiveTransaction();
+      EntityImpl d = transaction.load(identifiable);
+      Assert.assertEquals(d.getSchemaClassName(), "Movie");
       size3++;
     }
     Assert.assertTrue(size3 > size2);
@@ -232,8 +231,8 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseSelect() {
-    ResultSet result1 = database.query("traverse * from ( select from Movie )");
-    int tot = 0;
+    var result1 = session.query("traverse * from ( select from Movie )");
+    var tot = 0;
     while (result1.hasNext()) {
       result1.next();
       tot++;
@@ -245,13 +244,13 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseSQLSelectAndTraverseNested() {
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 ) where @class = 'Movie' )");
 
-    int tot = 0;
+    var tot = 0;
     while (result1.hasNext()) {
       result1.next();
       tot++;
@@ -263,12 +262,12 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseAPISelectAndTraverseNested() {
-    ResultSet result1 =
-        database.command(
+    var result1 =
+        session.execute(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 ) where @class = 'Movie' )");
-    int tot = 0;
+    var tot = 0;
     while (result1.hasNext()) {
       result1.next();
       tot++;
@@ -278,12 +277,12 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseAPISelectAndTraverseNestedDepthFirst() {
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 strategy depth_first ) where @class = 'Movie' )");
-    int tot = 0;
+    var tot = 0;
     while (result1.hasNext()) {
       result1.next();
       tot++;
@@ -294,12 +293,12 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseAPISelectAndTraverseNestedBreadthFirst() {
-    ResultSet result1 =
-        database.command(
+    var result1 =
+        session.execute(
             "traverse * from ( select from ( traverse * from "
                 + tomCruise.getIdentity()
                 + " while $depth <= 2 strategy breadth_first ) where @class = 'Movie' )");
-    int tot = 0;
+    var tot = 0;
     while (result1.hasNext()) {
       result1.next();
       tot++;
@@ -309,27 +308,27 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseSelectNoInfluence() {
-    ResultSet result1 = database.query("traverse * from Movie while $depth < 2");
+    var result1 = session.query("traverse * from Movie while $depth < 2");
     List<Result> list1 = new ArrayList<>();
     while (result1.hasNext()) {
       list1.add(result1.next());
     }
     result1.close();
-    ResultSet result2 = database.query("select from ( traverse * from Movie while $depth < 2 )");
+    var result2 = session.query("select from ( traverse * from Movie while $depth < 2 )");
     List<Result> list2 = new ArrayList<>();
     while (result2.hasNext()) {
       list2.add(result2.next());
     }
     result2.close();
-    ResultSet result3 =
-        database.query("select from ( traverse * from Movie while $depth < 2 ) where true");
+    var result3 =
+        session.query("select from ( traverse * from Movie while $depth < 2 ) where true");
     List<Result> list3 = new ArrayList<>();
     while (result3.hasNext()) {
       list3.add(result3.next());
     }
     result3.close();
-    ResultSet result4 =
-        database.query(
+    var result4 =
+        session.query(
             "select from ( traverse * from Movie while $depth < 2 and ( true = true ) ) where"
                 + " true");
 
@@ -346,7 +345,7 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseNoConditionLimit1() {
-    ResultSet result1 = database.query("traverse * from Movie limit 1");
+    var result1 = session.query("traverse * from Movie limit 1");
     Assert.assertTrue(result1.hasNext());
     result1.next();
     Assert.assertFalse(result1.hasNext());
@@ -355,15 +354,15 @@ public class TraverseTestNew extends BaseDBTest {
   @Test
   public void traverseAndFilterByAttributeThatContainsDotInValue() {
     // issue #4952
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "select from ( traverse out_married, in[attributeWithDotValue = 'a.b']  from "
                 + tomCruise.getIdentity()
                 + ")");
     Assert.assertTrue(result1.hasNext());
-    boolean found = false;
+    var found = false;
     while (result1.hasNext()) {
-      Result doc = result1.next();
+      var doc = result1.next();
       String name = doc.getProperty("name");
       if ("Nicole Kidman".equals(name)) {
         found = true;
@@ -379,16 +378,16 @@ public class TraverseTestNew extends BaseDBTest {
     // issue #5225
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("param1", "a.b");
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "select from (traverse out_married, in[attributeWithDotValue = :param1]  from "
                 + tomCruise.getIdentity()
                 + ")",
             params);
     Assert.assertTrue(result1.hasNext());
-    boolean found = false;
+    var found = false;
     while (result1.hasNext()) {
-      Result doc = result1.next();
+      var doc = result1.next();
       String name = doc.getProperty("name");
       if ("Nicole Kidman".equals(name)) {
         found = true;
@@ -400,41 +399,34 @@ public class TraverseTestNew extends BaseDBTest {
 
   @Test
   public void traverseAndCheckDepthInSelect() {
-    ResultSet result1 =
-        database.query(
+    var result1 =
+        session.query(
             "select *, $depth as d from ( traverse out_married  from "
                 + tomCruise.getIdentity()
                 + " while $depth < 2)");
-    Integer i = 0;
+    var i = 0;
     while (result1.hasNext()) {
-      Result doc = result1.next();
+      var doc = result1.next();
       Integer depth = doc.getProperty("d");
       Assert.assertEquals(depth, i++);
     }
-    Assert.assertEquals(i.intValue(), 2);
+    Assert.assertEquals((int) i, 2);
     result1.close();
   }
 
   @Test
   public void traverseAndCheckReturn() {
-
-    try {
-
-      String q = "traverse in('married')  from " + nicoleKidman.getIdentity();
-      DatabaseSessionInternal db = database.copy();
-      DatabaseRecordThreadLocal.instance().set(db);
-      ResultSet result1 = db.query(q);
-      Assert.assertTrue(result1.hasNext());
-      Integer i = 0;
-      Result doc;
-      while (result1.hasNext()) {
-        doc = result1.next();
-        i++;
-      }
-      Assert.assertEquals(i.intValue(), 2);
-      result1.close();
-    } finally {
-      DatabaseRecordThreadLocal.instance().set(database);
+    var q = "traverse in('married')  from " + nicoleKidman.getIdentity();
+    var db = this.session.copy();
+    var result1 = db.query(q);
+    Assert.assertTrue(result1.hasNext());
+    var i = 0;
+    Result doc;
+    while (result1.hasNext()) {
+      doc = result1.next();
+      i++;
     }
+    Assert.assertEquals((int) i, 2);
+    result1.close();
   }
 }

@@ -18,8 +18,6 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,20 +29,21 @@ public class LuceneQueryErrorTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.runScript("sql", getScriptFromStream(stream));
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void testQueryError() {
-
-    String query = "select * from Song where search_class(\"\")=true ";
-    ResultSet result = db.query(query);
+    session.begin();
+    var query = "select * from Song where search_class(\"\")=true ";
+    var result = session.query(query);
 
     Assertions.assertThat(result).isEmpty();
     result.close();
+    session.commit();
   }
 }

@@ -15,11 +15,7 @@ public class CreateVertexExecutionPlanner extends InsertExecutionPlanner {
   public CreateVertexExecutionPlanner(SQLCreateVertexStatement statement) {
     this.targetClass =
         statement.getTargetClass() == null ? null : statement.getTargetClass().copy();
-    this.targetClusterName =
-        statement.getTargetClusterName() == null ? null : statement.getTargetClusterName().copy();
-    this.targetCluster =
-        statement.getTargetCluster() == null ? null : statement.getTargetCluster().copy();
-    if (this.targetClass == null && this.targetCluster == null && this.targetClusterName == null) {
+    if (this.targetClass == null) {
       this.targetClass = new SQLIdentifier("V");
     }
     this.insertBody = statement.getInsertBody() == null ? null : statement.getInsertBody().copy();
@@ -29,12 +25,12 @@ public class CreateVertexExecutionPlanner extends InsertExecutionPlanner {
 
   @Override
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    InsertExecutionPlan prev = super.createExecutionPlan(ctx, enableProfiling);
+    var prev = super.createExecutionPlan(ctx, enableProfiling);
     List<ExecutionStep> steps = new ArrayList<>(prev.getSteps());
-    InsertExecutionPlan result = new InsertExecutionPlan(ctx);
+    var result = new InsertExecutionPlan(ctx);
 
     handleCheckType(result, ctx, enableProfiling);
-    for (ExecutionStep step : steps) {
+    for (var step : steps) {
       result.chain((ExecutionStepInternal) step);
     }
     return result;
@@ -45,13 +41,6 @@ public class CreateVertexExecutionPlanner extends InsertExecutionPlanner {
     if (targetClass != null) {
       result.chain(
           new CheckClassTypeStep(targetClass.getStringValue(), "V", ctx, profilingEnabled));
-    }
-    if (targetClusterName != null) {
-      result.chain(
-          new CheckClusterTypeStep(targetClusterName.getStringValue(), "V", ctx, profilingEnabled));
-    }
-    if (targetCluster != null) {
-      result.chain(new CheckClusterTypeStep(targetCluster, "V", ctx, profilingEnabled));
     }
   }
 }

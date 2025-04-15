@@ -38,7 +38,7 @@ public class EngineRemote extends EngineAbstract {
       long doubleWriteLogMaxSegSize,
       int storageId,
       YouTrackDBInternal context) {
-    throw new StorageException("deprecated");
+    throw new StorageException(null, "deprecated");
   }
 
   @Override

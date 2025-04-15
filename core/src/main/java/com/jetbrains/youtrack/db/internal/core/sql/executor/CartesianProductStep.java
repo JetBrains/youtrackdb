@@ -27,13 +27,13 @@ public class CartesianProductStep extends AbstractExecutionStep {
     }
 
     Stream<Result[]> stream = null;
-    Result[] productTuple = new Result[this.subPlans.size()];
+    var productTuple = new Result[this.subPlans.size()];
 
-    for (int i = 0; i < this.subPlans.size(); i++) {
-      InternalExecutionPlan ep = this.subPlans.get(i);
-      final int pos = i;
+    for (var i = 0; i < this.subPlans.size(); i++) {
+      var ep = this.subPlans.get(i);
+      final var pos = i;
       if (stream == null) {
-        ExecutionStream es = ep.start();
+        var es = ep.start();
         stream =
             es.stream(ctx)
                 .map(
@@ -46,7 +46,7 @@ public class CartesianProductStep extends AbstractExecutionStep {
         stream =
             stream.flatMap(
                 (val) -> {
-                  ExecutionStream es = ep.start();
+                  var es = ep.start();
                   return es.stream(ctx)
                       .map(
                           (value) -> {
@@ -58,18 +58,18 @@ public class CartesianProductStep extends AbstractExecutionStep {
       }
     }
     assert stream != null;
-    var db = ctx.getDatabase();
-    Stream<Result> finalStream = stream.map(path -> produceResult(db, path));
+    var db = ctx.getDatabaseSession();
+    var finalStream = stream.map(path -> produceResult(db, path));
     return ExecutionStream.resultIterator(finalStream.iterator())
         .onClose((context) -> finalStream.close());
   }
 
   private static Result produceResult(DatabaseSessionInternal db, Result[] path) {
 
-    ResultInternal nextRecord = new ResultInternal(db);
+    var nextRecord = new ResultInternal(db);
 
-    for (Result res : path) {
-      for (String s : res.getPropertyNames()) {
+    for (var res : path) {
+      for (var s : res.getPropertyNames()) {
         nextRecord.setProperty(s, res.getProperty(s));
       }
     }
@@ -82,20 +82,20 @@ public class CartesianProductStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    StringBuilder result = new StringBuilder();
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
 
-    int[] blockSizes = new int[subPlans.size()];
+    var blockSizes = new int[subPlans.size()];
 
-    for (int i = 0; i < subPlans.size(); i++) {
-      InternalExecutionPlan currentPlan = subPlans.get(subPlans.size() - 1 - i);
-      String partial = currentPlan.prettyPrint(0, indent);
+    for (var i = 0; i < subPlans.size(); i++) {
+      var currentPlan = subPlans.get(subPlans.size() - 1 - i);
+      var partial = currentPlan.prettyPrint(0, indent);
 
-      String[] partials = partial.split("\n");
+      var partials = partial.split("\n");
       blockSizes[subPlans.size() - 1 - i] = partials.length + 2;
       result.insert(0, "+-------------------------\n");
-      for (int j = 0; j < partials.length; j++) {
-        String p = partials[partials.length - 1 - j];
+      for (var j = 0; j < partials.length; j++) {
+        var p = partials[partials.length - 1 - j];
         if (!result.isEmpty()) {
           result.insert(0, appendPipe(p) + "\n");
         } else {
@@ -113,13 +113,13 @@ public class CartesianProductStep extends AbstractExecutionStep {
   }
 
   private String addArrows(String input, int[] blockSizes) {
-    StringBuilder result = new StringBuilder();
-    String[] rows = input.split("\n");
-    int rowNum = 0;
-    for (int block = 0; block < blockSizes.length; block++) {
-      int blockSize = blockSizes[block];
-      for (int subRow = 0; subRow < blockSize; subRow++) {
-        for (int col = 0; col < blockSizes.length * 3; col++) {
+    var result = new StringBuilder();
+    var rows = input.split("\n");
+    var rowNum = 0;
+    for (var block = 0; block < blockSizes.length; block++) {
+      var blockSize = blockSizes[block];
+      for (var subRow = 0; subRow < blockSize; subRow++) {
+        for (var col = 0; col < blockSizes.length * 3; col++) {
           if (isHorizontalRow(col, subRow, block, blockSize)) {
             result.append("-");
           } else if (isPlus(col, subRow, block, blockSize)) {
@@ -162,8 +162,8 @@ public class CartesianProductStep extends AbstractExecutionStep {
   }
 
   private String head(int depth, int indent) {
-    String ind = ExecutionStepInternal.getIndent(depth, indent);
-    String result = ind + "+ CARTESIAN PRODUCT";
+    var ind = ExecutionStepInternal.getIndent(depth, indent);
+    var result = ind + "+ CARTESIAN PRODUCT";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

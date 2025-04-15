@@ -91,13 +91,13 @@ public class StorageOperationResult<RET> implements Externalizable {
   public void readExternal(final ObjectInput in) throws IOException, ClassNotFoundException {
     result = (RET) in.readObject();
     isMoved = in.readBoolean();
-    final int modifiedRecordContentLength = in.readInt();
+    final var modifiedRecordContentLength = in.readInt();
     if (modifiedRecordContentLength > -1) {
       modifiedRecordContent = new byte[modifiedRecordContentLength];
-      int bytesRead = 0;
+      var bytesRead = 0;
 
       while (bytesRead < modifiedRecordContentLength) {
-        int rb = in.read(modifiedRecordContent, bytesRead, modifiedRecordContentLength - bytesRead);
+        var rb = in.read(modifiedRecordContent, bytesRead, modifiedRecordContentLength - bytesRead);
 
         if (rb < 0) {
           break;

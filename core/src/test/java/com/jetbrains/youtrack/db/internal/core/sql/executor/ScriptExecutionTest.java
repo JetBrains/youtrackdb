@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.math.BigDecimal;
 import org.junit.Assert;
 import org.junit.Test;
@@ -16,24 +14,27 @@ public class ScriptExecutionTest extends DbTestBase {
 
   @Test
   public void testTwoInserts() {
-    String className = "testTwoInserts";
-    db.createClass(className);
-    db.execute(
+    var className = "testTwoInserts";
+    session.createClass(className);
+    session.runScript(
         "SQL",
         "begin;INSERT INTO "
             + className
             + " SET name = 'foo';INSERT INTO "
             + className
             + " SET name = 'bar';commit;");
-    ResultSet rs = db.query("SELECT count(*) as count from " + className);
+
+    session.begin();
+    var rs = session.query("SELECT count(*) as count from " + className);
     Assert.assertEquals((Object) 2L, rs.next().getProperty("count"));
+    session.commit();
   }
 
   @Test
   public void testIf() {
-    String className = "testIf";
-    db.createClass(className);
-    String script = "begin;";
+    var className = "testIf";
+    session.createClass(className);
+    var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='bar';";
     script += "IF($1.size() = 0 OR $1[0].count = 0){";
@@ -44,16 +45,18 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "   INSERT INTO " + className + " SET name = 'bar';";
     script += "};";
     script += "commit;";
-    db.execute("SQL", script);
-    ResultSet rs = db.query("SELECT count(*) as count from " + className);
+    session.runScript("SQL", script);
+    session.begin();
+    var rs = session.query("SELECT count(*) as count from " + className);
     Assert.assertEquals((Object) 2L, rs.next().getProperty("count"));
+    session.commit();
   }
 
   @Test
   public void testReturnInIf() {
-    String className = "testReturnInIf";
-    db.createClass(className);
-    String script = "";
+    var className = "testReturnInIf";
+    session.createClass(className);
+    var script = "";
     script += "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='foo';";
@@ -65,26 +68,28 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "INSERT INTO " + className + " SET name = 'baz';";
     script += "commit;";
 
-    db.execute("SQL", script);
-    ResultSet rs = db.query("SELECT count(*) as count from " + className);
+    session.runScript("SQL", script);
+    var rs = session.query("SELECT count(*) as count from " + className);
     Assert.assertEquals((Object) 2L, rs.next().getProperty("count"));
   }
 
   @Test
   public void testReturnInIf2() {
-    String className = "testReturnInIf2";
-    db.createClass(className);
-    String script = "begin;";
+    var className = "testReturnInIf2";
+    session.createClass(className);
+    var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "commit;";
+    script += "begin;";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='foo';";
+    script += "commit;";
     script += "IF($1.size() > 0 ){";
     script += "   RETURN 'OK';";
     script += "}";
     script += "RETURN 'FAIL';";
-    ResultSet result = db.execute("SQL", script);
+    var result = session.runScript("SQL", script);
 
-    Result item = result.next();
+    var item = result.next();
 
     Assert.assertEquals("OK", item.getProperty("value"));
     result.close();
@@ -92,9 +97,9 @@ public class ScriptExecutionTest extends DbTestBase {
 
   @Test
   public void testReturnInIf3() {
-    String className = "testReturnInIf3";
-    db.createClass(className);
-    String script = "";
+    var className = "testReturnInIf3";
+    session.createClass(className);
+    var script = "";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='foo';";
@@ -104,9 +109,9 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "}";
     script += "COMMIT;";
     script += "RETURN 'OK';";
-    ResultSet result = db.execute("SQL", script);
+    var result = session.runScript("SQL", script);
 
-    Result item = result.next();
+    var item = result.next();
 
     Assert.assertEquals("OK", item.getProperty("value"));
     result.close();
@@ -114,18 +119,18 @@ public class ScriptExecutionTest extends DbTestBase {
 
   @Test
   public void testLazyExecutionPlanning() {
-    String script = "";
+    var script = "";
     script +=
-        "LET $1 = SELECT FROM (select expand(classes) from metadata:schema) where name ="
+        "begin;LET $1 = SELECT FROM (select expand(classes) from metadata:schema) where name ="
             + " 'nonExistingClass';";
     script += "IF($1.size() > 0) {";
     script += "   SELECT FROM nonExistingClass;";
-    script += "   RETURN 'FAIL';";
+    script += "   commit;RETURN 'FAIL';";
     script += "}";
-    script += "RETURN 'OK';";
-    ResultSet result = db.execute("SQL", script);
+    script += "commit;RETURN 'OK';";
+    var result = session.runScript("SQL", script);
 
-    Result item = result.next();
+    var item = result.next();
 
     Assert.assertEquals("OK", item.getProperty("value"));
     result.close();
@@ -133,9 +138,9 @@ public class ScriptExecutionTest extends DbTestBase {
 
   @Test
   public void testCommitRetry() {
-    String className = "testCommitRetry";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetry";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -144,21 +149,23 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "  SELECT throwCME(#-1:-1, 1, 1, 1);";
     script += "}";
     script += "COMMIT RETRY 10;";
-    db.execute("SQL", script);
+    session.runScript("SQL", script);
 
-    ResultSet result = db.query("select from " + className);
+    session.begin();
+    var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals(4, (int) item.getProperty("attempt"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testCommitRetryWithFailure() {
-    String className = "testCommitRetryWithFailure";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetryWithFailure";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -166,20 +173,20 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "SELECT throwCME(#-1:-1, 1, 1, 1);";
     script += "COMMIT RETRY 10;";
     try {
-      db.execute("SQL", script);
+      session.runScript("SQL", script);
     } catch (ConcurrentModificationException x) {
     }
 
-    ResultSet result = db.query("select from " + className);
+    var result = session.query("select from " + className);
     Assert.assertFalse(result.hasNext());
     result.close();
   }
 
   @Test
   public void testCommitRetryWithFailureAndContinue() {
-    String className = "testCommitRetryWithFailureAndContinue";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetryWithFailureAndContinue";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -190,21 +197,23 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "INSERT INTO " + className + " set name = 'foo';";
     script += "COMMIT;";
 
-    db.execute("SQL", script);
+    session.runScript("SQL", script);
 
-    ResultSet result = db.query("select from " + className);
+    session.begin();
+    var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testCommitRetryWithFailureScriptAndContinue() {
-    String className = "testCommitRetryWithFailureScriptAndContinue";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetryWithFailureScriptAndContinue";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -216,21 +225,23 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "COMMIT;";
     script += "} AND CONTINUE;";
 
-    db.execute("SQL", script);
+    session.runScript("SQL", script);
 
-    ResultSet result = db.query("select from " + className);
+    session.begin();
+    var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testCommitRetryWithFailureScriptAndFail() {
-    String className = "testCommitRetryWithFailureScriptAndFail";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetryWithFailureScriptAndFail";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -241,25 +252,27 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "} AND FAIL;";
 
     try {
-      db.execute("SQL", script);
+      session.runScript("SQL", script);
       Assert.fail();
     } catch (ConcurrentModificationException e) {
 
     }
 
-    ResultSet result = db.query("select from " + className);
+    session.begin();
+    var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testCommitRetryWithFailureScriptAndFail2() {
-    String className = "testCommitRetryWithFailureScriptAndFail2";
-    db.createClass(className);
-    String script = "";
+    var className = "testCommitRetryWithFailureScriptAndFail2";
+    session.createClass(className);
+    var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " set attempt = $retries;";
@@ -270,35 +283,37 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "}";
 
     try {
-      db.execute("SQL", script);
+      session.runScript("SQL", script);
       Assert.fail();
     } catch (ConcurrentModificationException e) {
 
     }
 
-    ResultSet result = db.query("select from " + className);
+    session.begin();
+    var result = session.query("select from " + className);
     Assert.assertTrue(result.hasNext());
-    Result item = result.next();
+    var item = result.next();
     Assert.assertEquals("foo", item.getProperty("name"));
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testFunctionAsStatement() {
-    String script = "";
+    var script = "";
     script += "decimal('10');";
 
     try {
-      db.command(script);
+      session.execute(script);
       Assert.fail();
     } catch (CommandSQLParsingException e) {
 
     }
 
-    ResultSet rs = db.execute("SQL", script);
+    var rs = session.runScript("SQL", script);
     Assert.assertTrue(rs.hasNext());
-    Result item = rs.next();
+    var item = rs.next();
     Assert.assertTrue(item.getProperty("result") instanceof BigDecimal);
     Assert.assertFalse(rs.hasNext());
 
@@ -307,10 +322,10 @@ public class ScriptExecutionTest extends DbTestBase {
 
   @Test
   public void testAssignOnEdgeCreate() {
-    String script = "";
+    var script = "";
     script += "create class IndirectEdge if not exists extends E;\n";
 
-    db.execute("sql", script).close();
+    session.runScript("sql", script).close();
 
     script = " begin;\n";
     script += "insert into V set name = 'a', PrimaryName = 'foo1';\n";
@@ -333,11 +348,13 @@ public class ScriptExecutionTest extends DbTestBase {
     script += "};\n";
     script += "commit retry 10;\n";
 
-    db.execute("sql", script).close();
+    session.runScript("sql", script).close();
 
-    try (ResultSet rs = db.query("select from IndirectEdge")) {
+    session.begin();
+    try (var rs = session.query("select from IndirectEdge")) {
       Assert.assertEquals("foo2", rs.next().getProperty("Source"));
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
   }
 }

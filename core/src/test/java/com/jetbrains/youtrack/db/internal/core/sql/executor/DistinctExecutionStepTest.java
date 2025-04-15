@@ -19,11 +19,11 @@ public class DistinctExecutionStepTest extends DbTestBase {
   @Test
   public void test() {
     var ctx = new BasicCommandContext();
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
 
-    DistinctExecutionStep step = new DistinctExecutionStep(ctx, false);
+    var step = new DistinctExecutionStep(ctx, false);
 
-    AbstractExecutionStep prev =
+    var prev =
         new AbstractExecutionStep(ctx, false) {
           boolean done = false;
 
@@ -31,8 +31,8 @@ public class DistinctExecutionStepTest extends DbTestBase {
           public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
             List<Result> result = new ArrayList<>();
             if (!done) {
-              for (int i = 0; i < 10; i++) {
-                ResultInternal item = new ResultInternal(ctx.getDatabase());
+              for (var i = 0; i < 10; i++) {
+                var item = new ResultInternal(ctx.getDatabaseSession());
                 item.setProperty("name", i % 2 == 0 ? "foo" : "bar");
                 result.add(item);
               }
@@ -43,7 +43,7 @@ public class DistinctExecutionStepTest extends DbTestBase {
         };
 
     step.setPrevious(prev);
-    ExecutionStream res = step.start(ctx);
+    var res = step.start(ctx);
     Assert.assertTrue(res.hasNext(ctx));
     res.next(ctx);
     Assert.assertTrue(res.hasNext(ctx));

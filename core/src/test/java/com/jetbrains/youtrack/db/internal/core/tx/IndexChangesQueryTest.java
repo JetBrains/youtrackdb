@@ -1,18 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -27,112 +26,114 @@ public class IndexChangesQueryTest {
   private static final String FIELD_NAME = "value";
   private static final String INDEX_NAME = "idxTxAwareMultiValueGetEntriesTestIndex";
   private YouTrackDB youTrackDB;
-  private DatabaseSessionInternal database;
+  private DatabaseSessionInternal db;
 
   @Before
   public void before() {
     youTrackDB =
         CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
-    database =
+    db =
         (DatabaseSessionInternal)
             youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass cls = schema.createClass(CLASS_NAME);
-    cls.createProperty(database, FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(database, INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
+    final Schema schema = db.getMetadata().getSchema();
+    final var cls = schema.createClass(CLASS_NAME);
+    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
+    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
   }
 
   @After
   public void after() {
-    database.close();
+    db.close();
     youTrackDB.close();
   }
 
   @Test
   public void testMultiplePut() {
-    database.begin();
+    db.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    final var index =
+        db.getSharedContext().getIndexManager().getIndex(db, INDEX_NAME);
 
-    EntityImpl doc = new EntityImpl(CLASS_NAME);
-    doc.field(FIELD_NAME, 1);
-    doc.save();
+    var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc.setProperty(FIELD_NAME, 1);
 
-    EntityImpl doc1 = new EntityImpl(CLASS_NAME);
-    doc1.field(FIELD_NAME, 2);
-    doc1.save();
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    var doc1 = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc1.setProperty(FIELD_NAME, 2);
+
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
+    Assert.assertNotNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
+
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertFalse(fetchCollectionFromIndex(index, 1).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
 
-    database.commit();
+    db.commit();
 
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    Assert.assertEquals(2, index.size(db));
     Assert.assertFalse((fetchCollectionFromIndex(index, 1)).isEmpty());
     Assert.assertFalse((fetchCollectionFromIndex(index, 2)).isEmpty());
   }
 
   private Collection<RID> fetchCollectionFromIndex(Index index, int key) {
-    try (Stream<RID> stream = index.getInternal().getRids(database, key)) {
+    try (var stream = index.getRids(db, key)) {
       return stream.collect(Collectors.toList());
     }
   }
 
   @Test
   public void testClearAndPut() {
-    database.begin();
+    db.begin();
 
-    EntityImpl doc1 = new EntityImpl(CLASS_NAME);
-    doc1.field(FIELD_NAME, 1);
-    doc1.save();
+    var doc1 = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc1.setProperty(FIELD_NAME, 1);
 
-    EntityImpl doc2 = new EntityImpl(CLASS_NAME);
-    doc2.field(FIELD_NAME, 1);
-    doc2.save();
+    var doc2 = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc2.setProperty(FIELD_NAME, 1);
 
-    EntityImpl doc3 = new EntityImpl(CLASS_NAME);
-    doc3.field(FIELD_NAME, 2);
-    doc3.save();
+    var doc3 = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc3.setProperty(FIELD_NAME, 2);
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    final var index =
+        db.getSharedContext().getIndexManager().getIndex(db, INDEX_NAME);
 
-    database.commit();
+    db.commit();
 
-    Assert.assertEquals(3, index.getInternal().size(database));
+    Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
 
-    database.begin();
+    db.begin();
 
-    doc1 = database.bindToSession(doc1);
-    doc2 = database.bindToSession(doc2);
-    doc3 = database.bindToSession(doc3);
+    var activeTx2 = db.getActiveTransaction();
+    doc1 = activeTx2.load(doc1);
+    var activeTx1 = db.getActiveTransaction();
+    doc2 = activeTx1.load(doc2);
+    var activeTx = db.getActiveTransaction();
+    doc3 = activeTx.load(doc3);
 
     doc1.delete();
     doc2.delete();
     doc3.delete();
 
-    doc3 = new EntityImpl(CLASS_NAME);
-    doc3.field(FIELD_NAME, 1);
-    doc3.save();
+    doc3 = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc3.setProperty(FIELD_NAME, 1);
 
-    EntityImpl doc = new EntityImpl(CLASS_NAME);
-    doc.field(FIELD_NAME, 2);
-    doc.save();
+    var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
+    doc.setProperty(FIELD_NAME, 2);
+
+    db.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
 
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
 
-    database.rollback();
+    db.rollback();
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    Assert.assertNull(db.getTransactionInternal().getIndexChanges(INDEX_NAME));
 
-    Assert.assertEquals(3, index.getInternal().size(database));
+    Assert.assertEquals(3, index.size(db));
     Assert.assertEquals(2, (fetchCollectionFromIndex(index, 1)).size());
     Assert.assertEquals(1, (fetchCollectionFromIndex(index, 2)).size());
   }

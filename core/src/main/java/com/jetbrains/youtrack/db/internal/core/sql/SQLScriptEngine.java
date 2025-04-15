@@ -21,10 +21,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.command.script.ScriptDatabaseWrapper;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.sql.query.BasicLegacyResultSet;
@@ -33,6 +34,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
@@ -74,20 +76,24 @@ public class SQLScriptEngine implements ScriptEngine {
 
   @Override
   public Object eval(String script, Bindings n) throws ScriptException {
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (db == null) {
-      throw new CommandExecutionException("No database available in threadlocal");
+    ScriptDatabaseWrapper session = null;
+    if (n != null) {
+      session = (ScriptDatabaseWrapper) n.get("db");
     }
-    Map<Object, Object> params = convertToParameters(n);
+
+    if (session == null) {
+      throw new CommandExecutionException("No database available in bindings");
+    }
+    var params = convertToParameters(n);
     ResultSet queryResult;
     if (params.keySet().stream().anyMatch(x -> !(x instanceof String))) {
-      queryResult = db.execute("sql", script, params);
+      queryResult = session.runScript("sql", script, params);
     } else {
-      queryResult = db.execute("sql", script, (Map) params);
+      queryResult = session.runScript("sql", script, (Map) params);
     }
-    try (ResultSet res = queryResult) {
-      LegacyResultSet finalResult = new BasicLegacyResultSet();
-      res.stream().forEach(x -> finalResult.add(x));
+    try (var res = queryResult) {
+      LegacyResultSet<Result> finalResult = new BasicLegacyResultSet<>();
+      res.stream().forEach(finalResult::add);
       return finalResult;
     }
   }
@@ -107,11 +113,11 @@ public class SQLScriptEngine implements ScriptEngine {
       }
 
       params = new HashMap<Object, Object>(iArgs.length);
-      for (int i = 0; i < iArgs.length; ++i) {
-        Object par = iArgs[i];
+      for (var i = 0; i < iArgs.length; ++i) {
+        var par = iArgs[i];
 
         if (par instanceof Identifiable
-            && ((RecordId) ((Identifiable) par).getIdentity()).isValid())
+            && ((RecordId) ((Identifiable) par).getIdentity()).isValidPosition())
         // USE THE RID ONLY
         {
           par = ((Identifiable) par).getIdentity();
@@ -125,8 +131,15 @@ public class SQLScriptEngine implements ScriptEngine {
 
   @Override
   public Object eval(Reader reader, Bindings n) throws ScriptException {
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    final StringBuilder buffer = new StringBuilder();
+    DatabaseSessionInternal session = null;
+    if (n != null) {
+      session = (DatabaseSessionInternal) n.get("db");
+    }
+    if (session == null) {
+      throw new CommandExecutionException("No database available in bindings");
+    }
+
+    final var buffer = new StringBuilder();
     try {
       while (reader.ready()) {
         buffer.append((char) reader.read());
@@ -135,13 +148,14 @@ public class SQLScriptEngine implements ScriptEngine {
       throw new ScriptException(e);
     }
 
-    return new CommandScript(buffer.toString()).execute(db, n);
+    return new CommandScript(buffer.toString()).execute(session, n);
   }
 
   @Override
   public void put(String key, Object value) {
   }
 
+  @Nullable
   @Override
   public Object get(String key) {
     return null;
@@ -161,6 +175,7 @@ public class SQLScriptEngine implements ScriptEngine {
     return new SimpleBindings();
   }
 
+  @Nullable
   @Override
   public ScriptContext getContext() {
     return null;

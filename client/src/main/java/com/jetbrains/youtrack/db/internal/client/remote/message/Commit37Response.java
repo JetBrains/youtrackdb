@@ -19,37 +19,23 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
-import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;
+import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
-public final class Commit37Response implements BinaryResponse {
-
-  private Map<UUID, BonsaiCollectionPointer> collectionChanges;
-  private List<ObjectObjectImmutablePair<RecordId, RecordId>> updatedRids;
-
+public final class Commit37Response extends BeginTransactionResponse {
   public Commit37Response(
-      Map<RecordId, RecordId> updatedRids, Map<UUID, BonsaiCollectionPointer> collectionChanges) {
-    super();
-    this.updatedRids = new ArrayList<>(updatedRids.size());
-
-    for (Map.Entry<RecordId, RecordId> entry : updatedRids.entrySet()) {
-      this.updatedRids.add(new ObjectObjectImmutablePair<>(entry.getValue(), entry.getKey()));
-    }
-
-    this.collectionChanges = collectionChanges;
+      long txId, Map<RecordId, RecordId> updatedToOldRecordIdMap, DatabaseSessionInternal session) {
+    super(txId, updatedToOldRecordIdMap, Collections.emptyList(), session);
   }
 
   public Commit37Response() {
@@ -60,36 +46,13 @@ public final class Commit37Response implements BinaryResponse {
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
 
-    channel.writeInt(updatedRids.size());
-    for (var pair : updatedRids) {
-      channel.writeRID(pair.first());
-      channel.writeRID(pair.second());
-    }
-
-    MessageHelper.writeCollectionChanges(channel, collectionChanges);
+    super.write(session, channel, protocolVersion, serializer);
   }
 
   @Override
   public void read(DatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
 
-    int updatedRidsSize = network.readInt();
-    updatedRids = new ArrayList<>(updatedRidsSize);
-    for (int i = 0; i < updatedRidsSize; i++) {
-      var first = network.readRID();
-      var second = network.readRID();
-
-      updatedRids.add(new ObjectObjectImmutablePair<>(first, second));
-    }
-
-    collectionChanges = MessageHelper.readCollectionChanges(network);
-  }
-
-  public List<ObjectObjectImmutablePair<RecordId, RecordId>> getUpdatedRids() {
-    return updatedRids;
-  }
-
-  public Map<UUID, BonsaiCollectionPointer> getCollectionChanges() {
-    return collectionChanges;
+    super.read(db, network, session);
   }
 }

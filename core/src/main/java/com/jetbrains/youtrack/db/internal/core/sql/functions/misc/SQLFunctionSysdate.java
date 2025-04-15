@@ -19,14 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Returns the current date time.
@@ -50,7 +51,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
 
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -63,7 +64,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
       if (iParams.length == 2) {
         format.setTimeZone(TimeZone.getTimeZone(iParams[1].toString()));
       } else {
-        format.setTimeZone(DateHelper.getDatabaseTimeZone());
+        format.setTimeZone(DateHelper.getDatabaseTimeZone(iContext.getDatabaseSession()));
       }
     }
 
@@ -78,6 +79,7 @@ public class SQLFunctionSysdate extends SQLFunctionAbstract {
     return "sysdate([<format>] [,<timezone>])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;

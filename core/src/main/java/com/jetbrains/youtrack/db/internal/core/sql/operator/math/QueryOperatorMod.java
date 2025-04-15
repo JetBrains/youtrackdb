@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator.math;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import java.math.BigDecimal;
 import java.util.Date;
+import javax.annotation.Nullable;
 
 /**
  * MOD "%" operator.
@@ -40,9 +41,10 @@ public class QueryOperatorMod extends QueryOperator {
     super("%", 10, false);
   }
 
+  @Nullable
   @Override
   public Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       Object iLeft,
@@ -96,11 +98,13 @@ public class QueryOperatorMod extends QueryOperator {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

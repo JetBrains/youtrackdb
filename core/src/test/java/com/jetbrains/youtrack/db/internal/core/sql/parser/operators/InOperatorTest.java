@@ -32,7 +32,7 @@ public class InOperatorTest {
 
   @Test
   public void test() {
-    SQLInOperator op = new SQLInOperator(-1);
+    var op = new SQLInOperator(-1);
 
     Assert.assertFalse(op.execute(null, null));
     Assert.assertFalse(op.execute(null, "foo"));

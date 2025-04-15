@@ -2,12 +2,10 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -30,23 +28,24 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    DatabaseSessionInternal db = ctx.getDatabase();
-    Role role = db.getMetadata().getSecurity().getRole(actor.getStringValue());
+    var session = ctx.getDatabaseSession();
+    var role = session.getMetadata().getSecurity().getRole(actor.getStringValue());
     if (role == null) {
-      throw new CommandExecutionException("Invalid role: " + actor.getStringValue());
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Invalid role: " + actor.getStringValue());
     }
 
-    String resourcePath = securityResource.toString();
+    var resourcePath = securityResource.toString();
     if (permission != null) {
-      role.grant(db, resourcePath, toPrivilege(permission.permission));
-      role.save(db);
+      role.grant(session, resourcePath, toPrivilege(permission.permission, session));
+      role.save(session);
     } else {
-      SecurityInternal security = db.getSharedContext().getSecurity();
-      SecurityPolicyImpl policy = security.getSecurityPolicy(db, policyName.getStringValue());
-      security.setSecurityPolicy(db, role, securityResource.toString(), policy);
+      var security = session.getSharedContext().getSecurity();
+      var policy = security.getSecurityPolicy(session, policyName.getStringValue());
+      security.setSecurityPolicy(session, role, securityResource.toString(), policy);
     }
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "grant");
     result.setProperty("role", actor.getStringValue());
     if (permission != null) {
@@ -58,7 +57,7 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
     return ExecutionStream.singleton(result);
   }
 
-  protected int toPrivilege(String privilegeName) {
+  protected int toPrivilege(String privilegeName, DatabaseSessionInternal session) {
     int privilege;
     if ("CREATE".equals(privilegeName)) {
       privilege = Role.PERMISSION_CREATE;
@@ -75,7 +74,8 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
     } else if ("NONE".equals(privilegeName)) {
       privilege = Role.PERMISSION_NONE;
     } else {
-      throw new CommandExecutionException("Unrecognized privilege '" + privilegeName + "'");
+      throw new CommandExecutionException(session,
+          "Unrecognized privilege '" + privilegeName + "'");
     }
     return privilege;
   }
@@ -112,7 +112,7 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLGrantStatement copy() {
-    SQLGrantStatement result = new SQLGrantStatement(-1);
+    var result = new SQLGrantStatement(-1);
     result.permission = permission == null ? null : permission.copy();
     result.securityResource = securityResource == null ? null : securityResource.copy();
     result.policyName = this.policyName == null ? null : policyName.copy();
@@ -128,7 +128,7 @@ public class SQLGrantStatement extends SQLSimpleExecStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLGrantStatement that = (SQLGrantStatement) o;
+    var that = (SQLGrantStatement) o;
     return Objects.equals(permission, that.permission)
         && Objects.equals(policyName, that.policyName)
         && Objects.equals(securityResource, that.securityResource)

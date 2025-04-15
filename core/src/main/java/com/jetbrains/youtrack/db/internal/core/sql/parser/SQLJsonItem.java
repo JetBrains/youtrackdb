@@ -1,12 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -47,6 +48,7 @@ public class SQLJsonItem {
     right.toGenericStatement(builder);
   }
 
+  @Nullable
   public String getLeftValue() {
     if (leftString != null) {
       return leftString;
@@ -70,8 +72,8 @@ public class SQLJsonItem {
 
   public SQLJsonItem splitForAggregation(
       AggregateProjectionSplit aggregateSplit, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SQLJsonItem item = new SQLJsonItem();
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var item = new SQLJsonItem();
       item.leftIdentifier = leftIdentifier;
       item.leftString = leftString;
       item.right = right.splitForAggregation(aggregateSplit, ctx);
@@ -82,7 +84,7 @@ public class SQLJsonItem {
   }
 
   public SQLJsonItem copy() {
-    SQLJsonItem result = new SQLJsonItem();
+    var result = new SQLJsonItem();
     result.leftIdentifier = leftIdentifier == null ? null : leftIdentifier.copy();
     result.leftString = leftString;
     result.right = right.copy();
@@ -106,7 +108,7 @@ public class SQLJsonItem {
       return false;
     }
 
-    SQLJsonItem oJsonItem = (SQLJsonItem) o;
+    var oJsonItem = (SQLJsonItem) o;
 
     if (!Objects.equals(leftIdentifier, oJsonItem.leftIdentifier)) {
       return false;
@@ -119,14 +121,14 @@ public class SQLJsonItem {
 
   @Override
   public int hashCode() {
-    int result = leftIdentifier != null ? leftIdentifier.hashCode() : 0;
+    var result = leftIdentifier != null ? leftIdentifier.hashCode() : 0;
     result = 31 * result + (leftString != null ? leftString.hashCode() : 0);
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("leftIdentifier", leftIdentifier.serialize(db));
     result.setProperty("leftString", leftString);
     result.setProperty("right", right.serialize(db));

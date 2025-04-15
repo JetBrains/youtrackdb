@@ -17,10 +17,8 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -37,54 +35,57 @@ public class BinaryTest extends BaseDBTest {
 
   @Test
   public void testMixedCreateEmbedded() {
-    database.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.field("binary", "Binary data".getBytes());
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("binary", "Binary data".getBytes());
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
-    database.begin();
-    doc = database.bindToSession(doc);
-    Assert.assertEquals(new String((byte[]) doc.field("binary", PropertyType.BINARY)),
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    Assert.assertEquals(new String(doc.getBinary("binary")),
         "Binary data");
-    database.rollback();
+    session.rollback();
   }
 
   @Test
   public void testBasicCreateExternal() {
-    database.begin();
-    Blob record = new RecordBytes(database, "This is a test".getBytes());
-    record.save();
-    database.commit();
+    session.begin();
+    Blob record = session.newBlob("This is a test".getBytes());
+    session.commit();
 
     rid = record.getIdentity();
   }
 
   @Test(dependsOnMethods = "testBasicCreateExternal")
   public void testBasicReadExternal() {
-    RecordAbstract record = database.load(rid);
+    session.executeInTx(tx -> {
+      RecordAbstract record = session.load(rid);
 
-    Assert.assertEquals("This is a test", new String(record.toStream()));
+      Assert.assertEquals("This is a test", new String(record.toStream()));
+    });
   }
 
   @Test(dependsOnMethods = "testBasicReadExternal")
   public void testMixedCreateExternal() {
-    database.begin();
+    session.begin();
 
-    EntityImpl doc = new EntityImpl();
-    doc.field("binary", new RecordBytes(database, "Binary data".getBytes()));
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("binary", session.newBlob("Binary data".getBytes()));
 
-    doc.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     rid = doc.getIdentity();
   }
 
   @Test(dependsOnMethods = "testMixedCreateExternal")
   public void testMixedReadExternal() {
-    EntityImpl doc = rid.getRecord();
-    Assert.assertEquals("Binary data",
-        new String(((RecordAbstract) doc.field("binary")).toStream()));
+    session.executeInTx(tx -> {
+      var transaction = session.getActiveTransaction();
+      EntityImpl doc = transaction.load(rid);
+      Assert.assertEquals("Binary data",
+          new String(((RecordAbstract) doc.getProperty("binary")).toStream()));
+    });
   }
 }

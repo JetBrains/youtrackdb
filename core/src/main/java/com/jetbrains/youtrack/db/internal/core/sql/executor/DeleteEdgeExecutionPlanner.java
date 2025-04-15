@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBatch;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLDeleteEdgeStatement;
@@ -29,7 +27,7 @@ public class DeleteEdgeExecutionPlanner {
   private final SQLDeleteEdgeStatement statement;
 
   protected SQLIdentifier className;
-  protected SQLIdentifier targetClusterName;
+  protected SQLIdentifier targetCollectionName;
 
   protected List<SQLRid> rids;
 
@@ -49,10 +47,10 @@ public class DeleteEdgeExecutionPlanner {
   private void init() {
     this.className =
         this.statement.getClassName() == null ? null : this.statement.getClassName().copy();
-    this.targetClusterName =
-        this.statement.getTargetClusterName() == null
+    this.targetCollectionName =
+        this.statement.getTargetCollectionName() == null
             ? null
-            : this.statement.getTargetClusterName().copy();
+            : this.statement.getTargetCollectionName().copy();
     if (this.statement.getRid() != null) {
       this.rids = new ArrayList<>();
       rids.add(this.statement.getRid().copy());
@@ -79,17 +77,17 @@ public class DeleteEdgeExecutionPlanner {
 
   public InternalExecutionPlan createExecutionPlan(
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
-    DatabaseSessionInternal db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(db)) {
-      ExecutionPlan plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, db);
+      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, db);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
     }
-    long planningStart = System.currentTimeMillis();
+    var planningStart = System.currentTimeMillis();
 
     init();
-    DeleteExecutionPlan result = new DeleteExecutionPlan(ctx);
+    var result = new DeleteExecutionPlan(ctx);
 
     if (leftExpression != null || rightExpression != null) {
       handleGlobalLet(
@@ -114,12 +112,12 @@ public class DeleteEdgeExecutionPlanner {
           fromLabel,
           "$__YOUTRACKDB_DELETE_EDGE_toV",
           className,
-          targetClusterName,
+          targetCollectionName,
           enableProfiling);
       handleWhere(result, ctx, whereClause, enableProfiling);
     } else if (whereClause != null) {
-      SQLFromClause fromClause = new SQLFromClause(-1);
-      SQLFromItem item = new SQLFromItem(-1);
+      var fromClause = new SQLFromClause(-1);
+      var item = new SQLFromItem(-1);
       if (className == null) {
         item.setIdentifier(new SQLIdentifier("E"));
       } else {
@@ -129,7 +127,7 @@ public class DeleteEdgeExecutionPlanner {
       handleTarget(result, ctx, fromClause, this.whereClause, enableProfiling);
     } else {
       handleTargetClass(result, ctx, className, enableProfiling);
-      handleTargetCluster(result, ctx, targetClusterName, enableProfiling);
+      handleTargetCollection(result, ctx, targetCollectionName, enableProfiling);
       handleTargetRids(result, ctx, rids, enableProfiling);
     }
 
@@ -143,7 +141,8 @@ public class DeleteEdgeExecutionPlanner {
         && this.statement.executinPlanCanBeCached(db)
         && result.canBeCached()
         && ExecutionPlanCache.getLastInvalidation(db) < planningStart) {
-      ExecutionPlanCache.put(this.statement.getOriginalStatement(), result, ctx.getDatabase());
+      ExecutionPlanCache.put(this.statement.getOriginalStatement(), result,
+          ctx.getDatabaseSession());
     }
 
     return result;
@@ -165,15 +164,15 @@ public class DeleteEdgeExecutionPlanner {
       String fromAlias,
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       boolean profilingEnabled) {
     if (fromAlias != null && toAlias != null) {
       result.chain(
           new FetchEdgesFromToVerticesStep(
-              fromAlias, toAlias, targetClass, targetCluster, ctx, profilingEnabled));
+              fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled));
     } else if (toAlias != null) {
       result.chain(
-          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCluster, ctx, profilingEnabled));
+          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCollection, ctx, profilingEnabled));
     }
   }
 
@@ -191,18 +190,18 @@ public class DeleteEdgeExecutionPlanner {
     }
   }
 
-  private void handleTargetCluster(
+  private void handleTargetCollection(
       DeleteExecutionPlan result,
       CommandContext ctx,
-      SQLIdentifier targetClusterName,
+      SQLIdentifier targetCollectionName,
       boolean profilingEnabled) {
-    if (targetClusterName != null) {
-      String name = targetClusterName.getStringValue();
-      int clusterId = ctx.getDatabase().getClusterIdByName(name);
-      if (clusterId < 0) {
-        throw new CommandExecutionException("Cluster not found: " + name);
+    if (targetCollectionName != null) {
+      var name = targetCollectionName.getStringValue();
+      var collectionId = ctx.getDatabaseSession().getCollectionIdByName(name);
+      if (collectionId < 0) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(), "Collection not found: " + name);
       }
-      result.chain(new FetchFromClusterExecutionStep(clusterId, ctx, profilingEnabled));
+      result.chain(new FetchFromCollectionExecutionStep(collectionId, ctx, profilingEnabled));
     }
   }
 
@@ -227,7 +226,8 @@ public class DeleteEdgeExecutionPlanner {
     if (indexIdentifier == null) {
       return false;
     }
-    throw new CommandExecutionException("DELETE VERTEX FROM INDEX is not supported");
+    throw new CommandExecutionException(ctx.getDatabaseSession(),
+        "DELETE VERTEX FROM INDEX is not supported");
   }
 
   private void handleDelete(
@@ -258,10 +258,10 @@ public class DeleteEdgeExecutionPlanner {
       SQLFromClause target,
       SQLWhereClause whereClause,
       boolean profilingEnabled) {
-    SQLSelectStatement sourceStatement = new SQLSelectStatement(-1);
+    var sourceStatement = new SQLSelectStatement(-1);
     sourceStatement.setTarget(target);
     sourceStatement.setWhereClause(whereClause);
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(sourceStatement);
+    var planner = new SelectExecutionPlanner(sourceStatement);
     result.chain(
         new SubQueryStep(
             planner.createExecutionPlan(ctx, profilingEnabled, false), ctx, ctx, profilingEnabled));

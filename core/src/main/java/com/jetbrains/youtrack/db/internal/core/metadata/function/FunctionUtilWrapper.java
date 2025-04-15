@@ -29,7 +29,7 @@ public class FunctionUtilWrapper {
 
   public boolean exists(final Object... iValues) {
     if (iValues != null) {
-      for (Object o : iValues) {
+      for (var o : iValues) {
         if (o != null && !o.equals("undefined") && !o.equals("null")) {
           return true;
         }

@@ -23,8 +23,8 @@
 
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Map;
 
@@ -49,12 +49,12 @@ public class SQLGeOperator extends SimpleNode implements SQLBinaryCompareOperato
     if (iLeft.getClass() != iRight.getClass()
         && iLeft instanceof Number
         && iRight instanceof Number) {
-      Number[] couple = PropertyType.castComparableNumber((Number) iLeft, (Number) iRight);
+      var couple = PropertyTypeInternal.castComparableNumber((Number) iLeft, (Number) iRight);
       iLeft = couple[0];
       iRight = couple[1];
     } else {
       try {
-        iRight = PropertyType.convert(null, iRight, iLeft.getClass());
+        iRight = PropertyTypeInternal.convert(null, iRight, iLeft.getClass());
       } catch (RuntimeException e) {
         iRight = null;
         // Can't convert to the target value.

@@ -14,14 +14,14 @@ public class FilterOptimizerTest extends DbTestBase {
   @Test
   public void testOptimizeFullOptimization() {
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    final SQLFilter filter = SQLEngine.parseCondition("a = 3", context,
-        "WHERE");
+    final var filter = SQLEngine.parseCondition("a = 3", context
+    );
 
-    final SQLFilterCondition condition = filter.getRootCondition();
+    final var condition = filter.getRootCondition();
 
-    final IndexSearchResult searchResult =
+    final var searchResult =
         new IndexSearchResult(
             condition.getOperator(),
             ((SQLFilterItemField) condition.getLeft()).getFieldChain(),
@@ -35,25 +35,25 @@ public class FilterOptimizerTest extends DbTestBase {
   @Test
   public void testOptimizeFullOptimizationComplex() {
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    final SQLFilter filter =
-        SQLEngine.parseCondition("a = 3 and b = 4", context, "WHERE");
+    final var filter =
+        SQLEngine.parseCondition("a = 3 and b = 4", context);
 
-    final SQLFilterCondition condition = filter.getRootCondition();
+    final var condition = filter.getRootCondition();
 
     final IndexSearchResult searchResult;
     {
       final IndexSearchResult searchResult1;
       {
-        final SQLFilterCondition cnd = (SQLFilterCondition) condition.getLeft();
+        final var cnd = (SQLFilterCondition) condition.getLeft();
         searchResult1 =
             new IndexSearchResult(
                 cnd.getOperator(), ((SQLFilterItemField) cnd.getLeft()).getFieldChain(), 3);
       }
       final IndexSearchResult searchResult2;
       {
-        final SQLFilterCondition cnd = (SQLFilterCondition) condition.getRight();
+        final var cnd = (SQLFilterCondition) condition.getRight();
         searchResult2 =
             new IndexSearchResult(
                 cnd.getOperator(), ((SQLFilterItemField) cnd.getLeft()).getFieldChain(), 4);
@@ -69,14 +69,14 @@ public class FilterOptimizerTest extends DbTestBase {
   @Test
   public void testOptimizePartialOptimization() {
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    final SQLFilter filter =
-        SQLEngine.parseCondition("a = 3 and b > 5", context, "WHERE");
+    final var filter =
+        SQLEngine.parseCondition("a = 3 and b > 5", context);
 
-    final SQLFilterCondition condition = filter.getRootCondition();
+    final var condition = filter.getRootCondition();
 
-    final IndexSearchResult searchResult =
+    final var searchResult =
         new IndexSearchResult(
             ((SQLFilterCondition) condition.getLeft()).getOperator(),
             ((SQLFilterItemField) ((SQLFilterCondition) condition.getLeft()).getLeft())
@@ -85,21 +85,21 @@ public class FilterOptimizerTest extends DbTestBase {
 
     optimizer.optimize(filter, searchResult);
 
-    Assert.assertEquals(filter.getRootCondition().toString(), "(b > 5)");
+    Assert.assertEquals(filter.getRootCondition().asString(session), "(b > 5)");
   }
 
   @Test
   public void testOptimizePartialOptimizationMethod() {
     var context = new BasicCommandContext();
-    context.setDatabase(db);
+    context.setDatabaseSession(session);
 
-    final SQLFilter filter =
-        SQLEngine.parseCondition("a = 3 and b.asFloat() > 3.14", context,
-            "WHERE");
+    final var filter =
+        SQLEngine.parseCondition("a = 3 and b.asFloat() > 3.14", context
+        );
 
-    final SQLFilterCondition condition = filter.getRootCondition();
+    final var condition = filter.getRootCondition();
 
-    final IndexSearchResult searchResult =
+    final var searchResult =
         new IndexSearchResult(
             ((SQLFilterCondition) condition.getLeft()).getOperator(),
             ((SQLFilterItemField) ((SQLFilterCondition) condition.getLeft()).getLeft())
@@ -108,6 +108,6 @@ public class FilterOptimizerTest extends DbTestBase {
 
     optimizer.optimize(filter, searchResult);
 
-    Assert.assertEquals(filter.getRootCondition().toString(), "(b.asfloat > 3.14)");
+    Assert.assertEquals(filter.getRootCondition().asString(session), "(b.asfloat > 3.14)");
   }
 }

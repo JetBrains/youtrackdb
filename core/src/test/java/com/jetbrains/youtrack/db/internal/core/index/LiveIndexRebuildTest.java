@@ -1,15 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
-import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,24 +30,24 @@ public class LiveIndexRebuildTest {
   @Test
   @Ignore
   public void testLiveIndexRebuild() throws Exception {
-    final DatabaseDocumentTx database = new DatabaseDocumentTx(databaseURL);
-    database.create();
+    final var db = new DatabaseDocumentTx(databaseURL);
+    db.create();
 
-    final SchemaClass clazz = database.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(database, propertyName, PropertyType.INTEGER);
+    final var clazz = db.getMetadata().getSchema().createClass(className);
+    clazz.createProperty(propertyName, PropertyType.INTEGER);
 
-    clazz.createIndex(database, indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
+    clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
 
-    for (int i = 0; i < 1000000; i++) {
-      EntityImpl document = new EntityImpl(className);
-      document.field(propertyName, i);
-      document.save();
+    for (var i = 0; i < 1000000; i++) {
+      var document = (EntityImpl) db.newEntity(className);
+      document.setProperty(propertyName, i);
+
     }
 
-    ExecutorService executorService = Executors.newFixedThreadPool(6);
+    var executorService = Executors.newFixedThreadPool(6);
     List<Future<?>> futures = new ArrayList<Future<?>>();
 
-    for (int i = 0; i < 5; i++) {
+    for (var i = 0; i < 5; i++) {
       futures.add(executorService.submit(new Reader()));
     }
 
@@ -60,11 +58,11 @@ public class LiveIndexRebuildTest {
     stop.set(true);
     executorService.shutdown();
 
-    long minInterval = Long.MAX_VALUE;
-    long maxInterval = Long.MIN_VALUE;
+    var minInterval = Long.MAX_VALUE;
+    var maxInterval = Long.MIN_VALUE;
 
-    for (Future<?> future : futures) {
-      Object result = future.get();
+    for (var future : futures) {
+      var result = future.get();
       if (result instanceof long[] results) {
         if (results[0] < minInterval) {
           minInterval = results[0];
@@ -92,12 +90,12 @@ public class LiveIndexRebuildTest {
         long rebuildInterval = 0;
         long rebuildCount = 0;
         while (!stop.get()) {
-          for (int i = 0; i < 10; i++) {
-            final DatabaseDocumentTx database = pool.acquire();
+          for (var i = 0; i < 10; i++) {
+            final var database = pool.acquire();
             try {
-              long start = System.nanoTime();
-              database.command("rebuild index " + indexName).close();
-              long end = System.nanoTime();
+              var start = System.nanoTime();
+              database.execute("rebuild index " + indexName).close();
+              var end = System.nanoTime();
               rebuildInterval += (end - start);
               rebuildCount++;
             } finally {
@@ -126,17 +124,17 @@ public class LiveIndexRebuildTest {
 
     @Override
     public long[] call() throws Exception {
-      long minInterval = Long.MAX_VALUE;
-      long maxInterval = Long.MIN_VALUE;
+      var minInterval = Long.MAX_VALUE;
+      var maxInterval = Long.MIN_VALUE;
 
       try {
 
         while (!stop.get()) {
-          DatabaseDocumentTx database = pool.acquire();
+          var database = pool.acquire();
           try {
-            long start = System.nanoTime();
+            var start = System.nanoTime();
 
-            final ResultSet result =
+            final var result =
                 database.query(
                     "select from "
                         + className
@@ -146,8 +144,8 @@ public class LiveIndexRebuildTest {
                         + propertyName
                         + "< 200");
 
-            long end = System.nanoTime();
-            long interval = end - start;
+            var end = System.nanoTime();
+            var interval = end - start;
 
             if (interval > maxInterval) {
               maxInterval = interval;

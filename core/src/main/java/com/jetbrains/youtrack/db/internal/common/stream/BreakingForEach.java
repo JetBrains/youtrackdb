@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.common.stream;
 
-import java.util.Spliterator;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 
@@ -16,9 +15,9 @@ public class BreakingForEach {
   }
 
   public static <T> void forEach(Stream<T> stream, BiConsumer<T, Breaker> consumer) {
-    Spliterator<T> spliterator = stream.spliterator();
-    boolean hadNext = true;
-    Breaker breaker = new Breaker();
+    var spliterator = stream.spliterator();
+    var hadNext = true;
+    var breaker = new Breaker();
 
     while (hadNext && !breaker.shouldBreak) {
       hadNext =

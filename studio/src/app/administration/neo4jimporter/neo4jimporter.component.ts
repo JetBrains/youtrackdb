@@ -1,4 +1,4 @@
-import {Component, NgZone, AfterViewChecked} from '@angular/core';
+import {AfterViewChecked, Component, NgZone} from '@angular/core';
 
 import * as $ from "jquery"
 
@@ -38,7 +38,7 @@ class Neo4jImporterComponent implements AfterViewChecked {
 
   init() {
 
-    this.protocols = ["plocal", "memory"];
+    this.protocols = ["disk", "memory"];
     this.logLevels = ["NO","INFO","WARNING","ERROR"];
 
     this.dbConnection = {
@@ -50,7 +50,7 @@ class Neo4jImporterComponent implements AfterViewChecked {
       "neo4jUrl": "",
       "neo4jUsername": "",
       "neo4jPassword": "",
-      "odbProtocol": "plocal",
+      "odbProtocol": "disk",
       "odbName": "",
       "outDbUrl": "",
       "overwriteDB": false,
@@ -67,7 +67,7 @@ class Neo4jImporterComponent implements AfterViewChecked {
       neo4jUsername: "The username to access neo4j server.",
       neo4jPassword: "The password to access neo4j server.",
       protocol: "The protocol to use during the migration in order to connect to OrientDB:<br>" +
-      "<li><b>plocal</b>: persistent disk-based, where the access is made in the same JVM process.</li>" +
+        "<li><b>disk</b>: persistent disk-based, where the access is made in the same JVM process.</li>" +
       "<li><b>memory</b>: all data remains in memory.</li>",
       outDbName: "The target database name where the Neo4j database will be migrated. The database will be created by the import tool if not present. " +
       "In case the database already exists, the Neo4j to OrientDB Importer will behave accordingly to the checkbox below.",

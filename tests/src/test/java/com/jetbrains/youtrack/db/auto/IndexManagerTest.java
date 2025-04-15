@@ -14,8 +14,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -32,86 +33,86 @@ public class IndexManagerTest extends BaseDBTest {
   private static final String CLASS_NAME = "classForIndexManagerTest";
 
   @Parameters(value = "remote")
-  public IndexManagerTest(boolean remote) {
-    super(remote);
+  public IndexManagerTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = database.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSchema();
 
-    final SchemaClass oClass = schema.createClass(CLASS_NAME);
+    final var oClass = schema.createClass(CLASS_NAME);
 
-    oClass.createProperty(database, "fOne", PropertyType.INTEGER);
-    oClass.createProperty(database, "fTwo", PropertyType.STRING);
-    oClass.createProperty(database, "fThree", PropertyType.BOOLEAN);
-    oClass.createProperty(database, "fFour", PropertyType.INTEGER);
+    oClass.createProperty("fOne", PropertyType.INTEGER);
+    oClass.createProperty("fTwo", PropertyType.STRING);
+    oClass.createProperty("fThree", PropertyType.BOOLEAN);
+    oClass.createProperty("fFour", PropertyType.INTEGER);
 
-    oClass.createProperty(database, "fSix", PropertyType.STRING);
-    oClass.createProperty(database, "fSeven", PropertyType.STRING);
+    oClass.createProperty("fSix", PropertyType.STRING);
+    oClass.createProperty("fSeven", PropertyType.STRING);
   }
 
   @Test
   public void testCreateOnePropertyIndexTest() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result =
+    final var result =
         indexManager.createIndex(
-            database,
+            session,
             "propertyone",
             SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-            new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-            new int[]{database.getClusterIdByName(CLASS_NAME)},
+            new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
             null,
             null);
 
     assertEquals(result.getName(), "propertyone");
 
-    indexManager.reload(database);
+    indexManager.reload(session);
     assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getClassIndex(database, CLASS_NAME, "propertyone")
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getClassIndex(session, CLASS_NAME, "propertyone")
             .getName(),
         result.getName());
   }
 
   @Test
   public void createCompositeIndexTestWithoutListener() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result =
+    final var result =
         indexManager.createIndex(
-            database,
+            session,
             "compositeone",
             SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING))),
-            new int[]{database.getClusterIdByName(CLASS_NAME)},
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
+            new int[]{session.getCollectionIdByName(CLASS_NAME)},
             null,
             null);
 
     assertEquals(result.getName(), "compositeone");
 
     assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getClassIndex(database, CLASS_NAME, "compositeone")
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getClassIndex(session, CLASS_NAME, "compositeone")
             .getName(),
         result.getName());
   }
 
   @Test
   public void createCompositeIndexTestWithListener() {
-    final AtomicInteger atomicInteger = new AtomicInteger(0);
-    final ProgressListener progressListener =
+    final var atomicInteger = new AtomicInteger(0);
+    final var progressListener =
         new ProgressListener() {
           @Override
           public void onBegin(final Object iTask, final long iTotal, Object metadata) {
@@ -130,20 +131,25 @@ public class IndexManagerTest extends BaseDBTest {
           }
         };
 
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result =
+    session.executeInTx(transaction -> {
+      transaction.newEntity(CLASS_NAME);
+    });
+
+    final var result =
         indexManager.createIndex(
-            database,
+            session,
             "compositetwo",
             SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING),
-                    new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN))),
-            new int[]{database.getClusterIdByName(CLASS_NAME)},
+                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
+                    new PropertyIndexDefinition(CLASS_NAME, "fThree",
+                        PropertyTypeInternal.BOOLEAN))),
+            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
             progressListener,
             null);
 
@@ -151,10 +157,10 @@ public class IndexManagerTest extends BaseDBTest {
     assertEquals(atomicInteger.get(), 2);
 
     assertEquals(
-        database
-            .getMetadata()
-            .getIndexManagerInternal()
-            .getClassIndex(database, CLASS_NAME, "compositetwo")
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getClassIndex(session, CLASS_NAME, "compositetwo")
             .getName(),
         result.getName());
   }
@@ -166,9 +172,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedOneProperty() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, List.of("fOne"));
+    final var result = indexManager.areIndexed(session, CLASS_NAME, List.of("fOne"));
 
     assertTrue(result);
   }
@@ -180,9 +186,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedDoesNotContainProperty() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, List.of("fSix"));
+    final var result = indexManager.areIndexed(session, CLASS_NAME, List.of("fSix"));
 
     assertFalse(result);
   }
@@ -194,9 +200,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedTwoProperties() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, Arrays.asList("fTwo", "fOne"));
+    final var result = indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
 
     assertTrue(result);
   }
@@ -208,10 +214,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreeProperties() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result =
-        indexManager.areIndexed(CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+    final var result =
+        indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertTrue(result);
   }
@@ -223,10 +229,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreePropertiesBrokenFiledNameCase() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result =
-        indexManager.areIndexed(CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+    final var result =
+        indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertTrue(result);
   }
@@ -238,11 +244,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreePropertiesBrokenClassNameCase() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result =
+    final var result =
         indexManager.areIndexed(
-            "ClaSSForIndeXManagerTeST", Arrays.asList("fTwo", "fOne", "fThree"));
+            session, "ClaSSForIndeXManagerTeST", Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertTrue(result);
   }
@@ -254,9 +260,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesNotFirst() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, Arrays.asList("fTwo", "fTree"));
+    final var result = indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fTree"));
 
     assertFalse(result);
   }
@@ -268,10 +274,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesMoreThanNeeded() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result =
-        indexManager.areIndexed(CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+    final var result =
+        indexManager.areIndexed(session, CLASS_NAME,
+            Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertFalse(result);
   }
@@ -283,9 +290,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedOnePropertyArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fOne");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fOne");
 
     assertTrue(result);
   }
@@ -297,9 +304,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedDoesNotContainPropertyArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fSix");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fSix");
 
     assertFalse(result);
   }
@@ -311,9 +318,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedTwoPropertiesArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fTwo", "fOne");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne");
 
     assertTrue(result);
   }
@@ -325,9 +332,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreePropertiesArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fTwo", "fOne", "fThree");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne", "fThree");
 
     assertTrue(result);
   }
@@ -339,9 +346,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesNotFirstArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fTwo", "fTree");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fTree");
 
     assertFalse(result);
   }
@@ -353,9 +360,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesMoreThanNeededArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final boolean result = indexManager.areIndexed(CLASS_NAME, "fTwo", "fOne", "fThee", "fFour");
+    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne", "fThee",
+        "fFour");
 
     assertFalse(result);
   }
@@ -367,9 +375,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOnePropertyArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result = indexManager.getClassInvolvedIndexes(database, CLASS_NAME, "fOne");
+    final var result = indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fOne");
 
     assertEquals(result.size(), 3);
 
@@ -385,10 +393,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesTwoPropertiesArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, "fTwo", "fOne");
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne");
     assertEquals(result.size(), 2);
 
     assertTrue(containsIndex(result, "compositeone"));
@@ -402,10 +410,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreePropertiesArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, "fTwo", "fOne", "fThree");
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne", "fThree");
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -418,10 +426,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, "fTwo", "fFour");
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fFour");
 
     assertEquals(result.size(), 0);
   }
@@ -433,11 +441,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
+    final var result =
         indexManager.getClassInvolvedIndexes(
-            database, CLASS_NAME, "fTwo", "fOne", "fThee", "fFour");
+            session, CLASS_NAME, "fTwo", "fOne", "fThee", "fFour");
 
     assertEquals(result.size(), 0);
   }
@@ -449,11 +457,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetInvolvedIndexesPropertiesMorThanNeeded() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
+    final var result =
         indexManager.getClassInvolvedIndexes(
-            database, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -465,10 +473,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotExistingClass() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, "testlass", List.of("fOne"));
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, "testlass", List.of("fOne"));
 
     assertTrue(result.isEmpty());
   }
@@ -480,10 +488,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOneProperty() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, List.of("fOne"));
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, List.of("fOne"));
 
     assertEquals(result.size(), 3);
 
@@ -499,10 +507,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOnePropertyBrokenClassNameCase() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, "ClaSSforindeXmanagerTEST", List.of("fOne"));
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, "ClaSSforindeXmanagerTEST", List.of("fOne"));
 
     assertEquals(result.size(), 3);
 
@@ -518,10 +526,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesTwoProperties() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
     assertEquals(result.size(), 2);
 
     assertTrue(containsIndex(result, "compositeone"));
@@ -535,11 +543,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreeProperties() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
+    final var result =
         indexManager.getClassInvolvedIndexes(
-            database, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -552,11 +560,11 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreePropertiesBrokenFiledNameTest() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
+    final var result =
         indexManager.getClassInvolvedIndexes(
-            database, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -569,10 +577,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotInvolvedProperties() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
-        indexManager.getClassInvolvedIndexes(database, CLASS_NAME, Arrays.asList("fTwo", "fFour"));
+    final var result =
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fFour"));
 
     assertEquals(result.size(), 0);
   }
@@ -584,79 +592,79 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesPropertiesMorThanNeeded() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> result =
+    final var result =
         indexManager.getClassInvolvedIndexes(
-            database, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
+            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
 
     assertEquals(result.size(), 0);
   }
 
   @Test
   public void testGetClassInvolvedIndexesWithNullValues() {
-    String className = "GetClassInvolvedIndexesWithNullValues";
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass oClass = schema.createClass(className);
+    var className = "GetClassInvolvedIndexesWithNullValues";
+    final var indexManager = session.getSharedContext().getIndexManager();
+    final Schema schema = session.getMetadata().getSchema();
+    final var oClass = schema.createClass(className);
 
-    oClass.createProperty(database, "one", PropertyType.STRING);
-    oClass.createProperty(database, "two", PropertyType.STRING);
-    oClass.createProperty(database, "three", PropertyType.STRING);
+    oClass.createProperty("one", PropertyType.STRING);
+    oClass.createProperty("two", PropertyType.STRING);
+    oClass.createProperty("three", PropertyType.STRING);
 
     indexManager.createIndex(
-        database,
+        session,
         className + "_indexOne_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
-        new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-        oClass.getClusterIds(),
+        new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
+        oClass.getCollectionIds(),
         null,
         null);
 
     indexManager.createIndex(
-        database,
+        session,
         className + "_indexOneTwo_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyType.STRING))),
-        oClass.getClusterIds(),
+                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING))),
+        oClass.getCollectionIds(),
         null,
         null);
 
     indexManager.createIndex(
-        database,
+        session,
         className + "_indexOneTwoThree_notunique",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyType.STRING),
-                new PropertyIndexDefinition(className, "three", PropertyType.STRING))),
-        oClass.getClusterIds(),
+                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING),
+                new PropertyIndexDefinition(className, "three", PropertyTypeInternal.STRING))),
+        oClass.getCollectionIds(),
         null,
         null);
 
-    Set<Index> result = indexManager.getClassInvolvedIndexes(database, className, List.of("one"));
+    var result = indexManager.getClassInvolvedIndexes(session, className, List.of("one"));
     assertEquals(result.size(), 3);
 
-    result = indexManager.getClassInvolvedIndexes(database, className, Arrays.asList("one", "two"));
+    result = indexManager.getClassInvolvedIndexes(session, className, Arrays.asList("one", "two"));
     assertEquals(result.size(), 2);
 
     result =
         indexManager.getClassInvolvedIndexes(
-            database, className, Arrays.asList("one", "two", "three"));
+            session, className, Arrays.asList("one", "two", "three"));
     assertEquals(result.size(), 1);
 
-    result = indexManager.getClassInvolvedIndexes(database, className, List.of("two"));
+    result = indexManager.getClassInvolvedIndexes(session, className, List.of("two"));
     assertEquals(result.size(), 0);
 
     result =
         indexManager.getClassInvolvedIndexes(
-            database, className, Arrays.asList("two", "one", "three"));
+            session, className, Arrays.asList("two", "one", "three"));
     assertEquals(result.size(), 1);
   }
 
@@ -667,39 +675,39 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexes() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> indexes = indexManager.getClassIndexes(database, CLASS_NAME);
+    final var indexes = indexManager.getClassIndexes(session, CLASS_NAME);
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<IndexDefinition>();
 
-    final CompositeIndexDefinition compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
+    final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexOne.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexOne);
 
-    final CompositeIndexDefinition compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
+    final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN));
+        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
     compositeIndexTwo.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexTwo);
 
-    final PropertyIndexDefinition propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER);
+    final var propertyIndex =
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
     assertEquals(indexes.size(), 3);
 
-    for (final Index index : indexes) {
+    for (final var index : indexes) {
       assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
     }
   }
@@ -711,94 +719,95 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexesBrokenClassNameCase() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Set<Index> indexes = indexManager.getClassIndexes(database, "ClassforindeXMaNAgerTeST");
+    final var indexes = indexManager.getClassIndexes(session, "ClassforindeXMaNAgerTeST");
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<IndexDefinition>();
 
-    final CompositeIndexDefinition compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
+    final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexOne.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexOne);
 
-    final CompositeIndexDefinition compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
+    final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
 
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER));
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyType.STRING));
+        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
     compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyType.BOOLEAN));
+        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
     compositeIndexTwo.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(compositeIndexTwo);
 
-    final PropertyIndexDefinition propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER);
+    final var propertyIndex =
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
     propertyIndex.setNullValuesIgnored(false);
     expectedIndexDefinitions.add(propertyIndex);
 
     assertEquals(indexes.size(), 3);
 
-    for (final Index index : indexes) {
+    for (final var index : indexes) {
       assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
     }
   }
 
   @Test
   public void testDropIndex() throws Exception {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
     indexManager.createIndex(
-        database,
+        session,
         "anotherproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyType.INTEGER),
-        new int[]{database.getClusterIdByName(CLASS_NAME)},
+        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
+        new int[]{session.getCollectionIdByName(CLASS_NAME)},
         null,
         null);
 
-    assertNotNull(indexManager.getIndex(database, "anotherproperty"));
-    assertNotNull(indexManager.getClassIndex(database, CLASS_NAME, "anotherproperty"));
+    assertNotNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNotNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
 
-    indexManager.dropIndex(database, "anotherproperty");
+    indexManager.dropIndex(session, "anotherproperty");
 
-    assertNull(indexManager.getIndex(database, "anotherproperty"));
-    assertNull(indexManager.getClassIndex(database, CLASS_NAME, "anotherproperty"));
+    assertNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
   }
 
   @Test
   public void testDropAllClassIndexes() {
-    final SchemaClass oClass =
-        database.getMetadata().getSchema().createClass("indexManagerTestClassTwo");
-    oClass.createProperty(database, "fOne", PropertyType.INTEGER);
+    final var oClass =
+        session.getMetadata().getSchema().createClass("indexManagerTestClassTwo");
+    oClass.createProperty("fOne", PropertyType.INTEGER);
 
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
     indexManager.createIndex(
-        database,
+        session,
         "twoclassproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
-        new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne", PropertyType.INTEGER),
-        new int[]{database.getClusterIdByName("indexManagerTestClassTwo")},
+        new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
+            PropertyTypeInternal.INTEGER),
+        new int[]{session.getCollectionIdByName("indexManagerTestClassTwo")},
         null,
         null);
 
-    assertFalse(indexManager.getClassIndexes(database, "indexManagerTestClassTwo").isEmpty());
+    assertFalse(indexManager.getClassIndexes(session, "indexManagerTestClassTwo").isEmpty());
 
-    indexManager.dropIndex(database, "twoclassproperty");
+    indexManager.dropIndex(session, "twoclassproperty");
 
-    assertTrue(indexManager.getClassIndexes(database, "indexManagerTestClassTwo").isEmpty());
+    assertTrue(indexManager.getClassIndexes(session, "indexManagerTestClassTwo").isEmpty());
   }
 
   @Test(dependsOnMethods = "testDropAllClassIndexes")
   public void testDropNonExistingClassIndex() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    indexManager.dropIndex(database, "twoclassproperty");
+    indexManager.dropIndex(session, "twoclassproperty");
   }
 
   @Test(
@@ -808,9 +817,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndex() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result = indexManager.getClassIndex(database, CLASS_NAME, "propertyone");
+    final var result = indexManager.getClassIndex(session, CLASS_NAME, "propertyone");
     assertNotNull(result);
     assertEquals(result.getName(), "propertyone");
   }
@@ -822,10 +831,10 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexBrokenClassNameCase() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result =
-        indexManager.getClassIndex(database, "ClaSSforindeXManagerTeST", "propertyone");
+    final var result =
+        indexManager.getClassIndex(session, "ClaSSforindeXManagerTeST", "propertyone");
     assertNotNull(result);
     assertEquals(result.getName(), "propertyone");
   }
@@ -837,9 +846,9 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexWrongIndexName() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result = indexManager.getClassIndex(database, CLASS_NAME, "propertyonetwo");
+    final var result = indexManager.getClassIndex(session, CLASS_NAME, "propertyonetwo");
     assertNull(result);
   }
 
@@ -850,15 +859,15 @@ public class IndexManagerTest extends BaseDBTest {
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexWrongClassName() {
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
+    final var indexManager = session.getSharedContext().getIndexManager();
 
-    final Index result = indexManager.getClassIndex(database, "testClassTT", "propertyone");
+    final var result = indexManager.getClassIndex(session, "testClassTT", "propertyone");
     assertNull(result);
   }
 
   private boolean containsIndex(
       final Collection<? extends Index> classIndexes, final String indexName) {
-    for (final Index index : classIndexes) {
+    for (final var index : classIndexes) {
       if (index.getName().equals(indexName)) {
         return true;
       }

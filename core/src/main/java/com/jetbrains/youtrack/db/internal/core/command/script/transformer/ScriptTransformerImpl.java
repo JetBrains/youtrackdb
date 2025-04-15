@@ -1,16 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.command.script.transformer;
 
-import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultSets;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultSet;
+import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultSets;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.MapTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.resultset.ResultSetTransformer;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -18,6 +19,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.graalvm.polyglot.Value;
 
 /**
@@ -32,18 +34,18 @@ public class ScriptTransformerImpl implements ScriptTransformer {
 
     if (!GlobalConfiguration.SCRIPT_POLYGLOT_USE_GRAAL.getValueAsBoolean()) {
       try {
-        final Class<?> c = Class.forName("jdk.nashorn.api.scripting.JSObject");
+        final var c = Class.forName("jdk.nashorn.api.scripting.JSObject");
         registerResultTransformer(
             c,
             new ResultTransformer() {
               @Override
               public Result transform(DatabaseSessionInternal db, Object value) {
-                ResultInternal internal = new ResultInternal(db);
+                var internal = new ResultInternal(db);
 
                 final List res = new ArrayList();
                 internal.setProperty("value", res);
 
-                for (Object v : ((Map) value).values()) {
+                for (var v : ((Map) value).values()) {
                   res.add(new ResultInternal(db, (Identifiable) v));
                 }
 
@@ -64,8 +66,16 @@ public class ScriptTransformerImpl implements ScriptTransformer {
         return null;
       } else if (v.hasArrayElements()) {
         final List<Object> array = new ArrayList<>((int) v.getArraySize());
-        for (int i = 0; i < v.getArraySize(); ++i) {
-          array.add(new ResultInternal(db, v.getArrayElement(i).asHostObject()));
+        for (var i = 0; i < v.getArraySize(); ++i) {
+          var hostObject = v.getArrayElement(i).asHostObject();
+          if (hostObject instanceof Identifiable identifiable) {
+            array.add(new ResultInternal(db, identifiable));
+          } else if (hostObject instanceof EdgeInternal edge) {
+            array.add((new ResultInternal(db, edge)));
+          } else {
+            array.add(toResult(db, hostObject));
+          }
+
         }
         value = array;
       } else if (v.isHostObject()) {
@@ -87,7 +97,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     } else if (value instanceof Iterator) {
       return new ScriptResultSet(db, (Iterator) value, this);
     }
-    ResultSetTransformer resultSetTransformer = resultSetTransformers.get(value.getClass());
+    var resultSetTransformer = resultSetTransformers.get(value.getClass());
 
     if (resultSetTransformer != null) {
       return resultSetTransformer.transform(value);
@@ -101,18 +111,19 @@ public class ScriptTransformerImpl implements ScriptTransformer {
 
   @Override
   public Result toResult(DatabaseSessionInternal db, Object value) {
-
-    ResultTransformer transformer = getTransformer(value.getClass());
+    var transformer = getTransformer(value.getClass());
 
     if (transformer == null) {
       return defaultTransformer(db, value);
     }
+
     return transformer.transform(db, value);
   }
 
+  @Nullable
   public ResultTransformer getTransformer(final Class clazz) {
     if (clazz != null) {
-      for (Map.Entry<Class, ResultTransformer> entry : transformers.entrySet()) {
+      for (var entry : transformers.entrySet()) {
         if (entry.getKey().isAssignableFrom(clazz)) {
           return entry.getValue();
         }
@@ -126,8 +137,8 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return getTransformer(value.getClass()) != null;
   }
 
-  private Result defaultTransformer(DatabaseSessionInternal db, Object value) {
-    ResultInternal internal = new ResultInternal(db);
+  private static Result defaultTransformer(DatabaseSessionInternal db, Object value) {
+    var internal = new ResultInternal(db);
     internal.setProperty("value", value);
     return internal;
   }

@@ -48,6 +48,7 @@ import java.util.ServiceLoader;
 import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.annotation.Nullable;
 
 public class ConsoleApplication {
 
@@ -75,10 +76,10 @@ public class ConsoleApplication {
   }
 
   public static String getCorrectMethodName(Method m) {
-    StringBuilder buffer = new StringBuilder(128);
+    var buffer = new StringBuilder(128);
     buffer.append(getClearName(m.getName()));
-    for (int i = 0; i < m.getParameterAnnotations().length; i++) {
-      for (int j = 0; j < m.getParameterAnnotations()[i].length; j++) {
+    for (var i = 0; i < m.getParameterAnnotations().length; i++) {
+      for (var j = 0; j < m.getParameterAnnotations()[i].length; j++) {
         if (m.getParameterAnnotations()[i][j]
             instanceof ConsoleParameter) {
           buffer.append(
@@ -94,12 +95,12 @@ public class ConsoleApplication {
   }
 
   public static String getClearName(String iJavaName) {
-    StringBuilder buffer = new StringBuilder();
+    var buffer = new StringBuilder();
 
     char c;
     if (iJavaName != null) {
       buffer.append(iJavaName.charAt(0));
-      for (int i = 1; i < iJavaName.length(); ++i) {
+      for (var i = 1; i < iJavaName.length(); ++i) {
         c = iJavaName.charAt(i);
 
         if (Character.isUpperCase(c)) {
@@ -121,7 +122,7 @@ public class ConsoleApplication {
     interactiveMode = isInteractiveMode(args);
     onBefore();
 
-    int result = 0;
+    var result = 0;
 
     if (interactiveMode) {
       // EXECUTE IN INTERACTIVE MODE
@@ -162,27 +163,27 @@ public class ConsoleApplication {
   }
 
   protected void message(final String iMessage) {
-    final int verboseLevel = getVerboseLevel();
+    final var verboseLevel = getVerboseLevel();
     if (verboseLevel > 1) {
       out.print(iMessage);
     }
   }
 
   public void error(final String iMessage) {
-    final int verboseLevel = getVerboseLevel();
+    final var verboseLevel = getVerboseLevel();
     if (verboseLevel > 0) {
       out.print(iMessage);
     }
   }
 
   public int getVerboseLevel() {
-    final String v = properties.get(ConsoleProperties.VERBOSE);
-    final int verboseLevel = v != null ? Integer.parseInt(v) : 2;
+    final var v = properties.get(ConsoleProperties.VERBOSE);
+    final var verboseLevel = v != null ? Integer.parseInt(v) : 2;
     return verboseLevel;
   }
 
   protected int getConsoleWidth() {
-    final String width = properties.get(ConsoleProperties.WIDTH);
+    final var width = properties.get(ConsoleProperties.WIDTH);
     return width == null ? reader.getConsoleWidth() : Integer.parseInt(width);
   }
 
@@ -191,7 +192,7 @@ public class ConsoleApplication {
   }
 
   protected boolean isPropertyEnabled(final String iPropertyName) {
-    String v = properties.get(iPropertyName);
+    var v = properties.get(iPropertyName);
     if (v != null) {
       v = v.toLowerCase(Locale.ENGLISH);
       return v.equals("true") || v.equals("on");
@@ -208,7 +209,7 @@ public class ConsoleApplication {
   }
 
   protected static boolean isInteractiveMode(String[] args) {
-    for (String arg : args) {
+    for (var arg : args) {
       if (!isInteractiveConfigParam(arg)) {
         return false;
       }
@@ -221,7 +222,7 @@ public class ConsoleApplication {
   }
 
   protected boolean executeBatch(final String commandLine) {
-    File commandFile = new File(commandLine);
+    var commandFile = new File(commandLine);
     if (!commandFile.isAbsolute()) {
       commandFile = new File(new File("."), commandLine);
     }
@@ -239,7 +240,7 @@ public class ConsoleApplication {
   protected boolean executeCommands(final CommandStream commandStream, final boolean iBatchMode) {
     try {
       while (commandStream.hasNext()) {
-        String commandLine = commandStream.nextCommand();
+        var commandLine = commandStream.nextCommand();
 
         if (commandLine.isEmpty())
         // EMPTY LINE
@@ -282,7 +283,7 @@ public class ConsoleApplication {
           if (commandLine.endsWith(";")) {
             commandLine = commandLine.substring(0, commandLine.length() - 1);
           }
-          final RESULT status = execute(commandLine);
+          final var status = execute(commandLine);
           commandLine = null;
 
           if (status == RESULT.EXIT
@@ -302,7 +303,7 @@ public class ConsoleApplication {
           out.println();
         }
 
-        final RESULT status = execute(commandBuffer.toString());
+        final var status = execute(commandBuffer.toString());
         if (status == RESULT.EXIT
             || (status == RESULT.ERROR
             && !Boolean.parseBoolean(properties.get(ConsoleProperties.IGNORE_ERRORS)))
@@ -317,7 +318,7 @@ public class ConsoleApplication {
   }
 
   protected boolean isComment(final String commandLine) {
-    for (String comment : COMMENT_PREFIXS) {
+    for (var comment : COMMENT_PREFIXS) {
       if (commandLine.startsWith(comment)) {
         return true;
       }
@@ -330,10 +331,10 @@ public class ConsoleApplication {
   }
 
   protected RESULT execute(String iCommand) {
-    int compLevel = getCompatibilityLevel();
+    var compLevel = getCompatibilityLevel();
     if (compLevel >= ConsoleProperties.COMPATIBILITY_LEVEL_1) {
 
-      RESULT result = executeServerCommand(iCommand);
+      var result = executeServerCommand(iCommand);
       if (result != RESULT.NOT_EXECUTED) {
         return result;
       }
@@ -361,8 +362,8 @@ public class ConsoleApplication {
         || iCommand.toLowerCase().startsWith("connect")) {
       commandWords = iCommand.split(" ");
       commandWords = Arrays.stream(commandWords).filter(s -> s.length() > 0).toArray(String[]::new);
-      for (int i = 2; i < commandWords.length; i++) {
-        boolean wrappedInQuotes = false;
+      for (var i = 2; i < commandWords.length; i++) {
+        var wrappedInQuotes = false;
         if (commandWords[i].startsWith("'") && commandWords[i].endsWith("'")) {
           wrappedInQuotes = true;
         } else if (commandWords[i].startsWith("\"") && commandWords[i].endsWith("\"")) {
@@ -377,7 +378,7 @@ public class ConsoleApplication {
       commandWords = StringParser.getWords(iCommand, wordSeparator);
     }
 
-    for (String cmd : helpCommands) {
+    for (var cmd : helpCommands) {
       if (cmd.equals(commandWords[0])) {
         if (iCommand.length() > cmd.length()) {
           help(iCommand.substring(cmd.length() + 1));
@@ -389,33 +390,33 @@ public class ConsoleApplication {
       }
     }
 
-    for (String cmd : exitCommands) {
+    for (var cmd : exitCommands) {
       if (cmd.equalsIgnoreCase(commandWords[0])) {
         return RESULT.EXIT;
       }
     }
 
     Method lastMethodInvoked = null;
-    final StringBuilder lastCommandInvoked = new StringBuilder(1024);
+    final var lastCommandInvoked = new StringBuilder(1024);
 
-    StringBuilder commandLowerCaseBuilder = new StringBuilder();
-    for (int i = 0; i < commandWords.length; i++) {
+    var commandLowerCaseBuilder = new StringBuilder();
+    for (var i = 0; i < commandWords.length; i++) {
       if (i > 0) {
         commandLowerCaseBuilder.append(" ");
       }
       commandLowerCaseBuilder.append(commandWords[i].toLowerCase(Locale.ENGLISH));
     }
-    String commandLowerCase = commandLowerCaseBuilder.toString();
+    var commandLowerCase = commandLowerCaseBuilder.toString();
 
-    for (Entry<Method, Object> entry : getConsoleMethods().entrySet()) {
-      final Method m = entry.getKey();
-      final String methodName = m.getName();
-      final ConsoleCommand ann = m.getAnnotation(ConsoleCommand.class);
+    for (var entry : getConsoleMethods().entrySet()) {
+      final var m = entry.getKey();
+      final var methodName = m.getName();
+      final var ann = m.getAnnotation(ConsoleCommand.class);
 
-      final StringBuilder commandName = new StringBuilder();
+      final var commandName = new StringBuilder();
       char ch;
-      int commandWordCount = 1;
-      for (int i = 0; i < methodName.length(); ++i) {
+      var commandWordCount = 1;
+      for (var i = 0; i < methodName.length(); ++i) {
         ch = methodName.charAt(i);
         if (Character.isUpperCase(ch)) {
           commandName.append(" ");
@@ -431,13 +432,13 @@ public class ConsoleApplication {
           continue;
         }
 
-        String[] aliases = ann.aliases();
+        var aliases = ann.aliases();
         if (aliases == null || aliases.length == 0) {
           continue;
         }
 
-        boolean aliasMatch = false;
-        for (String alias : aliases) {
+        var aliasMatch = false;
+        for (var alias : aliases) {
           if (iCommand.startsWith(alias.split(" ")[0])) {
             aliasMatch = true;
             commandWordCount = 1;
@@ -456,15 +457,15 @@ public class ConsoleApplication {
       if (ann != null && !ann.splitInWords()) {
         methodArgs = new String[]{iCommand.substring(iCommand.indexOf(' ') + 1)};
       } else {
-        final int actualParamCount = commandWords.length - commandWordCount;
+        final var actualParamCount = commandWords.length - commandWordCount;
         if (m.getParameterTypes().length > actualParamCount) {
           // METHOD PARAMS AND USED PARAMS MISMATCH: CHECK FOR OPTIONALS
-          for (int paramNum = m.getParameterAnnotations().length - 1;
+          for (var paramNum = m.getParameterAnnotations().length - 1;
               paramNum > actualParamCount - 1;
               paramNum--) {
-            final Annotation[] paramAnn = m.getParameterAnnotations()[paramNum];
+            final var paramAnn = m.getParameterAnnotations()[paramNum];
             if (paramAnn != null) {
-              for (int annNum = paramAnn.length - 1; annNum > -1; annNum--) {
+              for (var annNum = paramAnn.length - 1; annNum > -1; annNum--) {
                 if (paramAnn[annNum] instanceof ConsoleParameter annotation) {
                   if (annotation.optional()) {
                     commandWords = ArrayUtils.copyOf(commandWords, commandWords.length + 1);
@@ -485,7 +486,7 @@ public class ConsoleApplication {
         lastMethodInvoked = m;
         // GET THE COMMAND NAME
         lastCommandInvoked.setLength(0);
-        for (int i = 0; i < commandWordCount; ++i) {
+        for (var i = 0; i < commandWordCount; ++i) {
           if (lastCommandInvoked.length() > 0) {
             lastCommandInvoked.append(" ");
           }
@@ -517,13 +518,14 @@ public class ConsoleApplication {
 
   private int getCompatibilityLevel() {
     try {
-      String compLevelString = properties.get(ConsoleProperties.COMPATIBILITY_LEVEL);
+      var compLevelString = properties.get(ConsoleProperties.COMPATIBILITY_LEVEL);
       return Integer.parseInt(compLevelString);
     } catch (Exception e) {
       return ConsoleProperties.COMPATIBILITY_LEVEL_LATEST;
     }
   }
 
+  @Nullable
   protected Method getMethod(String iCommand) {
     iCommand = iCommand.trim();
 
@@ -539,14 +541,14 @@ public class ConsoleApplication {
       return null;
     }
 
-    final String commandLowerCase = iCommand.toLowerCase(Locale.ENGLISH);
+    final var commandLowerCase = iCommand.toLowerCase(Locale.ENGLISH);
 
-    final Map<Method, Object> methodMap = getConsoleMethods();
+    final var methodMap = getConsoleMethods();
 
-    final StringBuilder commandSignature = new StringBuilder();
-    boolean separator = false;
-    for (int i = 0; i < iCommand.length(); ++i) {
-      final char ch = iCommand.charAt(i);
+    final var commandSignature = new StringBuilder();
+    var separator = false;
+    for (var i = 0; i < iCommand.length(); ++i) {
+      final var ch = iCommand.charAt(i);
       if (ch == ' ') {
         separator = true;
       } else {
@@ -559,10 +561,10 @@ public class ConsoleApplication {
       }
     }
 
-    final String commandSignatureToCheck = commandSignature.toString();
+    final var commandSignatureToCheck = commandSignature.toString();
 
-    for (Entry<Method, Object> entry : methodMap.entrySet()) {
-      final Method m = entry.getKey();
+    for (var entry : methodMap.entrySet()) {
+      final var m = entry.getKey();
       if (m.getName().equals(commandSignatureToCheck))
       // FOUND EXACT MATCH
       {
@@ -570,14 +572,14 @@ public class ConsoleApplication {
       }
     }
 
-    for (Entry<Method, Object> entry : methodMap.entrySet()) {
-      final Method m = entry.getKey();
-      final String methodName = m.getName();
-      final ConsoleCommand ann = m.getAnnotation(ConsoleCommand.class);
+    for (var entry : methodMap.entrySet()) {
+      final var m = entry.getKey();
+      final var methodName = m.getName();
+      final var ann = m.getAnnotation(ConsoleCommand.class);
 
-      final StringBuilder commandName = new StringBuilder();
+      final var commandName = new StringBuilder();
       char ch;
-      for (int i = 0; i < methodName.length(); ++i) {
+      for (var i = 0; i < methodName.length(); ++i) {
         ch = methodName.charAt(i);
         if (Character.isUpperCase(ch)) {
           commandName.append(" ");
@@ -592,12 +594,12 @@ public class ConsoleApplication {
           continue;
         }
 
-        String[] aliases = ann.aliases();
+        var aliases = ann.aliases();
         if (aliases == null || aliases.length == 0) {
           continue;
         }
 
-        for (String alias : aliases) {
+        for (var alias : aliases) {
           if (iCommand.startsWith(alias.split(" ")[0])) {
             return m;
           }
@@ -623,19 +625,19 @@ public class ConsoleApplication {
   }
 
   protected String formatCommandSpecs(final String iCommand, final Method m) {
-    final StringBuilder buffer = new StringBuilder();
-    final StringBuilder signature = new StringBuilder();
+    final var buffer = new StringBuilder();
+    final var signature = new StringBuilder();
 
     signature.append(iCommand);
 
     String paramName = null;
     String paramDescription = null;
-    boolean paramOptional = false;
+    var paramOptional = false;
 
     buffer.append("\n\nWHERE:\n\n");
 
-    for (Annotation[] annotations : m.getParameterAnnotations()) {
-      for (Annotation ann : annotations) {
+    for (var annotations : m.getParameterAnnotations()) {
+      for (var ann : annotations) {
         if (ann instanceof ConsoleParameter) {
           paramName =
               ((ConsoleParameter) ann).name();
@@ -688,14 +690,14 @@ public class ConsoleApplication {
     }
 
     // search for declared command collections
-    final Iterator<ConsoleCommandCollection> ite =
+    final var ite =
         ServiceLoader.load(ConsoleCommandCollection.class).iterator();
     final Collection<Object> candidates = new ArrayList<Object>();
     candidates.add(this);
     while (ite.hasNext()) {
       try {
         // make a copy and set it's context
-        final ConsoleCommandCollection cc = ite.next().getClass().newInstance();
+        final var cc = ite.next().getClass().newInstance();
         cc.setContext(this);
         candidates.add(cc);
       } catch (InstantiationException ex) {
@@ -709,8 +711,8 @@ public class ConsoleApplication {
         new TreeMap<Method, Object>(
             new Comparator<Method>() {
               public int compare(Method o1, Method o2) {
-                final ConsoleCommand ann1 = o1.getAnnotation(ConsoleCommand.class);
-                final ConsoleCommand ann2 = o2.getAnnotation(ConsoleCommand.class);
+                final var ann1 = o1.getAnnotation(ConsoleCommand.class);
+                final var ann2 = o2.getAnnotation(ConsoleCommand.class);
 
                 if (ann1 != null && ann2 != null) {
                   if (ann1.priority() != ann2.priority())
@@ -720,7 +722,7 @@ public class ConsoleApplication {
                   }
                 }
 
-                int res = o1.getName().compareTo(o2.getName());
+                var res = o1.getName().compareTo(o2.getName());
                 if (res == 0) {
                   res = o1.toString().compareTo(o2.toString());
                 }
@@ -728,10 +730,10 @@ public class ConsoleApplication {
               }
             });
 
-    for (final Object candidate : candidates) {
-      final Method[] classMethods = candidate.getClass().getMethods();
+    for (final var candidate : candidates) {
+      final var classMethods = candidate.getClass().getMethods();
 
-      for (Method m : classMethods) {
+      for (var m : classMethods) {
         if (Modifier.isAbstract(m.getModifiers())
             || Modifier.isStatic(m.getModifiers())
             || !Modifier.isPublic(m.getModifiers())) {
@@ -762,8 +764,8 @@ public class ConsoleApplication {
       // GENERIC HELP
       message("\nAVAILABLE COMMANDS:\n");
 
-      for (Method m : getConsoleMethods().keySet()) {
-        ConsoleCommand annotation = m.getAnnotation(ConsoleCommand.class);
+      for (var m : getConsoleMethods().keySet()) {
+        var annotation = m.getAnnotation(ConsoleCommand.class);
 
         if (annotation == null) {
           continue;
@@ -775,23 +777,23 @@ public class ConsoleApplication {
       return;
     }
 
-    final String[] commandWords = StringParser.getWords(iCommand, wordSeparator);
+    final var commandWords = StringParser.getWords(iCommand, wordSeparator);
 
-    boolean onlineMode = commandWords.length > 1 && commandWords[0].equalsIgnoreCase("-online");
+    var onlineMode = commandWords.length > 1 && commandWords[0].equalsIgnoreCase("-online");
     if (onlineMode) {
       iCommand = iCommand.substring("-online".length() + 1);
     }
 
-    final Method m = getMethod(iCommand);
+    final var m = getMethod(iCommand);
     if (m != null) {
-      final ConsoleCommand ann = m.getAnnotation(ConsoleCommand.class);
+      final var ann = m.getAnnotation(ConsoleCommand.class);
 
       message("\nCOMMAND: " + iCommand + "\n\n");
       if (ann != null) {
         // FETCH ONLINE CONTENT
         if (onlineMode && !ann.onlineHelp().isEmpty()) {
           // try {
-          final String text = getOnlineHelp(ONLINE_HELP_URL + ann.onlineHelp() + ONLINE_HELP_EXT);
+          final var text = getOnlineHelp(ONLINE_HELP_URL + ann.onlineHelp() + ONLINE_HELP_EXT);
           if (text != null && !text.isEmpty()) {
             message(text);
             // ONLINE FETCHING SUCCEED: RETURN
@@ -817,9 +819,9 @@ public class ConsoleApplication {
   }
 
   protected String getCommandLine(String[] iArguments) {
-    StringBuilder command = new StringBuilder(512);
-    boolean first = true;
-    for (int i = 0; i < iArguments.length; ++i) {
+    var command = new StringBuilder(512);
+    var first = true;
+    for (var i = 0; i < iArguments.length; ++i) {
       if (isInteractiveConfigParam(iArguments[i])) {
         continue;
       }
@@ -852,7 +854,7 @@ public class ConsoleApplication {
     HttpURLConnection conn;
     BufferedReader rd;
     String line;
-    StringBuilder result = new StringBuilder();
+    var result = new StringBuilder();
     try {
       url = new URL(urlToRead);
       conn = (HttpURLConnection) url.openConnection();

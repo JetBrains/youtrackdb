@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.config;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public interface StorageConfiguration {
 
@@ -26,12 +26,13 @@ public interface StorageConfiguration {
 
   String getSchemaRecordId();
 
-  int getMinimumClusters();
+  int getMinimumCollections();
 
   boolean isStrictSql();
 
   String getIndexMgrRecordId();
 
+  @Nullable
   TimeZone getTimeZone();
 
   String getDateFormat();
@@ -46,12 +47,13 @@ public interface StorageConfiguration {
 
   List<StorageEntryConfiguration> getProperties();
 
-  String getClusterSelection();
+  String getCollectionSelection();
 
   String getConflictStrategy();
 
   boolean isValidationEnabled();
 
+  @Nullable
   IndexEngineData getIndexEngine(String name, int defaultIndexId);
 
   String getRecordSerializer();
@@ -62,13 +64,15 @@ public interface StorageConfiguration {
 
   int getVersion();
 
+  @Nullable
   String getName();
 
   String getProperty(String graphConsistencyMode);
 
+  @Nullable
   String getDirectory();
 
-  List<StorageClusterConfiguration> getClusters();
+  List<StorageCollectionConfiguration> getCollections();
 
   String getCreatedAtVersion();
 

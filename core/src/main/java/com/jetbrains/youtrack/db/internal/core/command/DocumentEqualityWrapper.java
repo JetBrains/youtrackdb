@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.command;
 
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
 
 /**
  * This class is designed to compare documents based on deep equality (to be used in Sets)
@@ -17,7 +17,7 @@ public class DocumentEqualityWrapper {
 
   public boolean equals(Object obj) {
     if (obj instanceof DocumentEqualityWrapper) {
-      return DocumentHelper.hasSameContentOf(
+      return EntityHelper.hasSameContentOf(
           internal, internal.getSession(), ((DocumentEqualityWrapper) obj).internal,
           internal.getSession(), null);
     }
@@ -26,10 +26,10 @@ public class DocumentEqualityWrapper {
 
   @Override
   public int hashCode() {
-    int result = 0;
-    for (String fieldName : internal.fieldNames()) {
+    var result = 0;
+    for (var fieldName : internal.getPropertyNames()) {
       result += fieldName.hashCode();
-      Object value = internal.field(fieldName);
+      var value = internal.getProperty(fieldName);
       if (value != null) {
         result += value.hashCode();
       }
