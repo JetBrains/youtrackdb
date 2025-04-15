@@ -169,7 +169,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var schemaClass = session.getClass(type);
     if (schemaClass == null) {
-      throw new IllegalArgumentException("Schema class for label" + type + " not found");
+      throw new IllegalArgumentException("Schema class for label " + type + " not found");
     }
     if (schemaClass.isAbstract()) {
       return session.newLightweightEdge(this, to, type);
