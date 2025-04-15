@@ -85,7 +85,7 @@
     <implementation.build>${scmBranch}@r${buildNumber}</implementation.build>
     <blueprints.version>2.6.0</blueprints.version>
     <!-- | shared build/report plugins version -->
-    <surefire.version>3.5.2</surefire.version>
+    <surefire.version>3.5.3</surefire.version>
     <license.location>license.txt</license.location>
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
@@ -93,7 +93,7 @@
     <javaassist.version>3.30.2-GA</javaassist.version>
     <jaxb.api.version>2.3.0</jaxb.api.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
-    <graalvm.version>24.1.2</graalvm.version>
+    <graalvm.version>24.2.0</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
