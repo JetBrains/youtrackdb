@@ -121,25 +121,20 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   public void addSuperClass(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
-    addSuperClassInternal(session, superClass, false);
-  }
-
-  public void addSuperClassInternal(
-      DatabaseSessionInternal session,
-      final SchemaClassImpl superClass,
-      boolean allowGraphClasses
-  ) {
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkParametersConflict(session, superClass);
+    addSuperClassInternal(session, superClass);
+  }
+
+  public void addSuperClassInternal(DatabaseSessionInternal session,
+      final SchemaClassImpl superClass) {
+
     acquireSchemaWriteLock(session);
     try {
-      final SchemaClassImpl cls;
-      cls = superClass;
 
-      if (!allowGraphClasses &&
-          (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
-          superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME))) {
+      if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
         throw new SchemaException(session.getDatabaseName(),
             "Cannot add the class '"
                 + superClass.getName(session)
@@ -151,7 +146,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
       final var user = session.getCurrentUser();
       if (user != null) {
-        user.allow(session, Rule.ResourceGeneric.CLASS, cls.getName(session),
+        user.allow(session, Rule.ResourceGeneric.CLASS, superClass.getName(session),
             Role.PERMISSION_UPDATE);
       }
 
@@ -164,8 +159,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 + "' as superclass");
       }
 
-      cls.addBaseClass(session, this);
-      superClasses.add(cls);
+      superClass.addBaseClass(session, this);
+      superClasses.add(superClass);
     } finally {
       releaseSchemaWriteLock(session);
     }

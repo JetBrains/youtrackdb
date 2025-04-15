@@ -99,7 +99,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   public static final int IMPORT_RECORD_DUMP_LAP_EVERY_MS = 5000;
 
   private final Map<SchemaProperty, String> linkedClasses = new HashMap<>();
-  private final Map<SchemaClass, List<String>> superClasses = new HashMap<>();
+  private final Map<String, List<String>> superClasses = new HashMap<>();
   private JSONReader jsonReader;
   private int exporterVersion = -1;
   private RID schemaRecordId;
@@ -610,24 +610,12 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           className = newClassName;
         }
 
-        var cls = session.getMetadata().getSchema().getClass(className);
-
-        if (cls == null) {
-          if (collectionsImported) {
-            cls =
-                session
-                    .getMetadata()
-                    .getSchema()
-                    .createClass(className, classCollectionIds);
-          } else {
-            if (className.equalsIgnoreCase("ORestricted")) {
-              cls = session.getMetadata().getSchema()
-                  .createAbstractClass(className);
-            } else {
-              cls = session.getMetadata().getSchema().createClass(className);
-            }
-          }
-        }
+        Boolean strictMode = null;
+        Boolean isAbstract = null;
+        var isVertex = false;
+        var isEdge = false;
+        Map<String, String> customFields = null;
+        List<Map<String, Object>> propertiesRaw = null;
 
         String value;
         while (jsonReader.lastChar() == ',') {
@@ -635,16 +623,21 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           value = jsonReader.getValue();
 
           switch (value) {
-            case "\"strictMode\"" ->
-                cls.setStrictMode(jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
-            case "\"abstract\"" ->
-                cls.setAbstract(jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT));
+            case "\"strictMode\"" -> strictMode = jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT);
+            case "\"abstract\"" -> isAbstract = jsonReader.readBoolean(JSONReader.NEXT_IN_OBJECT);
             case "\"super-class\"" -> {
               // @compatibility <2.1 SINGLE CLASS ONLY
               final var classSuper = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-              final List<String> superClassNames = new ArrayList<>();
-              superClassNames.add(classSuper);
-              superClasses.put(cls, superClassNames);
+
+              if (SchemaClass.VERTEX_CLASS_NAME.equals(classSuper)) {
+                isVertex = true;
+              } else if (SchemaClass.EDGE_CLASS_NAME.equals(classSuper)) {
+                isEdge = true;
+              } else {
+                final List<String> superClassNames = new ArrayList<>();
+                superClassNames.add(classSuper);
+                superClasses.put(className, superClassNames);
+              }
             }
             case "\"super-classes\"" -> {
               // MULTIPLE CLASSES
@@ -654,33 +647,87 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
               while (jsonReader.lastChar() != ']') {
                 jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
-                final var clsName = jsonReader.getValue();
+                final var clsName = IOUtils.getStringContent(jsonReader.getValue());
 
-                superClassNames.add(IOUtils.getStringContent(clsName));
+                if (SchemaClass.VERTEX_CLASS_NAME.equals(clsName)) {
+                  isVertex = true;
+                } else if (SchemaClass.EDGE_CLASS_NAME.equals(clsName)) {
+                  isEdge = true;
+                } else {
+                  superClassNames.add(clsName);
+                }
+              }
+
+              if (!superClassNames.isEmpty()) {
+                superClasses.put(className, superClassNames);
               }
               jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
-
-              superClasses.put(cls, superClassNames);
             }
             case "\"properties\"" -> {
+              propertiesRaw = new ArrayList<>();
               // GET PROPERTIES
               jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
 
               while (jsonReader.lastChar() != ']') {
-                importProperty((SchemaClassInternal) cls);
-
-                if (jsonReader.lastChar() == '}') {
-                  jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-                }
+                final var pRaw = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
+                final var pMap = JSONSerializerJackson.mapFromJson(pRaw);
+                propertiesRaw.add(pMap);
               }
               jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
             }
             case "\"customFields\"" -> {
-              var customFields = importCustomFields();
-              for (var entry : customFields.entrySet()) {
-                cls.setCustom(entry.getKey(), entry.getValue());
-              }
+              customFields = importCustomFields();
             }
+          }
+        }
+
+        if (isVertex && isEdge) {
+          throw new DatabaseImportException(
+              "Class '" + className + "' cannot be both vertex and edge.");
+        }
+
+        final var schema = session.getMetadata().getSchema();
+        var cls = schema.getClass(className);
+
+        if (cls != null) {
+          if (isVertex && !cls.isVertexType()) {
+            throw new DatabaseImportException("Class '" + className
+                + "' exists but is not a vertex class. It can't be made a vertex class.");
+          } else if (isEdge && !cls.isEdgeType()) {
+            throw new DatabaseImportException("Class '" + className
+                + "' exists but is not an edge class. It can't be made an edge class."
+            );
+          }
+        } else {
+          if (isVertex) {
+            cls = schema.createVertexClass(className);
+          } else if (isEdge) {
+            cls = schema.createEdgeClass(className);
+          } else if (collectionsImported) {
+            cls = schema.createClass(className, classCollectionIds);
+          } else if (className.equalsIgnoreCase("ORestricted")) {
+            cls = schema.createAbstractClass(className);
+          } else {
+            cls = schema.createClass(className);
+          }
+        }
+
+        if (strictMode != null) {
+          cls.setStrictMode(strictMode);
+        }
+        if (isAbstract != null) {
+          cls.setAbstract(isAbstract);
+        }
+
+        if (propertiesRaw != null) {
+          for (var propRaw : propertiesRaw) {
+            importProperty((SchemaClassInternal) cls, propRaw);
+          }
+        }
+
+        if (customFields != null) {
+          for (var cf : customFields.entrySet()) {
+            cls.setCustom(cf.getKey(), cf.getValue());
           }
         }
 
@@ -689,7 +736,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
       } while (jsonReader.lastChar() == ',');
 
-      this.rebuildCompleteClassInheritence();
+      this.rebuildCompleteClassInheritance();
       this.setLinkedClasses();
 
       if (exporterVersion < 11) {
@@ -706,118 +753,39 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     }
   }
 
-  private void rebuildCompleteClassInheritence() {
+  private void rebuildCompleteClassInheritance() {
     for (final var entry : superClasses.entrySet()) {
+      final var cls = session.getMetadata().getSchema().getClass(entry.getKey());
+
       for (final var superClassName : entry.getValue()) {
         final var superClass = session.getMetadata().getSchema().getClass(superClassName);
 
-        if (!entry.getKey().getSuperClasses().contains(superClass)) {
-          final var schemaClass =
-              ((SchemaClassEmbedded) ((SchemaClassInternal) entry.getKey()).getImplementation());
-          schemaClass.addSuperClassInternal(
-              session,
-              ((SchemaClassInternal) superClass).getImplementation(),
-              true
-          );
+        if (!cls.getSuperClasses().contains(superClass)) {
+          cls.addSuperClass(superClass);
         }
       }
     }
   }
 
-  private void importProperty(final SchemaClassInternal iClass) throws IOException, ParseException {
-    jsonReader.readNext(JSONReader.NEXT_OBJ_IN_ARRAY);
+  private void importProperty(final SchemaClassInternal iClass, Map<String, ?> propRaw) {
 
-    if (jsonReader.lastChar() == ']') {
-      return;
-    }
+    final var propName = (String) propRaw.get("name");
 
-    final var propName =
-        jsonReader
-            .readNext(JSONReader.FIELD_ASSIGNMENT)
-            .checkContent("\"name\"")
-            .readString(JSONReader.COMMA_SEPARATOR);
+    final var type = PropertyTypeInternal.valueOf(((String) propRaw.get("type")));
 
-    var next = jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT).getValue();
-
-    if (next.equals("\"id\"")) {
-      // @COMPATIBILITY 1.0rc4 IGNORE THE ID
-      jsonReader.readString(JSONReader.COMMA_SEPARATOR);
-      jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
-    }
-    next = jsonReader.checkContent("\"type\"").readString(JSONReader.NEXT_IN_OBJECT);
-
-    final var type = PropertyTypeInternal.valueOf(next);
-
-    String attrib;
-    String value = null;
-
-    String min = null;
-    String max = null;
-    String linkedClass = null;
-    PropertyTypeInternal linkedType = null;
-    var mandatory = false;
-    var readonly = false;
-    var notNull = false;
-    String collate = null;
-    String regexp = null;
-    String defaultValue = null;
-
-    Map<String, String> customFields = null;
-
-    while (jsonReader.lastChar() == ',') {
-      jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
-
-      attrib = jsonReader.getValue();
-      if (!attrib.equals("\"customFields\"")) {
-        value =
-            jsonReader.readString(
-                JSONReader.NEXT_IN_OBJECT, false, JSONReader.DEFAULT_JUMP, null, false);
-      }
-
-      if (attrib.equals("\"min\"")) {
-        min = value;
-      } else {
-        if (attrib.equals("\"max\"")) {
-          max = value;
-        } else {
-          if (attrib.equals("\"linked-class\"")) {
-            linkedClass = value;
-          } else {
-            if (attrib.equals("\"mandatory\"")) {
-              mandatory = Boolean.parseBoolean(value);
-            } else {
-              if (attrib.equals("\"readonly\"")) {
-                readonly = Boolean.parseBoolean(value);
-              } else {
-                if (attrib.equals("\"not-null\"")) {
-                  notNull = Boolean.parseBoolean(value);
-                } else {
-                  if (attrib.equals("\"linked-type\"")) {
-                    linkedType = PropertyTypeInternal.valueOf(value);
-                  } else {
-                    if (attrib.equals("\"collate\"")) {
-                      collate = value;
-                    } else {
-                      if (attrib.equals("\"default-value\"")) {
-                        defaultValue = value;
-                      } else {
-                        if (attrib.equals("\"customFields\"")) {
-                          customFields = importCustomFields();
-                        } else {
-                          if (attrib.equals("\"regexp\"")) {
-                            regexp = value;
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    final var min = (String) propRaw.get("min");
+    final var max = (String) propRaw.get("max");
+    final var linkedClass = (String) propRaw.get("linked-class");
+    final var linkedType =
+        propRaw.containsKey("linked-type") ? PropertyTypeInternal.valueOf(
+            (String) propRaw.get("linked-type")) : null;
+    final var mandatory = propRaw.containsKey("mandatory") && (boolean) propRaw.get("mandatory");
+    final var readonly = propRaw.containsKey("readonly") && (boolean) propRaw.get("readonly");
+    final var notNull = propRaw.containsKey("not-null") && (boolean) propRaw.get("not-null");
+    final var collate = (String) propRaw.get("collate");
+    final var regexp = (String) propRaw.get("regexp");
+    final var defaultValue = (String) propRaw.get("default-value");
+    final var customFields = (Map<String, String>) propRaw.get("customFields");
 
     var prop = iClass.getProperty(propName);
     if (prop == null) {
@@ -849,7 +817,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       prop.setRegexp(regexp);
     }
     if (defaultValue != null) {
-      prop.setDefaultValue(value);
+      prop.setDefaultValue(defaultValue);
     }
     if (customFields != null) {
       for (var entry : customFields.entrySet()) {
@@ -1062,8 +1030,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     RID rid = null;
     RID originalRid = null;
     try {
-      var recordJson =
-          jsonReader.readRecordString(this.maxRidbagStringSizeBeforeLazyImport).getKey().trim();
+
+      // commenting this out for now, because it can clear large LinkBags:
+      // var recordJson = jsonReader.readRecordString(this.maxRidbagStringSizeBeforeLazyImport).getKey().trim();
+      var recordJson = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
+
       if (recordJson.isEmpty()) {
         return null;
       }
