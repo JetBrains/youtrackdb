@@ -81,6 +81,7 @@ public class SharedContextRemote extends SharedContext {
     lock.lock();
     try {
       schema.reload(database);
+      schema.markDirty();
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it

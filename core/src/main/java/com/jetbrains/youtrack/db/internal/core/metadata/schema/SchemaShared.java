@@ -105,8 +105,32 @@ public abstract class SchemaShared implements CloseableInStorage {
     internalClasses.add("le");
   }
 
+  public void markDirty() {
+    for (Map.Entry<String, LazySchemaClass> lazySchemaClassEntry : classesRefs.entrySet()) {
+      LazySchemaClass lazyClass = lazySchemaClassEntry.getValue();
+      if (lazyClass != null && lazyClass.isLoadedWithoutInheritance()) {
+        this.dirtyClasses.put(lazySchemaClassEntry.getKey(),
+            (SchemaClassImpl) lazyClass.getDelegate());
+      }
+    }
+  }
+
   public void markClassDirty(SchemaClass dirtyClass) {
     this.dirtyClasses.put(normalizeClassName(dirtyClass.getName()), (SchemaClassImpl) dirtyClass);
+  }
+
+  public void markSuperClassesDirty(DatabaseSessionInternal session, SchemaClass dirtyClass) {
+    Collection<SchemaClass> superClasses = dirtyClass.getAllSuperClasses(session);
+    for (SchemaClass superClass : superClasses) {
+      markClassDirty(superClass);
+    }
+  }
+
+  public void markSubClassesDirty(DatabaseSessionInternal session, SchemaClass dirtyClass) {
+    Collection<SchemaClass> subClasses = dirtyClass.getAllSubclasses(session);
+    for (SchemaClass subClass : subClasses) {
+      markClassDirty(subClass);
+    }
   }
 
   protected static final class ClusterIdsAreEmptyException extends Exception {
@@ -552,23 +576,22 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       }
       for (Entry<String, RecordId> entry : storedClassesRefs.entrySet()) {
+        // skip already loaded classes
         if (classesRefs.containsKey(entry.getKey())) {
           if (dirtyClasses.containsKey(entry.getKey())) {
             dirtyClasses.remove(entry.getKey());
             // mark dirty class unloaded
             // it will be reloaded next time we need to use it
             classesRefs.get(entry.getKey()).unload();
-          } else {
-            // skip already loaded classes
-            continue;
           }
+        } else {
+          LazySchemaClass lazySchemaClass = LazySchemaClass.fromTemplate(entry.getValue(),
+              // create class templates so it could be loaded later properly.
+              // this is required since on a later stages we don't have createClassInstance method,
+              // and we can always overwrite this instance internals from lazy class with actual db values
+              createClassInstance(entry.getKey()));
+          classesRefs.put(entry.getKey(), lazySchemaClass);
         }
-        LazySchemaClass lazySchemaClass = LazySchemaClass.fromTemplate(entry.getValue(),
-            // create class templates so it could be loaded later properly.
-            // this is required since on a later stages we don't have createClassInstance method,
-            // and we can always overwrite this instance internals from lazy class with actual db values
-            createClassInstance(entry.getKey()));
-        classesRefs.put(entry.getKey(), lazySchemaClass);
       }
 
       for (LazySchemaClass lazySchemaClass : classesRefs.values()) {

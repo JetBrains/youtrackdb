@@ -81,7 +81,7 @@ public class LazySchemaClass {
     }
   }
 
-  private boolean isLoadedWithoutInheritance() {
+  public boolean isLoadedWithoutInheritance() {
     return delegate != null && classLoaded;
   }
 

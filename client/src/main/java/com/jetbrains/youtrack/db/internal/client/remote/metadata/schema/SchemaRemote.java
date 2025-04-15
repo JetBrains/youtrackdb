@@ -301,6 +301,10 @@ public class SchemaRemote extends SchemaShared {
       }
 
       String cmd = "drop class `" + className + "` unsafe";
+      // mark potentially dropped class as dirty
+      markClassDirty(cls);
+      markSuperClassesDirty(database, cls);
+      markSubClassesDirty(database, cls);
       database.command(cmd).close();
       reload(database);
 

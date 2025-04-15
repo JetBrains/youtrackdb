@@ -661,7 +661,11 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
       if (linkedClassName != null && linkedClassName.equalsIgnoreCase(owner.getName())) {
         linkedClass = owner;
       } else {
-        linkedClass = owner.owner.getClass(db, linkedClassName);
+        LazySchemaClass lazyClass = owner.owner.getLazyClass(linkedClassName);
+        // we need to load class without inheritance to have a proper link on it
+        // later inheritance info will be loaded if needed
+        lazyClass.loadWithoutInheritanceIfNeeded(db);
+        linkedClass = lazyClass.getDelegate();
       }
       linkedType =
           entity.field("linkedType") != null

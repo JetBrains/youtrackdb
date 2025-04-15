@@ -163,7 +163,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     DatabaseSessionInternal database = (DatabaseSessionInternal) session;
     database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     if (classes != null) {
-      List<SchemaClass> toCheck = new ArrayList<SchemaClass>(classes);
+      List<SchemaClass> toCheck = new ArrayList<>(classes);
       toCheck.add(this);
       checkParametersConflict(session, toCheck);
     }
@@ -415,6 +415,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     acquireSchemaWriteLock(database);
     try {
       final String cmd = String.format("alter class `%s` add_cluster `%s`", name, clusterNameOrId);
+      owner.markClassDirty(this);
       database.command(cmd).close();
 
     } finally {
