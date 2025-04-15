@@ -19,14 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.CollectionNetworkSerializer;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -34,10 +34,10 @@ import java.io.IOException;
 
 public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
 
-  private BonsaiCollectionPointer collectionPointer;
+  private LinkBagPointer collectionPointer;
   private byte[] keyStream;
 
-  public SBTGetRequest(BonsaiCollectionPointer collectionPointer, byte[] keyStream) {
+  public SBTGetRequest(LinkBagPointer collectionPointer, byte[] keyStream) {
     this.collectionPointer = collectionPointer;
     this.keyStream = keyStream;
   }
@@ -46,16 +46,17 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
+  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    CollectionNetworkSerializer.INSTANCE.writeCollectionPointer(network, collectionPointer);
+    CollectionNetworkSerializer.writeCollectionPointer(network, collectionPointer);
     network.writeBytes(keyStream);
   }
 
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
+      int protocolVersion,
+      RecordSerializerNetwork serializer)
       throws IOException {
-    this.collectionPointer = CollectionNetworkSerializer.INSTANCE.readCollectionPointer(channel);
+    this.collectionPointer = CollectionNetworkSerializer.readCollectionPointer(channel);
     this.keyStream = channel.readBytes();
   }
 
@@ -69,7 +70,7 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
     return "SB-Tree bonsai get";
   }
 
-  public BonsaiCollectionPointer getCollectionPointer() {
+  public LinkBagPointer getCollectionPointer() {
     return collectionPointer;
   }
 

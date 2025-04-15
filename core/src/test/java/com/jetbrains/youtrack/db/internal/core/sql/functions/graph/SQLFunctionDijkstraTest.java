@@ -2,14 +2,13 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.List;
 import org.junit.After;
 import org.junit.Before;
@@ -18,7 +17,7 @@ import org.junit.Test;
 public class SQLFunctionDijkstraTest {
 
   private YouTrackDB youTrackDB;
-  private DatabaseSession graph;
+  private DatabaseSession session;
 
   private Vertex v1;
   private Vertex v2;
@@ -35,7 +34,7 @@ public class SQLFunctionDijkstraTest {
 
   @After
   public void tearDown() throws Exception {
-    graph.close();
+    session.close();
     youTrackDB.close();
   }
 
@@ -44,48 +43,47 @@ public class SQLFunctionDijkstraTest {
         CreateDatabaseUtil.createDatabase(
             "SQLFunctionDijkstraTest", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
-    graph =
+    session =
         youTrackDB.open("SQLFunctionDijkstraTest", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    graph.createEdgeClass("weight");
+    session.getSchema().createEdgeClass("weight");
 
-    v1 = graph.newVertex();
-    v2 = graph.newVertex();
-    v3 = graph.newVertex();
-    v4 = graph.newVertex();
+    var tx = session.begin();
+    v1 = tx.newVertex();
+    v2 = tx.newVertex();
+    v3 = tx.newVertex();
+    v4 = tx.newVertex();
 
     v1.setProperty("node_id", "A");
     v2.setProperty("node_id", "B");
     v3.setProperty("node_id", "C");
     v4.setProperty("node_id", "D");
 
-    graph.begin();
-    Edge e1 = graph.newRegularEdge(v1, v2, "weight");
+    var e1 = tx.newStatefulEdge(v1, v2, "weight");
     e1.setProperty("weight", 1.0f);
-    e1.save();
 
-    Edge e2 = graph.newRegularEdge(v2, v3, "weight");
+    var e2 = tx.newStatefulEdge(v2, v3, "weight");
     e2.setProperty("weight", 1.0f);
-    e2.save();
 
-    Edge e3 = graph.newRegularEdge(v1, v3, "weight");
+    var e3 = tx.newStatefulEdge(v1, v3, "weight");
     e3.setProperty("weight", 100.0f);
-    e3.save();
 
-    Edge e4 = graph.newRegularEdge(v3, v4, "weight");
+    var e4 = tx.newStatefulEdge(v3, v4, "weight");
     e4.setProperty("weight", 1.0f);
-    e4.save();
-    graph.commit();
+    tx.commit();
   }
 
   @Test
   public void testExecute() throws Exception {
-    v1 = graph.bindToSession(v1);
-    v4 = graph.bindToSession(v4);
+    var tx = session.begin();
+    v1 = tx.load(v1);
+    v2 = tx.load(v2);
+    v3 = tx.load(v3);
+    v4 = tx.load(v4);
 
     var context = new BasicCommandContext();
-    context.setDatabase((DatabaseSessionInternal) graph);
+    context.setDatabaseSession((DatabaseSessionInternal) session);
 
     final List<Vertex> result =
         functionDijkstra.execute(
@@ -96,5 +94,6 @@ public class SQLFunctionDijkstraTest {
     assertEquals(v2, result.get(1));
     assertEquals(v3, result.get(2));
     assertEquals(v4, result.get(3));
+    tx.commit();
   }
 }

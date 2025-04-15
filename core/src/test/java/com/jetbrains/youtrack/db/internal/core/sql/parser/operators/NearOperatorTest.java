@@ -29,7 +29,7 @@ public class NearOperatorTest {
 
   @Test
   public void test() {
-    SQLLuceneOperator op = new SQLLuceneOperator(-1);
+    var op = new SQLLuceneOperator(-1);
     // TODO
   }
 }

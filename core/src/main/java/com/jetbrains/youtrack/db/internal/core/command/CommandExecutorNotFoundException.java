@@ -29,7 +29,7 @@ public class CommandExecutorNotFoundException extends CommandExecutionException 
     super(exception);
   }
 
-  public CommandExecutorNotFoundException(String message) {
-    super(message);
+  public CommandExecutorNotFoundException(String dbName, String message) {
+    super(dbName, message);
   }
 }

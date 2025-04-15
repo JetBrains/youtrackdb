@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemFieldAll;
@@ -34,23 +34,26 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable> {
 
   private final TraversePath path;
 
   public TraverseRecordProcess(
-      final Traverse iCommand, final Identifiable iTarget, TraversePath parentPath) {
-    super(iCommand, iTarget);
+      final Traverse iCommand, final Identifiable iTarget, TraversePath parentPath,
+      DatabaseSessionInternal session) {
+    super(iCommand, iTarget, session);
     this.path = parentPath.append(iTarget);
   }
 
+  @Nullable
   public Identifiable process() {
     if (target == null) {
       return pop();
     }
 
-    final int depth = path.getDepth();
+    final var depth = path.getDepth();
 
     if (command.getContext().isAlreadyTraversed(target, depth))
     // ALREADY EVALUATED, DON'T GO IN DEEP
@@ -59,8 +62,10 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     }
 
     if (command.getPredicate() != null) {
-      final Object conditionResult =
-          command.getPredicate().evaluate(target, null, command.getContext());
+      var transaction = session.getActiveTransaction();
+      final var conditionResult =
+          command.getPredicate()
+              .evaluate(transaction.loadEntity(target), null, command.getContext());
       if (conditionResult != Boolean.TRUE) {
         return drop();
       }
@@ -69,41 +74,37 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     // UPDATE ALL TRAVERSED RECORD TO AVOID RECURSION
     command.getContext().addTraversed(target, depth);
 
-    final int maxDepth = command.getMaxDepth();
+    final var maxDepth = command.getMaxDepth();
     if (maxDepth > -1 && depth == maxDepth) {
       // SKIP IT
       pop();
     } else {
-      final DBRecord targetRec = target.getRecord();
+      var transaction = session.getActiveTransaction();
+      var targetRec = transaction.load(target);
       if (!(targetRec instanceof EntityImpl targeEntity))
       // SKIP IT
       {
         return pop();
       }
 
-      var database = command.getContext().getDatabase();
-      if (targeEntity.isNotBound(database)) {
-        targeEntity = database.bindToSession(targeEntity);
-      }
 
       // MATCH!
       final List<Object> fields = new ArrayList<Object>();
-
       // TRAVERSE THE DOCUMENT ITSELF
-      for (Object cfgFieldObject : command.getFields()) {
-        String cfgField = cfgFieldObject.toString();
+      for (var cfgFieldObject : command.getFields()) {
+        var cfgField = cfgFieldObject.toString();
 
         if ("*".equals(cfgField)
             || SQLFilterItemFieldAll.FULL_NAME.equalsIgnoreCase(cfgField)
             || SQLFilterItemFieldAny.FULL_NAME.equalsIgnoreCase(cfgField)) {
 
           // ADD ALL THE DOCUMENT FIELD
-          Collections.addAll(fields, targeEntity.fieldNames());
+          fields.addAll(targeEntity.getPropertyNames());
           break;
 
         } else {
           // SINGLE FIELD
-          final int pos =
+          final var pos =
               StringSerializerHelper.parse(
                   cfgField,
                   new StringBuilder(),
@@ -118,14 +119,18 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
                   - 1;
           if (pos > -1) {
             // FOUND <CLASS>.<FIELD>
-            final SchemaClass cls = EntityInternalUtils.getImmutableSchemaClass(targeEntity);
+            SchemaImmutableClass result = null;
+            if (targeEntity != null) {
+              result = targeEntity.getImmutableSchemaClass(session);
+            }
+            final SchemaClass cls = result;
             if (cls == null)
             // JUMP IT BECAUSE NO SCHEMA
             {
               continue;
             }
 
-            final String className = cfgField.substring(0, pos);
+            final var className = cfgField.substring(0, pos);
             if (!cls.isSubClassOf(className))
             // JUMP IT BECAUSE IT'S NOT A INSTANCEOF THE CLASS
             {
@@ -158,14 +163,11 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
   }
 
   private void processFields(Iterator<Object> target) {
-    EntityImpl entity = this.target.getRecord();
-    var database = command.getContext().getDatabase();
-    if (entity.isNotBound(database)) {
-      entity = database.bindToSession(entity);
-    }
-
+    var transaction2 = session.getActiveTransaction();
+    EntityImpl entity = transaction2.load(this.target);
+    var database = command.getContext().getDatabaseSession();
     while (target.hasNext()) {
-      Object field = target.next();
+      var field = target.next();
 
       final Object fieldValue;
       if (field instanceof SQLFilterItem) {
@@ -173,25 +175,27 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
         context.setParent(command.getContext());
         fieldValue = ((SQLFilterItem) field).getValue(entity, null, context);
       } else {
-        fieldValue = entity.rawField(field.toString());
+        fieldValue = entity.getProperty(field.toString());
       }
 
       if (fieldValue != null) {
         final TraverseAbstractProcess<?> subProcess;
 
+        var transaction1 = session.getActiveTransaction();
         if (fieldValue instanceof Iterator<?> || MultiValue.isMultiValue(fieldValue)) {
-          final Iterator<?> coll = MultiValue.getMultiValueIterator(fieldValue);
+          final var coll = MultiValue.getMultiValueIterator(fieldValue);
 
           subProcess =
               new TraverseMultiValueProcess(
-                  command, (Iterator<Object>) coll, path.appendField(field.toString()));
+                  command, (Iterator<Object>) coll, path.appendField(field.toString()), session);
         } else if (fieldValue instanceof Identifiable
-            && ((Identifiable) fieldValue).getRecord() instanceof EntityImpl) {
+            && transaction1.load(((Identifiable) fieldValue)) instanceof EntityImpl) {
+          var transaction = session.getActiveTransaction();
           subProcess =
               new TraverseRecordProcess(
                   command,
-                  ((Identifiable) fieldValue).getRecord(),
-                  path.appendField(field.toString()));
+                  transaction.load(((Identifiable) fieldValue)),
+                  path.appendField(field.toString()), session);
         } else {
           continue;
         }
@@ -211,11 +215,13 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
     return path;
   }
 
+  @Nullable
   public Identifiable drop() {
     command.getContext().pop(null);
     return null;
   }
 
+  @Nullable
   @Override
   public Identifiable pop() {
     command.getContext().pop(target);

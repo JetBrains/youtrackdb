@@ -31,17 +31,17 @@ public class SQLMethodAsSetTest extends DbTestBase {
   @Test
   public void testSet() {
     // The expected behavior is to return the set itself.
-    HashSet<Object> aSet = new HashSet<Object>();
+    var aSet = new HashSet<Object>();
     aSet.add(1);
     aSet.add("2");
-    Object result = function.execute(null, null, null, aSet, null);
+    var result = function.execute(null, null, null, aSet, null);
     assertEquals(result, aSet);
   }
 
   @Test
   public void testNull() {
     // The expected behavior is to return an empty set.
-    Object result = function.execute(null, null, null, null, null);
+    var result = function.execute(null, null, null, null, null);
     assertEquals(result, new HashSet<Object>());
   }
 
@@ -49,12 +49,12 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testCollection() {
     // The expected behavior is to return a set with all of the elements
     // of the collection in it.
-    ArrayList<Object> aCollection = new ArrayList<Object>();
+    var aCollection = new ArrayList<Object>();
     aCollection.add(1);
     aCollection.add("2");
-    Object result = function.execute(null, null, null, aCollection, null);
+    var result = function.execute(null, null, null, aCollection, null);
 
-    HashSet<Object> expected = new HashSet<Object>();
+    var expected = new HashSet<Object>();
     expected.add(1);
     expected.add("2");
     assertEquals(result, expected);
@@ -64,14 +64,14 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testIterable() {
     // The expected behavior is to return a set with all of the elements
     // of the iterable in it.
-    ArrayList<Object> values = new ArrayList<Object>();
+    var values = new ArrayList<Object>();
     values.add(1);
     values.add("2");
 
-    TestIterable<Object> anIterable = new TestIterable<Object>(values);
-    Object result = function.execute(null, null, null, anIterable, null);
+    var anIterable = new TestIterable<Object>(values);
+    var result = function.execute(null, null, null, anIterable, null);
 
-    HashSet<Object> expected = new HashSet<Object>();
+    var expected = new HashSet<Object>();
     expected.add(1);
     expected.add("2");
 
@@ -82,14 +82,14 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testIterator() {
     // The expected behavior is to return a set with all of the elements
     // of the iterator in it.
-    ArrayList<Object> values = new ArrayList<Object>();
+    var values = new ArrayList<Object>();
     values.add(1);
     values.add("2");
 
-    TestIterable<Object> anIterable = new TestIterable<Object>(values);
-    Object result = function.execute(null, null, null, anIterable.iterator(), null);
+    var anIterable = new TestIterable<Object>(values);
+    var result = function.execute(null, null, null, anIterable.iterator(), null);
 
-    HashSet<Object> expected = new HashSet<Object>();
+    var expected = new HashSet<Object>();
     expected.add(1);
     expected.add("2");
 
@@ -100,16 +100,18 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testODocument() {
     // The expected behavior is to return a set with only the single
     // EntityImpl in it.
-    EntityImpl doc = new EntityImpl();
-    doc.field("f1", 1);
-    doc.field("f2", 2);
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("f1", 1);
+    doc.setProperty("f2", 2);
 
-    Object result = function.execute(null, null, null, doc, null);
+    var result = function.execute(null, null, null, doc, null);
 
-    HashSet<Object> expected = new HashSet<Object>();
+    var expected = new HashSet<Object>();
     expected.add(doc);
 
     assertEquals(result, expected);
+    session.rollback();
   }
 
   @Test
@@ -117,8 +119,8 @@ public class SQLMethodAsSetTest extends DbTestBase {
     // The expected behavior is to return a set with only the single
     // element in it.
 
-    Object result = function.execute(null, null, null, 4, null);
-    HashSet<Object> expected = new HashSet<Object>();
+    var result = function.execute(null, null, null, 4, null);
+    var expected = new HashSet<Object>();
     expected.add(4);
     assertEquals(result, expected);
   }
@@ -127,14 +129,14 @@ public class SQLMethodAsSetTest extends DbTestBase {
   public void testIterableOrder() {
 
     var values = new ArrayList<Integer>(IntStream.rangeClosed(0, 1000).boxed().toList());
-    Random rnd = new Random();
+    var rnd = new Random();
     var seed = System.currentTimeMillis();
     rnd.setSeed(seed);
     System.out.println(seed);
     Collections.shuffle(values, rnd);
 
-    TestIterable<Integer> anIterable = new TestIterable<>(values);
-    Object result = function.execute(null, null, null, anIterable, null);
+    var anIterable = new TestIterable<Integer>(values);
+    var result = function.execute(null, null, null, anIterable, null);
 
     Assert.assertTrue(result instanceof Set<?>);
     Assert.assertEquals(values, ((Set<?>) result).stream().toList());

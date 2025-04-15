@@ -19,16 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.stat;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
+import javax.annotation.Nullable;
 
 /**
  * Compute the mode (or multimodal) value for a field. The scores in the field's distribution that
@@ -50,13 +49,13 @@ public class SQLFunctionMode extends SQLFunctionAbstract {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
 
     if (MultiValue.isMultiValue(iParams[0])) {
-      for (Object o : MultiValue.getMultiValueIterable(iParams[0])) {
+      for (var o : MultiValue.getMultiValueIterable(iParams[0])) {
         max = evaluate(o, 1, seen, maxElems, max);
       }
     } else {
@@ -65,13 +64,10 @@ public class SQLFunctionMode extends SQLFunctionAbstract {
     return getResult();
   }
 
+  @Nullable
   @Override
   public Object getResult() {
-    if (returnDistributedResult()) {
-      return seen;
-    } else {
-      return maxElems.isEmpty() ? null : maxElems;
-    }
+    return maxElems.isEmpty() ? null : maxElems;
   }
 
   @Override
@@ -82,31 +78,6 @@ public class SQLFunctionMode extends SQLFunctionAbstract {
   @Override
   public boolean aggregateResults() {
     return true;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      Object2IntOpenHashMap<Object> dSeen = new Object2IntOpenHashMap<>();
-      dSeen.defaultReturnValue(-1);
-
-      int dMax = 0;
-      List<Object> dMaxElems = new ArrayList<Object>();
-      for (Object iParameter : resultsToMerge) {
-        final Map<Object, Integer> mSeen = (Map<Object, Integer>) iParameter;
-        for (Entry<Object, Integer> o : mSeen.entrySet()) {
-          dMax = this.evaluate(o.getKey(), o.getValue(), dSeen, dMaxElems, dMax);
-        }
-      }
-      return dMaxElems;
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
   }
 
   private int evaluate(

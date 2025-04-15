@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import java.util.Map;
 import java.util.Objects;
 
@@ -42,7 +43,7 @@ public class SQLCreatePropertyAttributeStatement extends SimpleNode {
   }
 
   public SQLCreatePropertyAttributeStatement copy() {
-    SQLCreatePropertyAttributeStatement result = new SQLCreatePropertyAttributeStatement(-1);
+    var result = new SQLCreatePropertyAttributeStatement(-1);
     result.settingName = settingName == null ? null : settingName.copy();
     result.settingValue = settingValue == null ? null : settingValue.copy();
     return result;
@@ -57,7 +58,7 @@ public class SQLCreatePropertyAttributeStatement extends SimpleNode {
       return false;
     }
 
-    SQLCreatePropertyAttributeStatement that = (SQLCreatePropertyAttributeStatement) o;
+    var that = (SQLCreatePropertyAttributeStatement) o;
 
     if (!Objects.equals(settingName, that.settingName)) {
       return false;
@@ -67,44 +68,45 @@ public class SQLCreatePropertyAttributeStatement extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = settingName != null ? settingName.hashCode() : 0;
+    var result = settingName != null ? settingName.hashCode() : 0;
     result = 31 * result + (settingValue != null ? settingValue.hashCode() : 0);
     return result;
   }
 
-  public Object setOnProperty(SchemaPropertyImpl internalProp, CommandContext ctx) {
-    String attrName = settingName.getStringValue();
-    var db = ctx.getDatabase();
-    Object attrValue =
+  public Object setOnProperty(SchemaPropertyInternal internalProp, CommandContext ctx) {
+    var attrName = settingName.getStringValue();
+    var session = ctx.getDatabaseSession();
+    var attrValue =
         this.settingValue == null ? true : this.settingValue.execute((Identifiable) null, ctx);
     try {
       if (attrName.equalsIgnoreCase("readonly")) {
-        internalProp.setReadonly(db, (boolean) attrValue);
+        internalProp.setReadonly((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("mandatory")) {
-        internalProp.setMandatory(db, (boolean) attrValue);
+        internalProp.setMandatory((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("notnull")) {
-        internalProp.setNotNull(db, (boolean) attrValue);
+        internalProp.setNotNull((boolean) attrValue);
       } else if (attrName.equalsIgnoreCase("max")) {
-        internalProp.setMax(db, "" + attrValue);
+        internalProp.setMax("" + attrValue);
       } else if (attrName.equalsIgnoreCase("min")) {
-        internalProp.setMin(db, "" + attrValue);
+        internalProp.setMin("" + attrValue);
       } else if (attrName.equalsIgnoreCase("default")) {
         if (this.settingValue == null) {
-          throw new CommandExecutionException("");
+          throw new CommandExecutionException(session, "");
         }
-        internalProp.setDefaultValue(db, "" + attrValue);
+        internalProp.setDefaultValue("" + attrValue);
       } else if (attrName.equalsIgnoreCase("collate")) {
-        internalProp.setCollate(db, "" + attrValue);
+        internalProp.setCollate("" + attrValue);
       } else if (attrName.equalsIgnoreCase("regexp")) {
-        internalProp.setRegexp(db, "" + attrValue);
+        internalProp.setRegexp("" + attrValue);
       } else {
-        throw new CommandExecutionException("Invalid attribute definition: '" + attrName + "'");
+        throw new CommandExecutionException(session,
+            "Invalid attribute definition: '" + attrName + "'");
       }
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new CommandExecutionException(
+          new CommandExecutionException(session,
               "Cannot set attribute on property " + settingName.getStringValue() + " " + attrValue),
-          e);
+          e, session);
     }
     return attrValue;
   }

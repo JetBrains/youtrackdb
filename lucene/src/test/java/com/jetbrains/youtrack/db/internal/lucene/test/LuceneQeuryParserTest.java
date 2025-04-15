@@ -2,8 +2,6 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.junit.Before;
 import org.junit.Test;
@@ -15,21 +13,21 @@ public class LuceneQeuryParserTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    db.execute("sql", getScriptFromStream(stream)).close();
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    session.runScript("sql", getScriptFromStream(stream)).close();
   }
 
   @Test
   public void shouldSearchWithLeadingWildcard() {
 
     // enabling leading wildcard
-    db.command(
+    session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE metadata"
                 + " {\"allowLeadingWildcard\": true}")
         .close();
 
     // querying with leading wildcard
-    ResultSet docs = db.query("select * from Song where [title] LUCENE \"(title:*tain)\"");
+    var docs = session.query("select * from Song where [title] LUCENE \"(title:*tain)\"");
 
     assertThat(docs).hasSize(4);
   }
@@ -38,18 +36,18 @@ public class LuceneQeuryParserTest extends BaseLuceneTest {
   public void shouldSearchWithLowercaseExpandedTerms() {
 
     // enabling leading wildcard
-    db.command(
+    session.execute(
             "create index Song.author on Song (author) FULLTEXT ENGINE LUCENE metadata"
                 + " {\"default\": \""
                 + KeywordAnalyzer.class.getCanonicalName()
                 + "\", \"lowercaseExpandedTerms\": false}")
         .close();
 
-    ResultSet docs = db.query("select * from Song where [author] LUCENE \"Hunter\"");
+    var docs = session.query("select * from Song where [author] LUCENE \"Hunter\"");
 
     assertThat(docs).hasSize(97);
 
-    docs = db.query("select * from Song where [author] LUCENE \"HUNTER\"");
+    docs = session.query("select * from Song where [author] LUCENE \"HUNTER\"");
 
     assertThat(docs).hasSize(0);
   }

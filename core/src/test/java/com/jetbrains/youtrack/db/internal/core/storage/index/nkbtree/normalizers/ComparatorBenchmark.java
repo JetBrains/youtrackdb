@@ -1,9 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.nkbtree.normalizers;
 
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.comparator.ByteArrayComparator;
 import com.jetbrains.youtrack.db.internal.common.comparator.UnsafeByteArrayComparator;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.text.Collator;
 import java.util.concurrent.TimeUnit;
 import org.junit.Assert;
@@ -21,7 +22,6 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.profile.StackProfiler;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 @State(Scope.Thread)
@@ -35,7 +35,7 @@ public class ComparatorBenchmark {
   KeyNormalizer keyNormalizer;
 
   public static void main(String[] args) throws RunnerException {
-    final Options opt =
+    final var opt =
         new OptionsBuilder()
             .include("ComparatorBenchmark.*")
             .addProfiler(StackProfiler.class, "detailLine=true;excludePackages=true;period=1")
@@ -94,12 +94,12 @@ public class ComparatorBenchmark {
   }
 
   private byte[] getNormalizedKeySingle(final int keyValue, final PropertyType type) {
-    final CompositeKey compositeKey = new CompositeKey();
+    final var compositeKey = new CompositeKey();
     compositeKey.addKey(keyValue);
     Assert.assertEquals(1, compositeKey.getKeys().size());
 
-    final PropertyType[] types = new PropertyType[1];
-    types[0] = type;
+    final var types = new PropertyTypeInternal[1];
+    types[0] = PropertyTypeInternal.convertFromPublicType(type);
 
     return keyNormalizer.normalize(compositeKey, types, Collator.NO_DECOMPOSITION);
   }

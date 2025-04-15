@@ -1,42 +1,48 @@
 package com.jetbrains.youtrack.db.internal.core.db.record.impl;
 
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class DirtyManagerReferenceCleanTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    db.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSchema().createClass("test");
   }
 
   @Test
   public void testReferDeletedDocument() {
-    db.begin();
-    EntityImpl doc = new EntityImpl();
-    EntityImpl doc1 = new EntityImpl();
-    doc1.field("aa", "aa");
-    doc.field("ref", doc1);
-    doc.field("bb");
+    var id = session.computeInTx(transaction -> {
+      var doc = (EntityImpl) session.newEntity();
+      var doc1 = (EntityImpl) session.newEntity();
+      doc1.setProperty("aa", "aa");
+      doc.setProperty("ref", doc1);
+      doc.getProperty("bb");
 
-    doc.save(db.getClusterNameById(db.getDefaultClusterId()));
-    Identifiable id = doc.getIdentity();
-    db.commit();
+      return doc.getIdentity();
+    });
 
-    db.begin();
-    doc = db.load(id.getIdentity());
-    doc1 = doc.field("ref");
-    doc1.delete();
-    doc.field("ab", "ab");
-    Assert.assertFalse(RecordInternal.getDirtyManager(doc).getUpdateRecords().contains(doc1));
-    db.commit();
+    var rid1 = session.computeInTx(transaction -> {
+      var doc = session.loadEntity(id.getIdentity());
+      var doc1 = doc.getEntity("ref");
+      doc1.delete();
+      doc.setProperty("ab", "ab");
+      return doc1.getIdentity();
+    });
+
+    session.executeInTx(transaction -> {
+      try {
+        session.loadEntity(rid1);
+        Assert.fail();
+      } catch (RecordNotFoundException e) {
+        //
+      }
+      var doc = session.loadEntity(id.getIdentity());
+      Assert.assertEquals("ab", doc.getProperty("ab"));
+    });
   }
 }

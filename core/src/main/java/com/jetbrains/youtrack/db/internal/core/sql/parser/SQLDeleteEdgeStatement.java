@@ -2,13 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteEdgeExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -21,7 +21,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
   private static final Object unset = new Object();
 
   protected SQLIdentifier className;
-  protected SQLIdentifier targetClusterName;
+  protected SQLIdentifier targetCollectionName;
 
   protected SQLRid rid;
   protected List<SQLRid> rids;
@@ -44,12 +44,13 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     DeleteExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -58,25 +59,25 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
       executionPlan = (DeleteExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
-    return execute(db, params, parentCtx, usePlanCache);
+    return execute(session, params, parentCtx, usePlanCache);
   }
 
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    DeleteEdgeExecutionPlanner planner = new DeleteEdgeExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, true);
+    var planner = new DeleteEdgeExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, true);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -84,8 +85,8 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
 
   public InternalExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
-    DeleteEdgeExecutionPlanner planner = new DeleteEdgeExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, false);
+    var planner = new DeleteEdgeExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, false);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -97,9 +98,9 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     if (className != null) {
       builder.append(" ");
       className.toString(params, builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toString(params, builder);
+      if (targetCollectionName != null) {
+        builder.append(" COLLECTION ");
+        targetCollectionName.toString(params, builder);
       }
     }
 
@@ -109,8 +110,8 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     }
     if (rids != null) {
       builder.append(" [");
-      boolean first = true;
-      for (SQLRid rid : rids) {
+      var first = true;
+      for (var rid : rids) {
         if (!first) {
           builder.append(", ");
         }
@@ -147,9 +148,9 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     if (className != null) {
       builder.append(" ");
       className.toGenericStatement(builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toGenericStatement(builder);
+      if (targetCollectionName != null) {
+        builder.append(" COLLECTION ");
+        targetCollectionName.toGenericStatement(builder);
       }
     }
 
@@ -159,8 +160,8 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     }
     if (rids != null) {
       builder.append(" [");
-      boolean first = true;
-      for (SQLRid rid : rids) {
+      var first = true;
+      for (var rid : rids) {
         if (!first) {
           builder.append(", ");
         }
@@ -200,7 +201,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
       throw new RuntimeException(e);
     }
     result.className = className == null ? null : className.copy();
-    result.targetClusterName = targetClusterName == null ? null : targetClusterName.copy();
+    result.targetCollectionName = targetCollectionName == null ? null : targetCollectionName.copy();
     result.rid = rid == null ? null : rid.copy();
     result.rids =
         rids == null ? null : rids.stream().map(x -> x.copy()).collect(Collectors.toList());
@@ -233,12 +234,12 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
       return false;
     }
 
-    SQLDeleteEdgeStatement that = (SQLDeleteEdgeStatement) o;
+    var that = (SQLDeleteEdgeStatement) o;
 
     if (!Objects.equals(className, that.className)) {
       return false;
     }
-    if (!Objects.equals(targetClusterName, that.targetClusterName)) {
+    if (!Objects.equals(targetCollectionName, that.targetCollectionName)) {
       return false;
     }
     if (!Objects.equals(rid, that.rid)) {
@@ -264,8 +265,8 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = className != null ? className.hashCode() : 0;
-    result = 31 * result + (targetClusterName != null ? targetClusterName.hashCode() : 0);
+    var result = className != null ? className.hashCode() : 0;
+    result = 31 * result + (targetCollectionName != null ? targetCollectionName.hashCode() : 0);
     result = 31 * result + (rid != null ? rid.hashCode() : 0);
     result = 31 * result + (rids != null ? rids.hashCode() : 0);
     result = 31 * result + (leftExpression != null ? leftExpression.hashCode() : 0);
@@ -284,12 +285,12 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     this.className = className;
   }
 
-  public SQLIdentifier getTargetClusterName() {
-    return targetClusterName;
+  public SQLIdentifier getTargetCollectionName() {
+    return targetCollectionName;
   }
 
-  public void setTargetClusterName(SQLIdentifier targetClusterName) {
-    this.targetClusterName = targetClusterName;
+  public void setTargetCollectionName(SQLIdentifier targetCollectionName) {
+    this.targetCollectionName = targetCollectionName;
   }
 
   public SQLRid getRid() {

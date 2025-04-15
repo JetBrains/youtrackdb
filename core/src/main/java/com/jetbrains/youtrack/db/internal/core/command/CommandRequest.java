@@ -21,6 +21,8 @@ package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.List;
 import javax.annotation.Nonnull;
 
 /**
@@ -29,7 +31,7 @@ import javax.annotation.Nonnull;
  */
 public interface CommandRequest {
 
-  <RET> RET execute(@Nonnull DatabaseSessionInternal querySession, Object... iArgs);
+  List<EntityImpl> execute(@Nonnull DatabaseSessionInternal querySession, Object... iArgs);
 
   /**
    * This api is deprecated use sql keyword "LIMIT" instead

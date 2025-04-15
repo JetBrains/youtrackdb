@@ -45,7 +45,7 @@ public class ExecutionThreadLocal extends ThreadLocal<ExecutionThreadData> {
   public static volatile ExecutionThreadLocal INSTANCE = new ExecutionThreadLocal();
 
   public static boolean isInterruptCurrentOperation() {
-    final Thread t = Thread.currentThread();
+    final var t = Thread.currentThread();
     if (t instanceof SoftThread) {
       return ((SoftThread) t).isShutdownFlag();
     }
@@ -59,14 +59,14 @@ public class ExecutionThreadLocal extends ThreadLocal<ExecutionThreadData> {
   }
 
   public static void setInterruptCurrentOperation() {
-    final Thread t = Thread.currentThread();
+    final var t = Thread.currentThread();
     if (t instanceof SoftThread) {
       ((SoftThread) t).softShutdown();
     }
   }
 
   static {
-    final YouTrackDBEnginesManager inst = YouTrackDBEnginesManager.instance();
+    final var inst = YouTrackDBEnginesManager.instance();
     inst.registerListener(
         new YouTrackDBListenerAbstract() {
           @Override

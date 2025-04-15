@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import javax.annotation.Nullable;
 
 /**
  * Stub for double write log
@@ -26,6 +27,7 @@ public class DoubleWriteLogNoOP implements DoubleWriteLog {
   public void open(String storageName, Path storagePath, int pageSize) {
   }
 
+  @Nullable
   @Override
   public Pointer loadPage(int fileId, int pageIndex, ByteBufferPool bufferPool) {
     return null;

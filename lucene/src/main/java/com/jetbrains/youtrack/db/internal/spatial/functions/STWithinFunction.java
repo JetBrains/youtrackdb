@@ -13,14 +13,15 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderWithin;
-import org.locationtech.spatial4j.shape.Shape;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -33,10 +34,11 @@ public class STWithinFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -44,13 +46,14 @@ public class STWithinFunction extends SpatialFunctionAbstractIndexable {
     if (containsNull(iParams)) {
       return null;
     }
-    Shape shape = factory.fromObject(iParams[0]);
+    var shape = factory.fromObject(iParams[0]);
 
-    Shape shape1 = factory.fromObject(iParams[1]);
+    var shape1 = factory.fromObject(iParams[1]);
 
     return factory.operation().within(shape, shape1);
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;

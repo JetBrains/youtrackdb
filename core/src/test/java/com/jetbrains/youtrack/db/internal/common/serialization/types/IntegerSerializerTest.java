@@ -16,12 +16,13 @@
 
 package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
@@ -31,101 +32,114 @@ public class IntegerSerializerTest {
 
   private static final int FIELD_SIZE = 4;
   private static final Integer OBJECT = 1;
-  private IntegerSerializer integerSerializer;
+
+  private static IntegerSerializer integerSerializer;
+  private static BinarySerializerFactory serializerFactory;
+
   byte[] stream = new byte[FIELD_SIZE];
 
-  @Before
-  public void beforeClass() {
+  @BeforeClass
+  public static void beforeClass() {
     integerSerializer = new IntegerSerializer();
+    serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
   }
 
   @Test
   public void testFieldSize() {
-    Assert.assertEquals(integerSerializer.getObjectSize(null), FIELD_SIZE);
+    Assert.assertEquals(FIELD_SIZE, integerSerializer.getObjectSize(serializerFactory, null));
   }
 
   @Test
   public void testSerialize() {
-    integerSerializer.serialize(OBJECT, stream, 0);
-    Assert.assertEquals(integerSerializer.deserialize(stream, 0), OBJECT);
+    integerSerializer.serialize(OBJECT, serializerFactory, stream, 0);
+    Assert.assertEquals(OBJECT, integerSerializer.deserialize(serializerFactory, stream, 0));
   }
 
   @Test
   public void testSerializeNative() {
-    integerSerializer.serializeNative(OBJECT, stream, 0);
-    Assert.assertEquals(integerSerializer.deserializeNativeObject(stream, 0), OBJECT);
+    IntegerSerializer.serializeNative(OBJECT, stream, 0);
+    Assert.assertEquals(OBJECT,
+        integerSerializer.deserializeNativeObject(serializerFactory, stream, 0));
   }
 
   @Test
   public void testNativeDirectMemoryCompatibility() {
-    integerSerializer.serializeNative(OBJECT, stream, 0);
+    IntegerSerializer.serializeNative(OBJECT, stream, 0);
 
-    ByteBuffer buffer = ByteBuffer.allocateDirect(stream.length).order(ByteOrder.nativeOrder());
+    var buffer = ByteBuffer.allocateDirect(stream.length).order(ByteOrder.nativeOrder());
     buffer.put(stream);
     buffer.position(0);
 
-    Assert.assertEquals(integerSerializer.deserializeFromByteBufferObject(buffer), OBJECT);
+    Assert.assertEquals(OBJECT,
+        integerSerializer.deserializeFromByteBufferObject(serializerFactory, buffer));
   }
 
   @Test
   public void testSerializeInByteBuffer() {
-    final int serializationOffset = 5;
-    final ByteBuffer buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
+    final var serializationOffset = 5;
+    final var buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
 
     buffer.position(serializationOffset);
-    integerSerializer.serializeInByteBufferObject(OBJECT, buffer);
+    integerSerializer.serializeInByteBufferObject(serializerFactory, OBJECT, buffer);
 
-    final int binarySize = buffer.position() - serializationOffset;
-    Assert.assertEquals(binarySize, FIELD_SIZE);
-
-    buffer.position(serializationOffset);
-    Assert.assertEquals(integerSerializer.getObjectSizeInByteBuffer(buffer), FIELD_SIZE);
+    final var binarySize = buffer.position() - serializationOffset;
+    Assert.assertEquals(FIELD_SIZE, binarySize);
 
     buffer.position(serializationOffset);
-    Assert.assertEquals(integerSerializer.deserializeFromByteBufferObject(buffer), OBJECT);
+    Assert.assertEquals(FIELD_SIZE,
+        integerSerializer.getObjectSizeInByteBuffer(serializerFactory, buffer));
 
-    Assert.assertEquals(buffer.position() - serializationOffset, FIELD_SIZE);
+    buffer.position(serializationOffset);
+    Assert.assertEquals(OBJECT,
+        integerSerializer.deserializeFromByteBufferObject(serializerFactory, buffer));
+
+    Assert.assertEquals(FIELD_SIZE, buffer.position() - serializationOffset);
   }
 
   @Test
   public void testSerializeInImmutableByteBufferPosition() {
-    final int serializationOffset = 5;
-    final ByteBuffer buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
+    final var serializationOffset = 5;
+    final var buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
 
     buffer.position(serializationOffset);
-    integerSerializer.serializeInByteBufferObject(OBJECT, buffer);
+    integerSerializer.serializeInByteBufferObject(serializerFactory, OBJECT, buffer);
 
-    final int binarySize = buffer.position() - serializationOffset;
-    Assert.assertEquals(binarySize, FIELD_SIZE);
+    final var binarySize = buffer.position() - serializationOffset;
+    Assert.assertEquals(FIELD_SIZE, binarySize);
 
     buffer.position(0);
-    Assert.assertEquals(integerSerializer.getObjectSizeInByteBuffer(buffer), FIELD_SIZE);
+    Assert.assertEquals(FIELD_SIZE,
+        integerSerializer.getObjectSizeInByteBuffer(serializerFactory, buffer));
     Assert.assertEquals(0, buffer.position());
 
     Assert.assertEquals(
-        integerSerializer.deserializeFromByteBufferObject(serializationOffset, buffer), OBJECT);
+        OBJECT,
+        integerSerializer.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
+            buffer));
     Assert.assertEquals(0, buffer.position());
   }
 
   @Test
   public void testSerializeWALChanges() {
-    final int serializationOffset = 5;
-    final ByteBuffer buffer =
+    final var serializationOffset = 5;
+    final var buffer =
         ByteBuffer.allocateDirect(
                 FIELD_SIZE + serializationOffset + WALPageChangesPortion.PORTION_BYTES)
             .order(ByteOrder.nativeOrder());
-    final byte[] data = new byte[FIELD_SIZE];
-    integerSerializer.serializeNative(OBJECT, data, 0);
+    final var data = new byte[FIELD_SIZE];
+    IntegerSerializer.serializeNative(OBJECT, data, 0);
 
     WALChanges walChanges = new WALPageChangesPortion();
     walChanges.setBinaryValue(buffer, data, serializationOffset);
 
     Assert.assertEquals(
-        integerSerializer.getObjectSizeInByteBuffer(buffer, walChanges, serializationOffset),
-        FIELD_SIZE);
+        FIELD_SIZE,
+        integerSerializer.getObjectSizeInByteBuffer(buffer, walChanges, serializationOffset));
     Assert.assertEquals(
-        integerSerializer.deserializeFromByteBufferObject(buffer, walChanges, serializationOffset),
-        OBJECT);
+        OBJECT,
+        integerSerializer.deserializeFromByteBufferObject(serializerFactory, buffer, walChanges,
+            serializationOffset));
 
     Assert.assertEquals(0, buffer.position());
   }

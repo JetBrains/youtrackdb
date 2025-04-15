@@ -22,7 +22,7 @@ public class Plotter {
       final String xAxisTitle,
       final String yAxisTitle,
       final Styler.LegendPosition position) {
-    final CategoryChart chart =
+    final var chart =
         new CategoryChartBuilder()
             .width(500)
             .height(500)
@@ -41,7 +41,7 @@ public class Plotter {
       final String xAxisTitle,
       final String yAxisTitle,
       final Styler.LegendPosition position) {
-    final XYChart chart =
+    final var chart =
         new XYChartBuilder()
             .width(500)
             .height(500) // .title(chartName)
@@ -58,7 +58,7 @@ public class Plotter {
   }
 
   public Histogram addSeriesToHistogram(final CategoryChart chart) {
-    Histogram histogram = new Histogram(getGaussianData(10000), 10, -10, 10);
+    var histogram = new Histogram(getGaussianData(10000), 10, -10, 10);
     chart.addSeries(
         "histogram",
         histogram.getxAxisData(),
@@ -68,14 +68,14 @@ public class Plotter {
   }
 
   public Histogram addSeriesToHistogram(final CategoryChart chart, final List<Double> data) {
-    Histogram histogram = new Histogram(data, 10, -10, 10);
+    var histogram = new Histogram(data, 10, -10, 10);
     chart.addSeries("histogram", histogram.getxAxisData(), histogram.getyAxisData());
     return histogram;
   }
 
   public Histogram addSeriesToHistogram(
       final CategoryChart chart, final List<Double> data, final List<Double> errorData) {
-    Histogram histogram = new Histogram(data, 10, -10, 10);
+    var histogram = new Histogram(data, 10, -10, 10);
     chart.addSeries("histogram", histogram.getxAxisData(), histogram.getyAxisData(), errorData);
     return histogram;
   }
@@ -87,15 +87,15 @@ public class Plotter {
   }
 
   public void addSeriesToLineChart(final XYChart chart, final List<LineResultData> seriesData) {
-    for (final LineResultData lrd : seriesData) {
+    for (final var lrd : seriesData) {
       this.addSeriesToLineChart(chart, lrd.getSeriesName(), lrd.getxData(), lrd.getyData());
     }
   }
 
   private List<Double> getGaussianData(int count) {
     List<Double> data = new ArrayList<Double>(count);
-    Random r = new Random();
-    for (int i = 0; i < count; i++) {
+    var r = new Random();
+    for (var i = 0; i < count; i++) {
       data.add(r.nextGaussian() * 5);
     }
     return data;
@@ -103,8 +103,8 @@ public class Plotter {
 
   private List<Double> getFakeErrorData(int count) {
     final List<Double> data = new ArrayList<Double>(count);
-    Random r = new Random();
-    for (int i = 0; i < count; i++) {
+    var r = new Random();
+    for (var i = 0; i < count; i++) {
       data.add(r.nextDouble() * 200);
     }
     return data;

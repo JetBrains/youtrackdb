@@ -1,18 +1,14 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -33,69 +29,69 @@ public class LinkSetIndexTest extends BaseDBTest {
 
   @BeforeClass
   public void setupSchema() {
-    final SchemaClass ridBagIndexTestClass =
-        database.getMetadata().getSchema().createClass("LinkSetIndexTestClass");
+    final var ridBagIndexTestClass =
+        session.getMetadata().getSchema().createClass("LinkSetIndexTestClass");
 
-    ridBagIndexTestClass.createProperty(database, "linkSet", PropertyType.LINKSET);
+    ridBagIndexTestClass.createProperty("linkSet", PropertyType.LINKSET);
 
-    ridBagIndexTestClass.createIndex(database, "linkSetIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    ridBagIndexTestClass.createIndex("linkSetIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "linkSet");
-    database.close();
+    session.close();
   }
 
   @BeforeMethod
   public void beforeMethod() {
-    database = createSessionInstance();
+    session = createSessionInstance();
   }
 
   @AfterMethod
   public void afterMethod() {
     checkEmbeddedDB();
 
-    database.begin();
-    database.command("DELETE FROM LinkSetIndexTestClass").close();
-    database.commit();
+    session.begin();
+    session.execute("DELETE FROM LinkSetIndexTestClass").close();
+    session.commit();
 
-    ResultSet result = database.command("select from LinkSetIndexTestClass");
+    session.begin();
+    var result = session.execute("select from LinkSetIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
-    if (database.getStorage().isRemote()) {
-      Index index =
-          database.getMetadata().getIndexManagerInternal().getIndex(database, "linkSetIndex");
-      Assert.assertEquals(index.getInternal().size(database), 0);
+    if (session.getStorage().isRemote()) {
+      var index =
+          session.getSharedContext().getIndexManager().getIndex(session, "linkSetIndex");
+      Assert.assertEquals(index.size(session), 0);
     }
+    session.commit();
 
-    database.close();
+    session.close();
   }
 
   public void testIndexLinkSet() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    session.commit();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -107,38 +103,39 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetInTx() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    final var docTwo = ((EntityImpl) session.newEntity());
+
+    session.commit();
 
     try {
-      database.begin();
-      final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-      final Set<Identifiable> linkSet = new HashSet<>();
-      linkSet.add(database.bindToSession(docOne));
-      linkSet.add(database.bindToSession(docTwo));
+      session.begin();
+      final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+      final var linkSet = session.newLinkSet();
+      var activeTx1 = session.getActiveTransaction();
+      linkSet.add(activeTx1.<EntityImpl>load(docOne));
+      var activeTx = session.getActiveTransaction();
+      linkSet.add(activeTx.<EntityImpl>load(docTwo));
 
-      document.field("linkSet", linkSet);
-      document.save();
-      database.commit();
+      document.setProperty("linkSet", linkSet);
+
+      session.commit();
     } catch (Exception e) {
-      database.rollback();
+      session.rollback();
       throw e;
     }
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -150,41 +147,37 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdate() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSetOne = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSetOne = session.newLinkSet();
     linkSetOne.add(docOne);
     linkSetOne.add(docTwo);
 
-    document.field("linkSet", linkSetOne);
-    document.save();
+    document.setProperty("linkSet", linkSetOne);
 
-    final Set<Identifiable> linkSetTwo = new HashSet<>();
+    final var linkSetTwo = session.newLinkSet();
     linkSetTwo.add(docOne);
     linkSetTwo.add(docThree);
 
-    document.field("linkSet", linkSetTwo);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSetTwo);
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    session.commit();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docThree.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -196,50 +189,50 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateInTx() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSetOne = new HashSet<>();
+    var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSetOne = session.newLinkSet();
     linkSetOne.add(docOne);
     linkSetOne.add(docTwo);
 
-    document.field("linkSet", linkSetOne);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSetOne);
+
+    session.commit();
 
     try {
-      database.begin();
+      session.begin();
 
-      document = database.bindToSession(document);
-      final Set<Identifiable> linkSetTwo = new HashSet<>();
-      linkSetTwo.add(database.bindToSession(docOne));
-      linkSetTwo.add(database.bindToSession(docThree));
+      var activeTx2 = session.getActiveTransaction();
+      document = activeTx2.load(document);
+      final var linkSetTwo = session.newLinkSet();
+      var activeTx1 = session.getActiveTransaction();
+      linkSetTwo.add(activeTx1.<EntityImpl>load(docOne));
+      var activeTx = session.getActiveTransaction();
+      linkSetTwo.add(activeTx.<EntityImpl>load(docThree));
 
-      document.field("linkSet", linkSetTwo);
-      document.save();
-      database.commit();
+      document.setProperty("linkSet", linkSetTwo);
+
+      session.commit();
     } catch (Exception e) {
-      database.rollback();
+      session.rollback();
       throw e;
     }
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docThree.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -251,45 +244,45 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateInTxRollback() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    final Set<Identifiable> linkSetOne = new HashSet<>();
+    final var linkSetOne = session.newLinkSet();
     linkSetOne.add(docOne);
     linkSetOne.add(docTwo);
 
-    EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    document.field("linkSet", linkSetOne);
-    document.save();
-    database.commit();
+    var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    document.setProperty("linkSet", linkSetOne);
 
-    database.begin();
+    session.commit();
 
-    document = database.bindToSession(document);
-    final Set<Identifiable> linkSetTwo = new HashSet<>();
-    linkSetTwo.add(database.bindToSession(docOne));
-    linkSetTwo.add(database.bindToSession(docThree));
+    session.begin();
 
-    document.field("linkSet", linkSetTwo);
-    document.save();
-    database.rollback();
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    final var linkSetTwo = session.newLinkSet();
+    var activeTx1 = session.getActiveTransaction();
+    linkSetTwo.add(activeTx1.<EntityImpl>load(docOne));
+    var activeTx = session.getActiveTransaction();
+    linkSetTwo.add(activeTx.<EntityImpl>load(docThree));
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    document.setProperty("linkSet", linkSetTwo);
+
+    session.rollback();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -301,44 +294,40 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateAddItem() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
-    document.field("linkSet", linkSet);
+    document.setProperty("linkSet", linkSet);
 
-    document.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    database
-        .command(
+    session.begin();
+    session
+        .execute(
             "UPDATE "
                 + document.getIdentity()
                 + " set linkSet = linkSet || "
                 + docThree.getIdentity())
         .close();
-    database.commit();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 3);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())
             && !key.getIdentity().equals(docThree.getIdentity())) {
@@ -351,45 +340,44 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateAddItemInTx() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save();
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save();
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save();
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
+
+    session.commit();
 
     try {
-      database.begin();
-      EntityImpl loadedDocument = database.load(document.getIdentity());
-      loadedDocument.<Set<Identifiable>>field("linkSet").add(database.bindToSession(docThree));
-      loadedDocument.save();
-      database.commit();
+      session.begin();
+      EntityImpl loadedDocument = session.load(document.getIdentity());
+      var activeTx = session.getActiveTransaction();
+      loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(
+          activeTx.<EntityImpl>load(docThree));
+
+      session.commit();
     } catch (Exception e) {
-      database.rollback();
+      session.rollback();
       throw e;
     }
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 3);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())
             && !key.getIdentity().equals(docThree.getIdentity())) {
@@ -402,40 +390,39 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateAddItemInTxRollback() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    database.begin();
-    EntityImpl loadedDocument = database.load(document.getIdentity());
-    loadedDocument.<Set<Identifiable>>field("linkSet").add(database.bindToSession(docThree));
-    loadedDocument.save();
-    database.rollback();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    session.begin();
+    EntityImpl loadedDocument = session.load(document.getIdentity());
+    var activeTx = session.getActiveTransaction();
+    loadedDocument.<Set<Identifiable>>getProperty("linkSet").add(
+        activeTx.<EntityImpl>load(docThree));
+
+    session.rollback();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -447,41 +434,39 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateRemoveItemInTx() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
+
+    session.commit();
 
     try {
-      database.begin();
-      EntityImpl loadedDocument = database.load(document.getIdentity());
-      loadedDocument.<Set<Identifiable>>field("linkSet").remove(docTwo);
-      loadedDocument.save();
-      database.commit();
+      session.begin();
+      EntityImpl loadedDocument = session.load(document.getIdentity());
+      loadedDocument.<Set<Identifiable>>getProperty("linkSet").remove(docTwo.getIdentity());
+
+      session.commit();
     } catch (Exception e) {
-      database.rollback();
+      session.rollback();
       throw e;
     }
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
         }
@@ -492,36 +477,34 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateRemoveItemInTxRollback() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    database.begin();
-    EntityImpl loadedDocument = database.load(document.getIdentity());
-    loadedDocument.<Set<Identifiable>>field("linkSet").remove(docTwo);
-    loadedDocument.save();
-    database.rollback();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    session.begin();
+    EntityImpl loadedDocument = session.load(document.getIdentity());
+    loadedDocument.<Set<Identifiable>>getProperty("linkSet").remove(docTwo.getIdentity());
+
+    session.rollback();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -533,37 +516,35 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetUpdateRemoveItem() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    database.begin();
-    database
-        .command("UPDATE " + document.getIdentity() + " remove linkSet = " + docTwo.getIdentity())
+    session.commit();
+
+    session.begin();
+    session
+        .execute("UPDATE " + document.getIdentity() + " remove linkSet = " + docTwo.getIdentity())
         .close();
-    database.commit();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 1);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
         }
@@ -574,97 +555,94 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetRemove() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
 
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    database.begin();
-    database.bindToSession(document).delete();
-    database.commit();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 0);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
+    session.commit();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexLinkSetRemoveInTx() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
 
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var linkSet = session.newLinkSet();
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
+
+    session.commit();
 
     try {
-      database.begin();
-      database.bindToSession(document).delete();
-      database.commit();
+      session.begin();
+      var activeTx = session.getActiveTransaction();
+      activeTx.<EntityImpl>load(document).delete();
+      session.commit();
     } catch (Exception e) {
-      database.rollback();
+      session.rollback();
       throw e;
     }
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 0);
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 0);
   }
 
   public void testIndexLinkSetRemoveInTxRollback() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    final var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
 
     linkSet.add(docOne);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    database.begin();
-    database.bindToSession(document).delete();
-    database.rollback();
+    session.commit();
 
-    Index index = getIndex("linkSetIndex");
-    Assert.assertEquals(index.getInternal().size(database), 2);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    activeTx.<EntityImpl>load(document).delete();
+    session.rollback();
+
+    var index = getIndex("linkSetIndex");
+    Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (Stream<Object> keyStream = index.getInternal().keyStream()) {
+    try (var keyStream = index.keyStream()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
-        Identifiable key = (Identifiable) keysIterator.next();
+        var key = (Identifiable) keysIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
             && !key.getIdentity().equals(docTwo.getIdentity())) {
           Assert.fail("Unknown key found: " + key);
@@ -676,35 +654,32 @@ public class LinkSetIndexTest extends BaseDBTest {
   public void testIndexLinkSetSQL() {
     checkEmbeddedDB();
 
-    database.begin();
-    final EntityImpl docOne = new EntityImpl();
-    docOne.save(database.getClusterNameById(database.getDefaultClusterId()));
+    session.begin();
+    final var docOne = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docTwo = new EntityImpl();
-    docTwo.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docTwo = ((EntityImpl) session.newEntity());
 
-    final EntityImpl docThree = new EntityImpl();
-    docThree.save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var docThree = ((EntityImpl) session.newEntity());
 
-    EntityImpl document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSetOne = new HashSet<>();
+    var document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSetOne = session.newLinkSet();
     linkSetOne.add(docOne);
     linkSetOne.add(docTwo);
 
-    document.field("linkSet", linkSetOne);
-    document.save();
+    document.setProperty("linkSet", linkSetOne);
 
-    document = new EntityImpl("LinkSetIndexTestClass");
-    final Set<Identifiable> linkSet = new HashSet<>();
+    document = ((EntityImpl) session.newEntity("LinkSetIndexTestClass"));
+    final var linkSet = session.newLinkSet();
     linkSet.add(docThree);
     linkSet.add(docTwo);
 
-    document.field("linkSet", linkSet);
-    document.save();
-    database.commit();
+    document.setProperty("linkSet", linkSet);
 
-    ResultSet result =
-        database.query(
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query(
             "select * from LinkSetIndexTestClass where linkSet contains ?", docOne.getIdentity());
 
     List<Identifiable> listResult =
@@ -712,5 +687,6 @@ public class LinkSetIndexTest extends BaseDBTest {
     Assert.assertEquals(listResult.size(), 2);
     Assert.assertTrue(
         listResult.containsAll(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity())));
+    session.commit();
   }
 }

@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexAbstractCursor;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public class IndexCursorStream extends IndexAbstractCursor {
 
@@ -16,20 +17,21 @@ public class IndexCursorStream extends IndexAbstractCursor {
     iterator = stream.iterator();
   }
 
+  @Nullable
   @Override
   public Map.Entry<Object, Identifiable> nextEntry() {
     if (iterator.hasNext()) {
-      final RawPair<Object, RID> pair = iterator.next();
+      final var pair = iterator.next();
 
       return new Map.Entry<Object, Identifiable>() {
         @Override
         public Object getKey() {
-          return pair.first;
+          return pair.first();
         }
 
         @Override
         public Identifiable getValue() {
-          return pair.second;
+          return pair.second();
         }
 
         @Override

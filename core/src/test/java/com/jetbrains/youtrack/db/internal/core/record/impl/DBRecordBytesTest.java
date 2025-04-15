@@ -16,9 +16,10 @@
 
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.record.Blob;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.Arrays;
@@ -26,29 +27,26 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
-public class DBRecordBytesTest {
+
+public class DBRecordBytesTest extends DbTestBase {
 
   private static final int SMALL_ARRAY = 3;
   private static final int BIG_ARRAY = 7;
   private static final int FULL_ARRAY = 5;
   private InputStream inputStream;
   private InputStream emptyStream;
-  private Blob testedInstance;
 
   private static void assertArrayEquals(byte[] actual, byte[] expected) {
     assert actual.length == expected.length;
-    for (int i = 0; i < expected.length; i++) {
+    for (var i = 0; i < expected.length; i++) {
       assert actual[i] == expected[i];
     }
   }
 
   private static Object getFieldValue(Object source, String fieldName)
       throws NoSuchFieldException, IllegalAccessException {
-    final Class<?> clazz = source.getClass();
-    final Field field = getField(clazz, fieldName);
+    final var clazz = source.getClass();
+    final var field = getField(clazz, fieldName);
     field.setAccessible(true);
     return field.get(source);
   }
@@ -57,7 +55,7 @@ public class DBRecordBytesTest {
     if (clazz == null) {
       throw new NoSuchFieldException(fieldName);
     }
-    for (Field item : clazz.getDeclaredFields()) {
+    for (var item : clazz.getDeclaredFields()) {
       if (item.getName().equals(fieldName)) {
         return item;
       }
@@ -69,101 +67,160 @@ public class DBRecordBytesTest {
   public void setUp() throws Exception {
     inputStream = new ByteArrayInputStream(new byte[]{1, 2, 3, 4, 5});
     emptyStream = new ByteArrayInputStream(new byte[]{});
-    testedInstance = new RecordBytes();
+
   }
 
   @Test
   public void testFromInputStream_ReadEmpty() throws Exception {
-    final int result = testedInstance.fromInputStream(emptyStream, SMALL_ARRAY);
-    Assert.assertEquals(result, 0);
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
-    Assert.assertEquals(source.length, 0);
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(emptyStream, SMALL_ARRAY);
+    Assert.assertEquals(0, result);
+    final var source = (byte[]) getFieldValue(blob, "source");
+    Assert.assertEquals(0, source.length);
+    session.rollback();
   }
 
   @Test
   public void testFromInputStream_ReadSmall() throws Exception {
-    final int result = testedInstance.fromInputStream(inputStream, SMALL_ARRAY);
-    Assert.assertEquals(result, SMALL_ARRAY);
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
-    Assert.assertEquals(source.length, SMALL_ARRAY);
-    for (int i = 1; i < SMALL_ARRAY + 1; i++) {
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(inputStream, SMALL_ARRAY);
+    Assert.assertEquals(SMALL_ARRAY, result);
+    final var source = (byte[]) getFieldValue(blob, "source");
+    Assert.assertEquals(SMALL_ARRAY, source.length);
+    for (var i = 1; i < SMALL_ARRAY + 1; i++) {
       Assert.assertEquals(source[i - 1], i);
     }
+    session.rollback();
   }
 
   @Test
   public void testFromInputStream_ReadBig() throws Exception {
-    final int result = testedInstance.fromInputStream(inputStream, BIG_ARRAY);
-    Assert.assertEquals(result, FULL_ARRAY);
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
-    Assert.assertEquals(source.length, FULL_ARRAY);
-    for (int i = 1; i < FULL_ARRAY + 1; i++) {
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(inputStream, BIG_ARRAY);
+    Assert.assertEquals(FULL_ARRAY, result);
+    final var source = (byte[]) getFieldValue(blob, "source");
+    Assert.assertEquals(FULL_ARRAY, source.length);
+    for (var i = 1; i < FULL_ARRAY + 1; i++) {
       Assert.assertEquals(source[i - 1], i);
     }
+    session.rollback();
   }
 
   @Test
   public void testFromInputStream_ReadFull() throws Exception {
-    final int result = testedInstance.fromInputStream(inputStream, FULL_ARRAY);
-    Assert.assertEquals(result, FULL_ARRAY);
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
-    Assert.assertEquals(source.length, FULL_ARRAY);
-    for (int i = 1; i < FULL_ARRAY + 1; i++) {
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(inputStream, FULL_ARRAY);
+    Assert.assertEquals(FULL_ARRAY, result);
+    final var source = (byte[]) getFieldValue(blob, "source");
+    Assert.assertEquals(FULL_ARRAY, source.length);
+    for (var i = 1; i < FULL_ARRAY + 1; i++) {
       Assert.assertEquals(source[i - 1], i);
     }
+    session.rollback();
   }
 
   @Test
   public void testReadFromInputStreamWithWait() throws Exception {
-    final byte[] data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    final var data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     final InputStream is = new NotFullyAvailableAtTheTimeInputStream(data, 5);
 
-    final int result = testedInstance.fromInputStream(is);
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(is);
     Assert.assertEquals(result, data.length);
-    Assert.assertEquals(getFieldValue(testedInstance, "size"), Integer.valueOf(data.length));
+    Assert.assertEquals(getFieldValue(blob, "size"), data.length);
 
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
+    final var source = (byte[]) getFieldValue(blob, "source");
     assertArrayEquals(source, data);
+    session.rollback();
   }
 
   @Test
   public void testReadFromInputStreamWithWaitSizeLimit() throws Exception {
-    final byte[] data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    final var data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     final InputStream is = new NotFullyAvailableAtTheTimeInputStream(data, 5);
 
-    final int result = testedInstance.fromInputStream(is, 10);
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(is, 10);
     Assert.assertEquals(result, data.length);
-    Assert.assertEquals(getFieldValue(testedInstance, "size"), Integer.valueOf(data.length));
+    Assert.assertEquals(getFieldValue(blob, "size"), data.length);
 
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
+    final var source = (byte[]) getFieldValue(blob, "source");
     assertArrayEquals(source, data);
+    session.rollback();
   }
 
   @Test
   public void testReadFromInputStreamWithWaitSizeTooBigLimit() throws Exception {
-    final byte[] data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    final var data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     final InputStream is = new NotFullyAvailableAtTheTimeInputStream(data, 5);
 
-    final int result = testedInstance.fromInputStream(is, 15);
+    session.begin();
+    var blob = session.newBlob();
+    final var result = blob.fromInputStream(is, 15);
     Assert.assertEquals(result, data.length);
-    Assert.assertEquals(getFieldValue(testedInstance, "size"), Integer.valueOf(data.length));
+    Assert.assertEquals(getFieldValue(blob, "size"), data.length);
 
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
+    final var source = (byte[]) getFieldValue(blob, "source");
     assertArrayEquals(source, data);
+    session.rollback();
   }
 
   @Test
   public void testReadFromInputStreamWithWaitSizeTooSmallLimit() throws Exception {
-    final byte[] data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-    final byte[] expected = Arrays.copyOf(data, 8);
+    final var data = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    final var expected = Arrays.copyOf(data, 8);
     final InputStream is = new NotFullyAvailableAtTheTimeInputStream(data, 5);
 
-    final int result = testedInstance.fromInputStream(is, 8);
+    session.begin();
+    var testedInstance = session.newBlob();
+    final var result = testedInstance.fromInputStream(is, 8);
     Assert.assertEquals(result, expected.length);
-    Assert.assertEquals(getFieldValue(testedInstance, "size"), Integer.valueOf(expected.length));
+    Assert.assertEquals(getFieldValue(testedInstance, "size"), expected.length);
 
-    final byte[] source = (byte[]) getFieldValue(testedInstance, "source");
+    final var source = (byte[]) getFieldValue(testedInstance, "source");
     assertArrayEquals(source, expected);
+    session.rollback();
+  }
+
+  @Test
+  public void testBlobLinkSameTx() {
+
+    final var entityId = session.computeInTx(tx -> {
+      final var newBlob = tx.newBlob(new byte[]{1, 2, 3});
+      final var entity = tx.newEntity();
+      entity.setProperty("blob", newBlob);
+      return entity.getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      final var entity = tx.loadEntity(entityId);
+      assertThat(entity.getBlob("blob").toStream()).isEqualTo(new byte[]{1, 2, 3});
+    });
+  }
+
+  @Test
+  public void testBlobLinkDifferentTx() {
+    final var blobId =
+        session.computeInTx(tx -> tx.newBlob(new byte[]{1, 2, 3}).getIdentity());
+
+    final var entityId =
+        session.computeInTx(tx -> {
+          final var entity = tx.newEntity();
+          entity.setLink("blob", tx.loadBlob(blobId));
+          return entity.getIdentity();
+        });
+
+    session.executeInTx(tx -> {
+      final var entity = tx.loadEntity(entityId);
+      assertThat(entity.getLink("blob")).isEqualTo(blobId);
+      assertThat(entity.getBlob("blob").toStream()).isEqualTo(new byte[]{1, 2, 3});
+    });
   }
 
   private static final class NotFullyAvailableAtTheTimeInputStream extends InputStream {
@@ -179,14 +236,14 @@ public class DBRecordBytesTest {
     }
 
     @Override
-    public int read() throws IOException {
+    public int read() {
       pos++;
       if (pos < interrupt) {
-        return data[pos];
+        return data[pos] & 0xFF;
       } else if (pos == interrupt) {
         return -1;
       } else if (pos <= data.length) {
-        return data[pos - 1];
+        return data[pos - 1] & 0xFF;
       } else {
         return -1;
       }

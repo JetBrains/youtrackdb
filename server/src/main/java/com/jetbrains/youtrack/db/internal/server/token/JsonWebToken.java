@@ -2,13 +2,13 @@ package com.jetbrains.youtrack.db.internal.server.token;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.JwtPayload;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenHeader;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.YouTrackDBJwtHeader;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 
 /**
  *
@@ -68,7 +68,7 @@ public class JsonWebToken implements
   }
 
   @Override
-  public String getDatabase() {
+  public String getDatabaseName() {
     return payload.getDatabase();
   }
 
@@ -88,14 +88,17 @@ public class JsonWebToken implements
   }
 
   @Override
-  public SecurityUserIml getUser(DatabaseSessionInternal db) {
-    RID userRid = payload.getUserRid();
+  public SecurityUserImpl getUser(DatabaseSessionInternal session) {
+    var userRid = payload.getUserRid();
     EntityImpl result;
-    result = db.load(userRid);
-    if (!EntityInternalUtils.getImmutableSchemaClass(result).isOuser()) {
+    result = session.load(userRid);
+    SchemaImmutableClass res;
+
+    res = result.getImmutableSchemaClass(session);
+    if (!res.isUser()) {
       result = null;
     }
-    return new SecurityUserIml(db, result);
+    return new SecurityUserImpl(session, result);
   }
 
   @Override
@@ -105,13 +108,13 @@ public class JsonWebToken implements
 
   @Override
   public boolean isNowValid() {
-    long now = System.currentTimeMillis();
+    var now = System.currentTimeMillis();
     return getExpiry() > now && payload.getNotBefore() < now;
   }
 
   @Override
   public boolean isCloseToExpire() {
-    long now = System.currentTimeMillis();
+    var now = System.currentTimeMillis();
     return getExpiry() - 120000 <= now;
   }
 }

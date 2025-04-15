@@ -20,76 +20,70 @@
 
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
 import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.config.NodeConfigurationBuilder;
+import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUser;
 import com.jetbrains.youtrack.db.internal.core.security.GlobalUserImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
 
   private ContextConfiguration configurations = new ContextConfiguration();
-  private final Map<ATTRIBUTES, Object> attributes = new HashMap<>();
+  private final Map<ATTRIBUTES, Object> attributes = new EnumMap<>(ATTRIBUTES.class);
   private final Set<SessionListener> listeners = new HashSet<>();
-  private ClassLoader classLoader;
-  private final NodeConfigurationBuilder nodeConfigurationBuilder = NodeConfiguration.builder();
   private SecurityConfig securityConfig;
   private final List<GlobalUser> users = new ArrayList<GlobalUser>();
 
+  @Nonnull
   @Override
   public YouTrackDBConfigBuilderImpl fromGlobalConfigurationParameters(
-      Map<GlobalConfiguration, Object> values) {
-    for (Map.Entry<GlobalConfiguration, Object> entry : values.entrySet()) {
+      @Nonnull Map<GlobalConfiguration, Object> values) {
+    for (var entry : values.entrySet()) {
       addGlobalConfigurationParameter(entry.getKey(), entry.getValue());
     }
     return this;
   }
 
+  @Nonnull
   @Override
-  public YouTrackDBConfigBuilderImpl fromMap(Map<String, Object> values) {
-    for (Map.Entry<String, Object> entry : values.entrySet()) {
+  public YouTrackDBConfigBuilderImpl fromMap(@Nonnull Map<String, Object> values) {
+    for (var entry : values.entrySet()) {
       configurations.setValue(entry.getKey(), entry.getValue());
     }
     return this;
   }
 
+  @Nonnull
   @Override
-  public YouTrackDBConfigBuilderImpl addSessionListener(SessionListener listener) {
+  public YouTrackDBConfigBuilderImpl addSessionListener(@Nonnull SessionListener listener) {
     listeners.add(listener);
     return this;
   }
 
+  @Nonnull
   @Override
   public YouTrackDBConfigBuilderImpl addGlobalConfigurationParameter(
-      final GlobalConfiguration configuration, final Object value) {
+      final @Nonnull GlobalConfiguration configuration, final @Nonnull Object value) {
     configurations.setValue(configuration, value);
     return this;
   }
 
+  @Nonnull
   @Override
-  public YouTrackDBConfigBuilderImpl addAttribute(final ATTRIBUTES attribute, final Object value) {
+  public YouTrackDBConfigBuilderImpl addAttribute(final @Nonnull ATTRIBUTES attribute,
+      final @Nonnull Object value) {
     attributes.put(attribute, value);
     return this;
-  }
-
-  public YouTrackDBConfigBuilderImpl setClassLoader(ClassLoader classLoader) {
-    this.classLoader = classLoader;
-    return this;
-  }
-
-  public NodeConfigurationBuilder getNodeConfigurationBuilder() {
-    return nodeConfigurationBuilder;
   }
 
   public YouTrackDBConfigBuilderImpl setSecurityConfig(SecurityConfig securityConfig) {
@@ -97,26 +91,24 @@ public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
     return this;
   }
 
+  @Nonnull
   @Override
   public YouTrackDBConfigImpl build() {
     return new YouTrackDBConfigImpl(
         configurations,
         attributes,
         listeners,
-        classLoader,
         securityConfig,
         users);
   }
 
-  @Override
   public YouTrackDBConfigBuilderImpl fromContext(final ContextConfiguration contextConfiguration) {
     configurations = contextConfiguration;
     return this;
   }
 
-  public YouTrackDBConfigBuilderImpl addGlobalUser(
+  public void addGlobalUser(
       final String user, final String password, final String resource) {
     users.add(new GlobalUserImpl(user, password, resource));
-    return this;
   }
 }

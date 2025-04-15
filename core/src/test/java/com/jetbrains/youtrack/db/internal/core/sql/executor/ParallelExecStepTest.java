@@ -17,10 +17,10 @@ public class ParallelExecStepTest {
   public void test() {
     CommandContext ctx = new BasicCommandContext();
     List<InternalExecutionPlan> subPlans = new ArrayList<>();
-    for (int i = 0; i < 4; i++) {
-      FetchFromRidsStep step0 =
+    for (var i = 0; i < 4; i++) {
+      var step0 =
           new FetchFromRidsStep(Collections.singleton(new RecordId(12, i)), ctx, false);
-      FetchFromRidsStep step1 =
+      var step1 =
           new FetchFromRidsStep(Collections.singleton(new RecordId(12, i)), ctx, false);
       InternalExecutionPlan plan = new SelectExecutionPlan(ctx);
       plan.getSteps().add(step0);
@@ -28,9 +28,9 @@ public class ParallelExecStepTest {
       subPlans.add(plan);
     }
 
-    ParallelExecStep step = new ParallelExecStep(subPlans, ctx, false);
+    var step = new ParallelExecStep(subPlans, ctx, false);
 
-    SelectExecutionPlan plan = new SelectExecutionPlan(ctx);
+    var plan = new SelectExecutionPlan(ctx);
     plan.getSteps()
         .add(new FetchFromRidsStep(Collections.singleton(new RecordId(12, 100)), ctx, false));
     plan.getSteps().add(step);

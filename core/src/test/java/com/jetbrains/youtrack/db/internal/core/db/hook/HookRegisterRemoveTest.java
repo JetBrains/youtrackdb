@@ -3,48 +3,49 @@ package com.jetbrains.youtrack.db.internal.core.db.hook;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nonnull;
 import org.junit.Test;
 
 public class HookRegisterRemoveTest extends DbTestBase {
 
   @Test
   public void addAndRemoveHookTest() {
-    final AtomicInteger integer = new AtomicInteger(0);
-    RecordHook iHookImpl =
+    final var integer = new AtomicInteger(0);
+    var iHookImpl =
         new RecordHook() {
 
           @Override
-          public void onUnregister() {
-          }
-
-          @Override
-          public RESULT onTrigger(TYPE iType, DBRecord iRecord) {
+          public void onTrigger(@Nonnull TYPE iType, @Nonnull DBRecord iRecord) {
             integer.incrementAndGet();
-            return null;
-          }
-
-          @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return null;
           }
         };
-    db.registerHook(iHookImpl);
+    session.registerHook(iHookImpl);
 
-    db.begin();
-    db.save(new EntityImpl().field("test", "test"),
-        db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
-    assertEquals(3, integer.get());
-    db.unregisterHook(iHookImpl);
+    session.begin();
+    var entity = session.newEntity();
+    entity.setProperty("test", "test");
+    session.commit();
 
-    db.begin();
-    db.save(new EntityImpl(), db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    assertEquals(2, integer.get());
+    session.unregisterHook(iHookImpl);
 
-    assertEquals(3, integer.get());
+    session.begin();
+    session.newEntity();
+    session.commit();
+
+    //2 create
+    assertEquals(2, integer.get());
+
+    session.registerHook(iHookImpl);
+    var tx = session.begin();
+    tx.delete(tx.<Entity>load(entity));
+    tx.commit();
+
+    //read + 2 delete
+    assertEquals(5, integer.get());
   }
 }

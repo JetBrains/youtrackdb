@@ -73,14 +73,14 @@ public final class BoundedBuffer extends StripedBuffer {
 
     @Override
     public int offer(final CacheEntry e) {
-      final long head = readCounter.get();
-      final long tail = writeCounter.get();
-      final long size = (tail - head);
+      final var head = readCounter.get();
+      final var tail = writeCounter.get();
+      final var size = (tail - head);
       if (size >= SPACED_SIZE) {
         return Buffer.FULL;
       }
       if (writeCounter.compareAndSet(tail, tail + OFFSET)) {
-        final int index = (int) (tail & SPACED_MASK);
+        final var index = (int) (tail & SPACED_MASK);
         buffer.lazySet(index, e);
         return Buffer.SUCCESS;
       }
@@ -89,16 +89,16 @@ public final class BoundedBuffer extends StripedBuffer {
 
     @Override
     public void drainTo(final WTinyLFUPolicy consumer) {
-      long head = readCounter.get();
-      final long tail = writeCounter.get();
+      var head = readCounter.get();
+      final var tail = writeCounter.get();
 
-      final long size = (tail - head);
+      final var size = (tail - head);
       if (size == 0) {
         return;
       }
       do {
-        final int index = (int) (head & SPACED_MASK);
-        final CacheEntry e = buffer.get(index);
+        final var index = (int) (head & SPACED_MASK);
+        final var e = buffer.get(index);
         if (e == null) {
           // not published yet
           break;

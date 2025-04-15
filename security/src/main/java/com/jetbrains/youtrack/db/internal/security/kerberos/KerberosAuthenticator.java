@@ -13,14 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.security.kerberos;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.security.authenticator.SecurityAuthenticatorAbstract;
 import com.jetbrains.youtrack.db.internal.core.security.kerberos.Krb5ClientLoginModuleConfig;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -71,12 +69,12 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
    */
   // Called once the Server is running.
   public void active() {
-    ExpirationTask task = new ExpirationTask();
+    var task = new ExpirationTask();
     expirationTimer = new Timer(true);
     expirationTimer.scheduleAtFixedRate(
         task, 30000, ticketRelayExpiration); // Wait 30 seconds before starting
 
-    RenewalTask renewalTask = new RenewalTask();
+    var renewalTask = new RenewalTask();
     renewalTimer = new Timer(true);
     renewalTimer.scheduleAtFixedRate(
         renewalTask,
@@ -120,7 +118,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
           // username, and we compare
           // the service ticket's hash code.  If they match, we return the principal.
 
-          TicketItem ti = getTicket(Integer.toString(password.hashCode()));
+          var ti = getTicket(Integer.toString(password.hashCode()));
 
           if (ti != null && ti.getHashCode() == password.hashCode()) {
             if (isDebug()) {
@@ -140,7 +138,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
 
             principal = ti.getPrincipal();
           } else {
-            byte[] ticket = Base64.getDecoder().decode(password.getBytes(StandardCharsets.UTF_8));
+            var ticket = Base64.getDecoder().decode(password.getBytes(StandardCharsets.UTF_8));
 
             // Temporary, for Java 7 support.
             //						byte[] ticket = new BASE64Decoder().decodeBuffer(password);
@@ -192,80 +190,79 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
   }
 
   // SecurityAuthenticator
-  public void config(DatabaseSessionInternal session, final EntityImpl kerbConfig,
+  public void config(DatabaseSessionInternal session, final Map<String, Object> kerbConfig,
       SecuritySystem security) {
     super.config(session, kerbConfig, security);
 
-    if (kerbConfig.containsField("krb5_config")) {
-      krb5Config = SystemVariableResolver.resolveSystemVariables(kerbConfig.field("krb5_config"));
-
+    if (kerbConfig.containsKey("krb5_config")) {
+      krb5Config = SystemVariableResolver.resolveSystemVariables(
+          kerbConfig.get("krb5_config").toString());
       LogManager.instance().info(this, "Krb5Config = " + krb5Config);
     }
 
     // service
-    if (kerbConfig.containsField("service")) {
-      EntityImpl serviceDoc = kerbConfig.field("service");
+    if (kerbConfig.containsKey("service")) {
+      @SuppressWarnings("unchecked")
+      var serviceDoc = (Map<String, Object>) kerbConfig.get("service");
 
-      if (serviceDoc.containsField("ktname")) {
-        serviceKTName = SystemVariableResolver.resolveSystemVariables(serviceDoc.field("ktname"));
-
+      if (serviceDoc.containsKey("ktname")) {
+        serviceKTName = SystemVariableResolver.resolveSystemVariables(
+            serviceDoc.get("ktname").toString());
         LogManager.instance().info(this, "Svc ktname = " + serviceKTName);
       }
 
-      if (serviceDoc.containsField("principal")) {
-        servicePrincipal = serviceDoc.field("principal");
-
+      if (serviceDoc.containsKey("principal")) {
+        servicePrincipal = serviceDoc.get("principal").toString();
         LogManager.instance().info(this, "Svc princ = " + servicePrincipal);
       }
     }
 
     // SPNEGO
-    if (kerbConfig.containsField("spnego")) {
-      EntityImpl spnegoDoc = kerbConfig.field("spnego");
+    if (kerbConfig.containsKey("spnego")) {
+      @SuppressWarnings("unchecked")
+      var spnegoDoc = (Map<String, Object>) kerbConfig.get("spnego");
 
-      if (spnegoDoc.containsField("ktname")) {
-        spnegoKTName = SystemVariableResolver.resolveSystemVariables(spnegoDoc.field("ktname"));
-
+      if (spnegoDoc.containsKey("ktname")) {
+        spnegoKTName = SystemVariableResolver.resolveSystemVariables(
+            spnegoDoc.get("ktname").toString());
         LogManager.instance().info(this, "SPNEGO ktname = " + spnegoKTName);
       }
 
-      if (spnegoDoc.containsField("principal")) {
-        spnegoPrincipal = spnegoDoc.field("principal");
-
+      if (spnegoDoc.containsKey("principal")) {
+        spnegoPrincipal = spnegoDoc.get("principal").toString();
         LogManager.instance().info(this, "SPNEGO princ = " + spnegoPrincipal);
       }
     }
 
     // client
-    if (kerbConfig.containsField("client")) {
-      EntityImpl clientDoc = kerbConfig.field("client");
+    if (kerbConfig.containsKey("client")) {
+      @SuppressWarnings("unchecked")
+      var clientDoc = (Map<String, Object>) kerbConfig.get("client");
 
-      if (clientDoc.containsField("useTicketCache")) {
-        clientUseTicketCache = clientDoc.field("useTicketCache", PropertyType.BOOLEAN);
-
+      if (clientDoc.containsKey("useTicketCache")) {
+        clientUseTicketCache = (Boolean) clientDoc.get("useTicketCache");
         LogManager.instance().info(this, "Client useTicketCache = " + clientUseTicketCache);
       }
 
-      if (clientDoc.containsField("principal")) {
-        clientPrincipal = clientDoc.field("principal");
-
+      if (clientDoc.containsKey("principal")) {
+        clientPrincipal = clientDoc.get("principal").toString();
         LogManager.instance().info(this, "Client princ = " + clientPrincipal);
       }
 
-      if (clientDoc.containsField("ccname")) {
-        clientCCName = SystemVariableResolver.resolveSystemVariables(clientDoc.field("ccname"));
-
+      if (clientDoc.containsKey("ccname")) {
+        clientCCName = SystemVariableResolver.resolveSystemVariables(
+            clientDoc.get("ccname").toString());
         LogManager.instance().info(this, "Client ccname = " + clientCCName);
       }
 
-      if (clientDoc.containsField("ktname")) {
-        clientKTName = SystemVariableResolver.resolveSystemVariables(clientDoc.field("ktname"));
-
+      if (clientDoc.containsKey("ktname")) {
+        clientKTName = SystemVariableResolver.resolveSystemVariables(
+            clientDoc.get("ktname").toString());
         LogManager.instance().info(this, "Client ktname = " + clientKTName);
       }
 
-      if (clientDoc.containsField("renewalPeriod")) {
-        clientPeriod = clientDoc.field("renewalPeriod");
+      if (clientDoc.containsKey("renewalPeriod")) {
+        clientPeriod = (Integer) clientDoc.get("renewalPeriod");
       }
     }
 
@@ -360,7 +357,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
       LogManager.instance()
           .info(this, "createServiceSubject() Service Principal: " + servicePrincipal);
 
-      LoginContext lc = new LoginContext("ignore", null, null, cfg);
+      var lc = new LoginContext("ignore", null, null, cfg);
       lc.login();
 
       serviceSubject = lc.getSubject();
@@ -396,7 +393,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
       LogManager.instance()
           .info(this, "createSpnegoSubject() SPNEGO Principal: " + spnegoPrincipal);
 
-      LoginContext lc = new LoginContext("ignore", null, null, cfg);
+      var lc = new LoginContext("ignore", null, null, cfg);
       lc.login();
 
       spnegoSubject = lc.getSubject();
@@ -440,7 +437,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
       LogManager.instance()
           .info(this, "createClientSubject() Client Principal: " + clientPrincipal);
 
-      LoginContext lc = new LoginContext("ignore", null, null, cfg);
+      var lc = new LoginContext("ignore", null, null, cfg);
       lc.login();
 
       clientSubject = lc.getSubject();
@@ -485,9 +482,9 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
 
   private void checkTicketExpirations() {
     synchronized (ticketRelayMap) {
-      long currTime = System.currentTimeMillis();
+      var currTime = System.currentTimeMillis();
 
-      for (Map.Entry<String, TicketItem> entry : ticketRelayMap.entrySet()) {
+      for (var entry : ticketRelayMap.entrySet()) {
         if (entry.getValue().hasExpired(currTime)) {
           //					LogManager.instance().info(this, "~~~~~~~~ checkTicketExpirations() Ticket has
           // expired: " + entry.getValue().getHashCode() + "\n");

@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import javax.annotation.Nullable;
 
 /**
  * takes a result set made of OUpdatableRecord instances and transforms it in another result set
@@ -22,15 +23,16 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
     if (prev == null) {
       throw new IllegalStateException("filter step requires a previous step");
     }
-    ExecutionStream resultSet = prev.start(ctx);
-    return resultSet.filter(this::filterMap);
+    var resultSet = prev.start(ctx);
+    return resultSet.filter(ConvertToResultInternalStep::filterMap);
   }
 
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable
+  private static Result filterMap(Result result, CommandContext ctx) {
     if (result instanceof UpdatableResult) {
-      var element = result.toEntity();
-      if (element != null) {
-        return new ResultInternal(ctx.getDatabase(), element);
+      if (result.isEntity()) {
+        var entity = result.asEntityOrNull();
+        return new ResultInternal(ctx.getDatabaseSession(), entity);
       }
       return result;
     }
@@ -39,7 +41,7 @@ public class ConvertToResultInternalStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result =
+    var result =
         ExecutionStepInternal.getIndent(depth, indent) + "+ CONVERT TO REGULAR RESULT ITEM";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";

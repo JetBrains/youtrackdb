@@ -18,9 +18,9 @@ public class SQLOutPathItem extends SQLMatchPathItem {
   @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("-");
-    boolean first = true;
+    var first = true;
     if (this.method.params != null) {
-      for (SQLExpression exp : this.method.params) {
+      for (var exp : this.method.params) {
         if (!first) {
           builder.append(", ");
         }
@@ -37,9 +37,9 @@ public class SQLOutPathItem extends SQLMatchPathItem {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("-");
-    boolean first = true;
+    var first = true;
     if (this.method.params != null) {
-      for (SQLExpression exp : this.method.params) {
+      for (var exp : this.method.params) {
         if (!first) {
           builder.append(", ");
         }

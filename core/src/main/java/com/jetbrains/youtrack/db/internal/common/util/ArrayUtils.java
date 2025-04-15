@@ -48,7 +48,7 @@ public class ArrayUtils {
 
   public static <D, S> D[] copyOfRange(
       final S[] iSource, final int iBegin, final int iEnd, final Class<? extends D[]> iClass) {
-    final int newLength = iEnd - iBegin;
+    final var newLength = iEnd - iBegin;
     if (newLength < 0) {
       throw new IllegalArgumentException(iBegin + " > " + iEnd);
     }
@@ -65,13 +65,13 @@ public class ArrayUtils {
   }
 
   public static byte[] copyOfRange(final byte[] iSource, final int iBegin, final int iEnd) {
-    final int newLength = iEnd - iBegin;
+    final var newLength = iEnd - iBegin;
     if (newLength < 0) {
       throw new IllegalArgumentException(iBegin + " > " + iEnd);
     }
 
     try {
-      final byte[] copy = new byte[newLength];
+      final var copy = new byte[newLength];
       System.arraycopy(iSource, iBegin, copy, 0, Math.min(iSource.length - iBegin, newLength));
       return copy;
     } catch (OutOfMemoryError e) {
@@ -82,7 +82,7 @@ public class ArrayUtils {
   }
 
   public static int[] copyOf(final int[] iSource, final int iNewSize) {
-    final int[] copy = new int[iNewSize];
+    final var copy = new int[iNewSize];
     System.arraycopy(iSource, 0, copy, 0, Math.min(iSource.length, iNewSize));
     return copy;
   }
@@ -95,7 +95,7 @@ public class ArrayUtils {
       return false;
     }
 
-    for (int e : iArray) {
+    for (var e : iArray) {
       if (e == iToFind) {
         return true;
       }
@@ -112,7 +112,7 @@ public class ArrayUtils {
       return false;
     }
 
-    for (T e : iArray) {
+    for (var e : iArray) {
       if (e != null && e.equals(iToFind)) {
         return true;
       }
@@ -122,8 +122,8 @@ public class ArrayUtils {
   }
 
   public static int hash(final Object[] iArray) {
-    int hash = 0;
-    for (Object o : iArray) {
+    var hash = 0;
+    for (var o : iArray) {
       if (o != null) {
         hash += o.hashCode();
       }

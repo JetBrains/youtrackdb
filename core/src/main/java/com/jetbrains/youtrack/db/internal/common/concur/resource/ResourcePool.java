@@ -19,11 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.common.concur.resource;
 
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
-import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
+import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -64,8 +64,8 @@ public class ResourcePool<K, V> {
     this.listener = listener;
     sem = new Semaphore(maxResources, true);
     unmodifiableresources = Collections.unmodifiableCollection(resources);
-    for (int i = 0; i < min; i++) {
-      V res = listener.createNewResource(null, null);
+    for (var i = 0; i < min; i++) {
+      var res = listener.createNewResource(null, null);
       created.incrementAndGet();
       resources.add(res);
     }
@@ -86,7 +86,8 @@ public class ResourcePool<K, V> {
     } catch (java.lang.InterruptedException e) {
       Thread.currentThread().interrupt();
       throw BaseException.wrapException(
-          new ThreadInterruptedException("Acquiring of resources was interrupted"), e);
+          new ThreadInterruptedException("Acquiring of resources was interrupted"), e,
+          (String) null);
     }
 
     V res;
@@ -141,7 +142,7 @@ public class ResourcePool<K, V> {
       sem.release();
 
       throw BaseException.wrapException(
-          new LockException("Error on creation of the new resource in the pool"), e);
+          new LockException("Error on creation of the new resource in the pool"), e, (String) null);
     }
   }
 

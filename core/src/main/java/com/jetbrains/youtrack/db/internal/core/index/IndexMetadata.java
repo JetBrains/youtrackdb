@@ -20,11 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.MixedIndexRIDContainerSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.StreamSerializerRID;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.stream.StreamSerializerSBTreeIndexRIDContainer;
-import com.jetbrains.youtrack.db.internal.core.sharding.auto.AutoShardingIndexFactory;
-import com.jetbrains.youtrack.db.internal.core.storage.index.hashindex.local.HashIndexFactory;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -38,36 +33,26 @@ public class IndexMetadata {
   @Nonnull
   private final String name;
   private final IndexDefinition indexDefinition;
-  private final Set<String> clustersToIndex;
+  private final Set<String> collectionsToIndex;
   private final String type;
   private final String algorithm;
-  private final String valueContainerAlgorithm;
   private int version;
-  private Map<String, ?> metadata;
+  private Map<String, Object> metadata;
 
   public IndexMetadata(
       @Nonnull String name,
       IndexDefinition indexDefinition,
-      Set<String> clustersToIndex,
+      Set<String> collectionsToIndex,
       String type,
       String algorithm,
-      String valueContainerAlgorithm,
       int version,
-      Map<String, ?> metadata) {
+      Map<String, Object> metadata) {
     this.name = name;
     this.indexDefinition = indexDefinition;
-    this.clustersToIndex = clustersToIndex;
+    this.collectionsToIndex = collectionsToIndex;
     this.type = type;
-    if (type.equalsIgnoreCase(SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX.name())
-        || type.equalsIgnoreCase(SchemaClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.name())
-        || type.equalsIgnoreCase(SchemaClass.INDEX_TYPE.DICTIONARY_HASH_INDEX.name())) {
-      if (!algorithm.equalsIgnoreCase("autosharding")) {
-        algorithm = HashIndexFactory.HASH_INDEX_ALGORITHM;
-      }
-    }
+
     this.algorithm = algorithm;
-    this.valueContainerAlgorithm = Objects.requireNonNullElse(valueContainerAlgorithm,
-        AutoShardingIndexFactory.NONE_VALUE_CONTAINER);
     this.version = version;
     this.metadata = metadata;
   }
@@ -82,8 +67,8 @@ public class IndexMetadata {
     return indexDefinition;
   }
 
-  public Set<String> getClustersToIndex() {
-    return clustersToIndex;
+  public Set<String> getCollectionsToIndex() {
+    return collectionsToIndex;
   }
 
   public String getType() {
@@ -103,12 +88,12 @@ public class IndexMetadata {
       return false;
     }
 
-    final IndexMetadata that = (IndexMetadata) o;
+    final var that = (IndexMetadata) o;
 
     if (!Objects.equals(algorithm, that.algorithm)) {
       return false;
     }
-    if (!clustersToIndex.equals(that.clustersToIndex)) {
+    if (!collectionsToIndex.equals(that.collectionsToIndex)) {
       return false;
     }
     if (!Objects.equals(indexDefinition, that.indexDefinition)) {
@@ -122,40 +107,17 @@ public class IndexMetadata {
 
   @Override
   public int hashCode() {
-    int result = name.hashCode();
+    var result = name.hashCode();
     result = 31 * result + (indexDefinition != null ? indexDefinition.hashCode() : 0);
-    result = 31 * result + clustersToIndex.hashCode();
+    result = 31 * result + collectionsToIndex.hashCode();
     result = 31 * result + type.hashCode();
     result = 31 * result + (algorithm != null ? algorithm.hashCode() : 0);
     return result;
   }
 
-  public String getValueContainerAlgorithm() {
-    return valueContainerAlgorithm;
-  }
-
   public boolean isMultivalue() {
-    String t = type.toUpperCase();
-    return SchemaClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.toString().equals(t)
-        || SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(t)
-        || SchemaClass.INDEX_TYPE.FULLTEXT.toString().equals(t);
-  }
-
-  public byte getValueSerializerId(int binaryFormatVersion) {
-    String t = type.toUpperCase();
-    if (SchemaClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.toString().equals(t)
-        || SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(t)
-        || SchemaClass.INDEX_TYPE.FULLTEXT.toString().equals(t)
-        || SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(t)) {
-      // TODO: Hard Coded Lucene maybe fix
-      if (binaryFormatVersion >= 13 && !"LUCENE".equalsIgnoreCase(algorithm)) {
-        return MixedIndexRIDContainerSerializer.ID;
-      }
-
-      return StreamSerializerSBTreeIndexRIDContainer.ID;
-    } else {
-      return StreamSerializerRID.INSTANCE.getId();
-    }
+    var t = type.toUpperCase();
+    return SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(t);
   }
 
   public int getVersion() {
@@ -166,11 +128,11 @@ public class IndexMetadata {
     this.version = version;
   }
 
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     return metadata;
   }
 
-  public void setMetadata(Map<String, ?> metadata) {
+  public void setMetadata(Map<String, Object> metadata) {
     this.metadata = metadata;
   }
 }

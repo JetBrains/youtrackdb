@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Set;
@@ -45,52 +45,28 @@ public class SecurityProxy implements Security {
     return security.isAllowed(session, iAllowAll, iAllowOperation);
   }
 
-  @Override
-  public Identifiable allowUser(
-      EntityImpl entity, RestrictedOperation iOperationType, String iUserName) {
-    return security.allowUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable allowRole(
-      EntityImpl entity, RestrictedOperation iOperationType, String iRoleName) {
-    return security.allowRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      EntityImpl entity, RestrictedOperation iOperationType, String iUserName) {
-    return security.denyUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      EntityImpl entity, RestrictedOperation iOperationType, String iRoleName) {
-    return security.denyRole(session, entity, iOperationType, iRoleName);
-  }
-
-  public SecurityUserIml authenticate(final String iUsername, final String iUserPassword) {
+  public SecurityUserImpl authenticate(final String iUsername, final String iUserPassword) {
     return security.authenticate(session, iUsername, iUserPassword);
   }
 
-  public SecurityUserIml authenticate(final Token authToken) {
+  public SecurityUserImpl authenticate(final Token authToken) {
     return security.authenticate(session, authToken);
   }
 
-  public SecurityUserIml getUser(final String iUserName) {
+  public SecurityUserImpl getUser(final String iUserName) {
     return security.getUser(session, iUserName);
   }
 
-  public SecurityUserIml getUser(final RID iUserId) {
+  public SecurityUserImpl getUser(final RID iUserId) {
     return security.getUser(session, iUserId);
   }
 
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       final String iUserName, final String iUserPassword, final String... iRoles) {
     return security.createUser(session, iUserName, iUserPassword, iRoles);
   }
 
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       final String iUserName, final String iUserPassword, final Role... iRoles) {
     return security.createUser(session, iUserName, iUserPassword, iRoles);
   }
@@ -103,13 +79,13 @@ public class SecurityProxy implements Security {
     return security.getRole(session, iRole);
   }
 
-  public Role createRole(final String iRoleName, final SecurityRole.ALLOW_MODES iAllowMode) {
-    return security.createRole(session, iRoleName, iAllowMode);
+  public Role createRole(final String iRoleName) {
+    return security.createRole(session, iRoleName);
   }
 
   public Role createRole(
-      final String iRoleName, final Role iParent, final SecurityRole.ALLOW_MODES iAllowMode) {
-    return security.createRole(session, iRoleName, iParent, iAllowMode);
+      final String iRoleName, final Role iParent) {
+    return security.createRole(session, iRoleName, iParent);
   }
 
   public List<EntityImpl> getAllUsers() {
@@ -128,7 +104,7 @@ public class SecurityProxy implements Security {
     return security.dropUser(session, iUserName);
   }
 
-  public boolean dropRole(final String iRoleName) {
-    return security.dropRole(session, iRoleName);
+  public void dropRole(final String iRoleName) {
+    security.dropRole(session, iRoleName);
   }
 }

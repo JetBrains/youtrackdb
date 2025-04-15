@@ -17,15 +17,14 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.ArrayList;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -45,76 +44,48 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private RecordId fbiID;
 
   @Parameters(value = "remote")
-  public SQLFindReferencesTest(boolean remote) {
-    super(remote);
+  public SQLFindReferencesTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
   public void findSimpleReference() {
-    List<Result> result = database.command("find references " + carID).stream().toList();
+    session.begin();
+    var result = session.execute("find references " + carID).stream().toList();
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.iterator().next().getProperty("referredBy"), johnDoeID);
 
     // SUB QUERY
-    result = database.command("find references ( select from " + carID + ")").stream().toList();
+    result = session.execute("find references ( select from " + carID + ")").stream().toList();
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(result.iterator().next().getProperty("referredBy"), johnDoeID);
 
-    result = database.command("find references " + chuckNorrisID).stream().toList();
+    result = session.execute("find references " + chuckNorrisID).stream().toList();
     Assert.assertEquals(result.size(), 2);
 
-    for (Result rid : result) {
+    for (var rid : result) {
       Assert.assertTrue(
           rid.getProperty("referredBy").equals(ctuID)
               || rid.getProperty("referredBy").equals(fbiID));
     }
 
-    result = database.command("find references " + johnDoeID).stream().toList();
+    result = session.execute("find references " + johnDoeID).stream().toList();
     Assert.assertEquals(result.size(), 0);
 
-    result = null;
+    session.commit();
   }
 
   @Test
-  public void findReferenceByClassAndClusters() {
-    List<Result> result =
-        database.command("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
+  public void findReferenceByClassAndCollections() {
+    session.begin();
+    var result =
+        session.execute("find references " + janeDoeID + " [" + WORKPLACE + "]").stream().toList();
 
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(ctuID, result.iterator().next().getProperty("referredBy"));
 
-    result =
-        database
-            .command("find references " + jackBauerID + " [" + WORKPLACE + ",cluster:" + CAR + "]")
-            .stream()
-            .toList();
-
-    Assert.assertEquals(result.size(), 3);
-
-    for (Result res : result) {
-      Identifiable rid = res.getProperty("referredBy");
-      Assert.assertTrue(rid.equals(ctuID) || rid.equals(fbiID) || rid.equals(carID));
-    }
-
-    result =
-        database
-            .command(
-                "find references "
-                    + johnDoeID
-                    + " ["
-                    + WORKPLACE
-                    + ","
-                    + CAR
-                    + ",cluster:"
-                    + WORKER
-                    + "]")
-            .stream()
-            .toList();
-
-    Assert.assertEquals(result.size(), 0);
-
-    result = null;
+    session.commit();
   }
 
   @BeforeClass
@@ -124,70 +95,64 @@ public class SQLFindReferencesTest extends BaseDBTest {
   }
 
   private void createSchema() {
-    SchemaClass worker = database.getMetadata().getSchema().createClass(WORKER);
-    SchemaClass workplace = database.getMetadata().getSchema().createClass(WORKPLACE);
-    SchemaClass car = database.getMetadata().getSchema().createClass(CAR);
+    var worker = session.getMetadata().getSchema().createClass(WORKER);
+    var workplace = session.getMetadata().getSchema().createClass(WORKPLACE);
+    var car = session.getMetadata().getSchema().createClass(CAR);
 
-    worker.createProperty(database, "name", PropertyType.STRING);
-    worker.createProperty(database, "surname", PropertyType.STRING);
-    worker.createProperty(database, "colleagues", PropertyType.LINKLIST, worker);
-    worker.createProperty(database, "car", PropertyType.LINK, car);
+    worker.createProperty("name", PropertyType.STRING);
+    worker.createProperty("surname", PropertyType.STRING);
+    worker.createProperty("colleagues", PropertyType.LINKLIST, worker);
+    worker.createProperty("car", PropertyType.LINK, car);
 
-    workplace.createProperty(database, "name", PropertyType.STRING);
-    workplace.createProperty(database, "boss", PropertyType.LINK, worker);
-    workplace.createProperty(database, "workers", PropertyType.LINKLIST, worker);
+    workplace.createProperty("name", PropertyType.STRING);
+    workplace.createProperty("boss", PropertyType.LINK, worker);
+    workplace.createProperty("workers", PropertyType.LINKLIST, worker);
 
-    car.createProperty(database, "plate", PropertyType.STRING);
-    car.createProperty(database, "owner", PropertyType.LINK, worker);
+    car.createProperty("plate", PropertyType.STRING);
+    car.createProperty("owner", PropertyType.LINK, worker);
   }
 
   private void populateDatabase() {
-    database.begin();
-    EntityImpl car = new EntityImpl(CAR);
-    car.field("plate", "JINF223S");
+    session.begin();
+    var car = ((EntityImpl) session.newEntity(CAR));
+    car.setProperty("plate", "JINF223S");
 
-    EntityImpl johnDoe = new EntityImpl(WORKER);
-    johnDoe.field("name", "John");
-    johnDoe.field("surname", "Doe");
-    johnDoe.field("car", car);
-    johnDoe.save();
+    var johnDoe = ((EntityImpl) session.newEntity(WORKER));
+    johnDoe.setProperty("name", "John");
+    johnDoe.setProperty("surname", "Doe");
+    johnDoe.setProperty("car", car);
 
-    EntityImpl janeDoe = new EntityImpl(WORKER);
-    janeDoe.field("name", "Jane");
-    janeDoe.field("surname", "Doe");
-    janeDoe.save();
+    var janeDoe = ((EntityImpl) session.newEntity(WORKER));
+    janeDoe.setProperty("name", "Jane");
+    janeDoe.setProperty("surname", "Doe");
 
-    EntityImpl chuckNorris = new EntityImpl(WORKER);
-    chuckNorris.field("name", "Chuck");
-    chuckNorris.field("surname", "Norris");
-    chuckNorris.save();
+    var chuckNorris = ((EntityImpl) session.newEntity(WORKER));
+    chuckNorris.setProperty("name", "Chuck");
+    chuckNorris.setProperty("surname", "Norris");
 
-    EntityImpl jackBauer = new EntityImpl(WORKER);
-    jackBauer.field("name", "Jack");
-    jackBauer.field("surname", "Bauer");
-    jackBauer.save();
+    var jackBauer = ((EntityImpl) session.newEntity(WORKER));
+    jackBauer.setProperty("name", "Jack");
+    jackBauer.setProperty("surname", "Bauer");
 
-    EntityImpl ctu = new EntityImpl(WORKPLACE);
-    ctu.field("name", "CTU");
-    ctu.field("boss", jackBauer);
-    List<EntityImpl> workplace1Workers = new ArrayList<EntityImpl>();
+    var ctu = ((EntityImpl) session.newEntity(WORKPLACE));
+    ctu.setProperty("name", "CTU");
+    ctu.setProperty("boss", jackBauer);
+    var workplace1Workers = session.newLinkList();
     workplace1Workers.add(chuckNorris);
     workplace1Workers.add(janeDoe);
-    ctu.field("workers", workplace1Workers);
-    ctu.save();
+    ctu.setProperty("workers", workplace1Workers);
 
-    EntityImpl fbi = new EntityImpl(WORKPLACE);
-    fbi.field("name", "FBI");
-    fbi.field("boss", chuckNorris);
-    List<EntityImpl> workplace2Workers = new ArrayList<EntityImpl>();
+    var fbi = ((EntityImpl) session.newEntity(WORKPLACE));
+    fbi.setProperty("name", "FBI");
+    fbi.setProperty("boss", chuckNorris);
+    var workplace2Workers = session.newLinkList();
     workplace2Workers.add(chuckNorris);
     workplace2Workers.add(jackBauer);
-    fbi.field("workers", workplace2Workers);
-    fbi.save();
+    fbi.setProperty("workers", workplace2Workers);
 
-    car.field("owner", jackBauer);
-    car.save();
-    database.commit();
+    car.setProperty("owner", jackBauer);
+
+    session.commit();
 
     chuckNorrisID = chuckNorris.getIdentity().copy();
     janeDoeID = janeDoe.getIdentity().copy();
@@ -200,7 +165,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
 
   @AfterClass
   public void deleteTestEnvironment() {
-    database = createSessionInstance();
+    session = createSessionInstance();
 
     carID.reset();
     carID = null;
@@ -218,7 +183,7 @@ public class SQLFindReferencesTest extends BaseDBTest {
     fbiID = null;
     deleteSchema();
 
-    database.close();
+    session.close();
   }
 
   private void deleteSchema() {
@@ -228,14 +193,14 @@ public class SQLFindReferencesTest extends BaseDBTest {
   }
 
   private void dropClass(String iClass) {
-    database.command("drop class " + iClass).close();
-    while (database.getMetadata().getSchema().existsClass(iClass)) {
-      database.getMetadata().getSchema().dropClass(iClass);
-      database.reload();
+    session.execute("drop class " + iClass).close();
+    while (session.getMetadata().getSchema().existsClass(iClass)) {
+      session.getMetadata().getSchema().dropClass(iClass);
+      session.reload();
     }
-    while (database.getClusterIdByName(iClass) > -1) {
-      database.dropCluster(iClass);
-      database.reload();
+    while (session.getCollectionIdByName(iClass) > -1) {
+      session.dropCollection(iClass);
+      session.reload();
     }
   }
 }

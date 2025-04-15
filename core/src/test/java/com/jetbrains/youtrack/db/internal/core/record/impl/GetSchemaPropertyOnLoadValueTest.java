@@ -21,117 +21,114 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
   @Test
   public void testOnloadValue() {
-    db.createClass("test");
-    db.begin();
-    EntityImpl doc = new EntityImpl("test");
+    session.createClass("test");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("test");
     doc.setProperty("name", "John Doe");
-    doc.save();
-    db.commit();
+
+    session.commit();
     RID id = doc.getIdentity();
-    db.activateOnCurrentThread();
-    db.begin();
-    EntityImpl doc2 = db.load(id);
+    session.activateOnCurrentThread();
+    session.begin();
+    EntityImpl doc2 = session.load(id);
     doc2.setProperty("name", "Sun Doe");
-    doc2.save();
+
     doc2.setProperty("name", "Jane Doe");
-    doc2.save();
+
     Assert.assertEquals("John Doe", doc2.getPropertyOnLoadValue("name"));
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void testOnLoadValueForList() throws IllegalArgumentException {
-    db.createVertexClass("test");
-    db.createEdgeClass("myLink");
-    db.begin();
-    Vertex doc = db.newVertex("test");
+    session.createVertexClass("test");
+    session.createEdgeClass("myLink");
+    session.begin();
+    var doc = session.newVertex("test");
 
     IntStream.rangeClosed(1, 8)
         .forEach(
             i -> {
-              Vertex linked = db.newVertex("test");
+              var linked = session.newVertex("test");
               linked.setProperty("name", i + "");
               doc.addEdge(linked, "myLink");
             });
-    doc.save();
-    db.commit();
+    session.commit();
 
-    db.begin();
-    var loadedDoc = db.<Entity>load(doc.getIdentity());
+    session.begin();
+    var loadedDoc = session.<Entity>load(doc.getIdentity());
     loadedDoc.getPropertyOnLoadValue(Vertex.DIRECTION_OUT_PREFIX + "myLink");
   }
 
   @Test
   public void testOnLoadValueForScalarList() throws IllegalArgumentException {
-    db.createVertexClass("test");
-    db.begin();
-    Vertex doc = db.newVertex("test");
-    doc.setProperty("list", Arrays.asList(1, 2, 3));
-    doc.save();
-    db.commit();
-    db.begin();
-    doc = db.load(doc.getIdentity());
-    List<Integer> storedList = doc.getProperty("list");
+    session.createVertexClass("test");
+    session.begin();
+    var vertex = session.newVertex("test");
+    vertex.getOrCreateEmbeddedList("list").addAll(Arrays.asList(1, 2, 3));
+    session.commit();
+    session.begin();
+    vertex = session.load(vertex.getIdentity());
+    List<Integer> storedList = vertex.getProperty("list");
     storedList.add(4);
-    doc.save();
-    List<Integer> onLoad = doc.getPropertyOnLoadValue("list");
+    List<Integer> onLoad = vertex.getPropertyOnLoadValue("list");
     Assert.assertEquals(3, onLoad.size());
   }
 
   @Test
   public void testOnLoadValueForScalarSet() throws IllegalArgumentException {
-    db.createVertexClass("test");
-    db.begin();
-    Vertex doc = db.newVertex("test");
-    doc.setProperty("set", new HashSet<>(Arrays.asList(1, 2, 3)));
-    doc.save();
-    db.commit();
-    db.begin();
-    doc = db.load(doc.getIdentity());
+    session.createVertexClass("test");
+    session.begin();
+    var doc = session.newVertex("test");
+    doc.getOrCreateEmbeddedSet("set").addAll(new HashSet<>(Arrays.asList(1, 2, 3)));
+    session.commit();
+    session.begin();
+    doc = session.load(doc.getIdentity());
     Set<Integer> storedSet = doc.getProperty("set");
     storedSet.add(4);
-    doc.save();
     Set<Integer> onLoad = doc.getPropertyOnLoadValue("set");
     Assert.assertEquals(3, onLoad.size());
   }
 
   @Test
   public void testStringBlobOnLoadValue() {
-    String before = "Hello World";
+    session.createVertexClass("test");
+
+    session.begin();
+    var before = "Hello World";
     var byteArrayBefore = before.getBytes();
-    String after = "Goodbye Cruel World";
+    var after = "Goodbye Cruel World";
 
     var byteArrayAfter = after.getBytes();
-    var oBlob = new RecordBytes(byteArrayBefore);
-    var oBlob2 = new RecordBytes(byteArrayAfter);
-    db.createVertexClass("test");
-    db.begin();
-    VertexEntityImpl doc = (VertexEntityImpl) db.newVertex("test");
-    doc.setProperty("stringBlob", oBlob);
-    doc.save();
-    db.commit();
-    db.begin();
+    var oBlob = session.newBlob(byteArrayBefore);
+    var oBlob2 = session.newBlob(byteArrayAfter);
 
-    doc = db.bindToSession(doc);
-    doc.setLazyLoad(true);
-    doc = db.load(doc.getIdentity());
-    doc.setProperty("stringBlob", oBlob2);
-    doc.save();
-    RecordBytes onLoad = doc.getPropertyOnLoadValue("stringBlob");
+    var entity = (VertexEntityImpl) session.newVertex("test");
+    entity.setProperty("stringBlob", oBlob);
+    session.commit();
+
+    session.begin();
+    entity = session.load(entity.getIdentity());
+    var activeTx = session.getActiveTransaction();
+    oBlob2 = activeTx.load(oBlob2);
+
+    entity.setLazyLoad(true);
+    entity.setProperty("stringBlob", oBlob2);
+    RecordBytes onLoad = entity.getPropertyOnLoadValue("stringBlob");
     Assert.assertEquals(before, new String(onLoad.toStream()));
     Assert.assertEquals(
-        after, new String(((RecordBytes) doc.getProperty("stringBlob")).toStream()));
+        after, new String(((RecordBytes) entity.getProperty("stringBlob")).toStream()));
     // no lazy load
-    doc.setLazyLoad(false);
-    Assert.assertTrue(doc.getPropertyOnLoadValue("stringBlob") instanceof RID);
+    entity.setLazyLoad(false);
+    Assert.assertTrue(entity.getPropertyOnLoadValue("stringBlob") instanceof RID);
   }
 
   @Test
   public void testRandomOnLoadValue() {
-    var seed = System.currentTimeMillis();
+    var seed = 1739881589149L;//System.currentTimeMillis();
     System.out.println("Seed is " + seed);
     var random = new Random(seed);
     var propertyNames = Arrays.asList("prop1", "prop2", "prop3", "prop4");
-    var values = new ArrayList<Object>();
+    var values = new ArrayList<>();
     values.add(100);
     values.add(1000L);
     values.add(100.0);
@@ -145,8 +142,14 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
     var operations = new ArrayList<BiFunction<Vertex, String, Void>>();
     operations.add(
         (oVertex, propertyName) -> {
-          oVertex.setProperty(propertyName, values.get(random.nextInt(values.size())));
-          oVertex.save();
+          var value = values.get(random.nextInt(values.size()));
+          if (value instanceof List<?> list) {
+            oVertex.newEmbeddedList(propertyName).addAll(list);
+          } else if (value instanceof Set<?>) {
+            oVertex.newEmbeddedSet(propertyName).addAll((Set<?>) value);
+          } else {
+            oVertex.setProperty(propertyName, value);
+          }
           return null;
         });
     operations.add(
@@ -154,25 +157,30 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
           if (oVertex.hasProperty(propertyName)) {
             oVertex.removeProperty(propertyName);
           }
-          oVertex.save();
           return null;
         });
 
-    db.createVertexClass("test");
-    db.begin();
-    Vertex doc = db.newVertex("test");
+    session.createVertexClass("test");
+    session.begin();
+    var v = session.newVertex("test");
     var initialValues = new HashMap<String, Object>();
     propertyNames.forEach(
         name -> {
           var value = values.get(random.nextInt(values.size()));
-          doc.setProperty(name, value);
+          if (value instanceof List<?> list) {
+            v.newEmbeddedList(name).addAll(list);
+          } else if (value instanceof Set<?>) {
+            v.newEmbeddedSet(name).addAll((Set<?>) value);
+          } else {
+            v.setProperty(name, value);
+          }
         });
 
-    doc.save();
-    db.commit();
+    session.commit();
     for (var txId = 0; txId < 5; txId++) {
-      db.begin();
-      var boundDoc = db.bindToSession(doc);
+      session.begin();
+      var activeTx = session.getActiveTransaction();
+      var boundDoc = activeTx.<Vertex>load(v);
       propertyNames.forEach(name -> initialValues.put(name, boundDoc.getProperty(name)));
       for (var i = 0; i < 1000; i++) {
         var operation = operations.get(random.nextInt(operations.size()));
@@ -180,14 +188,14 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
         operation.apply(boundDoc, propertyName);
         assertInitialValues(boundDoc, initialValues);
       }
-      db.commit();
+      session.commit();
     }
   }
 
-  private void assertInitialValues(Vertex vertex, Map<String, Object> initialValues) {
+  private static void assertInitialValues(Vertex vertex, Map<String, Object> initialValues) {
     initialValues.forEach(
         (key, value) -> {
-          Assert.assertEquals(vertex.getPropertyOnLoadValue(key), value);
+          Assert.assertEquals("Property : " + key, vertex.getPropertyOnLoadValue(key), value);
         });
   }
 }

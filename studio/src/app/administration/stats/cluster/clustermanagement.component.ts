@@ -13,11 +13,11 @@ import { MetricService, AgentService } from "../../../core/services";
 declare const angular: any;
 
 @Component({
-  selector: "cluster-management",
-  templateUrl: "./clustermanagement.component.html",
+  selector: "collection-management",
+  templateUrl: "./collectionmanagement.component.html",
   styles: [""]
 })
-class ClusterManagementComponent implements OnInit, OnDestroy {
+class CollectionManagementComponent implements OnInit, OnDestroy {
   private tab = "overview";
   private handle;
   constructor(private metrics: MetricService, private agent: AgentService) {}
@@ -36,4 +36,4 @@ class ClusterManagementComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {}
 }
 
-export { ClusterManagementComponent };
+export { CollectionManagementComponent };

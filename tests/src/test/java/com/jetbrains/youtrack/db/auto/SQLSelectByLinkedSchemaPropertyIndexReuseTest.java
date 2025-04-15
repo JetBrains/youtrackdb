@@ -3,24 +3,22 @@ package com.jetbrains.youtrack.db.auto;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.ChainedIndexProxy;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Ignore;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
- * Testing functionality of {@link ChainedIndexProxy}.
- *
  * <p>Each test method tests different traverse index combination with different operations.
  *
  * <p>Method name are used to describe test case, first part is chain of types of indexes that are
@@ -33,11 +31,12 @@ import org.testng.annotations.Test;
  */
 @SuppressWarnings("SuspiciousMethodCalls")
 @Test(groups = {"index"})
+@Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndexReuseTest {
 
   @Parameters(value = "remote")
-  public SQLSelectByLinkedSchemaPropertyIndexReuseTest(boolean remote) {
-    super(remote);
+  public SQLSelectByLinkedSchemaPropertyIndexReuseTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
@@ -50,13 +49,13 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
   @AfterClass
   public void afterClass() throws Exception {
-    if (database.isClosed()) {
-      database = createSessionInstance();
+    if (session.isClosed()) {
+      session = createSessionInstance();
     }
 
-    database.command("drop class lpirtStudent").close();
-    database.command("drop class lpirtGroup").close();
-    database.command("drop class lpirtCurator").close();
+    session.execute("drop class lpirtStudent").close();
+    session.execute("drop class lpirtGroup").close();
+    session.execute("drop class lpirtCurator").close();
 
     super.afterClass();
   }
@@ -64,12 +63,11 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueNotUniqueEqualsUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.name = 'Someone'"));
+    var result =
+        session.query(
+            "select from lpirtStudent where group.curator.name = 'Someone'").toList();
     assertEquals(result.size(), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
 
@@ -79,12 +77,12 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueUniqueEqualsUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary = 600"));
+    var result =
+        session.query(
+
+            "select from lpirtStudent where group.curator.salary = 600").toList();
     assertEquals(result.size(), 3);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "Roger Connor"), 1);
@@ -96,16 +94,15 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueNotUniqueEqualsLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.name = 'Someone else' limit 1"));
+    var result =
+        session.query(
+            "select from lpirtStudent where group.curator.name = 'Someone else' limit 1").toList();
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("Jane Smith", "James Bell", "Roger Connor", "William James")
-            .contains(result.get(0).field("name")));
+            .contains(result.get(0).getProperty("name")));
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 3);
   }
@@ -113,12 +110,12 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueUniqueMinorUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary < 1000"));
+    var result =
+        session.query(
+
+            "select from lpirtStudent where group.curator.salary < 1000").toList();
     assertEquals(result.size(), 4);
     assertEquals(containsDocumentWithFieldValue(result, "name", "Jane Smith"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
@@ -131,19 +128,18 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueUniqueMinorLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary < 1000 limit 2"));
+    var result =
+        session.query(
+            "select from lpirtStudent where group.curator.salary < 1000 limit 2").toList();
     assertEquals(result.size(), 2);
 
-    final List<String> expectedNames =
+    final var expectedNames =
         Arrays.asList("Jane Smith", "James Bell", "Roger Connor", "William James");
 
-    for (EntityImpl aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+    for (var aResult : result) {
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 5);
@@ -152,11 +148,10 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueNotUniqueMinorEqualsUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where diploma.GPA <= 4"));
+    var result =
+        session.query("select from lpirtStudent where diploma.GPA <= 4").toList();
     assertEquals(result.size(), 3);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "James Bell"), 1);
@@ -168,16 +163,15 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueNotUniqueMinorEqualsLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where diploma.GPA <= 4 limit 1"));
+    var result =
+        session.query(
+            "select from lpirtStudent where diploma.GPA <= 4 limit 1").toList();
     assertEquals(result.size(), 1);
     assertTrue(
         Arrays.asList("John Smith", "James Bell", "William James")
-            .contains(result.get(0).field("name")));
+            .contains(result.get(0).getProperty("name")));
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
   }
@@ -185,12 +179,11 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueUniqueMajorUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary > 1000"));
+    var result =
+        session.query(
+            "select from lpirtStudent where group.curator.salary > 1000").toList();
     assertEquals(result.size(), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "John Smith"), 1);
 
@@ -200,17 +193,16 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testNotUniqueUniqueUniqueMajorLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where group.curator.salary > 550 limit 1"));
+    var result =
+        session.query(
+            "select from lpirtStudent where group.curator.salary > 550 limit 1").toList();
     assertEquals(result.size(), 1);
-    final List<String> expectedNames =
+    final var expectedNames =
         Arrays.asList("John Smith", "James Bell", "Roger Connor", "William James");
-    for (EntityImpl aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+    for (var aResult : result) {
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 3);
@@ -219,12 +211,11 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueUniqueBetweenUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary between 500 and 1000"));
+    var result =
+        session.query(
+            "select from lpirtGroup where curator.salary between 500 and 1000").toList();
     assertEquals(result.size(), 2);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-2"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-3"), 1);
@@ -235,17 +226,16 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueUniqueBetweenLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary between 500 and 1000 limit 1"));
+    var result =
+        session.query(
+            "select from lpirtGroup where curator.salary between 500 and 1000 limit 1").toList();
     assertEquals(result.size(), 1);
 
-    final List<String> expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
-    for (EntityImpl aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+    final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
+    for (var aResult : result) {
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
@@ -254,12 +244,11 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueUniqueInUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary in [500, 600]"));
+    var result =
+        session.query(
+            "select from lpirtGroup where curator.salary in [500, 600]").toList();
     assertEquals(result.size(), 2);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-2"), 1);
     assertEquals(containsDocumentWithFieldValue(result, "name", "PZ-08-3"), 1);
@@ -270,17 +259,16 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   @Test
   public void testUniqueUniqueInLimitUsing() throws Exception {
 
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtGroup where curator.salary in [500, 600] limit 1"));
+    var result =
+        session.query(
+            "select from lpirtGroup where curator.salary in [500, 600] limit 1").toList();
     assertEquals(result.size(), 1);
 
-    final List<String> expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
-    for (EntityImpl aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+    final var expectedNames = Arrays.asList("PZ-08-2", "PZ-08-3");
+    for (var aResult : result) {
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
@@ -292,17 +280,16 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
    */
   @Test
   public void testUniquePartialSearch() {
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from lpirtStudent where diploma.name = 'diploma3'"));
+    var result =
+        session.query(
+            "select from lpirtStudent where diploma.name = 'diploma3'").toList();
 
     assertEquals(result.size(), 2);
-    final List<String> expectedNames = Arrays.asList("William James", "James Bell");
-    for (EntityImpl aResult : result) {
-      assertTrue(expectedNames.contains(aResult.field("name")));
+    final var expectedNames = Arrays.asList("William James", "James Bell");
+    for (var aResult : result) {
+      assertTrue(expectedNames.contains(aResult.getProperty("name")));
     }
 
     assertEquals(indexUsages(), oldIndexUsage + 2);
@@ -310,11 +297,11 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
 
   @Test
   public void testHashIndexIsUsedAsBaseIndex() {
-    long oldIndexUsage = indexUsages();
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where transcript.id = '1'"));
+    var result =
+        session.query(
+            "select from lpirtStudent where transcript.id = '1'").toList();
 
     assertEquals(result.size(), 1);
 
@@ -322,20 +309,20 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   }
 
   @Test
-  public void testCompositeHashIndexIgnored() {
-    long oldIndexUsage = indexUsages();
+  public void testCompositeIndex() {
+    var oldIndexUsage = indexUsages();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>("select from lpirtStudent where skill.name = 'math'"));
+    var result =
+        session.query(
+            "select from lpirtStudent where skill.name = 'math'").toList();
 
     assertEquals(result.size(), 1);
 
-    assertEquals(indexUsages(), oldIndexUsage);
+    assertEquals(indexUsages(), oldIndexUsage + 2);
   }
 
   private long indexUsages() {
-    final long oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+    final var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
     return oldIndexUsage == -1 ? 0 : oldIndexUsage;
   }
 
@@ -343,187 +330,177 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
    * William James and James Bell work together on the same diploma.
    */
   private void fillDataSet() {
-    database.begin();
-    EntityImpl curator1 = database.newInstance("lpirtCurator");
-    curator1.field("name", "Someone");
-    curator1.field("salary", 2000);
+    session.begin();
+    var curator1 = session.newInstance("lpirtCurator");
+    curator1.setProperty("name", "Someone");
+    curator1.setProperty("salary", 2000);
 
-    final EntityImpl group1 = database.newInstance("lpirtGroup");
-    group1.field("name", "PZ-08-1");
-    group1.field("curator", curator1);
-    group1.save();
+    final var group1 = session.newInstance("lpirtGroup");
+    group1.setProperty("name", "PZ-08-1");
+    group1.setProperty("curator", curator1);
 
-    final EntityImpl diploma1 = database.newInstance("lpirtDiploma");
-    diploma1.field("GPA", 3.);
-    diploma1.field("name", "diploma1");
-    diploma1.field(
-        "thesis",
+    final var diploma1 = session.newInstance("lpirtDiploma");
+    diploma1.setProperty("GPA", 3.);
+    diploma1.setProperty("name", "diploma1");
+    diploma1.setProperty("thesis",
         "Researching and visiting universities before making a final decision is very beneficial"
             + " because you student be able to experience the campus, meet the professors, and"
             + " truly understand the traditions of the university.");
 
-    final EntityImpl transcript = database.newInstance("lpirtTranscript");
-    transcript.field("id", "1");
+    final var transcript = session.newInstance("lpirtTranscript");
+    transcript.setProperty("id", "1");
 
-    final EntityImpl skill = database.newInstance("lpirtSkill");
-    skill.field("name", "math");
+    final var skill = session.newInstance("lpirtSkill");
+    skill.setProperty("name", "math");
 
-    final EntityImpl student1 = database.newInstance("lpirtStudent");
-    student1.field("name", "John Smith");
-    student1.field("group", group1);
-    student1.field("diploma", diploma1);
-    student1.field("transcript", transcript);
-    student1.field("skill", skill);
-    student1.save();
+    final var student1 = session.newInstance("lpirtStudent");
+    student1.setProperty("name", "John Smith");
+    student1.setProperty("group", group1);
+    student1.setProperty("diploma", diploma1);
+    student1.setProperty("transcript", transcript);
+    student1.setProperty("skill", skill);
 
-    EntityImpl curator2 = database.newInstance("lpirtCurator");
-    curator2.field("name", "Someone else");
-    curator2.field("salary", 500);
+    var curator2 = session.newInstance("lpirtCurator");
+    curator2.setProperty("name", "Someone else");
+    curator2.setProperty("salary", 500);
 
-    final EntityImpl group2 = database.newInstance("lpirtGroup");
-    group2.field("name", "PZ-08-2");
-    group2.field("curator", curator2);
-    group2.save();
+    final var group2 = session.newInstance("lpirtGroup");
+    group2.setProperty("name", "PZ-08-2");
+    group2.setProperty("curator", curator2);
 
-    final EntityImpl diploma2 = database.newInstance("lpirtDiploma");
-    diploma2.field("GPA", 5.);
-    diploma2.field("name", "diploma2");
-    diploma2.field(
-        "thesis",
+    final var diploma2 = session.newInstance("lpirtDiploma");
+    diploma2.setProperty("GPA", 5.);
+    diploma2.setProperty("name", "diploma2");
+    diploma2.setProperty("thesis",
         "While both Northerners and Southerners believed they fought against tyranny and"
             + " oppression, Northerners focused on the oppression of slaves while Southerners"
             + " defended their own right to self-government.");
 
-    final EntityImpl student2 = database.newInstance("lpirtStudent");
-    student2.field("name", "Jane Smith");
-    student2.field("group", group2);
-    student2.field("diploma", diploma2);
-    student2.save();
+    final var student2 = session.newInstance("lpirtStudent");
+    student2.setProperty("name", "Jane Smith");
+    student2.setProperty("group", group2);
+    student2.setProperty("diploma", diploma2);
 
-    EntityImpl curator3 = database.newInstance("lpirtCurator");
-    curator3.field("name", "Someone else");
-    curator3.field("salary", 600);
+    var curator3 = session.newInstance("lpirtCurator");
+    curator3.setProperty("name", "Someone else");
+    curator3.setProperty("salary", 600);
 
-    final EntityImpl group3 = database.newInstance("lpirtGroup");
-    group3.field("name", "PZ-08-3");
-    group3.field("curator", curator3);
-    group3.save();
+    final var group3 = session.newInstance("lpirtGroup");
+    group3.setProperty("name", "PZ-08-3");
+    group3.setProperty("curator", curator3);
 
-    final EntityImpl diploma3 = database.newInstance("lpirtDiploma");
-    diploma3.field("GPA", 4.);
-    diploma3.field("name", "diploma3");
-    diploma3.field(
-        "thesis",
+    final var diploma3 = session.newInstance("lpirtDiploma");
+    diploma3.setProperty("GPA", 4.);
+    diploma3.setProperty("name", "diploma3");
+    diploma3.setProperty("thesis",
         "College student shouldn't have to take a required core curriculum, and many core "
             + "courses are graded too stiffly.");
 
-    final EntityImpl student3 = database.newInstance("lpirtStudent");
-    student3.field("name", "James Bell");
-    student3.field("group", group3);
-    student3.field("diploma", diploma3);
-    student3.save();
+    final var student3 = session.newInstance("lpirtStudent");
+    student3.setProperty("name", "James Bell");
+    student3.setProperty("group", group3);
+    student3.setProperty("diploma", diploma3);
 
-    final EntityImpl student4 = database.newInstance("lpirtStudent");
-    student4.field("name", "Roger Connor");
-    student4.field("group", group3);
-    student4.save();
+    final var student4 = session.newInstance("lpirtStudent");
+    student4.setProperty("name", "Roger Connor");
+    student4.setProperty("group", group3);
 
-    final EntityImpl student5 = database.newInstance("lpirtStudent");
-    student5.field("name", "William James");
-    student5.field("group", group3);
-    student5.field("diploma", diploma3);
-    student5.save();
-    database.commit();
+    final var student5 = session.newInstance("lpirtStudent");
+    student5.setProperty("name", "William James");
+    student5.setProperty("group", group3);
+    student5.setProperty("diploma", diploma3);
+
+    session.commit();
   }
 
   private void createSchemaForTest() {
-    final Schema schema = database.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("lpirtStudent")) {
-      final SchemaClass curatorClass = schema.createClass("lpirtCurator");
-      curatorClass.createProperty(database, "name", PropertyType.STRING)
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      final var curatorClass = schema.createClass("lpirtCurator");
+      curatorClass.createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       curatorClass
-          .createProperty(database, "salary", PropertyType.INTEGER)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("salary", PropertyType.INTEGER)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      curatorClass.createIndex(database,
+      curatorClass.createIndex(
           "curotorCompositeIndex",
           SchemaClass.INDEX_TYPE.UNIQUE.name(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"salary", "name"});
 
-      final SchemaClass groupClass = schema.createClass("lpirtGroup");
+      final var groupClass = schema.createClass("lpirtGroup");
       groupClass
-          .createProperty(database, "name", PropertyType.STRING)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
       groupClass
-          .createProperty(database, "curator", PropertyType.LINK, curatorClass)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("curator", PropertyType.LINK, curatorClass)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
-      final SchemaClass diplomaClass = schema.createClass("lpirtDiploma");
-      diplomaClass.createProperty(database, "GPA", PropertyType.DOUBLE)
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      diplomaClass.createProperty(database, "thesis", PropertyType.STRING);
+      final var diplomaClass = schema.createClass("lpirtDiploma");
+      diplomaClass.createProperty("GPA", PropertyType.DOUBLE)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      diplomaClass.createProperty("thesis", PropertyType.STRING);
       diplomaClass
-          .createProperty(database, "name", PropertyType.STRING)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      diplomaClass.createIndex(database,
+      diplomaClass.createIndex(
           "diplomaThesisUnique",
           SchemaClass.INDEX_TYPE.UNIQUE.name(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"thesis"});
 
-      final SchemaClass transcriptClass = schema.createClass("lpirtTranscript");
+      final var transcriptClass = schema.createClass("lpirtTranscript");
       transcriptClass
-          .createProperty(database, "id", PropertyType.STRING)
-          .createIndex(database,
-              SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX,
+          .createProperty("id", PropertyType.STRING)
+          .createIndex(
+              SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
-      final SchemaClass skillClass = schema.createClass("lpirtSkill");
+      final var skillClass = schema.createClass("lpirtSkill");
       skillClass
-          .createProperty(database, "name", PropertyType.STRING)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
 
-      final SchemaClass studentClass = schema.createClass("lpirtStudent");
+      final var studentClass = schema.createClass("lpirtStudent");
       studentClass
-          .createProperty(database, "name", PropertyType.STRING)
-          .createIndex(database, SchemaClass.INDEX_TYPE.UNIQUE,
+          .createProperty("name", PropertyType.STRING)
+          .createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
       studentClass
-          .createProperty(database, "group", PropertyType.LINK, groupClass)
-          .createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
-      studentClass.createProperty(database, "diploma", PropertyType.LINK, diplomaClass);
+          .createProperty("group", PropertyType.LINK, groupClass)
+          .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      studentClass.createProperty("diploma", PropertyType.LINK, diplomaClass);
       studentClass
-          .createProperty(database, "transcript", PropertyType.LINK, transcriptClass)
-          .createIndex(database,
-              SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX,
+          .createProperty("transcript", PropertyType.LINK, transcriptClass)
+          .createIndex(
+              SchemaClass.INDEX_TYPE.UNIQUE,
               Map.of("ignoreNullValues", true));
-      studentClass.createProperty(database, "skill", PropertyType.LINK, skillClass);
+      studentClass.createProperty("skill", PropertyType.LINK, skillClass);
 
       var metadata = Map.of("ignoreNullValues", false);
-      studentClass.createIndex(database,
+      studentClass.createIndex(
           "studentDiplomaAndNameIndex",
           SchemaClass.INDEX_TYPE.UNIQUE.toString(),
           null,
           new HashMap<>(metadata), new String[]{"diploma", "name"});
-      studentClass.createIndex(database,
+      studentClass.createIndex(
           "studentSkillAndGroupIndex",
-          SchemaClass.INDEX_TYPE.NOTUNIQUE_HASH_INDEX.toString(),
+          SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
           null,
           new HashMap<>(metadata), new String[]{"skill", "group"});
     }
   }
 
   private static int containsDocumentWithFieldValue(
-      final List<EntityImpl> docList, final String fieldName, final Object fieldValue) {
-    int count = 0;
-    for (final EntityImpl docItem : docList) {
-      if (fieldValue.equals(docItem.field(fieldName))) {
+      final List<Result> resultList, final String fieldName, final Object fieldValue) {
+    var count = 0;
+    for (final var docItem : resultList) {
+      if (fieldValue.equals(docItem.getProperty(fieldName))) {
         count++;
       }
     }

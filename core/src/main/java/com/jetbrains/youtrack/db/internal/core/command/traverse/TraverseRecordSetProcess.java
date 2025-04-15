@@ -19,11 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 
 public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<Identifiable>> {
 
@@ -32,35 +33,39 @@ public class TraverseRecordSetProcess extends TraverseAbstractProcess<Iterator<I
   protected int index = -1;
 
   public TraverseRecordSetProcess(
-      final Traverse iCommand, final Iterator<Identifiable> iTarget, TraversePath parentPath) {
-    super(iCommand, iTarget);
+      final Traverse iCommand, final Iterator<Identifiable> iTarget, TraversePath parentPath,
+      DatabaseSessionInternal db) {
+    super(iCommand, iTarget, db);
     this.path = parentPath.appendRecordSet();
     command.getContext().push(this);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Identifiable process() {
     while (target.hasNext()) {
       record = target.next();
       index++;
 
-      final DBRecord rec = record.getRecord();
+      var transaction = session.getActiveTransaction();
+      var rec = transaction.load(record);
       if (rec instanceof EntityImpl entity) {
-        if (!entity.getIdentity().isPersistent() && entity.fields() == 1) {
+        if (!entity.getIdentity().isPersistent() && entity.getPropertiesCount() == 1) {
           // EXTRACT THE FIELD CONTEXT
-          Object fieldvalue = entity.field(entity.fieldNames()[0]);
+          var fieldvalue = entity.getProperty(entity.getPropertyNames().getFirst());
           if (fieldvalue instanceof Collection<?>) {
             command
                 .getContext()
                 .push(
                     new TraverseRecordSetProcess(
-                        command, ((Collection<Identifiable>) fieldvalue).iterator(), path));
+                        command, ((Collection<Identifiable>) fieldvalue).iterator(), path,
+                        session));
 
           } else if (fieldvalue instanceof EntityImpl) {
-            command.getContext().push(new TraverseRecordProcess(command, rec, path));
+            command.getContext().push(new TraverseRecordProcess(command, rec, path, session));
           }
         } else {
-          command.getContext().push(new TraverseRecordProcess(command, rec, path));
+          command.getContext().push(new TraverseRecordProcess(command, rec, path, session));
         }
 
         return null;

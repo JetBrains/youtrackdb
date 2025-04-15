@@ -31,7 +31,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
 
   @Override
   public SQLNestedProjectionItem copy() {
-    SQLNestedProjectionItem result = new SQLNestedProjectionItem(-1);
+    var result = new SQLNestedProjectionItem(-1);
     result.exclude = exclude;
     result.star = star;
     result.expression = expression == null ? null : expression.copy();
@@ -59,7 +59,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
       return true;
     }
     if (expression != null) {
-      String fieldString = expression.getDefaultAlias().getStringValue();
+      var fieldString = expression.getDefaultAlias().getStringValue();
       if (fieldString.equals(propertyName)) {
         return true;
       }
@@ -123,7 +123,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
       return false;
     }
 
-    SQLNestedProjectionItem that = (SQLNestedProjectionItem) o;
+    var that = (SQLNestedProjectionItem) o;
 
     if (exclude != that.exclude) {
       return false;
@@ -145,7 +145,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = (exclude ? 1 : 0);
+    var result = (exclude ? 1 : 0);
     result = 31 * result + (star ? 1 : 0);
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     result = 31 * result + (rightWildcard ? 1 : 0);
@@ -160,7 +160,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("exclude", exclude);
     result.setProperty("star", star);
     if (expression != null) {

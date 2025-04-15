@@ -21,19 +21,14 @@ package com.jetbrains.youtrack.db.api.config;
 
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.ConfigurationChangeCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
-
 import java.io.PrintStream;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.logging.ConsoleHandler;
-import java.util.logging.FileHandler;
 import java.util.logging.Level;
+import javax.annotation.Nullable;
 
 /**
  * Keeps all configuration settings. At startup assigns the configuration values by reading system
@@ -41,13 +36,13 @@ import java.util.logging.Level;
  */
 public enum GlobalConfiguration {
   ENVIRONMENT_DUMP_CFG_AT_STARTUP(
-      "environment.dumpCfgAtStartup",
+      "youtrackdb.environment.dumpCfgAtStartup",
       "Dumps the configuration during application startup",
       Boolean.class,
       Boolean.FALSE),
 
   ENVIRONMENT_LOCK_MANAGER_CONCURRENCY_LEVEL(
-      "environment.lock.concurrency.level",
+      "youtrackdb.environment.lock.concurrency.level",
       "Concurrency level of lock manager",
       Integer.class,
       Runtime.getRuntime().availableProcessors() << 3,
@@ -55,35 +50,35 @@ public enum GlobalConfiguration {
 
   // SCRIPT
   SCRIPT_POOL(
-      "script.pool.maxSize",
+      "youtrackdb.script.pool.maxSize",
       "Maximum number of instances in the pool of script engines",
       Integer.class,
       20),
 
   SCRIPT_POLYGLOT_USE_GRAAL(
-      "script.polyglot.useGraal", "Use GraalVM as polyglot engine", Boolean.class, true),
+      "youtrackdb.script.polyglot.useGraal", "Use GraalVM as polyglot engine", Boolean.class, true),
 
   // MEMORY
   MEMORY_USE_UNSAFE(
-      "memory.useUnsafe",
+      "youtrackdb.memory.useUnsafe",
       "Indicates whether Unsafe will be used, if it is present",
       Boolean.class,
       true),
 
   MEMORY_PROFILING(
-      "memory.profiling",
+      "youtrackdb.memory.profiling",
       "Switches on profiling of allocations of direct memory inside of YouTrackDB.",
       Boolean.class,
       false),
 
   MEMORY_PROFILING_REPORT_INTERVAL(
-      "memory.profiling.reportInterval",
+      "youtrackdb.memory.profiling.reportInterval",
       "Interval of printing of memory profiling results in minutes",
       Integer.class,
       15),
 
   MEMORY_LEFT_TO_OS(
-      "memory.leftToOS",
+      "youtrackdb.memory.leftToOS",
       "Amount of free memory which should be left unallocated in case of YouTrackDB is started"
           + " outside of container. Value can be set as % of total memory provided to YouTrackDB or"
           + " as absolute value in bytes, kilobytes, megabytes or gigabytes. If you set value as"
@@ -94,7 +89,7 @@ public enum GlobalConfiguration {
       "2g"),
 
   MEMORY_LEFT_TO_CONTAINER(
-      "memory.leftToContainer",
+      "youtrackdb.memory.leftToContainer",
       "Amount of free memory which should be left unallocated in case of YouTrackDB is started inside"
           + " of container. Value can be set as % of total memory provided to YouTrackDB or as"
           + " absolute value in bytes, kilobytes, megabytes or gigabytes. If you set value as 10%"
@@ -104,29 +99,21 @@ public enum GlobalConfiguration {
       String.class,
       "256m"),
 
-  DIRECT_MEMORY_SAFE_MODE(
-      "memory.directMemory.safeMode",
-      "Indicates whether to perform a range check before each direct memory update. It is true by"
-          + " default, but usually it can be safely set to false. It should only be to true after"
-          + " dramatic changes have been made in the storage structures",
-      Boolean.class,
-      true),
-
   DIRECT_MEMORY_POOL_LIMIT(
-      "memory.pool.limit",
+      "youtrackdb.memory.pool.limit",
       "Limit of the pages cached inside of direct memory pool to avoid frequent reallocation of"
           + " memory in OS",
       Integer.class,
       Integer.MAX_VALUE),
 
   DIRECT_MEMORY_PREALLOCATE(
-      "memory.directMemory.preallocate",
+      "youtrackdb.memory.directMemory.preallocate",
       "Preallocate amount of direct memory which is needed for the disk cache",
       Boolean.class,
       false),
 
   DIRECT_MEMORY_TRACK_MODE(
-      "memory.directMemory.trackMode",
+      "youtrackdb.memory.directMemory.trackMode",
       "Activates the direct memory pool [leak detector](Leak-Detector.md). This detector causes a"
           + " large overhead and should be used for debugging purposes only. It's also a good idea"
           + " to pass the"
@@ -137,7 +124,7 @@ public enum GlobalConfiguration {
       false),
 
   DIRECT_MEMORY_ONLY_ALIGNED_ACCESS(
-      "memory.directMemory.onlyAlignedMemoryAccess",
+      "youtrackdb.memory.directMemory.onlyAlignedMemoryAccess",
       "Some architectures do not allow unaligned memory access or may suffer from speed"
           + " degradation. For such platforms, this flag should be set to true",
       Boolean.class,
@@ -148,7 +135,7 @@ public enum GlobalConfiguration {
    * Limit of amount of files which may be open simultaneously
    */
   OPEN_FILES_LIMIT(
-      "storage.openFiles.limit",
+      "youtrackdb.storage.openFiles.limit",
       "Limit of amount of files which may be open simultaneously, -1 (default) means automatic"
           + " detection",
       Integer.class,
@@ -159,89 +146,30 @@ public enum GlobalConfiguration {
    * creation of new lock instances, default value is 10000.
    */
   COMPONENTS_LOCK_CACHE(
-      "storage.componentsLock.cache",
+      "youtrackdb.storage.componentsLock.cache",
       "Amount of cached locks is used for component lock to avoid constant creation of new lock"
           + " instances",
       Integer.class,
       10000),
 
-  DISK_CACHE_PINNED_PAGES(
-      "storage.diskCache.pinnedPages",
-      "Maximum amount of pinned pages which may be contained in cache, if this percent is reached"
-          + " next pages will be left in unpinned state. You can not set value more than 50",
-      Integer.class,
-      20,
-      false),
-
   DISK_CACHE_SIZE(
-      "storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class, 4 * 1024),
+      "youtrackdb.storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class,
+      4 << 10),
 
   DISK_WRITE_CACHE_PART(
-      "storage.diskCache.writeCachePart",
+      "youtrackdb.storage.diskCache.writeCachePart",
       "Percentage of disk cache, which is used as write cache",
       Integer.class,
       5),
 
-  DISK_WRITE_CACHE_SHUTDOWN_TIMEOUT(
-      "storage.diskCache.writeCacheShutdownTimeout",
-      "Timeout of shutdown of write cache for single task in min.",
-      Integer.class,
-      30),
-
-  DISK_WRITE_CACHE_PAGE_TTL(
-      "storage.diskCache.writeCachePageTTL",
-      "Max time until a page will be flushed from write cache (in seconds)",
-      Long.class,
-      24 * 60 * 60),
-
   DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL(
-      "storage.diskCache.writeCachePageFlushInterval",
+      "youtrackdb.storage.diskCache.writeCachePageFlushInterval",
       "Interval between flushing of pages from write cache (in ms)",
       Integer.class,
       25),
 
-  DISK_WRITE_CACHE_FLUSH_WRITE_INACTIVITY_INTERVAL(
-      "storage.diskCache.writeCacheFlushInactivityInterval",
-      "Interval between 2 writes to the disk cache, if writes are done with an interval more than"
-          + " provided, all files will be fsynced before the next write, which allows a data"
-          + " restore after a server crash (in ms)",
-      Long.class,
-      60 * 1000),
-
-  DISK_WRITE_CACHE_FLUSH_LOCK_TIMEOUT(
-      "storage.diskCache.writeCacheFlushLockTimeout",
-      "Maximum amount of time the write cache will wait before a page flushes (in ms, -1 to"
-          + " disable)",
-      Integer.class,
-      -1),
-
-  /**
-   * The interval (how many new pages should be added before free space will be checked), after
-   * which the storage periodically checks whether the amount of free disk space is enough to work
-   * in write mode.
-   */
-  DISC_CACHE_FREE_SPACE_CHECK_INTERVAL_IN_PAGES(
-      "storage.diskCache.diskFreeSpaceCheckIntervalInPages",
-      "The interval (how many new pages should be added before free space will be checked), after"
-          + " which the storage periodically checks whether the amount of free disk space is enough"
-          + " to work in write mode",
-      Integer.class,
-      2048),
-
-  /**
-   * Keep disk cache state between moment when storage is closed and moment when it is opened
-   * again.
-   * <code>true</code> by default.
-   */
-  STORAGE_KEEP_DISK_CACHE_STATE(
-      "storage.diskCache.keepState",
-      "Keep disk cache state between moment when storage is closed and moment when it is opened"
-          + " again. true by default",
-      Boolean.class,
-      false),
-
   STORAGE_CHECKSUM_MODE(
-      "storage.diskCache.checksumMode",
+      "youtrackdb.storage.diskCache.checksumMode",
       "Controls the per-page checksum storage and verification done by the file cache. Possible"
           + " modes: 'off' – checksums are completely off; 'store' – checksums are calculated and"
           + " stored on page flushes, no verification is done on page loads, stored checksums are"
@@ -256,36 +184,15 @@ public enum GlobalConfiguration {
       ChecksumMode.StoreAndSwitchReadOnlyMode,
       false),
 
-  STORAGE_CHECK_LATEST_OPERATION_ID(
-      "storage.checkLatestOperationId",
-      "Indicates wether storage should be checked for latest operation id, to ensure that all the"
-          + " records are needed to restore database are stored into the WAL (true by default)",
-      Boolean.class,
-      true),
-
   STORAGE_EXCLUSIVE_FILE_ACCESS(
-      "storage.exclusiveFileAccess",
+      "youtrackdb.storage.exclusiveFileAccess",
       "Limit access to the datafiles to the single API user, set to "
           + "true to prevent concurrent modification files by different instances of storage",
       Boolean.class,
       true),
 
-  STORAGE_TRACK_FILE_ACCESS(
-      "storage.trackFileAccess",
-      "Works only if storage.exclusiveFileAccess is set to true. "
-          + "Tracks stack trace of thread which initially opened a file",
-      Boolean.class,
-      true),
-
-  STORAGE_COMPRESSION_METHOD(
-      "storage.compressionMethod",
-      "Record compression method used in storage"
-          + " Possible values : gzip, nothing. Default is 'nothing' that means no compression",
-      String.class,
-      "nothing"),
-
   STORAGE_ENCRYPTION_KEY(
-      "storage.encryptionKey",
+      "youtrackdb.storage.encryptionKey",
       "Contains the storage encryption key. This setting is hidden",
       String.class,
       null,
@@ -293,587 +200,380 @@ public enum GlobalConfiguration {
       true),
 
   STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CREATE(
-      "storage.makeFullCheckpointAfterCreate",
+      "youtrackdb.storage.makeFullCheckpointAfterCreate",
       "Indicates whether a full checkpoint should be performed, if storage was created",
       Boolean.class,
       true),
 
   STORAGE_ATOMIC_OPERATIONS_TABLE_COMPACTION_LIMIT(
-      "storage.atomicOperationsTable.compactionLimit",
+      "youtrackdb.storage.atomicOperationsTable.compactionLimit",
       "Limit of size of atomic operations table after which compaction will be triggered on",
       Integer.class,
       10_000),
 
-  STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CLUSTER_CREATE(
-      "storage.makeFullCheckpointAfterClusterCreate",
-      "Indicates whether a full checkpoint should be performed, if storage was opened",
-      Boolean.class,
-      true),
-
   STORAGE_CALL_FSYNC(
-      "storage.callFsync",
+      "youtrackdb.storage.callFsync",
       "Call fsync during fuzzy checkpoints or WAL writes, true by default",
       Boolean.class,
       true),
 
   STORAGE_USE_DOUBLE_WRITE_LOG(
-      "storage.useDoubleWriteLog",
+      "youtrackdb.storage.useDoubleWriteLog",
       "Allows usage of double write log in storage. "
           + "This log prevents pages to be teared apart so it is not recommended to switch it off.",
       Boolean.class,
       true),
 
   STORAGE_DOUBLE_WRITE_LOG_MAX_SEG_SIZE(
-      "storage.doubleWriteLog.maxSegSize",
+      "youtrackdb.storage.doubleWriteLog.maxSegSize",
       "Maximum size of double write log segment in megabytes, -1 means that size will be calculated"
           + " automatically",
       Integer.class,
       -1),
 
   STORAGE_DOUBLE_WRITE_LOG_MAX_SEG_SIZE_PERCENT(
-      "storage.doubleWriteLog.maxSegSizePercent",
+      "youtrackdb.storage.doubleWriteLog.maxSegSizePercent",
       "Maximum size of segment of double write log in percents, should be set to value bigger than"
           + " 0",
       Integer.class,
       5),
 
   STORAGE_DOUBLE_WRITE_LOG_MIN_SEG_SIZE(
-      "storage.doubleWriteLog.minSegSize",
+      "youtrackdb.storage.doubleWriteLog.minSegSize",
       "Minimum size of segment of double write log in megabytes, should be set to value bigger than"
           + " 0. If both set maximum and minimum size of segments. Minimum size always will have"
           + " priority over maximum size.",
       Integer.class,
       256),
 
-  STORAGE_PAGE_OPERATIONS_CACHE_SIZE(
-      "storage.pageOperationsCacheSize",
-      "Size of page operations cache in MB per transaction. "
-          + "If operations are cached, they are not read from WAL during rollback.",
-      Integer.class,
-      16),
-
-  STORAGE_CLUSTER_VERSION(
-      "storage.cluster.version",
-      "Binary version of cluster which will be used inside of storage",
+  STORAGE_COLLECTION_VERSION(
+      "youtrackdb.storage.collection.version",
+      "Binary version of collection which will be used inside of storage",
       Integer.class,
       2),
 
   STORAGE_PRINT_WAL_PERFORMANCE_STATISTICS(
-      "storage.printWALPerformanceStatistics",
+      "youtrackdb.storage.printWALPerformanceStatistics",
       "Periodically prints statistics about WAL performance",
       Boolean.class,
       false),
 
   STORAGE_PRINT_WAL_PERFORMANCE_INTERVAL(
-      "storage.walPerformanceStatisticsInterval",
+      "youtrackdb.storage.walPerformanceStatisticsInterval",
       "Interval in seconds between consequent reports of WAL performance statistics",
       Integer.class,
       10),
 
-  STORAGE_INTERNAL_JOURNALED_TX_STREAMING_PORT(
-      "storage.internal.journaled.tx.streaming.port",
-      "Activates journaled tx streaming on the given TCP/IP port. Used for internal testing"
-          + " purposes only. Never touch it if you don't know what you doing.",
-      Integer.class,
-      null),
-
-  WAL_SYNC_ON_PAGE_FLUSH(
-      "storage.wal.syncOnPageFlush",
-      "Indicates whether a force sync should be performed during WAL page flush",
-      Boolean.class,
-      true),
+  STORAGE_BLOB_COLLECTIONS_COUNT("youtrackdb.storage.blob.collections.count",
+      "Amount storage collections allocated for storing blobs", Integer.class,
+      8),
 
   WAL_CACHE_SIZE(
-      "storage.wal.cacheSize",
+      "youtrackdb.storage.wal.cacheSize",
       "Maximum size of WAL cache (in amount of WAL pages, each page is 4k) If set to 0, caching"
           + " will be disabled",
       Integer.class,
       65536),
 
   WAL_BUFFER_SIZE(
-      "storage.wal.bufferSize",
+      "youtrackdb.storage.wal.bufferSize",
       "Size of the direct memory WAL buffer which is used inside of "
           + "the background write thread (in MB)",
       Integer.class,
       64),
 
   WAL_SEGMENTS_INTERVAL(
-      "storage.wal.segmentsInterval",
+      "youtrackdb.storage.wal.segmentsInterval",
       "Maximum interval in time in min. after which new WAL segment will be added",
       Integer.class,
       10),
 
-  WAL_FILE_AUTOCLOSE_INTERVAL(
-      "storage.wal.fileAutoCloseInterval",
-      "Interval in seconds after which WAL file will be closed if there is no "
-          + "any IO operations on this file (in seconds), default value is 10",
-      Integer.class,
-      10,
-      false),
-
-  WAL_SEGMENT_BUFFER_SIZE(
-      "storage.wal.segmentBufferSize",
-      "Size of the buffer which contains WAL records in serialized format " + "in megabytes",
-      Integer.class,
-      32),
-
   WAL_MAX_SEGMENT_SIZE(
-      "storage.wal.maxSegmentSize",
+      "youtrackdb.storage.wal.maxSegmentSize",
       "Maximum size of single WAL segment (in megabytes)",
       Integer.class,
       -1),
 
   WAL_MAX_SEGMENT_SIZE_PERCENT(
-      "storage.wal.maxSegmentSizePercent",
+      "youtrackdb.storage.wal.maxSegmentSizePercent",
       "Maximum size of single WAL segment in percent of initial free space",
       Integer.class,
       5),
 
   WAL_MIN_SEG_SIZE(
-      "storage.wal.minSegSize",
+      "youtrackdb.storage.wal.minSegSize",
       "Minimal value of maximum WAL segment size in MB",
       Integer.class,
-      6 * 1024),
+      6 << 10),
 
   WAL_MIN_COMPRESSED_RECORD_SIZE(
-      "storage.wal.minCompressedRecordSize",
+      "youtrackdb.storage.wal.minCompressedRecordSize",
       "Minimum size of record which is needed to be compressed before stored on disk",
       Integer.class,
-      8 * 1024),
+      8 << 10),
 
   WAL_MAX_SIZE(
-      "storage.wal.maxSize", "Maximum size of WAL on disk (in megabytes)", Integer.class, -1),
+      "youtrackdb.storage.wal.maxSize", "Maximum size of WAL on disk (in megabytes)", Integer.class,
+      -1),
 
   WAL_KEEP_SINGLE_SEGMENT(
-      "storage.wal.keepSingleSegment",
+      "youtrackdb.storage.wal.keepSingleSegment",
       "Database will provide the best efforts to keep only single WAL inside the storage",
       Boolean.class,
       true),
 
   WAL_COMMIT_TIMEOUT(
-      "storage.wal.commitTimeout",
+      "youtrackdb.storage.wal.commitTimeout",
       "Maximum interval between WAL commits (in ms.)",
       Integer.class,
       1000),
 
   WAL_SHUTDOWN_TIMEOUT(
-      "storage.wal.shutdownTimeout",
+      "youtrackdb.storage.wal.shutdownTimeout",
       "Maximum wait interval between events, when the background flush thread"
           + "receives a shutdown command and when the background flush will be stopped (in ms.)",
       Integer.class,
       10000),
 
   WAL_FUZZY_CHECKPOINT_INTERVAL(
-      "storage.wal.fuzzyCheckpointInterval",
+      "youtrackdb.storage.wal.fuzzyCheckpointInterval",
       "Interval between fuzzy checkpoints (in seconds)",
       Integer.class,
       300),
 
   WAL_REPORT_AFTER_OPERATIONS_DURING_RESTORE(
-      "storage.wal.reportAfterOperationsDuringRestore",
+      "youtrackdb.storage.wal.reportAfterOperationsDuringRestore",
       "Amount of processed log operations, after which status of data restore procedure will be"
           + " printed (0 or a negative value, disables the logging)",
       Integer.class,
       10000),
 
   WAL_RESTORE_BATCH_SIZE(
-      "storage.wal.restore.batchSize",
+      "youtrackdb.storage.wal.restore.batchSize",
       "Amount of WAL records, which are read at once in a single batch during a restore procedure",
       Integer.class,
       1000),
 
-  WAL_FUZZY_CHECKPOINT_SHUTDOWN_TIMEOUT(
-      "storage.wal.fuzzyCheckpointShutdownWait",
-      "The amount of time the DB should wait until it shuts down (in seconds)",
-      Integer.class,
-      60 * 10),
-
-  WAL_FULL_CHECKPOINT_SHUTDOWN_TIMEOUT(
-      "storage.wal.fullCheckpointShutdownTimeout",
-      "The amount of time the DB will wait, until a checkpoint is finished, during a DB shutdown"
-          + " (in seconds)",
-      Integer.class,
-      60 * 10),
-
   WAL_LOCATION(
-      "storage.wal.path",
+      "youtrackdb.storage.wal.path",
       "Path to the WAL file on the disk. By default, it is placed in the DB directory, but"
           + " it is highly recommended to use a separate disk to store log operations",
       String.class,
       null),
 
   DISK_CACHE_PAGE_SIZE(
-      "storage.diskCache.pageSize",
+      "youtrackdb.storage.diskCache.pageSize",
       "Size of page of disk buffer (in kilobytes). !!! NEVER CHANGE THIS VALUE !!!",
       Integer.class,
       8),
 
-  DISK_CACHE_PRINT_FLUSH_TILL_SEGMENT_STATISTICS(
-      "storage.diskCache.printFlushTillSegmentStatistics",
-      "Print information about write cache state when it is requested to flush all data operations"
-          + " on which are logged till provided WAL segment",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_PRINT_FLUSH_FILE_STATISTICS(
-      "storage.diskCache.printFlushFileStatistics",
-      "Print information about write cache state when it is requested to flush all data of file"
-          + " specified",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_PRINT_FILE_REMOVE_STATISTICS(
-      "storage.diskCache.printFileRemoveStatistics",
-      "Print information about write cache state when it is requested to clear all data of file"
-          + " specified",
-      Boolean.class,
-      true),
-
-  DISK_CACHE_WAL_SIZE_TO_START_FLUSH(
-      "storage.diskCache.walSizeToStartFlush",
-      "WAL size after which pages in write cache will be started to flush",
-      Long.class,
-      6 * 1024L * 1024 * 1024),
-
-  DISK_CACHE_EXCLUSIVE_FLUSH_BOUNDARY(
-      "storage.diskCache.exclusiveFlushBoundary",
-      "If portion of exclusive pages into cache exceeds this value we start to flush only exclusive"
-          + " pages from disk cache",
-      Float.class,
-      0.9),
-
-  DISK_CACHE_CHUNK_SIZE(
-      "storage.diskCache.chunkSize",
-      "Maximum distance between two pages after which they are not treated as single continous"
-          + " chunk",
-      Integer.class,
-      256),
-
-  DISK_CACHE_EXCLUSIVE_PAGES_BOUNDARY(
-      "storage.diskCache.exclusiveBoundary",
-      "Portion of exclusive pages in write cache after which we will start to flush only exclusive"
-          + " pages",
-      Float.class,
-      0.7),
-
-  DISK_CACHE_WAL_SIZE_TO_STOP_FLUSH(
-      "storage.diskCache.walSizeToStopFlush",
-      "WAL size reaching which pages in write cache will be prevented from flush",
-      Long.class,
-      2 * 1024L * 1024 * 1024),
-
   DISK_CACHE_FREE_SPACE_LIMIT(
-      "storage.diskCache.diskFreeSpaceLimit",
+      "youtrackdb.storage.diskCache.diskFreeSpaceLimit",
       "Minimum amount of space on disk, which, when exceeded, "
           + "will cause the database to switch to read-only mode (in megabytes)",
       Long.class,
       8 * WAL_MAX_SEGMENT_SIZE.getValueAsLong()),
 
   STORAGE_LOCK_TIMEOUT(
-      "storage.lockTimeout",
+      "youtrackdb.storage.lockTimeout",
       "Maximum amount of time (in ms) to lock the storage",
       Integer.class,
       0),
 
-  STORAGE_RECORD_LOCK_TIMEOUT(
-      "storage.record.lockTimeout",
-      "Maximum of time (in ms) to lock a shared record",
-      Integer.class,
-      2000),
-
   // DATABASE
-  OBJECT_SAVE_ONLY_DIRTY(
-      "object.saveOnlyDirty",
-      "Object Database only! It saves objects bound to dirty records",
-      Boolean.class,
-      false,
-      true),
+  DB_POOL_MIN("youtrackdb.db.pool.min", "Default database pool minimum size", Integer.class, 1),
 
-  DOCUMENT_BINARY_MAPPING(
-      "entity.binaryMapping", "Mapping approach for binary fields", Integer.class, 0),
-
-  // DATABASE
-  DB_POOL_MIN("db.pool.min", "Default database pool minimum size", Integer.class, 1),
-
-  DB_POOL_MAX("db.pool.max", "Default database pool maximum size", Integer.class, 100),
+  DB_POOL_MAX("youtrackdb.db.pool.max", "Default database pool maximum size", Integer.class, 100),
 
   DB_CACHED_POOL_CAPACITY(
-      "db.cached.pool.capacity", "Default database cached pools capacity", Integer.class, 100),
+      "youtrackdb.db.cached.pool.capacity", "Default database cached pools capacity", Integer.class,
+      100),
 
   DB_STRING_CAHCE_SIZE(
-      "db.string.cache.size",
+      "youtrackdb.db.string.cache.size",
       "Number of common string to keep in memory cache",
       Integer.class,
       5000),
 
   DB_CACHED_POOL_CLEAN_UP_TIMEOUT(
-      "db.cached.pool.cleanUpTimeout",
+      "youtrackdb.db.cached.pool.cleanUpTimeout",
       "Default timeout for clean up cache from unused or closed database pools, value in"
           + " milliseconds",
       Long.class,
       600_000),
 
   DB_POOL_ACQUIRE_TIMEOUT(
-      "db.pool.acquireTimeout",
+      "youtrackdb.db.pool.acquireTimeout",
       "Default database pool timeout in milliseconds",
       Integer.class,
       60000),
 
-  DB_SKIP_BROKEN_RECORDS(
-      "db.skipBrokenRecords",
-      "Indicates whether the database should skip broken records during "
-          + "iteration over query result set or not (true by default)",
-      Boolean.class,
-      true),
-
-  DB_MVCC_THROWFAST(
-      "db.mvcc.throwfast",
-      "Use fast-thrown exceptions for MVCC OConcurrentModificationExceptions. No context"
-          + " information will be available. Set to true, when these exceptions are thrown, but the"
-          + " details are not necessary",
-      Boolean.class,
-      false,
-      true),
-
   DB_VALIDATION(
-      "db.validation", "Enables or disables validation of records", Boolean.class, true, true),
-
-  DB_CUSTOM_SUPPORT(
-      "db.custom.support", "Enables or disables use of custom types", Boolean.class, false, false),
+      "youtrackdb.db.validation", "Enables or disables validation of records", Boolean.class, true,
+      true),
 
   // INDEX
   INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD(
-      "index.embeddedToSbtreeBonsaiThreshold",
+      "youtrackdb.index.embeddedToSbtreeBonsaiThreshold",
       "Amount of values, after which the index implementation will use an sbtree as a values"
           + " container. Set to -1, to disable and force using an sbtree",
       Integer.class,
       40,
       true),
 
-  INDEX_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD(
-      "index.sbtreeBonsaiToEmbeddedThreshold",
-      "Amount of values, after which index implementation will use an embedded values container"
-          + " (disabled by default)",
-      Integer.class,
-      -1,
-      true),
-
-  HASH_TABLE_SPLIT_BUCKETS_BUFFER_LENGTH(
-      "hashTable.slitBucketsBuffer.length",
-      "Length of buffer (in pages), where buckets that were split, but not flushed to the disk, are"
-          + " kept. This buffer is used to minimize random IO overhead",
-      Integer.class,
-      1500),
-
   INDEX_SYNCHRONOUS_AUTO_REBUILD(
-      "index.auto.synchronousAutoRebuild",
+      "youtrackdb.index.auto.synchronousAutoRebuild",
       "Synchronous execution of auto rebuilding of indexes, in case of a DB crash",
       Boolean.class,
       Boolean.TRUE),
 
-  INDEX_FLUSH_AFTER_CREATE(
-      "index.flushAfterCreate", "Flush storage buffer after index creation", Boolean.class, true),
-
-  INDEX_ALLOW_MANUAL_INDEXES(
-      "index.allowManualIndexes",
-      "Switch which allows usage of manual indexes inside YouTrackDB. It is not recommended to switch"
-          + " it on, because manual indexes are deprecated, not supported and will be removed in"
-          + " next versions",
-      Boolean.class,
-      true),
-
-  INDEX_ALLOW_MANUAL_INDEXES_WARNING(
-      "index.allowManualIndexesWarning",
-      "Switch which triggers printing of waring message any time when manual indexes are used. It"
-          + " is not recommended to switch it off, because manual indexes are deprecated, not"
-          + " supported and will be removed in next versions",
-      Boolean.class,
-      true),
-
   INDEX_IGNORE_NULL_VALUES_DEFAULT(
-      "index.ignoreNullValuesDefault",
+      "youtrackdb.index.ignoreNullValuesDefault",
       "Controls whether null values will be ignored by default "
           + "by newly created indexes or not (false by default)",
       Boolean.class,
       false),
 
   INDEX_CURSOR_PREFETCH_SIZE(
-      "index.stream.prefetchSize", "Default prefetch size of index stream", Integer.class, 10),
+      "youtrackdb.index.stream.prefetchSize", "Default prefetch size of index stream",
+      Integer.class, 10),
 
   // SBTREE
-  SBTREE_MAX_DEPTH(
-      "sbtree.maxDepth",
+  BTREE_MAX_DEPTH(
+      "youtrackdb.btree.maxDepth",
       "Maximum depth of sbtree, which will be traversed during key look up until it will be treated"
           + " as broken (64 by default)",
       Integer.class,
       64),
 
-  SBTREE_MAX_KEY_SIZE(
-      "sbtree.maxKeySize",
+  BTREE_MAX_KEY_SIZE(
+      "youtrackdb.btree.maxKeySize",
       "Maximum size of a key, which can be put in the SBTree in bytes (-1 by default, calculated"
           + " automatically from the page size)",
       Integer.class,
       -1),
 
-  SBTREE_MAX_EMBEDDED_VALUE_SIZE(
-      "sbtree.maxEmbeddedValueSize",
+  BTREE_MAX_EMBEDDED_VALUE_SIZE(
+      "youtrackdb.btree.maxEmbeddedValueSize",
       "Maximum size of value which can be put in an SBTree without creation link to a standalone"
           + " page in bytes (40960 by default)",
       Integer.class,
       40960),
 
-  SBTREEBONSAI_BUCKET_SIZE(
-      "sbtreebonsai.bucketSize",
-      "Size of bucket in SBTreeBonsai (in kB). Contract: bucketSize < storagePageSize,"
-          + " storagePageSize % bucketSize == 0",
-      Integer.class,
-      2),
-
-  SBTREEBONSAI_LINKBAG_CACHE_SIZE(
-      "sbtreebonsai.linkBagCache.size",
-      "Amount of LINKBAG collections to be cached, to avoid constant reloading of data",
-      Integer.class,
-      100000),
-
-  SBTREEBONSAI_LINKBAG_CACHE_EVICTION_SIZE(
-      "sbtreebonsai.linkBagCache.evictionSize",
-      "The number of cached LINKBAG collections, which will be removed, when the cache limit is"
-          + " reached",
-      Integer.class,
-      1000),
-
-  SBTREEBOSAI_FREE_SPACE_REUSE_TRIGGER(
-      "sbtreebonsai.freeSpaceReuseTrigger",
-      "How much free space should be in an sbtreebonsai file, before it will be reused during the"
-          + " next allocation",
-      Float.class,
-      0.5),
-
-  // RIDBAG
-  RID_BAG_EMBEDDED_DEFAULT_SIZE(
-      "ridBag.embeddedDefaultSize",
-      "Size of embedded RidBag array, when created (empty)",
+  // LINK COLLECTION
+  LINK_COLLECTION_EMBEDDED_DEFAULT_SIZE(
+      "youtrackdb.linkcollection.embeddedDefaultSize",
+      "Size of embedded collection, when created (empty)",
       Integer.class,
       4),
 
-  RID_BAG_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD(
-      "ridBag.embeddedToSbtreeBonsaiThreshold",
-      "Amount of values after which a LINKBAG implementation will use sbtree as values container."
-          + " Set to -1 to always use an sbtree",
+  LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD(
+      "youtrackdb.linkcollection.embeddedToBtreeThreshold",
+      "Amount of values after which a link-based collection implementation will use btree as values container."
+          + " Set to -1 to always use an btree",
       Integer.class,
       40,
       true),
 
-  RID_BAG_SBTREEBONSAI_TO_EMBEDDED_THRESHOLD(
-      "ridBag.sbtreeBonsaiToEmbeddedToThreshold",
-      "Amount of values, after which a LINKBAG implementation will use an embedded values container"
+  LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD(
+      "youtrackdb.linkcollection.btreeToEmbeddedToThreshold",
+      "Amount of values, after which a link-based collection implementation will use an embedded values container"
           + " (disabled by default)",
       Integer.class,
       -1,
       true),
 
-  RID_BAG_SBTREEBONSAI_DELETE_DELAY(
-      "ridBag.sbtreeBonsaiDeleteDelay",
-      "How long should pass from last access before delete an already converted ridbag",
-      Integer.class,
-      30000),
-
-  FILE_LOCK("file.lock", "Locks files when used. Default is true", boolean.class, true),
+  FILE_LOCK("youtrackdb.file.lock", "Locks files when used. Default is true", boolean.class, true),
 
   FILE_LOG_DELETION(
-      "file.log.deletion", "Log file deletion (true by default)", boolean.class, true),
+      "youtrackdb.file.log.deletion", "Log file deletion (true by default)", boolean.class, true),
 
   FILE_DELETE_DELAY(
-      "file.deleteDelay",
+      "youtrackdb.file.deleteDelay",
       "Delay time (in ms) to wait for another attempt to delete a locked file",
       Integer.class,
       10),
 
   FILE_DELETE_RETRY(
-      "file.deleteRetry", "Number of retries to delete a locked file", Integer.class, 50),
+      "youtrackdb.file.deleteRetry", "Number of retries to delete a locked file", Integer.class,
+      50),
 
   // SECURITY
   SECURITY_USER_PASSWORD_SALT_ITERATIONS(
-      "security.userPasswordSaltIterations",
+      "youtrackdb.security.userPasswordSaltIterations",
       "Number of iterations to generate the salt or user password. Changing this setting does not"
           + " affect stored passwords",
       Integer.class,
       65536),
 
   SECURITY_USER_PASSWORD_SALT_CACHE_SIZE(
-      "security.userPasswordSaltCacheSize",
+      "youtrackdb.security.userPasswordSaltCacheSize",
       "Cache size of hashed salt passwords. The cache works as LRU. Use 0 to disable the cache",
       Integer.class,
       500),
 
   SECURITY_USER_PASSWORD_DEFAULT_ALGORITHM(
-      "security.userPasswordDefaultAlgorithm",
+      "youtrackdb.security.userPasswordDefaultAlgorithm",
       "Default encryption algorithm used for passwords hashing",
       String.class,
       "PBKDF2WithHmacSHA256"),
 
   // NETWORK
   NETWORK_MAX_CONCURRENT_SESSIONS(
-      "network.maxConcurrentSessions",
+      "youtrackdb.network.maxConcurrentSessions",
       "Maximum number of concurrent sessions",
       Integer.class,
       1000,
       true),
 
   NETWORK_SOCKET_BUFFER_SIZE(
-      "network.socketBufferSize",
+      "youtrackdb.network.socketBufferSize",
       "TCP/IP Socket buffer size, if 0 use the OS default",
       Integer.class,
       0,
       true),
 
   NETWORK_LOCK_TIMEOUT(
-      "network.lockTimeout",
+      "youtrackdb.network.lockTimeout",
       "Timeout (in ms) to acquire a lock against a channel",
       Integer.class,
       15000,
       true),
 
   NETWORK_SOCKET_TIMEOUT(
-      "network.socketTimeout", "TCP/IP Socket timeout (in ms)", Integer.class, 15000, true),
+      "youtrackdb.network.socketTimeout", "TCP/IP Socket timeout (in ms)", Integer.class, 15000,
+      true),
 
   NETWORK_REQUEST_TIMEOUT(
-      "network.requestTimeout",
+      "youtrackdb.network.requestTimeout",
       "Request completion timeout (in ms)",
       Integer.class,
       3600000 /* one hour */,
       true),
 
-  NETWORK_SOCKET_RETRY_STRATEGY(
-      "network.retry.strategy",
-      "Select the retry server selection strategy, possible values are auto,same-dc ",
-      String.class,
-      "auto",
-      true),
-
   NETWORK_SOCKET_RETRY(
-      "network.retry",
+      "youtrackdb.network.retry",
       "Number of attempts to connect to the server on failure",
       Integer.class,
       5,
       true),
 
   NETWORK_SOCKET_RETRY_DELAY(
-      "network.retryDelay",
+      "youtrackdb.network.retryDelay",
       "The time (in ms) the client must wait, before reconnecting to the server on failure",
       Integer.class,
       500,
       true),
 
   NETWORK_BINARY_DNS_LOADBALANCING_ENABLED(
-      "network.binary.loadBalancing.enabled",
+      "youtrackdb.network.binary.loadBalancing.enabled",
       "Asks for DNS TXT record, to determine if load balancing is supported",
       Boolean.class,
       Boolean.FALSE,
       true),
 
   NETWORK_BINARY_DNS_LOADBALANCING_TIMEOUT(
-      "network.binary.loadBalancing.timeout",
+      "youtrackdb.network.binary.loadBalancing.timeout",
       "Maximum time (in ms) to wait for the answer from DNS about the TXT record for load"
           + " balancing",
       Integer.class,
@@ -881,14 +581,14 @@ public enum GlobalConfiguration {
       true),
 
   NETWORK_BINARY_MAX_CONTENT_LENGTH(
-      "network.binary.maxLength",
+      "youtrackdb.network.binary.maxLength",
       "TCP/IP max content length (in KB) of BINARY requests",
       Integer.class,
       16384,
       true),
 
   NETWORK_BINARY_MIN_PROTOCOL_VERSION(
-      "network.binary.minProtocolVersion",
+      "youtrackdb.network.binary.minProtocolVersion",
       "Set the minimum enabled binary protocol version and disable all backward compatible"
           + " behaviour for version previous the one specified",
       Integer.class,
@@ -896,14 +596,14 @@ public enum GlobalConfiguration {
       false),
 
   NETWORK_BINARY_DEBUG(
-      "network.binary.debug",
+      "youtrackdb.network.binary.debug",
       "Debug mode: print all data incoming on the binary channel",
       Boolean.class,
       false,
       true),
 
   NETWORK_BINARY_ALLOW_NO_TOKEN(
-      "network.binary.allowNoToken",
+      "youtrackdb.network.binary.allowNoToken",
       "Backward compatibility option to allow binary connections without tokens (STRONGLY"
           + " DISCOURAGED, FOR SECURITY REASONS)",
       Boolean.class,
@@ -911,19 +611,15 @@ public enum GlobalConfiguration {
       true),
 
   // HTTP
-
-  /**
-   * Since v2.2.8
-   */
   NETWORK_HTTP_INSTALL_DEFAULT_COMMANDS(
-      "network.http.installDefaultCommands",
+      "youtrackdb.network.http.installDefaultCommands",
       "Installs the default HTTP commands",
       Boolean.class,
       Boolean.TRUE,
       true),
 
   NETWORK_HTTP_SERVER_INFO(
-      "network.http.serverInfo",
+      "youtrackdb.network.http.serverInfo",
       "Server info to send in HTTP responses. Change the default if you want to hide it is a"
           + " YouTrackDB Server",
       String.class,
@@ -931,27 +627,28 @@ public enum GlobalConfiguration {
       true),
 
   NETWORK_HTTP_MAX_CONTENT_LENGTH(
-      "network.http.maxLength",
+      "youtrackdb.network.http.maxLength",
       "TCP/IP max content length (in bytes) for HTTP requests",
       Integer.class,
       1000000,
       true),
 
   NETWORK_HTTP_STREAMING(
-      "network.http.streaming",
+      "youtrackdb.network.http.streaming",
       "Enable Http chunked streaming for json responses",
       Boolean.class,
       false,
       true),
 
   NETWORK_HTTP_CONTENT_CHARSET(
-      "network.http.charset", "Http response charset", String.class, "utf-8", true),
+      "youtrackdb.network.http.charset", "Http response charset", String.class, "utf-8", true),
 
   NETWORK_HTTP_JSON_RESPONSE_ERROR(
-      "network.http.jsonResponseError", "Http response error in json", Boolean.class, true, true),
+      "youtrackdb.network.http.jsonResponseError", "Http response error in json", Boolean.class,
+      true, true),
 
   NETWORK_HTTP_JSONP_ENABLED(
-      "network.http.jsonp",
+      "youtrackdb.network.http.jsonp",
       "Enable the usage of JSONP, if requested by the client. The parameter name to use is"
           + " 'callback'",
       Boolean.class,
@@ -959,28 +656,31 @@ public enum GlobalConfiguration {
       true),
 
   NETWORK_HTTP_SESSION_EXPIRE_TIMEOUT(
-      "network.http.sessionExpireTimeout",
+      "youtrackdb.network.http.sessionExpireTimeout",
       "Timeout, after which an http session is considered to have expired (in seconds)",
       Integer.class,
       900),
 
   NETWORK_HTTP_SESSION_COOKIE_SAME_SITE(
-      "network.http.session.cookie.sameSite",
+      "youtrackdb.network.http.session.cookie.sameSite",
       "Activate the same site cookie session",
       Boolean.class,
       true),
 
   NETWORK_HTTP_USE_TOKEN(
-      "network.http.useToken", "Enable Token based sessions for http", Boolean.class, false),
+      "youtrackdb.network.http.useToken", "Enable Token based sessions for http", Boolean.class,
+      false),
 
   NETWORK_TOKEN_SECRETKEY(
-      "network.token.secretKey", "Network token sercret key", String.class, "", false, true),
+      "youtrackdb.network.token.secretKey", "Network token sercret key", String.class, "", false,
+      true),
 
   NETWORK_TOKEN_ENCRYPTION_ALGORITHM(
-      "network.token.encryptionAlgorithm", "Network token algorithm", String.class, "HmacSHA256"),
+      "youtrackdb.network.token.encryptionAlgorithm", "Network token algorithm", String.class,
+      "HmacSHA256"),
 
   NETWORK_TOKEN_EXPIRE_TIMEOUT(
-      "network.token.expireTimeout",
+      "youtrackdb.network.token.expireTimeout",
       "Timeout, after which a binary session is considered to have expired (in minutes)",
       Integer.class,
       60),
@@ -992,113 +692,45 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
-  // PROFILER
-
-  PROFILER_ENABLED(
-      "profiler.enabled",
-      "Enables the recording of statistics and counters",
-      Boolean.class,
-      false,
-      new ProfileEnabledChangeCallbac()),
-
-  PROFILER_CONFIG(
-      "profiler.config",
-      "Configures the profiler as <seconds-for-snapshot>,<archive-snapshot-size>,<summary-size>",
-      String.class,
-      null,
-      new ProfileConfigChangeCallback()),
-
-  PROFILER_AUTODUMP_INTERVAL(
-      "profiler.autoDump.interval",
-      "Dumps the profiler values at regular intervals (in seconds)",
-      Integer.class,
-      0,
-      new ProfileDumpIntervalChangeCallback()),
-
-  /**
-   * @since 2.2.27
-   */
-  PROFILER_AUTODUMP_TYPE(
-      "profiler.autoDump.type",
-      "Type of profiler dump between 'full' or 'performance'",
-      String.class,
-      "full"),
-
-  PROFILER_MAXVALUES(
-      "profiler.maxValues",
-      "Maximum values to store. Values are managed in a LRU",
-      Integer.class,
-      200),
-
   PROFILER_MEMORYCHECK_INTERVAL(
-      "profiler.memoryCheckInterval",
+      "youtrackdb.profiler.memoryCheckInterval",
       "Checks the memory usage every configured milliseconds. Use 0 to disable it",
       Long.class,
       120000),
 
+  PROFILER_TICKER_GRANULARITY(
+      "youtrackdb.profiler.tickerGranularity",
+      "Granularity (in nanoseconds) of the profiler ticker. Controls the precision of metrics"
+          + " collection and long-running queries detection.",
+      Long.class,
+      10_000_000L
+  ),
+
   // SEQUENCES
 
   SEQUENCE_MAX_RETRY(
-      "sequence.maxRetry",
+      "youtrackdb.sequence.maxRetry",
       "Maximum number of retries between attempt to change a sequence in concurrent mode",
       Integer.class,
       1_000),
 
   SEQUENCE_RETRY_DELAY(
-      "sequence.retryDelay",
+      "youtrackdb.sequence.retryDelay",
       "Maximum number of ms to wait between concurrent modification exceptions. The value is"
           + " computed as random between 1 and this number",
       Integer.class,
       200),
 
-  /**
-   * Interval between snapshots of profiler state in milliseconds, default value is 100.
-   */
-  STORAGE_PROFILER_SNAPSHOT_INTERVAL(
-      "storageProfiler.intervalBetweenSnapshots",
-      "Interval between snapshots of profiler state in milliseconds",
-      Integer.class,
-      100),
-
-  STORAGE_PROFILER_CLEANUP_INTERVAL(
-      "storageProfiler.cleanUpInterval",
-      "Interval between time series in milliseconds",
-      Integer.class,
-      5000),
-
-  // LOG
-  LOG_CONSOLE_LEVEL(
-      "log.console.level",
-      "Console logging level",
-      String.class,
-      "info",
-      new ConfigurationChangeCallback() {
-        public void change(final Object iCurrentValue, final Object iNewValue) {
-          LogManager.instance().setLevel((String) iNewValue, ConsoleHandler.class);
-        }
-      }),
-
-  LOG_FILE_LEVEL(
-      "log.file.level",
-      "File logging level",
-      String.class,
-      "info",
-      new ConfigurationChangeCallback() {
-        public void change(final Object iCurrentValue, final Object iNewValue) {
-          LogManager.instance().setLevel((String) iNewValue, FileHandler.class);
-        }
-      }),
-
   // CLASS
-  CLASS_MINIMUM_CLUSTERS(
-      "class.minimumClusters",
-      "Minimum clusters to create when a new class is created. 0 means Automatic",
+  CLASS_COLLECTIONS_COUNT(
+      "youtrackdb.class.collectionsCount",
+      "Minimum collections to create when a new class is created. 0 means Automatic",
       Integer.class,
       8),
 
   // LOG
   LOG_SUPPORTS_ANSI(
-      "log.console.ansi",
+      "youtrackdb.log.console.ansi",
       "ANSI Console support. 'auto' means automatic check if it is supported, 'true' to force using"
           + " ANSI, 'false' to avoid using ANSI",
       String.class,
@@ -1106,92 +738,87 @@ public enum GlobalConfiguration {
 
   // CACHE
   CACHE_LOCAL_IMPL(
-      "cache.local.impl",
+      "youtrackdb.cache.local.impl",
       "Local Record cache implementation",
       String.class,
       "com.jetbrains.youtrack.db.internal.core.cache.RecordCacheWeakRefs"),
 
   // COMMAND
-  COMMAND_TIMEOUT("command.timeout", "Default timeout for commands (in ms)", Long.class, 0, true),
+  COMMAND_TIMEOUT("youtrackdb.command.timeout",
+      "Default timeout for commands (in ms)", Long.class, 0, true),
 
-  COMMAND_CACHE_ENABLED("command.cache.enabled", "Enable command cache", Boolean.class, false),
+  COMMAND_CACHE_ENABLED("youtrackdb.command.cache.enabled",
+      "Enable command cache", Boolean.class, false),
 
   COMMAND_CACHE_EVICT_STRATEGY(
-      "command.cache.evictStrategy",
-      "Command cache strategy between: [INVALIDATE_ALL,PER_CLUSTER]",
+      "youtrackdb.command.cache.evictStrategy",
+      "Command cache strategy between: [INVALIDATE_ALL,PER_COLLECTION]",
       String.class,
-      "PER_CLUSTER"),
+      "PER_COLLECTION"),
 
   COMMAND_CACHE_MIN_EXECUTION_TIME(
-      "command.cache.minExecutionTime",
+      "youtrackdb.command.cache.minExecutionTime",
       "Minimum execution time to consider caching the result set",
       Integer.class,
       10),
 
   COMMAND_CACHE_MAX_RESULSET_SIZE(
-      "command.cache.maxResultsetSize",
+      "youtrackdb.command.cache.maxResultsetSize",
       "Maximum resultset time to consider caching result set",
       Integer.class,
       500),
 
   // QUERY
   QUERY_REMOTE_RESULTSET_PAGE_SIZE(
-      "query.remoteResultSet.pageSize",
+      "youtrackdb.query.remoteResultSet.pageSize",
       "The size of a remote ResultSet page, ie. the number of recordsthat are fetched together"
           + " during remote query execution. This has to be set on the client.",
       Integer.class,
       1000),
 
   QUERY_REMOTE_SEND_EXECUTION_PLAN(
-      "query.remoteResultSet.sendExecutionPlan",
+      "youtrackdb.query.remoteResultSet.sendExecutionPlan",
       "Send the execution plan details or not. False by default",
       Boolean.class,
       false),
 
   QUERY_PARALLEL_AUTO(
-      "query.parallelAuto",
+      "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
       Boolean.class,
       false),
 
   QUERY_PARALLEL_MINIMUM_RECORDS(
-      "query.parallelMinimumRecords",
+      "youtrackdb.query.parallelMinimumRecords",
       "Minimum number of records to activate parallel query automatically",
       Long.class,
       300000),
 
   QUERY_PARALLEL_RESULT_QUEUE_SIZE(
-      "query.parallelResultQueueSize",
+      "youtrackdb.query.parallelResultQueueSize",
       "Size of the queue that holds results on parallel execution. The queue is blocking, so in"
           + " case the queue is full, the query threads will be in a wait state",
       Integer.class,
       20000),
 
   QUERY_SCAN_BATCH_SIZE(
-      "query.scanBatchSize",
-      "Scan clusters in blocks of records. This setting reduces the lock time on the cluster during"
+      "youtrackdb.query.scanBatchSize",
+      "Scan collections in blocks of records. This setting reduces the lock time on the collection during"
           + " scans. A high value mean a faster execution, but also a lower concurrency level. Set"
           + " to 0 to disable batch scanning. Disabling batch scanning is suggested for read-only"
           + " databases only",
       Long.class,
       1000),
 
-  QUERY_SCAN_THRESHOLD_TIP(
-      "query.scanThresholdTip",
-      "If the total number of records scanned in a query exceeds this setting, then a warning is"
-          + " given. (Use 0 to disable)",
-      Long.class,
-      50000),
-
   QUERY_LIMIT_THRESHOLD_TIP(
-      "query.limitThresholdTip",
+      "youtrackdb.query.limitThresholdTip",
       "If the total number of returned records exceeds this value, then a warning is given. (Use 0"
           + " to disable)",
       Long.class,
       10000),
 
   QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP(
-      "query.maxHeapElementsAllowedPerOp",
+      "youtrackdb.query.maxHeapElementsAllowedPerOp",
       "Maximum number of entities (records) allowed in a single query for memory-intensive"
           + " operations (eg. ORDER BY in heap). If exceeded, the query fails with an"
           + " CommandExecutionException. Negative number means no limit.This setting is intended"
@@ -1201,36 +828,23 @@ public enum GlobalConfiguration {
       500_000),
 
   QUERY_LIVE_SUPPORT(
-      "query.live.support",
+      "youtrackdb.query.live.support",
       "Enable/Disable the support of live query. (Use false to disable)",
       Boolean.class,
       true),
 
   STATEMENT_CACHE_SIZE(
-      "statement.cacheSize",
+      "youtrackdb.statement.cacheSize",
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",
       Integer.class,
       100),
-
-  // GRAPH
-  SQL_GRAPH_CONSISTENCY_MODE(
-      "sql.graphConsistencyMode",
-      "Consistency mode for graphs. It can be 'tx' (default), 'notx_sync_repair' and"
-          + " 'notx_async_repair'. 'tx' uses transactions to maintain consistency. Instead both"
-          + " 'notx_sync_repair' and 'notx_async_repair' do not use transactions, and the"
-          + " consistency, in case of JVM crash, is guaranteed by a database repair operation that"
-          + " run at startup. With 'notx_sync_repair' the repair is synchronous, so the database"
-          + " comes online after the repair is ended, while with 'notx_async_repair' the repair is"
-          + " a background process",
-      String.class,
-      "tx"),
 
   /**
    * Maximum size of pool of network channels between client and server. A channel is a TCP/IP
    * connection.
    */
   CLIENT_CHANNEL_MAX_POOL(
-      "client.channel.maxPool",
+      "youtrackdb.client.channel.maxPool",
       "Maximum size of pool of network channels between client and server. A channel is a TCP/IP"
           + " connection",
       Integer.class,
@@ -1241,7 +855,7 @@ public enum GlobalConfiguration {
    * busy.
    */
   CLIENT_CONNECT_POOL_WAIT_TIMEOUT(
-      "client.connectionPool.waitTimeout",
+      "youtrackdb.client.connectionPool.waitTimeout",
       "Maximum time, where the client should wait for a connection from the pool, when all"
           + " connections busy",
       Integer.class,
@@ -1249,24 +863,27 @@ public enum GlobalConfiguration {
       true),
 
   CLIENT_DB_RELEASE_WAIT_TIMEOUT(
-      "client.channel.dbReleaseWaitTimeout",
+      "youtrackdb.client.channel.dbReleaseWaitTimeout",
       "Delay (in ms), after which a data modification command will be resent, if the DB was frozen",
       Integer.class,
       10000,
       true),
 
-  CLIENT_USE_SSL("client.ssl.enabled", "Use SSL for client connections", Boolean.class, false),
+  CLIENT_USE_SSL("youtrackdb.client.ssl.enabled", "Use SSL for client connections", Boolean.class,
+      false),
 
-  CLIENT_SSL_KEYSTORE("client.ssl.keyStore", "Use SSL for client connections", String.class, null),
+  CLIENT_SSL_KEYSTORE("youtrackdb.client.ssl.keyStore", "Use SSL for client connections",
+      String.class, null),
 
   CLIENT_SSL_KEYSTORE_PASSWORD(
-      "client.ssl.keyStorePass", "Use SSL for client connections", String.class, null, false, true),
+      "youtrackdb.client.ssl.keyStorePass", "Use SSL for client connections", String.class, null,
+      false, true),
 
   CLIENT_SSL_TRUSTSTORE(
-      "client.ssl.trustStore", "Use SSL for client connections", String.class, null),
+      "youtrackdb.client.ssl.trustStore", "Use SSL for client connections", String.class, null),
 
   CLIENT_SSL_TRUSTSTORE_PASSWORD(
-      "client.ssl.trustStorePass",
+      "youtrackdb.client.ssl.trustStorePass",
       "Use SSL for client connections",
       String.class,
       null,
@@ -1275,485 +892,167 @@ public enum GlobalConfiguration {
 
   // SERVER
   SERVER_OPEN_ALL_DATABASES_AT_STARTUP(
-      "server.openAllDatabasesAtStartup",
+      "youtrackdb.server.openAllDatabasesAtStartup",
       "If true, the server opens all the available databases at startup. Available since 2.2",
       Boolean.class,
       false),
 
-  SERVER_DATABASE_PATH(
-      "server.database.path",
-      "The path where are located the databases of a server",
-      String.class,
-      null),
-
   SERVER_CHANNEL_CLEAN_DELAY(
-      "server.channel.cleanDelay",
+      "youtrackdb.server.channel.cleanDelay",
       "Time in ms of delay to check pending closed connections",
       Integer.class,
       5000),
 
   SERVER_CACHE_FILE_STATIC(
-      "server.cache.staticFile", "Cache static resources upon loading", Boolean.class, false),
+      "youtrackdb.server.cache.staticFile", "Cache static resources upon loading", Boolean.class,
+      false),
 
   SERVER_LOG_DUMP_CLIENT_EXCEPTION_LEVEL(
-      "server.log.dumpClientExceptionLevel",
+      "youtrackdb.server.log.dumpClientExceptionLevel",
       "Logs client exceptions. Use any level supported by Java java.util.logging.Level class: OFF,"
           + " FINE, CONFIG, INFO, WARNING, SEVERE",
       String.class,
       Level.FINE.getName()),
 
   SERVER_LOG_DUMP_CLIENT_EXCEPTION_FULLSTACKTRACE(
-      "server.log.dumpClientExceptionFullStackTrace",
+      "youtrackdb.server.log.dumpClientExceptionFullStackTrace",
       "Dumps the full stack trace of the exception sent to the client",
       Boolean.class,
       Boolean.FALSE,
       true),
 
-  SERVER_BACKWARD_COMPATIBILITY(
-      "server.backwardCompatibility",
-      "guarantee that the server use global context for search the database instance",
-      Boolean.class,
-      Boolean.FALSE,
-      true,
-      false),
-
-  // DISTRIBUTED
-  /**
-   * @since 2.2.18
-   */
-  DISTRIBUTED_DUMP_STATS_EVERY(
-      "distributed.dumpStatsEvery",
-      "Time in ms to dump the cluster stats. Set to 0 to disable such dump",
-      Long.class,
-      0L,
-      true),
-
-  DISTRIBUTED_CRUD_TASK_SYNCH_TIMEOUT(
-      "distributed.crudTaskTimeout",
-      "Maximum timeout (in ms) to wait for CRUD remote tasks",
-      Long.class,
-      3000L,
-      true),
-
-  DISTRIBUTED_MAX_STARTUP_DELAY(
-      "distributed.maxStartupDelay",
-      "Maximum delay time (in ms) to wait for a server to start",
-      Long.class,
-      10000L,
-      true),
-
-  DISTRIBUTED_COMMAND_TASK_SYNCH_TIMEOUT(
-      "distributed.commandTaskTimeout",
-      "Maximum timeout (in ms) to wait for command distributed tasks",
-      Long.class,
-      2 * 60 * 1000L,
-      true),
-
-  DISTRIBUTED_COMMAND_QUICK_TASK_SYNCH_TIMEOUT(
-      "distributed.commandQuickTaskTimeout",
-      "Maximum timeout (in ms) to wait for quick command distributed tasks",
-      Long.class,
-      5 * 1000L,
-      true),
-
-  DISTRIBUTED_COMMAND_LONG_TASK_SYNCH_TIMEOUT(
-      "distributed.commandLongTaskTimeout",
-      "Maximum timeout (in ms) to wait for Long-running distributed tasks",
-      Long.class,
-      24 * 60 * 60 * 1000,
-      true),
-
-  DISTRIBUTED_DEPLOYDB_TASK_SYNCH_TIMEOUT(
-      "distributed.deployDbTaskTimeout",
-      "Maximum timeout (in ms) to wait for database deployment",
-      Long.class,
-      1200000L,
-      true),
-
-  DISTRIBUTED_DEPLOYCHUNK_TASK_SYNCH_TIMEOUT(
-      "distributed.deployChunkTaskTimeout",
-      "Maximum timeout (in ms) to wait for database chunk deployment",
-      Long.class,
-      60000L,
-      true),
-
-  DISTRIBUTED_DEPLOYDB_TASK_COMPRESSION(
-      "distributed.deployDbTaskCompression",
-      "Compression level (between 0 and 9) to use in backup for database deployment",
-      Integer.class,
-      7,
-      true),
-
-  DISTRIBUTED_ASYNCH_QUEUE_SIZE(
-      "distributed.asynchQueueSize",
-      "Queue size to handle distributed asynchronous operations. The bigger is the queue, the more"
-          + " operation are buffered, but also more memory it's consumed. 0 = dynamic allocation,"
-          + " which means up to 2^31-1 entries",
-      Integer.class,
-      0),
-
-  DISTRIBUTED_ASYNCH_RESPONSES_TIMEOUT(
-      "distributed.asynchResponsesTimeout",
-      "Maximum timeout (in ms) to collect all the asynchronous responses from replication. After"
-          + " this time the operation is rolled back (through an UNDO)",
-      Long.class,
-      15000L),
-
-  DISTRIBUTED_PURGE_RESPONSES_TIMER_DELAY(
-      "distributed.purgeResponsesTimerDelay",
-      "Maximum timeout (in ms) to collect all the asynchronous responses from replication. This is"
-          + " the delay the purge thread uses to check asynchronous requests in timeout",
-      Long.class,
-      15000L),
-
-  /**
-   * @since 2.2.7
-   */
-  DISTRIBUTED_TX_EXPIRE_TIMEOUT(
-      "distributed.txAliveTimeout",
-      "Maximum timeout (in ms) a distributed transaction can be alive. This timeout is to rollback"
-          + " pending transactions after a while",
-      Long.class,
-      1800000L,
-      true),
-
-  /**
-   * @since 2.2.6
-   */
-  DISTRIBUTED_REQUEST_CHANNELS(
-      "distributed.requestChannels",
-      "Number of network channels used to send requests",
-      Integer.class,
-      1),
-
-  /**
-   * @since 2.2.6
-   */
-  DISTRIBUTED_RESPONSE_CHANNELS(
-      "distributed.responseChannels",
-      "Number of network channels used to send responses",
-      Integer.class,
-      1),
-
-  /**
-   * @since 2.2.5
-   */
-  DISTRIBUTED_HEARTBEAT_TIMEOUT(
-      "distributed.heartbeatTimeout",
-      "Maximum time in ms to wait for the heartbeat. If the server does not respond in time, it is"
-          + " put offline",
-      Long.class,
-      10000L),
-
-  /**
-   * @since 2.2.5
-   */
-  DISTRIBUTED_CHECK_HEALTH_CAN_OFFLINE_SERVER(
-      "distributed.checkHealthCanOfflineServer",
-      "In case a server does not respond to the heartbeat message, it is set offline",
-      Boolean.class,
-      false),
-
-  /**
-   * @since 2.2.5
-   */
-  DISTRIBUTED_CHECK_HEALTH_EVERY(
-      "distributed.checkHealthEvery",
-      "Time in ms to check the cluster health. Set to 0 to disable it",
-      Long.class,
-      10000L),
-
-  /**
-   * Since 2.2.4
-   */
-  DISTRIBUTED_AUTO_REMOVE_OFFLINE_SERVERS(
-      "distributed.autoRemoveOfflineServers",
-      "This is the amount of time (in ms) the server has to be OFFLINE, before it is automatically"
-          + " removed from the distributed configuration. -1 = never, 0 = immediately, >0 the"
-          + " actual time to wait",
-      Long.class,
-      0,
-      true),
-
-  /**
-   * @since 2.2.0
-   */
-  DISTRIBUTED_PUBLISH_NODE_STATUS_EVERY(
-      "distributed.publishNodeStatusEvery",
-      "Time in ms to publish the node status on distributed map. Set to 0 to disable such refresh"
-          + " of node configuration",
-      Long.class,
-      10000L,
-      true),
-
-  /**
-   * @since 2.2.0
-   */
-  DISTRIBUTED_REPLICATION_PROTOCOL_VERSION(
-      "distributed.replicationProtocol.version",
-      "1 for legacy replication model (v 3.0 and previous), 2 for coordinated replication (v 3.1"
-          + " and next)",
-      Integer.class,
-      1,
-      true),
-
-  /**
-   * @since 2.2.0
-   */
-  DISTRIBUTED_LOCAL_QUEUESIZE(
-      "distributed.localQueueSize",
-      "Size of the intra-thread queue for distributed messages",
-      Integer.class,
-      10000),
-
-  /**
-   * @since 2.2.0
-   */
-  DISTRIBUTED_DB_WORKERTHREADS(
-      "distributed.dbWorkerThreads",
-      "Number of parallel worker threads per database that process distributed messages. Use 0 for"
-          + " automatic",
-      Integer.class,
-      0),
-
-  DISTRIBUTED_BACKUP_DIRECTORY(
-      "distributed.backupDirectory",
-      "Directory where the copy of an existent database is saved, before it is downloaded from the"
-          + " cluster. Leave it empty to avoid the backup.",
-      String.class,
-      "../backup/databases"),
-
-  DISTRIBUTED_BACKUP_TRY_INCREMENTAL_FIRST(
-      "distributed.backupTryIncrementalFirst",
-      "Try to execute an incremental backup first.",
-      Boolean.class,
-      true),
-
-  DISTRIBUTED_CONCURRENT_TX_MAX_AUTORETRY(
-      "distributed.concurrentTxMaxAutoRetry",
-      "Maximum attempts the transaction coordinator should execute a transaction automatically, if"
-          + " records are locked. (Minimum is 1 = no attempts)",
-      Integer.class,
-      15,
-      true),
-
-  DISTRIBUTED_ATOMIC_LOCK_TIMEOUT(
-      "distributed.atomicLockTimeout",
-      "Timeout (in ms) to acquire a distributed lock on a record. (0=infinite)",
-      Integer.class,
-      100,
-      true),
-
-  DISTRIBUTED_CONCURRENT_TX_AUTORETRY_DELAY(
-      "distributed.concurrentTxAutoRetryDelay",
-      "Delay (in ms) between attempts on executing a distributed transaction, which had failed"
-          + " because of locked records. (0=no delay)",
-      Integer.class,
-      1000,
-      true),
-
-  DISTRIBUTED_TRANSACTION_SEQUENCE_SET_SIZE(
-      "distributed.transactionSequenceSetSize",
-      "Size of the set of sequences used by distributed transactions, correspond to the amount of"
-          + " transactions commits that can be active at the same time",
-      Integer.class,
-      1000,
-      false),
-
   DB_ENTITY_SERIALIZER(
-      "db.entity.serializer",
+      "youtrackdb.entity.serializer",
       "The default record serializer used by the database",
       String.class,
       "RecordSerializerBinary"),
 
-  /**
-   * @since 2.2
-   */
   CLIENT_KRB5_CONFIG(
-      "client.krb5.config", "Location of the Kerberos configuration file", String.class, null),
+      "youtrackdb.client.krb5.config", "Location of the Kerberos configuration file", String.class,
+      null),
 
-  /**
-   * @since 2.2
-   */
   CLIENT_KRB5_CCNAME(
-      "client.krb5.ccname", "Location of the Kerberos client ticketcache", String.class, null),
+      "youtrackdb.client.krb5.ccname", "Location of the Kerberos client ticketcache", String.class,
+      null),
 
-  /**
-   * @since 2.2
-   */
+
   CLIENT_KRB5_KTNAME(
-      "client.krb5.ktname", "Location of the Kerberos client keytab", String.class, null),
+      "youtrackdb.client.krb5.ktname", "Location of the Kerberos client keytab", String.class,
+      null),
 
   CLIENT_CONNECTION_STRATEGY(
-      "client.connection.strategy",
+      "youtrackdb.client.connection.strategy",
       "Strategy used for open connections from a client in case of multiple servers, possible"
           + " options:STICKY, ROUND_ROBIN_CONNECT, ROUND_ROBIN_REQUEST",
       String.class,
       null),
 
   CLIENT_CONNECTION_FETCH_HOST_LIST(
-      "client.connection.fetchHostList",
+      "youtrackdb.client.connection.fetchHostList",
       "If set true fetch the list of other possible hosts from the distributed environment ",
       Boolean.class,
       true),
 
-  /**
-   * @since 2.2
-   */
   CLIENT_CREDENTIAL_INTERCEPTOR(
-      "client.credentialinterceptor",
+      "youtrackdb.client.credentialinterceptor",
       "The name of the CredentialInterceptor class",
       String.class,
       null),
 
   CLIENT_CI_KEYALGORITHM(
-      "client.ci.keyalgorithm",
+      "youtrackdb.client.ci.keyalgorithm",
       "The key algorithm used by the symmetric key credential interceptor",
       String.class,
       "AES"),
 
   CLIENT_CI_CIPHERTRANSFORM(
-      "client.ci.ciphertransform",
+      "youtrackdb.client.ci.ciphertransform",
       "The cipher transformation used by the symmetric key credential interceptor",
       String.class,
       "AES/CBC/PKCS5Padding"),
 
   CLIENT_CI_KEYSTORE_FILE(
-      "client.ci.keystore.file",
+      "youtrackdb.client.ci.keystore.file",
       "The file path of the keystore used by the symmetric key credential interceptor",
       String.class,
       null),
 
   CLIENT_CI_KEYSTORE_PASSWORD(
-      "client.ci.keystore.password",
+      "youtrackdb.client.ci.keystore.password",
       "The password of the keystore used by the symmetric key credential interceptor",
       String.class,
       null,
       false,
       true),
 
-  /**
-   * @since 2.2
-   */
+
   CREATE_DEFAULT_USERS(
-      "security.createDefaultUsers",
+      "youtrackdb.security.createDefaultUsers",
       "Indicates whether default database users should be created",
       Boolean.class,
       false),
   WARNING_DEFAULT_USERS(
-      "security.warningDefaultUsers",
+      "youtrackdb.security.warningDefaultUsers",
       "Indicates whether access with default users should show a warning",
       Boolean.class,
       true),
-  /**
-   * @since 2.2
-   */
+
   SERVER_SECURITY_FILE(
-      "server.security.file",
+      "youtrackdb.server.security.file",
       "Location of the YouTrackDB security.json configuration file",
       String.class,
       null),
 
-  // CLOUD
-  CLOUD_PROJECT_TOKEN(
-      "cloud.project.token",
-      "The token used to authenticate this project on the cloud platform",
-      String.class,
-      null),
-
-  CLOUD_PROJECT_ID(
-      "cloud.project.id",
-      "The ID used to identify this project on the cloud platform",
-      String.class,
-      null),
-
   SPATIAL_ENABLE_DIRECT_WKT_READER(
-      "spatial.enableDirectWktReader",
+      "youtrackdb.spatial.enableDirectWktReader",
       "Enable direct usage of WKTReader for additional dimension info",
       Boolean.class,
       false),
 
   AUTO_CLOSE_AFTER_DELAY(
-      "storage.autoCloseAfterDelay",
+      "youtrackdb.storage.autoCloseAfterDelay",
       "Enable auto close of storage after a specified delay if no session are active",
       Boolean.class,
       false),
 
   AUTO_CLOSE_DELAY(
-      "storage.autoCloseDelay", "Storage auto close delay time in minutes", Integer.class, 20),
-
-  /**
-   * @since 3.1
-   */
-  DISTRIBUTED(
-      "distributed", "Enable the clustering mode", Boolean.class, false, false, false, true),
-
-  /**
-   * @since 3.1
-   */
-  DISTRIBUTED_NODE_NAME(
-      "distributed.nodeName",
-      "Name of the YouTrackDB node in the cluster",
-      String.class,
-      null,
-      false,
-      false,
-      true),
+      "youtrackdb.storage.autoCloseDelay",
+      "Storage auto close delay time in minutes", Integer.class, 20),
 
   CLIENT_CHANNEL_IDLE_CLOSE(
-      "client.channel.idleAutoClose",
+      "youtrackdb.client.channel.idleAutoClose",
       "Enable the automatic close of idle sockets after a specific timeout",
       Boolean.class,
       false),
 
-  NON_TX_READS_WARNING_MODE(
-      "tx.nonTxReadsWarningMode",
-      "Defines behaviour of DB in case of non-transactional reads. Possible values : WARN(warning"
-          + " is printed), EXCEPTION(exception is thrown), SILENT(such reads are silently"
-          + " processed). WARN is default value. In future versions EXCEPTION will be the only"
-          + " possible option.",
-      String.class,
-      "WARN"),
-
   TX_BATCH_SIZE(
-      "tx.batchSize",
+      "youtrackdb.tx.batchSize",
       "Size of the single batch by default in case of call to the"
           + " DatabaseSession#executeInTxBatches call. 1_000 by default.",
       Integer.class,
       1_000),
 
   CLIENT_CHANNEL_IDLE_TIMEOUT(
-      "client.channel.idleTimeout", "sockets maximum time idle in seconds", Integer.class, 900),
+      "youtrackdb.client.channel.idleTimeout", "sockets maximum time idle in seconds",
+      Integer.class, 900),
 
-  DISTRIBUTED_AUTO_CREATE_CLUSTERS(
-      "distributed.autoCreateClusters",
-      "if true enable auto creation of cluster when a new node join",
-      Boolean.class,
-      true),
-  ENTERPRISE_METRICS_MAX(
-      "emterprise.metrics.max",
-      "Top limit of number of metrics that the enterprise edition can keep in memory",
-      Integer.class,
-      2500,
-      false,
-      false),
   EXECUTOR_DEBUG_TRACE_SOURCE(
-      "executor.debug.traceSource",
+      "youtrackdb.executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
       Boolean.class,
       false),
   EXECUTOR_POOL_MAX_SIZE(
-      "executor.pool.maxSize",
+      "youtrackdb.executor.pool.maxSize",
       "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
       Integer.class,
       -1),
   EXECUTOR_POOL_IO_MAX_SIZE(
-      "executor.pool.io.maxSize",
+      "youtrackdb.executor.pool.io.maxSize",
       "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
       Integer.class,
       -1),
   EXECUTOR_POOL_IO_ENABLED(
-      "executor.pool.io.enabled",
+      "youtrackdb.executor.pool.io.enabled",
       "Flag to use the executor pool for IO, default enabled",
       Boolean.class,
       true),
@@ -1775,24 +1074,9 @@ public enum GlobalConfiguration {
   private final ConfigurationChangeCallback changeCallback;
   private final Boolean canChangeAtRuntime;
   private final boolean hidden;
-  private boolean env;
+  private final boolean env;
 
   private volatile Object value = nullValue;
-
-  GlobalConfiguration(
-      final String iKey,
-      final String iDescription,
-      final Class<?> iType,
-      final Object iDefValue,
-      final ConfigurationChangeCallback iChangeAction) {
-    key = iKey;
-    description = iDescription;
-    defValue = iDefValue;
-    type = iType;
-    canChangeAtRuntime = true;
-    hidden = false;
-    changeCallback = iChangeAction;
-  }
 
   GlobalConfiguration(
       final String iKey, final String iDescription, final Class<?> iType, final Object iDefValue) {
@@ -1841,11 +1125,11 @@ public enum GlobalConfiguration {
     out.print(YouTrackDBConstants.getVersion());
     out.println(" configuration dump:");
 
-    String lastSection = "";
-    for (GlobalConfiguration value : values()) {
-      final int index = value.key.indexOf('.');
+    var lastSection = "";
+    for (var value : values()) {
+      final var index = value.key.indexOf('.');
 
-      String section = value.key;
+      var section = value.key;
       if (index >= 0) {
         section = value.key.substring(0, index);
       }
@@ -1868,8 +1152,9 @@ public enum GlobalConfiguration {
    * @param iKey Key to find. It's case insensitive.
    * @return GlobalConfiguration instance if found, otherwise null
    */
+  @Nullable
   public static GlobalConfiguration findByKey(final String iKey) {
-    for (GlobalConfiguration v : values()) {
+    for (var v : values()) {
       if (v.key.equalsIgnoreCase(iKey)) {
         return v;
       }
@@ -1882,8 +1167,8 @@ public enum GlobalConfiguration {
    * ENUM names or the string representation of configuration values
    */
   public static void setConfiguration(final Map<String, Object> iConfig) {
-    for (Entry<String, Object> config : iConfig.entrySet()) {
-      for (GlobalConfiguration v : values()) {
+    for (var config : iConfig.entrySet()) {
+      for (var v : values()) {
         if (v.key.equals(config.getKey())) {
           v.setValue(config.getValue());
           break;
@@ -1900,16 +1185,16 @@ public enum GlobalConfiguration {
    */
   private static void readConfiguration() {
     String prop;
-    for (GlobalConfiguration config : values()) {
+    for (var config : values()) {
       prop = System.getProperty(config.key);
       if (prop != null) {
         config.setValue(prop);
       }
     }
 
-    for (GlobalConfiguration config : values()) {
+    for (var config : values()) {
 
-      String key = getEnvKey(config);
+      var key = getEnvKey(config);
       if (key != null) {
         prop = System.getenv(key);
         if (prop != null) {
@@ -1919,6 +1204,7 @@ public enum GlobalConfiguration {
     }
   }
 
+  @Nullable
   public static String getEnvKey(GlobalConfiguration config) {
 
     if (!config.env) {
@@ -1941,7 +1227,7 @@ public enum GlobalConfiguration {
   }
 
   public void setValue(final Object iValue) {
-    Object oldValue = value;
+    var oldValue = value;
 
     if (iValue != null) {
       if (type == Boolean.class) {
@@ -1953,15 +1239,15 @@ public enum GlobalConfiguration {
       } else if (type == String.class) {
         value = iValue.toString();
       } else if (type.isEnum()) {
-        boolean accepted = false;
+        var accepted = false;
 
         if (type.isInstance(iValue)) {
           value = iValue;
           accepted = true;
         } else if (iValue instanceof String string) {
 
-          for (Object constant : type.getEnumConstants()) {
-            final Enum<?> enumConstant = (Enum<?>) constant;
+          for (var constant : type.getEnumConstants()) {
+            final var enumConstant = (Enum<?>) constant;
 
             if (enumConstant.name().equalsIgnoreCase(string)) {
               value = enumConstant;
@@ -1990,10 +1276,11 @@ public enum GlobalConfiguration {
   }
 
   public boolean getValueAsBoolean() {
-    final Object v = value != null && value != nullValue ? value : defValue;
+    final var v = value != null && value != nullValue ? value : defValue;
     return v instanceof Boolean ? (Boolean) v : Boolean.parseBoolean(v.toString());
   }
 
+  @Nullable
   public String getValueAsString() {
     return value != null && value != nullValue
         ? value.toString()
@@ -2001,20 +1288,20 @@ public enum GlobalConfiguration {
   }
 
   public int getValueAsInteger() {
-    final Object v = value != null && value != nullValue ? value : defValue;
+    final var v = value != null && value != nullValue ? value : defValue;
     return (int)
         (v instanceof Number ? ((Number) v).intValue() : FileUtils.getSizeAsNumber(v.toString()));
   }
 
   public long getValueAsLong() {
-    final Object v = value != null && value != nullValue ? value : defValue;
+    final var v = value != null && value != nullValue ? value : defValue;
     return v instanceof Number
         ? ((Number) v).longValue()
         : FileUtils.getSizeAsNumber(v.toString());
   }
 
   public float getValueAsFloat() {
-    final Object v = value != null && value != nullValue ? value : defValue;
+    final var v = value != null && value != nullValue ? value : defValue;
     return v instanceof Float ? (Float) v : Float.parseFloat(v.toString());
   }
 
@@ -2040,35 +1327,5 @@ public enum GlobalConfiguration {
 
   public String getDescription() {
     return description;
-  }
-
-  private static class ProfileEnabledChangeCallbac implements ConfigurationChangeCallback {
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager instance = YouTrackDBEnginesManager.instance();
-      if (instance != null) {
-        final Profiler prof = instance.getProfiler();
-        if (prof != null) {
-          if ((Boolean) iNewValue) {
-            prof.startRecording();
-          } else {
-            prof.stopRecording();
-          }
-        }
-      }
-    }
-  }
-
-  private static class ProfileConfigChangeCallback implements ConfigurationChangeCallback {
-
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager.instance().getProfiler().configure(iNewValue.toString());
-    }
-  }
-
-  private static class ProfileDumpIntervalChangeCallback implements ConfigurationChangeCallback {
-
-    public void change(final Object iCurrentValue, final Object iNewValue) {
-      YouTrackDBEnginesManager.instance().getProfiler().setAutoDump((Integer) iNewValue);
-    }
   }
 }

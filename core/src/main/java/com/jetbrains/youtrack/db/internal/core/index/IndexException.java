@@ -19,17 +19,25 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
+import javax.annotation.Nullable;
 
 public class IndexException extends CoreException {
-
-  private static final long serialVersionUID = -2655748565531836968L;
-
   public IndexException(IndexException exception) {
     super(exception);
   }
 
-  public IndexException(final String string) {
-    super(string);
+  public IndexException(@Nullable String dbName, final String message) {
+    super(dbName, message);
+  }
+
+  public IndexException(@Nullable DatabaseSession session, final String message) {
+    super(session, message);
+  }
+
+
+  public IndexException(final String message) {
+    super(message);
   }
 }

@@ -37,7 +37,7 @@ public class StorageRemoteNodeSession {
     this.sessionId = sessionId;
     this.token = token;
     if (token != null) {
-      BinaryTokenSerializer binarySerializer = new BinaryTokenSerializer();
+      var binarySerializer = new BinaryTokenSerializer();
       try {
         this.tokenInstance = binarySerializer.deserialize(new ByteArrayInputStream(token));
       } catch (IOException e) {

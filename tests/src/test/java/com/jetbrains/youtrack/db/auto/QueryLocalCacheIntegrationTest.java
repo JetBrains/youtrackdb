@@ -17,17 +17,12 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -35,100 +30,90 @@ import org.testng.annotations.Test;
 public class QueryLocalCacheIntegrationTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public QueryLocalCacheIntegrationTest(boolean remote) {
-    super(remote);
+  public QueryLocalCacheIntegrationTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeMethod
-  public void beforeMeth() throws Exception {
-    database.getMetadata().getSchema().createClass("FetchClass");
+  public void beforeMeth() {
+    session.getMetadata().getSchema().createClass("FetchClass");
 
-    database
+    session
         .getMetadata()
         .getSchema()
         .createClass("SecondFetchClass")
-        .createProperty(database, "surname", PropertyType.STRING)
-        .setMandatory(database, true);
-    database.getMetadata().getSchema().createClass("OutInFetchClass");
+        .createProperty("surname", PropertyType.STRING)
+        .setMandatory(true);
+    session.getMetadata().getSchema().createClass("OutInFetchClass");
 
-    database.begin();
-    EntityImpl singleLinked = new EntityImpl();
-    database.save(singleLinked);
-    EntityImpl doc = new EntityImpl("FetchClass");
-    doc.field("name", "first");
-    database.save(doc);
-    EntityImpl doc1 = new EntityImpl("FetchClass");
-    doc1.field("name", "second");
-    doc1.field("linked", singleLinked);
-    database.save(doc1);
-    EntityImpl doc2 = new EntityImpl("FetchClass");
-    doc2.field("name", "third");
-    List<EntityImpl> linkList = new ArrayList<EntityImpl>();
+    session.begin();
+    var singleLinked = ((EntityImpl) session.newEntity());
+    var doc = ((EntityImpl) session.newEntity("FetchClass"));
+    doc.setProperty("name", "first");
+    var doc1 = ((EntityImpl) session.newEntity("FetchClass"));
+    doc1.setProperty("name", "second");
+    doc1.setProperty("linked", singleLinked);
+    var doc2 = ((EntityImpl) session.newEntity("FetchClass"));
+    doc2.setProperty("name", "third");
+    var linkList = session.newLinkList();
     linkList.add(doc);
     linkList.add(doc1);
-    doc2.field("linkList", linkList);
-    doc2.field("linked", singleLinked);
-    Set<EntityImpl> linkSet = new HashSet<EntityImpl>();
+    doc2.setProperty("linkList", linkList);
+    doc2.setProperty("linked", singleLinked);
+    var linkSet = session.newLinkSet();
     linkSet.add(doc);
     linkSet.add(doc1);
-    doc2.field("linkSet", linkSet);
-    database.save(doc2);
+    doc2.setProperty("linkSet", linkSet);
 
-    EntityImpl doc3 = new EntityImpl("FetchClass");
-    doc3.field("name", "forth");
-    doc3.field("ref", doc2);
-    doc3.field("linkSet", linkSet);
-    doc3.field("linkList", linkList);
-    database.save(doc3);
+    var doc3 = ((EntityImpl) session.newEntity("FetchClass"));
+    doc3.setProperty("name", "forth");
+    doc3.setProperty("ref", doc2);
+    doc3.setProperty("linkSet", session.newLinkSet(linkSet));
+    doc3.setProperty("linkList", session.newLinkList(linkList));
 
-    EntityImpl doc4 = new EntityImpl("SecondFetchClass");
-    doc4.field("name", "fifth");
-    doc4.field("surname", "test");
-    database.save(doc4);
+    var doc4 = ((EntityImpl) session.newEntity("SecondFetchClass"));
+    doc4.setProperty("name", "fifth");
+    doc4.setProperty("surname", "test");
 
-    EntityImpl doc5 = new EntityImpl("SecondFetchClass");
-    doc5.field("name", "sixth");
-    doc5.field("surname", "test");
-    database.save(doc5);
+    var doc5 = ((EntityImpl) session.newEntity("SecondFetchClass"));
+    doc5.setProperty("name", "sixth");
+    doc5.setProperty("surname", "test");
 
-    EntityImpl doc6 = new EntityImpl("OutInFetchClass");
-    RidBag out = new RidBag(database);
-    out.add(doc2);
-    out.add(doc3);
-    doc6.field("out_friend", out);
-    RidBag in = new RidBag(database);
-    in.add(doc4);
-    in.add(doc5);
-    doc6.field("in_friend", in);
-    doc6.field("name", "myName");
-    database.save(doc6);
+    var doc6 = ((EntityImpl) session.newEntity("OutInFetchClass"));
+    var out = new LinkBag(session);
+    out.add(doc2.getIdentity());
+    out.add(doc3.getIdentity());
+    doc6.setProperty("out_friend", out);
+    var in = new LinkBag(session);
+    in.add(doc4.getIdentity());
+    in.add(doc5.getIdentity());
+    doc6.setProperty("in_friend", in);
+    doc6.setProperty("name", "myName");
 
-    database.commit();
+    session.commit();
   }
 
   @AfterMethod
-  public void afterMeth() throws Exception {
-    database.getMetadata().getSchema().dropClass("FetchClass");
-    database.getMetadata().getSchema().dropClass("SecondFetchClass");
-    database.getMetadata().getSchema().dropClass("OutInFetchClass");
+  public void afterMeth() {
+    session.getMetadata().getSchema().dropClass("FetchClass");
+    session.getMetadata().getSchema().dropClass("SecondFetchClass");
+    session.getMetadata().getSchema().dropClass("OutInFetchClass");
   }
 
   @Test
   public void queryTest() {
-    final long times = YouTrackDBEnginesManager.instance().getProfiler().getCounter("Cache.reused");
+    session.begin();
 
-    List<EntityImpl> resultset =
-        database.query(new SQLSynchQuery<EntityImpl>("select * from FetchClass"));
-    Assert.assertEquals(
-        YouTrackDBEnginesManager.instance().getProfiler().getCounter("Cache.reused"),
-        times);
+    var resultset =
+        session.query("select * from FetchClass").toList();
 
     RID linked;
-    for (EntityImpl d : resultset) {
-      linked = d.field("linked", RID.class);
+    for (var d : resultset) {
+      linked = d.getLink("linked");
       if (linked != null) {
-        Assert.assertNull(database.getLocalCache().findRecord(linked));
+        Assert.assertNull(session.getLocalCache().findRecord(linked));
       }
     }
+    session.commit();
   }
 }

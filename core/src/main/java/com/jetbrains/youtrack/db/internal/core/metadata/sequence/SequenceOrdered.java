@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrack.db.api.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
 /**
@@ -35,16 +36,16 @@ public class SequenceOrdered extends DBSequence {
     super(entity);
   }
 
-  public SequenceOrdered(DBSequence.CreateParams params, String name) {
-    super(params, name);
+  public SequenceOrdered(DatabaseSessionInternal db, CreateParams params, String name) {
+    super(db, params, name);
   }
 
   @Override
-  public long nextWork() throws SequenceLimitReachedException {
-    return callRetry(
+  public long nextWork(DatabaseSessionInternal session) throws SequenceLimitReachedException {
+    return callRetry(session,
         (db, entity) -> {
           long newValue;
-          Long limitValue = getLimitValue(entity);
+          var limitValue = getLimitValue(entity);
           var increment = getIncrement(entity);
 
           if (getOrderType(entity) == SequenceOrderType.ORDER_POSITIVE) {
@@ -69,11 +70,11 @@ public class SequenceOrdered extends DBSequence {
 
           setValue(entity, newValue);
           if (limitValue != null && !getRecyclable(entity)) {
-            float tillEnd = (float) Math.abs(limitValue - newValue) / increment;
-            float delta = (float) Math.abs(limitValue - getStart(entity)) / increment;
+            var tillEnd = (float) Math.abs(limitValue - newValue) / increment;
+            var delta = (float) Math.abs(limitValue - getStart(entity)) / increment;
             // warning on 1%
             if (tillEnd <= (delta / 100.f) || tillEnd <= 1) {
-              String warningMessage =
+              var warningMessage =
                   "Non-recyclable sequence: "
                       + getSequenceName(entity)
                       + " reaching limt, current value: "
@@ -87,24 +88,22 @@ public class SequenceOrdered extends DBSequence {
           }
 
           return newValue;
-        },
-        "next");
+        }, "next");
   }
 
   @Override
-  protected long currentWork() {
-    return callRetry((db, entity) -> getValue(entity), "current");
+  protected long currentWork(DatabaseSessionInternal session) {
+    return callRetry(session, (db, entity) -> getValue(entity), "current");
   }
 
   @Override
-  public long resetWork() {
-    return callRetry(
+  public long resetWork(DatabaseSessionInternal session) {
+    return callRetry(session,
         (db, entity) -> {
-          long newValue = getStart(entity);
+          var newValue = getStart(entity);
           setValue(entity, newValue);
           return newValue;
-        },
-        "reset");
+        }, "reset");
   }
 
   @Override

@@ -31,7 +31,7 @@ public class LtOperatorTest {
 
   @Test
   public void test() {
-    SQLLtOperator op = new SQLLtOperator(-1);
+    var op = new SQLLtOperator(-1);
     Assert.assertFalse(op.execute(1, 1));
     Assert.assertFalse(op.execute(1, 0));
     Assert.assertTrue(op.execute(0, 1));

@@ -19,16 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * This operator can work as aggregate or inline. If only one argument is passed than aggregates,
@@ -56,15 +53,16 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
 
   private static void addItemsToResult(
       Collection<Object> co, Set<Object> accepted, Set<Object> rejected) {
-    for (Object o : co) {
+    for (var o : co) {
       addItemToResult(o, accepted, rejected);
     }
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -72,7 +70,7 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
       return null;
     }
 
-    Object value = iParams[0];
+    var value = iParams[0];
 
     if (iParams.length == 1) {
       // AGGREGATION MODE (STATEFUL)
@@ -92,7 +90,7 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
       final Set<Object> result = new HashSet<Object>();
       final Set<Object> rejected = new HashSet<Object>();
 
-      for (Object iParameter : iParams) {
+      for (var iParameter : iParams) {
         if (iParameter instanceof Collection<?>) {
           addItemsToResult((Collection<Object>) iParameter, result, rejected);
         } else {
@@ -106,46 +104,10 @@ public class SQLFunctionSymmetricDifference extends SQLFunctionMultiValueAbstrac
 
   @Override
   public Set<Object> getResult() {
-    if (returnDistributedResult()) {
-      final Map<String, Object> map = new HashMap<String, Object>();
-      map.put("result", context);
-      map.put("rejected", rejected);
-      return Collections.singleton(map);
-    } else {
-      return super.getResult();
-    }
+    return super.getResult();
   }
 
   public String getSyntax(DatabaseSession session) {
     return "difference(<field>*)";
-  }
-
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      final Set<Object> result = new HashSet<Object>();
-      final Set<Object> rejected = new HashSet<Object>();
-      for (Object item : resultsToMerge) {
-        rejected.addAll(unwrap(item, "rejected"));
-      }
-      for (Object item : resultsToMerge) {
-        addItemsToResult(unwrap(item, "result"), result, rejected);
-      }
-      return result;
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
-  }
-
-  @SuppressWarnings("unchecked")
-  private Set<Object> unwrap(Object obj, String field) {
-    final Set<Object> objAsSet = (Set<Object>) obj;
-    final Map<String, Object> objAsMap = (Map<String, Object>) objAsSet.iterator().next();
-    final Set<Object> objAsField = (Set<Object>) objAsMap.get(field);
-    return objAsField;
   }
 }

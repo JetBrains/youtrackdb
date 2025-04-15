@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerializer;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import java.nio.ByteBuffer;
 
 /**
@@ -39,7 +39,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public void setLongValue(ByteBuffer pointer, long value, int offset) {
-    byte[] data = new byte[LongSerializer.LONG_SIZE];
+    var data = new byte[LongSerializer.LONG_SIZE];
     LongSerializer.INSTANCE.serializeNative(value, data, 0);
 
     updateData(pointer, offset, data);
@@ -47,14 +47,14 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public void setIntValue(ByteBuffer pointer, int value, int offset) {
-    byte[] data = new byte[IntegerSerializer.INT_SIZE];
-    IntegerSerializer.INSTANCE.serializeNative(value, data, 0);
+    var data = new byte[IntegerSerializer.INT_SIZE];
+    IntegerSerializer.serializeNative(value, data, 0);
 
     updateData(pointer, offset, data);
   }
 
   public void setShortValue(ByteBuffer pointer, short value, int offset) {
-    byte[] data = new byte[ShortSerializer.SHORT_SIZE];
+    var data = new byte[ShortSerializer.SHORT_SIZE];
     ShortSerializer.INSTANCE.serializeNative(value, data, 0);
 
     updateData(pointer, offset, data);
@@ -62,7 +62,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public void setByteValue(ByteBuffer pointer, byte value, int offset) {
-    byte[] data = new byte[]{value};
+    var data = new byte[]{value};
 
     updateData(pointer, offset, data);
   }
@@ -74,14 +74,14 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public void moveData(ByteBuffer pointer, int from, int to, int len) {
-    byte[] buff = new byte[len];
+    var buff = new byte[len];
     readData(pointer, from, buff);
     updateData(pointer, to, buff);
   }
 
   @Override
   public long getLongValue(ByteBuffer pointer, int offset) {
-    byte[] data = new byte[LongSerializer.LONG_SIZE];
+    var data = new byte[LongSerializer.LONG_SIZE];
 
     readData(pointer, offset, data);
 
@@ -90,16 +90,16 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public int getIntValue(ByteBuffer pointer, int offset) {
-    byte[] data = new byte[IntegerSerializer.INT_SIZE];
+    var data = new byte[IntegerSerializer.INT_SIZE];
 
     readData(pointer, offset, data);
 
-    return IntegerSerializer.INSTANCE.deserializeNative(data, 0);
+    return IntegerSerializer.deserializeNative(data, 0);
   }
 
   @Override
   public short getShortValue(ByteBuffer pointer, int offset) {
-    byte[] data = new byte[ShortSerializer.SHORT_SIZE];
+    var data = new byte[ShortSerializer.SHORT_SIZE];
 
     readData(pointer, offset, data);
 
@@ -108,7 +108,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public byte getByteValue(ByteBuffer pointer, int offset) {
-    byte[] data = new byte[1];
+    var data = new byte[1];
 
     readData(pointer, offset, data);
 
@@ -117,7 +117,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public byte[] getBinaryValue(ByteBuffer pointer, int offset, int len) {
-    byte[] data = new byte[len];
+    var data = new byte[len];
     readData(pointer, offset, data);
 
     return data;
@@ -128,10 +128,10 @@ public final class WALPageChangesPortion implements WALChanges {
     if (pageChunks == null) {
       return;
     }
-    for (int i = 0; i < pageChunks.length; i++) {
+    for (var i = 0; i < pageChunks.length; i++) {
       if (pageChunks[i] != null) {
-        for (int j = 0; j < PORTION_SIZE; j++) {
-          byte[] chunk = pageChunks[i][j];
+        for (var j = 0; j < PORTION_SIZE; j++) {
+          var chunk = pageChunks[i][j];
           if (chunk != null) {
             pointer.put(i * PORTION_BYTES + j * CHUNK_SIZE, chunk, 0, chunk.length);
           }
@@ -149,9 +149,9 @@ public final class WALPageChangesPortion implements WALChanges {
     } else {
       offset = ShortSerializer.SHORT_SIZE;
 
-      for (byte[][] pageChunk : pageChunks) {
+      for (var pageChunk : pageChunks) {
         if (pageChunk != null) {
-          for (int j = 0; j < PORTION_SIZE; j++) {
+          for (var j = 0; j < PORTION_SIZE; j++) {
             if (pageChunk[j] != null) {
               offset += 2 * ByteSerializer.BYTE_SIZE + CHUNK_SIZE;
             }
@@ -170,13 +170,13 @@ public final class WALPageChangesPortion implements WALChanges {
       return offset + ShortSerializer.SHORT_SIZE;
     }
 
-    int countPos = offset;
-    int count = 0;
+    var countPos = offset;
+    var count = 0;
     offset += ShortSerializer.SHORT_SIZE;
 
-    for (int i = 0; i < pageChunks.length; i++) {
+    for (var i = 0; i < pageChunks.length; i++) {
       if (pageChunks[i] != null) {
-        for (int j = 0; j < PORTION_SIZE; j++) {
+        for (var j = 0; j < PORTION_SIZE; j++) {
           if (pageChunks[i][j] != null) {
             ByteSerializer.INSTANCE.serializeNative((byte) i, stream, offset);
             offset += ByteSerializer.BYTE_SIZE;
@@ -203,13 +203,13 @@ public final class WALPageChangesPortion implements WALChanges {
       return;
     }
 
-    int countPos = buffer.position();
+    var countPos = buffer.position();
     buffer.position(countPos + ShortSerializer.SHORT_SIZE);
-    int count = 0;
+    var count = 0;
 
-    for (int i = 0; i < pageChunks.length; i++) {
+    for (var i = 0; i < pageChunks.length; i++) {
       if (pageChunks[i] != null) {
-        for (int j = 0; j < PORTION_SIZE; j++) {
+        for (var j = 0; j < PORTION_SIZE; j++) {
           if (pageChunks[i][j] != null) {
             buffer.put((byte) i);
             buffer.put((byte) j);
@@ -231,7 +231,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
     offset += ShortSerializer.SHORT_SIZE;
 
-    for (int c = 0; c < chunkLength; c++) {
+    for (var c = 0; c < chunkLength; c++) {
       int i = ByteSerializer.INSTANCE.deserializeNative(stream, offset);
       offset += ByteSerializer.BYTE_SIZE;
       int j = ByteSerializer.INSTANCE.deserializeNative(stream, offset);
@@ -258,7 +258,7 @@ public final class WALPageChangesPortion implements WALChanges {
   public void fromStream(ByteBuffer buffer) {
     int chunkLength = buffer.getShort();
 
-    for (int c = 0; c < chunkLength; c++) {
+    for (var c = 0; c < chunkLength; c++) {
       int i = buffer.get();
       int j = buffer.get();
 
@@ -285,7 +285,7 @@ public final class WALPageChangesPortion implements WALChanges {
       return;
     }
 
-    int portionIndex = offset / PORTION_BYTES;
+    var portionIndex = offset / PORTION_BYTES;
     if (portionIndex == (offset + data.length - 1) / PORTION_BYTES
         && pageChunks[portionIndex] == null) {
       if (pointer != null) {
@@ -294,10 +294,10 @@ public final class WALPageChangesPortion implements WALChanges {
       return;
     }
 
-    int chunkIndex = (offset - portionIndex * PORTION_BYTES) / CHUNK_SIZE;
-    int chunkOffset = offset - (portionIndex * PORTION_BYTES + chunkIndex * CHUNK_SIZE);
+    var chunkIndex = (offset - portionIndex * PORTION_BYTES) / CHUNK_SIZE;
+    var chunkOffset = offset - (portionIndex * PORTION_BYTES + chunkIndex * CHUNK_SIZE);
 
-    int read = 0;
+    var read = 0;
 
     while (read < data.length) {
       byte[] chunk = null;
@@ -305,7 +305,7 @@ public final class WALPageChangesPortion implements WALChanges {
         chunk = pageChunks[portionIndex][chunkIndex];
       }
 
-      final int rl = Math.min(CHUNK_SIZE - chunkOffset, data.length - read);
+      final var rl = Math.min(CHUNK_SIZE - chunkOffset, data.length - read);
       if (chunk == null) {
         if (pointer != null) {
           var position = portionIndex * PORTION_BYTES + (chunkIndex * CHUNK_SIZE) + chunkOffset;
@@ -348,7 +348,7 @@ public final class WALPageChangesPortion implements WALChanges {
       pageChunks = new byte[this.chunksCount][][];
     }
 
-    int portionIndex = offset / PORTION_BYTES;
+    var portionIndex = offset / PORTION_BYTES;
     assert portionIndex < pageChunks.length;
     assert (pageChunks.length - portionIndex) * PORTION_BYTES >= data.length
         : "wrong portionIndex:" + portionIndex + " data:" + data.length;
@@ -357,13 +357,13 @@ public final class WALPageChangesPortion implements WALChanges {
       pageChunks[portionIndex] = new byte[PORTION_SIZE][];
     }
 
-    int chunkIndex = (offset - portionIndex * PORTION_BYTES) / CHUNK_SIZE;
-    int chunkOffset = offset - (portionIndex * PORTION_BYTES + chunkIndex * CHUNK_SIZE);
+    var chunkIndex = (offset - portionIndex * PORTION_BYTES) / CHUNK_SIZE;
+    var chunkOffset = offset - (portionIndex * PORTION_BYTES + chunkIndex * CHUNK_SIZE);
 
-    int written = 0;
+    var written = 0;
 
     while (written < data.length) {
-      byte[] chunk = pageChunks[portionIndex][chunkIndex];
+      var chunk = pageChunks[portionIndex][chunkIndex];
 
       if (chunk == null) {
         chunk = new byte[CHUNK_SIZE];
@@ -377,7 +377,7 @@ public final class WALPageChangesPortion implements WALChanges {
         pageChunks[portionIndex][chunkIndex] = chunk;
       }
 
-      final int wl = Math.min(CHUNK_SIZE - chunkOffset, data.length - written);
+      final var wl = Math.min(CHUNK_SIZE - chunkOffset, data.length - written);
       System.arraycopy(data, written, chunk, chunkOffset, wl);
 
       written += wl;

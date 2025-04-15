@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * This {@link SQLFunction} is able to invoke a static method using reflection. If contains more
@@ -40,8 +41,8 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
   private static final Map<Class<?>, Class<?>> WRAPPER_TO_PRIMITIVE = new HashMap<>();
 
   static {
-    for (Class<?> primitive : PRIMITIVE_TO_WRAPPER.keySet()) {
-      Class<?> wrapper = PRIMITIVE_TO_WRAPPER.get(primitive);
+    for (var primitive : PRIMITIVE_TO_WRAPPER.keySet()) {
+      var wrapper = PRIMITIVE_TO_WRAPPER.get(primitive);
       if (!primitive.equals(wrapper)) {
         WRAPPER_TO_PRIMITIVE.put(wrapper, primitive);
       }
@@ -74,12 +75,12 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
     Arrays.sort(
         methods,
         (m1, m2) -> {
-          Class<?>[] m1Params = m1.getParameterTypes();
-          Class<?>[] m2Params = m2.getParameterTypes();
+          var m1Params = m1.getParameterTypes();
+          var m2Params = m2.getParameterTypes();
 
-          int c = m1Params.length - m2Params.length;
+          var c = m1Params.length - m2Params.length;
           if (c == 0) {
-            for (int i = 0; i < m1Params.length; i++) {
+            for (var i = 0; i < m1Params.length; i++) {
               if (m1Params[i].isPrimitive()
                   && m2Params[i].isPrimitive()
                   && !m1Params[i].equals(m2Params[i])) {
@@ -92,10 +93,11 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
         });
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -106,10 +108,10 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
                 .map(p -> p + " [ " + p.getClass().getName() + " ]")
                 .collect(Collectors.joining(", ", "(", ")"));
 
-    Method method = pickMethod(iParams);
+    var method = pickMethod(iParams);
 
     if (method == null) {
-      throw new QueryParsingException(
+      throw new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
           "Unable to find a function for " + name + paramsPrettyPrint.get());
     }
 
@@ -117,8 +119,9 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
       return method.invoke(null, iParams);
     } catch (ReflectiveOperationException e) {
       throw BaseException.wrapException(
-          new QueryParsingException("Error executing function " + name + paramsPrettyPrint.get()),
-          e);
+          new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
+              "Error executing function " + name + paramsPrettyPrint.get()),
+          e, iContext.getDatabaseSession());
     } catch (IllegalArgumentException x) {
       LogManager.instance().error(this, "Error executing function %s", x, name);
 
@@ -132,12 +135,13 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
     return this.getName(session);
   }
 
+  @Nullable
   private Method pickMethod(Object[] iParams) {
-    for (Method m : methods) {
-      Class<?>[] parameterTypes = m.getParameterTypes();
+    for (var m : methods) {
+      var parameterTypes = m.getParameterTypes();
       if (iParams.length == parameterTypes.length) {
-        boolean match = true;
-        for (int i = 0; i < parameterTypes.length; i++) {
+        var match = true;
+        for (var i = 0; i < parameterTypes.length; i++) {
           if (iParams[i] != null && !isAssignable(iParams[i].getClass(), parameterTypes[i])) {
             match = false;
             break;
@@ -166,7 +170,7 @@ public class SQLStaticReflectiveFunction extends SQLFunctionAbstract {
           }
         };
 
-    final Class<?> fromClass = autoboxer.apply(iFromClass, iToClass);
+    final var fromClass = autoboxer.apply(iFromClass, iToClass);
 
     if (fromClass == null) {
       return false;

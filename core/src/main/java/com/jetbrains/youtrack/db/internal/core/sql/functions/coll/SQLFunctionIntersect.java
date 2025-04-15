@@ -19,12 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,6 +34,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * This operator can work as aggregate or inline. If only one argument is passed than aggregates,
@@ -46,13 +48,14 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     super(NAME, 1, -1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
-    Object value = iParams[0];
+    var value = iParams[0];
 
     if (value instanceof SQLFilterItemVariable) {
       value = ((SQLFilterItemVariable) value).getValue(iCurrentRecord, iCurrentResult, iContext);
@@ -90,7 +93,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     // IN-LINE MODE (STATELESS)
     Iterator iterator = MultiValue.getMultiValueIterator(value);
 
-    for (int i = 1; i < iParams.length; ++i) {
+    for (var i = 1; i < iParams.length; ++i) {
       value = iParams[i];
 
       if (value instanceof SQLFilterItemVariable) {
@@ -118,7 +121,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
   }
 
   static Collection intersectWith(final Iterator current, Object value) {
-    final HashSet tempSet = new HashSet();
+    final var tempSet = new HashSet();
 
     if (!(value instanceof Set)
         && (!(value instanceof SupportsContains)
@@ -126,10 +129,10 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
       value = MultiValue.toSet(value);
     }
 
-    for (Iterator it = current; it.hasNext(); ) {
-      final Object curr = it.next();
-      if (value instanceof RidBag) {
-        if (((RidBag) value).contains((Identifiable) curr)) {
+    for (var it = current; it.hasNext(); ) {
+      final var curr = it.next();
+      if (value instanceof LinkBag) {
+        if (((LinkBag) value).contains(((Identifiable) curr).getIdentity())) {
           tempSet.add(curr);
         }
       } else if (value instanceof Collection) {
@@ -148,24 +151,5 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
 
   public String getSyntax(DatabaseSession session) {
     return "intersect(<field>*)";
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    final Collection<Object> result = new HashSet<Object>();
-    if (!resultsToMerge.isEmpty()) {
-      final Collection<Object> items = (Collection<Object>) resultsToMerge.get(0);
-      if (items != null) {
-        result.addAll(items);
-      }
-    }
-    for (int i = 1; i < resultsToMerge.size(); i++) {
-      final Collection<Object> items = (Collection<Object>) resultsToMerge.get(i);
-      if (items != null) {
-        result.retainAll(items);
-      }
-    }
-    return result;
   }
 }

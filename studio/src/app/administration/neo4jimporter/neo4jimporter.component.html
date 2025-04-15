@@ -195,7 +195,7 @@
             </span>
               </h5>
               <h5>
-            <span class="tab" *ngIf="config.odbProtocol === 'plocal'">
+            <span class="tab" *ngIf="config.odbProtocol === 'disk'">
               <b>To</b>: {{job.cfg.odbProtocol}}:$ORIENTDB_HOME/databases/{{job.cfg.odbName}}
             </span>
                 <span class="tab" *ngIf="config.odbProtocol === 'memory'">

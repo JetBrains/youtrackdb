@@ -19,12 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.common.directmemory;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.nio.ByteBuffer;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -61,7 +60,7 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
    * @return Singleton instance
    */
   public static ByteBufferPool instance(ContextConfiguration contextConfiguration) {
-    final ByteBufferPool instance = INSTANCE_HOLDER.get();
+    final var instance = INSTANCE_HOLDER.get();
     if (instance != null) {
       return instance;
     }
@@ -74,7 +73,7 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
       bufferSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger();
     }
 
-    final ByteBufferPool newInstance = new ByteBufferPool(bufferSize * 1024);
+    final var newInstance = new ByteBufferPool(bufferSize * 1024);
     if (INSTANCE_HOLDER.compareAndSet(null, newInstance)) {
       return newInstance;
     }
@@ -196,10 +195,10 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
    * Checks whether there are not released buffers in the pool
    */
   public void checkMemoryLeaks() {
-    boolean detected = false;
+    var detected = false;
     if (TRACK) {
-      for (Map.Entry<Pointer, PointerTracker> entry : pointerMapping.entrySet()) {
-        final Object[] iAdditionalArgs = new Object[]{System.identityHashCode(entry.getKey())};
+      for (var entry : pointerMapping.entrySet()) {
+        final var iAdditionalArgs = new Object[]{System.identityHashCode(entry.getKey())};
         LogManager.instance()
             .error(
                 this,
@@ -217,14 +216,14 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
    * Clears pool and dealocates memory.
    */
   public void clear() {
-    for (Pointer pointer : pointersPool) {
+    for (var pointer : pointersPool) {
       allocator.deallocate(pointer);
     }
 
     pointersPool.clear();
     pointersPoolSize.set(0);
 
-    for (Pointer pointer : pointerMapping.keySet()) {
+    for (var pointer : pointerMapping.keySet()) {
       allocator.deallocate(pointer);
     }
 

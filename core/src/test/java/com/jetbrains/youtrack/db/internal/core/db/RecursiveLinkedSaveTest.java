@@ -13,20 +13,21 @@ public class RecursiveLinkedSaveTest extends DbTestBase {
 
   @Test
   public void testTxLinked() {
-    db.getMetadata().getSchema().createClass("Test");
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
-    EntityImpl doc1 = new EntityImpl("Test");
-    doc.field("link", doc1);
-    EntityImpl doc2 = new EntityImpl("Test");
-    doc1.field("link", doc2);
-    doc2.field("link", doc);
-    db.save(doc);
-    db.commit();
-    assertEquals(3, db.countClass("Test"));
-    doc = db.load(doc.getIdentity());
-    doc1 = doc.field("link");
-    doc2 = doc1.field("link");
-    assertEquals(doc, doc2.field("link"));
+    session.getMetadata().getSchema().createClass("Test");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("Test");
+    var doc1 = (EntityImpl) session.newEntity("Test");
+    doc.setProperty("link", doc1);
+    var doc2 = (EntityImpl) session.newEntity("Test");
+    doc1.setProperty("link", doc2);
+    doc2.setProperty("link", doc);
+    session.commit();
+    session.begin();
+    assertEquals(3, session.countClass("Test"));
+    doc = session.load(doc.getIdentity());
+    doc1 = doc.getProperty("link");
+    doc2 = doc1.getProperty("link");
+    assertEquals(doc, doc2.getProperty("link"));
+    session.commit();
   }
 }

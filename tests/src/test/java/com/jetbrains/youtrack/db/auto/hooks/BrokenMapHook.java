@@ -1,83 +1,69 @@
 package com.jetbrains.youtrack.db.auto.hooks;
 
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
 
-  private final DatabaseSessionInternal database;
-
   public BrokenMapHook() {
-    this.database = DatabaseRecordThreadLocal.instance().get();
   }
 
-  @Override
-  public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-    return DISTRIBUTED_EXECUTION_MODE.BOTH;
-  }
-
-  public RESULT onRecordBeforeCreate(DBRecord record) {
-    Date now = new Date();
-    Entity element = (Entity) record;
+  public void onAfterRecordCreate(DBRecord record) {
+    var now = new Date();
+    var element = (Entity) record;
 
     if (element.getProperty("myMap") != null) {
-      HashMap<String, Object> myMap = new HashMap<>(element.getProperty("myMap"));
+      var myMap = new HashMap<String, Object>(element.getProperty("myMap"));
 
-      String newDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(now);
+      var newDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(now);
 
       myMap.replaceAll((k, v) -> newDate);
 
-      element.setProperty("myMap", myMap);
+      element.setProperty("myMap", ((EntityImpl) element).getSession().newEmbeddedMap(myMap));
     }
-
-    return RESULT.RECORD_CHANGED;
   }
 
-  public RESULT onRecordBeforeUpdate(DBRecord newRecord) {
-    Entity newElement = (Entity) newRecord;
-    try {
-      Entity oldElement = database.load(newElement.getIdentity());
+  public void onBeforeRecordUpdate(DBRecord newRecord) {
+    var newElement = (Entity) newRecord;
 
-      var newPropertyNames = newElement.getPropertyNames();
-      var oldPropertyNames = oldElement.getPropertyNames();
+    var session = newElement.getBoundedToSession();
+    Entity oldElement = session.getActiveTransaction().load(newElement.getIdentity());
 
-      if (newPropertyNames.contains("myMap") && oldPropertyNames.contains("myMap")) {
-        HashMap<String, Object> newFieldValue = newElement.getProperty("myMap");
-        HashMap<String, Object> oldFieldValue = new HashMap<>(oldElement.getProperty("myMap"));
+    var newPropertyNames = newElement.getPropertyNames();
+    var oldPropertyNames = oldElement.getPropertyNames();
 
-        String newDate =
-            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    if (newPropertyNames.contains("myMap") && oldPropertyNames.contains("myMap")) {
+      Map<String, Object> newFieldValue = newElement.getProperty("myMap");
+      var oldFieldValue = new HashMap<String, Object>(oldElement.getProperty("myMap"));
 
-        Set<String> newKeys = new HashSet(newFieldValue.keySet());
+      var newDate =
+          LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
-        newKeys.forEach(
-            k -> {
-              newFieldValue.remove(k);
-              newFieldValue.put(k, newDate);
-            });
+      Set<String> newKeys = new HashSet<>(newFieldValue.keySet());
 
-        oldFieldValue.forEach(
-            (k, v) -> {
-              if (!newFieldValue.containsKey(k)) {
-                newFieldValue.put(k, v);
-              }
-            });
-      }
-      return RESULT.RECORD_CHANGED;
-    } catch (RecordNotFoundException e) {
-      return RESULT.RECORD_NOT_CHANGED;
+      newKeys.forEach(
+          k -> {
+            newFieldValue.remove(k);
+            newFieldValue.put(k, newDate);
+          });
+
+      oldFieldValue.forEach(
+          (k, v) -> {
+            if (!newFieldValue.containsKey(k)) {
+              newFieldValue.put(k, v);
+            }
+          });
     }
   }
 }

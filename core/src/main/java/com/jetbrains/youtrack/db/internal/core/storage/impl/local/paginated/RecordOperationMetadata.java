@@ -20,18 +20,18 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationMetadata;
 import java.util.HashSet;
 import java.util.Set;
 
 /**
- * This class is used inside of {@link PaginatedCluster} class as container for the records ids
+ * This class is used inside of {@link PaginatedCollection} class as container for the records ids
  * which were changed during active atomic operation.
  */
 public class RecordOperationMetadata implements AtomicOperationMetadata<Set<RID>> {
 
-  public static final String RID_METADATA_KEY = "cluster.record.rid";
+  public static final String RID_METADATA_KEY = "collection.record.rid";
 
   private final Set<RID> rids = new HashSet<>();
 

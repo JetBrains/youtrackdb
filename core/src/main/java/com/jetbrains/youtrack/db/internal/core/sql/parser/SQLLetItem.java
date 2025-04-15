@@ -47,7 +47,7 @@ public class SQLLetItem extends SimpleNode {
   }
 
   public SQLLetItem copy() {
-    SQLLetItem result = new SQLLetItem(-1);
+    var result = new SQLLetItem(-1);
     result.varName = varName.copy();
     result.expression = expression == null ? null : expression.copy();
     result.query = query == null ? null : query.copy();
@@ -75,7 +75,7 @@ public class SQLLetItem extends SimpleNode {
       return false;
     }
 
-    SQLLetItem oLetItem = (SQLLetItem) o;
+    var oLetItem = (SQLLetItem) o;
 
     if (!Objects.equals(varName, oLetItem.varName)) {
       return false;
@@ -88,7 +88,7 @@ public class SQLLetItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = varName != null ? varName.hashCode() : 0;
+    var result = varName != null ? varName.hashCode() : 0;
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     result = 31 * result + (query != null ? query.hashCode() : 0);
     return result;
@@ -122,7 +122,7 @@ public class SQLLetItem extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (varName != null) {
       result.setProperty("varName", varName.serialize(db));
     }

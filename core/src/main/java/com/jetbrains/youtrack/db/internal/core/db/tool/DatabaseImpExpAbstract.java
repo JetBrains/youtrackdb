@@ -38,7 +38,7 @@ public abstract class DatabaseImpExpAbstract extends DatabaseTool {
       final DatabaseSessionInternal iDatabase,
       final String iFileName,
       final CommandOutputListener iListener) {
-    database = iDatabase;
+    session = iDatabase;
     fileName = iFileName;
 
     // Fix bug where you can't backup files with spaces. Now you can wrap with quotes and the
@@ -68,7 +68,7 @@ public abstract class DatabaseImpExpAbstract extends DatabaseTool {
   }
 
   public DatabaseSessionInternal getDatabase() {
-    return database;
+    return session;
   }
 
   public String getFileName() {

@@ -30,7 +30,7 @@ public class SQLCommandLineOption extends SimpleNode {
   }
 
   public SQLCommandLineOption copy() {
-    SQLCommandLineOption result = new SQLCommandLineOption(-1);
+    var result = new SQLCommandLineOption(-1);
     result.name = name == null ? null : name.copy();
     return result;
   }
@@ -44,7 +44,7 @@ public class SQLCommandLineOption extends SimpleNode {
       return false;
     }
 
-    SQLCommandLineOption that = (SQLCommandLineOption) o;
+    var that = (SQLCommandLineOption) o;
 
     return Objects.equals(name, that.name);
   }

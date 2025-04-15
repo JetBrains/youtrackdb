@@ -74,9 +74,4 @@ public abstract class SQLFunctionMathAbstract extends SQLFunctionConfigurableAbs
   public boolean aggregateResults() {
     return configuredParameters.length == 1;
   }
-
-  @Override
-  public boolean shouldMergeDistributedResult() {
-    return true;
-  }
 }

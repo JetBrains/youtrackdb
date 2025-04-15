@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.TreeEntry;
+import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 public class SBTFetchEntriesMajorResponse<K, V> implements BinaryResponse {
 
@@ -56,18 +55,19 @@ public class SBTFetchEntriesMajorResponse<K, V> implements BinaryResponse {
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network,
+  public void read(DatabaseSessionInternal databaseSessionInternal, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
-    byte[] stream = network.readBytes();
-    int offset = 0;
-    final int count = IntegerSerializer.INSTANCE.deserializeLiteral(stream, 0);
+    var stream = network.readBytes();
+    var serializerFactory = databaseSessionInternal.getSerializerFactory();
+    var offset = 0;
+    final var count = IntegerSerializer.deserializeLiteral(stream, 0);
     offset += IntegerSerializer.INT_SIZE;
     list = new ArrayList<Map.Entry<K, V>>(count);
-    for (int i = 0; i < count; i++) {
-      final K resultKey = keySerializer.deserialize(stream, offset);
-      offset += keySerializer.getObjectSize(stream, offset);
-      final V resultValue = valueSerializer.deserialize(stream, offset);
-      offset += valueSerializer.getObjectSize(stream, offset);
+    for (var i = 0; i < count; i++) {
+      final var resultKey = keySerializer.deserialize(serializerFactory, stream, offset);
+      offset += keySerializer.getObjectSize(serializerFactory, stream, offset);
+      final var resultValue = valueSerializer.deserialize(serializerFactory, stream, offset);
+      offset += valueSerializer.getObjectSize(serializerFactory, stream, offset);
       list.add(new TreeEntry<K, V>(resultKey, resultValue));
     }
   }
@@ -75,22 +75,23 @@ public class SBTFetchEntriesMajorResponse<K, V> implements BinaryResponse {
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    byte[] stream =
+    var stream =
         new byte
             [IntegerSerializer.INT_SIZE
             + list.size()
             * (keySerializer.getFixedLength() + valueSerializer.getFixedLength())];
-    int offset = 0;
+    var offset = 0;
 
-    IntegerSerializer.INSTANCE.serializeLiteral(list.size(), stream, offset);
+    IntegerSerializer.serializeLiteral(list.size(), stream, offset);
     offset += IntegerSerializer.INT_SIZE;
 
-    for (Entry<K, V> entry : list) {
-      keySerializer.serialize(entry.getKey(), stream, offset);
-      offset += keySerializer.getObjectSize(entry.getKey());
+    var serializerFactory = session.getSerializerFactory();
+    for (var entry : list) {
+      keySerializer.serialize(entry.getKey(), serializerFactory, stream, offset);
+      offset += keySerializer.getObjectSize(serializerFactory, entry.getKey());
 
-      valueSerializer.serialize(entry.getValue(), stream, offset);
-      offset += valueSerializer.getObjectSize(entry.getValue());
+      valueSerializer.serialize(entry.getValue(), serializerFactory, stream, offset);
+      offset += valueSerializer.getObjectSize(serializerFactory, entry.getValue());
     }
 
     channel.writeBytes(stream);

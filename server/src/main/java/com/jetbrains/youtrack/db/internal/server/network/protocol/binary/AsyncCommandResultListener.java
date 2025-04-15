@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.Nonnull;
 
 /**
  * Asynchronous command result manager. As soon as a record is returned by the command is sent over
@@ -55,13 +56,12 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
   }
 
   @Override
-  public boolean result(DatabaseSessionInternal querySession, final Object iRecord) {
+  public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
     empty.compareAndSet(true, false);
 
     try {
-      fetchRecord(
-          iRecord,
-          new RemoteFetchListener() {
+      fetchRecord(session,
+          iRecord, new RemoteFetchListener() {
             @Override
             protected void sendRecord(RecordAbstract iLinked) {
               if (!alreadySent.contains(iLinked.getIdentity())) {
@@ -77,14 +77,15 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
           });
       alreadySent.add(((Identifiable) iRecord).getIdentity());
       protocol.channel.writeByte((byte) 1); // ONE MORE RECORD
+      var transaction = session.getActiveTransaction();
       NetworkProtocolBinary.writeIdentifiable(
-          protocol.channel, connection, ((Identifiable) iRecord).getRecord());
+          protocol.channel, connection, transaction.load(((Identifiable) iRecord)));
       protocol.channel.flush(); // TODO review this flush... it's for non blocking...
 
       if (wrappedResultListener != null)
       // NOTIFY THE WRAPPED LISTENER
       {
-        wrappedResultListener.result(querySession, iRecord);
+        wrappedResultListener.result(session, iRecord);
       }
 
     } catch (IOException e) {
@@ -99,8 +100,8 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
   }
 
   @Override
-  public void linkdedBySimpleValue(EntityImpl entity) {
-    RemoteFetchListener listener =
+  public void linkdedBySimpleValue(DatabaseSessionInternal db, EntityImpl entity) {
+    var listener =
         new RemoteFetchListener() {
           @Override
           protected void sendRecord(RecordAbstract iLinked) {
@@ -117,7 +118,7 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
 
           @Override
           public void parseLinked(
-              EntityImpl iRootRecord,
+              DatabaseSessionInternal db, EntityImpl iRootRecord,
               Identifiable iLinked,
               Object iUserObject,
               String iFieldName,
@@ -130,7 +131,7 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
 
           @Override
           public void parseLinkedCollectionValue(
-              EntityImpl iRootRecord,
+              DatabaseSessionInternal db, EntityImpl iRootRecord,
               Identifiable iLinked,
               Object iUserObject,
               String iFieldName,
@@ -142,6 +143,7 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
           }
         };
     final FetchContext context = new RemoteFetchContext();
-    FetchHelper.fetch(entity, entity, FetchHelper.buildFetchPlan(""), listener, context, "");
+    FetchHelper.fetch(db, entity, entity, FetchHelper.buildFetchPlan(""),
+        listener, context, "");
   }
 }

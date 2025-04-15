@@ -13,10 +13,11 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -60,16 +61,28 @@ public class ShapeFactory extends ComplexShapeBuilder {
 
   @Override
   public void initClazz(DatabaseSessionInternal db) {
-    for (ShapeBuilder f : factories.values()) {
+    for (var f : factories.values()) {
       f.initClazz(db);
     }
   }
 
   @Override
-  public Shape fromDoc(EntityImpl document) {
-    ShapeBuilder shapeBuilder = factories.get(document.getClassName());
+  public Shape fromResult(Result result) {
+    String shapeName;
+    if (result instanceof Result res) {
+      if (res.isEntity()) {
+        var entity = res.asEntity();
+        shapeName = entity.getSchemaClassName();
+      } else {
+        shapeName = res.getString(EntityHelper.ATTRIBUTE_CLASS);
+      }
+    } else {
+      throw new IllegalStateException("Unexpected result type: " + result);
+    }
+
+    var shapeBuilder = factories.get(shapeName);
     if (shapeBuilder != null) {
-      return shapeBuilder.fromDoc(document);
+      return shapeBuilder.fromResult(result);
     }
     // TODO handle exception shape not found
     return null;
@@ -77,7 +90,6 @@ public class ShapeFactory extends ComplexShapeBuilder {
 
   @Override
   public Shape fromObject(Object obj) {
-
     if (obj instanceof String) {
       try {
         return fromText((String) obj);
@@ -85,15 +97,12 @@ public class ShapeFactory extends ComplexShapeBuilder {
         e.printStackTrace();
       }
     }
-    if (obj instanceof EntityImpl) {
-      return fromDoc((EntityImpl) obj);
+    if (obj instanceof Result result) {
+      return fromResult(result);
     }
-    if (obj instanceof Result) {
-      Entity entity = ((Result) obj).toEntity();
-      return fromDoc((EntityImpl) entity);
-    }
+
     if (obj instanceof Map) {
-      Map map = (Map) ((Map) obj).get("shape");
+      var map = (Map) ((Map) obj).get("shape");
       if (map == null) {
         map = (Map) obj;
       }
@@ -103,15 +112,15 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public String asText(EntityImpl document) {
-    String className = document.getClassName();
-    ShapeBuilder shapeBuilder = factories.get(className);
+  public String asText(EmbeddedEntity entity) {
+    var className = entity.getSchemaClassName();
+    var shapeBuilder = factories.get(className);
     if (shapeBuilder != null) {
-      return shapeBuilder.asText(document);
+      return shapeBuilder.asText(entity);
     } else if (className.endsWith("Z")) {
       shapeBuilder = factories.get(className.substring(0, className.length() - 1));
       if (shapeBuilder != null) {
-        return shapeBuilder.asText(document);
+        return shapeBuilder.asText(entity);
       }
     }
 
@@ -122,35 +131,32 @@ public class ShapeFactory extends ComplexShapeBuilder {
   @Override
   public String asText(Object obj) {
 
-    if (obj instanceof Result) {
-      Entity entity = ((Result) obj).toEntity();
-      return asText((EntityImpl) entity);
+    if (obj instanceof EmbeddedEntity embeddedEntity) {
+      return asText(embeddedEntity);
     }
-    if (obj instanceof EntityImpl) {
-      return asText((EntityImpl) obj);
-    }
+
     if (obj instanceof Map) {
-      Map map = (Map) ((Map) obj).get("shape");
+      var map = (Map) ((Map) obj).get("shape");
       if (map == null) {
         map = (Map) obj;
       }
       return asText(map);
     }
+
     return null;
   }
 
   public byte[] asBinary(Object obj) {
-
-    if (obj instanceof EntityImpl) {
-      Shape shape = fromDoc((EntityImpl) obj);
+    if (obj instanceof ResultInternal resultInternal) {
+      var shape = fromResult(resultInternal);
       return asBinary(shape);
     }
     if (obj instanceof Map) {
-      Map map = (Map) ((Map) obj).get("shape");
+      var map = (Map) ((Map) obj).get("shape");
       if (map == null) {
         map = (Map) obj;
       }
-      Shape shape = fromMapGeoJson(map);
+      var shape = fromMapGeoJson(map);
 
       return asBinary(shape);
     }
@@ -158,53 +164,57 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  public EntityImpl toDoc(Shape shape) {
+  public EmbeddedEntity toEmbeddedEntity(Shape shape, DatabaseSessionInternal session) {
 
-    // TODO REFACTOR
-    EntityImpl doc = null;
+    EmbeddedEntity result = null;
     if (Point.class.isAssignableFrom(shape.getClass())) {
-      doc = factories.get(PointShapeBuilder.NAME).toDoc(shape);
+      result = factories.get(PointShapeBuilder.NAME).toEmbeddedEntity(shape, session);
     } else if (Rectangle.class.isAssignableFrom(shape.getClass())) {
-      doc = factories.get(RectangleShapeBuilder.NAME).toDoc(shape);
+      result = factories.get(RectangleShapeBuilder.NAME).toEmbeddedEntity(shape, session);
     } else if (JtsGeometry.class.isAssignableFrom(shape.getClass())) {
-      JtsGeometry geometry = (JtsGeometry) shape;
-      Geometry geom = geometry.getGeom();
-      doc = factories.get("O" + geom.getClass().getSimpleName()).toDoc(shape);
+      var geometry = (JtsGeometry) shape;
+      var geom = geometry.getGeom();
+      result = factories.get("O" + geom.getClass().getSimpleName())
+          .toEmbeddedEntity(shape, session);
 
     } else if (ShapeCollection.class.isAssignableFrom(shape.getClass())) {
-      ShapeCollection collection = (ShapeCollection) shape;
+      var collection = (ShapeCollection) shape;
 
       if (isMultiPolygon(collection)) {
-        doc = factories.get("OMultiPolygon").toDoc(createMultiPolygon(collection));
+        result = factories.get("OMultiPolygon").toEmbeddedEntity(createMultiPolygon(collection),
+            session);
       } else if (isMultiPoint(collection)) {
-        doc = factories.get("OMultiPoint").toDoc(createMultiPoint(collection));
+        result = factories.get("OMultiPoint").toEmbeddedEntity(createMultiPoint(collection),
+            session);
       } else if (isMultiLine(collection)) {
-        doc = factories.get("OMultiLineString").toDoc(createMultiLine(collection));
+        result = factories.get("OMultiLineString").toEmbeddedEntity(createMultiLine(collection),
+            session);
       } else {
-        doc = factories.get("OGeometryCollection").toDoc(shape);
+        result = factories.get("OGeometryCollection").toEmbeddedEntity(shape, session);
       }
     }
-    return doc;
+    return result;
   }
 
   @Override
-  protected EntityImpl toDoc(Shape shape, Geometry geometry) {
+  protected EmbeddedEntity toEmbeddedEntity(Shape shape, Geometry geometry,
+      DatabaseSessionInternal session) {
     if (Point.class.isAssignableFrom(shape.getClass())) {
-      return factories.get(PointShapeBuilder.NAME).toDoc(shape, geometry);
+      return factories.get(PointShapeBuilder.NAME).toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "LineString".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OLineString").toDoc(shape, geometry);
+      return factories.get("OLineString").toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "MultiLineString".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OMultiLineString").toDoc(shape, geometry);
+      return factories.get("OMultiLineString").toEmbeddedEntity(shape, geometry, session);
     } else if (geometry != null && "Polygon".equals(geometry.getClass().getSimpleName())) {
-      return factories.get("OPolygon").toDoc(shape, geometry);
+      return factories.get("OPolygon").toEmbeddedEntity(shape, geometry, session);
     } else {
-      return toDoc(shape);
+      return toEmbeddedEntity(shape, session);
     }
   }
 
   @Override
   public Shape fromMapGeoJson(Map geoJsonMap) {
-    ShapeBuilder shapeBuilder = factories.get(geoJsonMap.get("type"));
+    var shapeBuilder = factories.get(geoJsonMap.get("type"));
 
     if (shapeBuilder == null) {
       shapeBuilder = factories.get(geoJsonMap.get("@class"));
@@ -218,10 +228,10 @@ public class ShapeFactory extends ComplexShapeBuilder {
 
   public Geometry toGeometry(Shape shape) {
     if (shape instanceof ShapeCollection) {
-      ShapeCollection<Shape> shapes = (ShapeCollection<Shape>) shape;
-      Geometry[] geometries = new Geometry[shapes.size()];
-      int i = 0;
-      for (Shape shapeItem : shapes) {
+      var shapes = (ShapeCollection<Shape>) shape;
+      var geometries = new Geometry[shapes.size()];
+      var i = 0;
+      for (var shapeItem : shapes) {
         geometries[i] = SPATIAL_CONTEXT.getGeometryFrom(shapeItem);
         i++;
       }
@@ -231,15 +241,15 @@ public class ShapeFactory extends ComplexShapeBuilder {
     }
   }
 
-  public EntityImpl toDoc(Geometry geometry) {
+  public EmbeddedEntity toEmbeddedEntity(Geometry geometry, DatabaseSessionInternal session) {
     if (geometry instanceof org.locationtech.jts.geom.Point point) {
-      Point point1 = context().makePoint(point.getX(), point.getY());
-      return toDoc(point1);
+      var point1 = context().makePoint(point.getX(), point.getY());
+      return toEmbeddedEntity(point1, session);
     }
     if (geometry instanceof org.locationtech.jts.geom.GeometryCollection gc) {
       List<Shape> shapes = new ArrayList<Shape>();
-      for (int i = 0; i < gc.getNumGeometries(); i++) {
-        Geometry geo = gc.getGeometryN(i);
+      for (var i = 0; i < gc.getNumGeometries(); i++) {
+        var geo = gc.getGeometryN(i);
         Shape shape = null;
         if (geo instanceof org.locationtech.jts.geom.Point point) {
           shape = context().makePoint(point.getX(), point.getY());
@@ -248,9 +258,9 @@ public class ShapeFactory extends ComplexShapeBuilder {
         }
         shapes.add(shape);
       }
-      return toDoc(new ShapeCollection<Shape>(shapes, SPATIAL_CONTEXT));
+      return toEmbeddedEntity(new ShapeCollection<Shape>(shapes, SPATIAL_CONTEXT), session);
     }
-    return toDoc(SPATIAL_CONTEXT.makeShape(geometry));
+    return toEmbeddedEntity(SPATIAL_CONTEXT.makeShape(geometry), session);
   }
 
   public ShapeOperation operation() {

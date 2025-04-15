@@ -20,9 +20,9 @@ import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart.HttpMultipartContentBaseParser;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart.HttpMultipartDatabaseImportContentParser;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart.HttpMultipartRequestCommand;
@@ -31,7 +31,6 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.Map;
 
 /**
  *
@@ -45,16 +44,16 @@ public class ServerCommandPostImportDatabase
   protected DatabaseSessionInternal database;
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     if (!iRequest.isMultipart()) {
-      database = getProfiledDatabaseInstance(iRequest);
+      database = getProfiledDatabaseSessionInstance(iRequest);
       try {
-        DatabaseImport importer =
+        var importer =
             new DatabaseImport(
                 database,
                 new ByteArrayInputStream(iRequest.getContent().getBytes(StandardCharsets.UTF_8)),
                 this);
-        for (Map.Entry<String, String> option : iRequest.getParameters().entrySet()) {
+        for (var option : iRequest.getParameters().entrySet()) {
           importer.setOption(option.getKey(), option.getValue());
         }
         importer.importDatabase();
@@ -92,7 +91,7 @@ public class ServerCommandPostImportDatabase
           "Content stream is null or empty",
           null);
     } else {
-      database = getProfiledDatabaseInstance(iRequest);
+      database = getProfiledDatabaseSessionInstance(iRequest);
       try {
         parse(
             iRequest,
@@ -101,8 +100,8 @@ public class ServerCommandPostImportDatabase
             new HttpMultipartDatabaseImportContentParser(),
             database);
 
-        DatabaseImport importer = new DatabaseImport(database, importData, this);
-        for (Map.Entry<String, String> option : iRequest.getParameters().entrySet()) {
+        var importer = new DatabaseImport(database, importData, this);
+        for (var option : iRequest.getParameters().entrySet()) {
           importer.setOption(option.getKey(), option.getValue());
         }
         importer.importDatabase();
@@ -141,7 +140,7 @@ public class ServerCommandPostImportDatabase
 
   @Override
   protected void processBaseContent(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final String iContentResult,
       final HashMap<String, String> headers)
       throws Exception {
@@ -149,7 +148,7 @@ public class ServerCommandPostImportDatabase
 
   @Override
   protected void processFileContent(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final InputStream iContentResult,
       final HashMap<String, String> headers)
       throws Exception {
@@ -173,7 +172,7 @@ public class ServerCommandPostImportDatabase
 
   @Override
   public void onMessage(String iText) {
-    final String msg = iText.startsWith("\n") ? iText.substring(1) : iText;
+    final var msg = iText.startsWith("\n") ? iText.substring(1) : iText;
     LogManager.instance().info(this, msg, CommonConst.EMPTY_OBJECT_ARRAY);
   }
 }

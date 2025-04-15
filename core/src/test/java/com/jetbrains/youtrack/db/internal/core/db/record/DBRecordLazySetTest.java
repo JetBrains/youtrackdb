@@ -5,9 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -17,75 +15,75 @@ public class DBRecordLazySetTest extends DbTestBase {
 
   private EntityImpl doc1;
   private EntityImpl doc2;
-  private EntityImpl doc3;
-  private RID rid1;
-  private RID rid2;
-  private RID rid3;
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    db.begin();
+    session.begin();
     doc1 =
-        db.save(
-            new EntityImpl().field("doc1", "doc1"),
-            db.getClusterNameById(db.getDefaultClusterId()));
-    rid1 = doc1.getIdentity();
+        ((EntityImpl) session.newEntity());
+    doc1.setProperty("doc1", "doc1");
     doc2 =
-        db.save(
-            new EntityImpl().field("doc2", "doc2"),
-            db.getClusterNameById(db.getDefaultClusterId()));
-    rid2 = doc2.getIdentity();
-    doc3 =
-        db.save(
-            new EntityImpl().field("doc3", "doc3"),
-            db.getClusterNameById(db.getDefaultClusterId()));
-    rid3 = doc3.getIdentity();
-    db.commit();
+        ((EntityImpl) session.newEntity());
+    doc2.setProperty("doc2", "doc2");
+    EntityImpl entity = ((EntityImpl) session.newEntity());
+    entity.setProperty("doc3", "doc3");
+    session.commit();
   }
 
-  @Test()
+  @Test
   public void testDocumentNotEmbedded() {
-    LinkSet set = new LinkSet(new EntityImpl());
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     assertFalse(doc.isEmbedded());
+    session.rollback();
   }
 
   @Test()
   public void testSetAddRemove() {
-    LinkSet set = new LinkSet(new EntityImpl());
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var doc = (EntityImpl) session.newEntity();
     set.add(doc);
     set.remove(doc);
     assertTrue(set.isEmpty());
+    session.rollback();
   }
 
   @Test
   public void testSetRemoveNotPersistent() {
-    LinkSet set = new LinkSet(new EntityImpl());
-    doc1 = db.bindToSession(doc1);
-    doc2 = db.bindToSession(doc2);
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var activeTx1 = session.getActiveTransaction();
+    doc1 = activeTx1.load(doc1);
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
 
     set.add(doc1);
     set.add(doc2);
     set.add(new RecordId(5, 1000));
-    assertEquals(set.size(), 3);
+    assertEquals(3, set.size());
     set.remove(new RecordId(5, 1000));
-    assertEquals(set.size(), 2);
+    assertEquals(2, set.size());
+    session.rollback();
   }
 
   @Test(expected = ValidationException.class)
   public void testSetWithNotExistentRecordWithValidation() {
-    SchemaClass test = db.getMetadata().getSchema().createClass("test");
-    SchemaClass test1 = db.getMetadata().getSchema().createClass("test1");
-    test.createProperty(db, "fi", PropertyType.LINKSET).setLinkedClass(db, test1);
+    var test = session.getMetadata().getSchema().createClass("test");
+    var test1 = session.getMetadata().getSchema().createClass("test1");
+    test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
 
-    db.begin();
-    EntityImpl doc = new EntityImpl(test);
-    LinkSet set = new LinkSet(doc);
-    set.add(new RecordId(5, 1000));
-    doc.field("fi", set);
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var stubEntity = session.newEntity();
+    session.commit();
+
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(test);
+    var set = new EntityLinkSetImpl(doc);
+    set.add(stubEntity.getIdentity());
+    doc.setProperty("fi", set);
+    session.commit();
   }
 }

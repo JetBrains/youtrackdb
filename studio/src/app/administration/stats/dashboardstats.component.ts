@@ -24,7 +24,7 @@ declare const angular: any;
 })
 class DashboardStatsComponent implements OnInit, OnDestroy {
   private servers = [];
-  private clusterStats = {};
+  private collectionStats = {};
   private serversClass = "";
   private handle;
   private ee = true;
@@ -56,10 +56,10 @@ class DashboardStatsComponent implements OnInit, OnDestroy {
       .getMetrics()
       .then(data => {
         this.zone.run(() => {
-          this.servers = Object.keys(data.clusterStats);
+          this.servers = Object.keys(data.collectionStats);
           let dim = 12 / this.servers.length;
           this.serversClass = "col-md-" + (dim < 4 ? 4 : dim);
-          this.clusterStats = data.clusterStats;
+          this.collectionStats = data.collectionStats;
         });
       })
       .catch(response => {

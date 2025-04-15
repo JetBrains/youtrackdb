@@ -5,21 +5,19 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
 /**
- * <p>Fetches temporary records (cluster id -1) from current transaction
+ * <p>Fetches temporary records (collection id -1) from current transaction
  */
 public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
@@ -49,50 +47,51 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
   }
 
   private Iterator<DBRecord> init(CommandContext ctx) {
-    Iterable<? extends RecordOperation> iterable =
-        ctx.getDatabase().getTransaction().getRecordOperations();
+    var iterable =
+        ctx.getDatabaseSession().getTransactionInternal().getRecordOperationsInternal();
 
+    var db = ctx.getDatabaseSession();
     List<DBRecord> records = new ArrayList<>();
     if (iterable != null) {
-      for (RecordOperation op : iterable) {
+      for (var op : iterable) {
         DBRecord record = op.record;
-        if (matchesClass(record, className) && !hasCluster(record)) {
+        if (matchesClass(db, record, className) && !hasCollection(record)) {
           records.add(record);
         }
       }
     }
-    if (order == FetchFromClusterExecutionStep.ORDER_ASC) {
+    if (order == FetchFromCollectionExecutionStep.ORDER_ASC) {
       records.sort(
           (o1, o2) -> {
-            long p1 = o1.getIdentity().getClusterPosition();
-            long p2 = o2.getIdentity().getClusterPosition();
+            var p1 = o1.getIdentity().getCollectionPosition();
+            var p2 = o2.getIdentity().getCollectionPosition();
             return Long.compare(p1, p2);
           });
     } else {
       records.sort(
           (o1, o2) -> {
-            long p1 = o1.getIdentity().getClusterPosition();
-            long p2 = o2.getIdentity().getClusterPosition();
+            var p1 = o1.getIdentity().getCollectionPosition();
+            var p2 = o2.getIdentity().getCollectionPosition();
             return Long.compare(p2, p1);
           });
     }
     return records.iterator();
   }
 
-  private static boolean hasCluster(DBRecord record) {
-    RID rid = record.getIdentity();
-    if (rid == null) {
-      return false;
-    }
-    return rid.getClusterId() >= 0;
+  private static boolean hasCollection(DBRecord record) {
+    var rid = record.getIdentity();
+    return rid.getCollectionId() >= 0;
   }
 
-  private static boolean matchesClass(DBRecord record, String className) {
-    if (!(record.getRecord() instanceof EntityImpl entity)) {
+  private static boolean matchesClass(DatabaseSessionInternal session, DBRecord record,
+      String className) {
+    if (!(record instanceof EntityImpl entity)) {
       return false;
     }
 
-    SchemaClass schema = EntityInternalUtils.getImmutableSchemaClass(entity);
+    SchemaImmutableClass result;
+    result = entity.getImmutableSchemaClass(session);
+    SchemaClass schema = result;
     if (schema == null) {
       return className == null;
     } else if (schema.getName().equals(className)) {
@@ -108,8 +107,8 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ FETCH NEW RECORDS FROM CURRENT TRANSACTION SCOPE (if any)");
     if (profilingEnabled) {
@@ -119,19 +118,19 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
+  public Result serialize(DatabaseSessionInternal session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("className", className);
     return result;
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       className = fromResult.getProperty("className");
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 

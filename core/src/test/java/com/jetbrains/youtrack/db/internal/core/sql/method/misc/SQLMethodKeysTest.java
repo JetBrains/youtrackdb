@@ -5,7 +5,8 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
+import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -21,11 +22,13 @@ public class SQLMethodKeysTest extends DbTestBase {
   @Test
   public void testWithOResult() {
 
-    ResultInternal resultInternal = new ResultInternal(db);
+    var resultInternal = new ResultInternal(session);
     resultInternal.setProperty("name", "Foo");
     resultInternal.setProperty("surname", "Bar");
 
-    Object result = function.execute(null, null, null, resultInternal, null);
-    assertEquals(new LinkedHashSet(Arrays.asList("name", "surname")), result);
+    var result = function.execute(null, null, null, resultInternal, null);
+    //noinspection unchecked
+    assertEquals(new HashSet<>(Arrays.asList("name", "surname")),
+        new HashSet<>((List<String>) result));
   }
 }

@@ -20,20 +20,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -41,31 +37,27 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
 import java.util.List;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * MAJOR operator.
  */
 public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
 
-  private boolean binaryEvaluate = false;
-
   public QueryOperatorMajor() {
     super(">", 5, false);
-    DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (db != null) {
-      binaryEvaluate = db.getSerializer().getSupportBinaryEvaluate();
-    }
   }
 
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
-    final Object right = PropertyType.convert(iContext.getDatabase(), iRight, iLeft.getClass());
+    final var right = PropertyTypeInternal.convert(iContext.getDatabaseSession(), iRight,
+        iLeft.getClass());
     if (right == null) {
       return false;
     }
@@ -80,33 +72,34 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    final IndexDefinition indexDefinition = index.getDefinition();
+    final var indexDefinition = index.getDefinition();
 
     Stream<RawPair<Object, RID>> stream;
-    final IndexInternal internalIndex = index.getInternal();
-    if (!internalIndex.canBeUsedInEqualityOperators() || !internalIndex.hasRangeQuerySupport()) {
+    if (!index.canBeUsedInEqualityOperators() || !index.hasRangeQuerySupport()) {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       final Object key;
       if (indexDefinition instanceof IndexDefinitionMultiValue) {
         key =
             ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(iContext.getDatabase(), keyParams.get(0));
+                .createSingleValue(transaction, keyParams.get(0));
       } else {
-        key = indexDefinition.createValue(iContext.getDatabase(), keyParams);
+        key = indexDefinition.createValue(transaction, keyParams);
       }
 
       if (key == null) {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesMajor(iContext.getDatabase(), key, false, ascSortOrder);
+      stream = index
+          .streamEntriesMajor(iContext.getDatabaseSession(), key, false, ascSortOrder);
     } else {
       // if we have situation like "field1 = 1 AND field2 > 2"
       // then we fetch collection which left not included boundary is the smallest composite key in
@@ -115,11 +108,11 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
       // boundary
       // is the biggest composite key in the index that contains key with value field1=1.
 
-      final CompositeIndexDefinition compositeIndexDefinition =
+      final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabase(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
@@ -127,25 +120,27 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
 
       final Object keyTwo =
           compositeIndexDefinition.createSingleValue(
-              iContext.getDatabase(), keyParams.subList(0, keyParams.size() - 1));
+              transaction, keyParams.subList(0, keyParams.size() - 1));
 
       if (keyTwo == null) {
         return null;
       }
 
-      stream = index.getInternal()
-          .streamEntriesBetween(iContext.getDatabase(), keyOne, false, keyTwo, true, ascSortOrder);
+      stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, false, keyTwo,
+          true,
+          ascSortOrder);
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
       final Object iRight) {
     if (iLeft instanceof SQLFilterItemField
-        && DocumentHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
+        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof RID) {
         return new RecordId(((RecordId) iRight).next());
       } else {
@@ -159,6 +154,7 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
@@ -170,11 +166,13 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
       final BinaryField iSecondField,
       CommandContext iContext,
       final EntitySerializer serializer) {
-    return serializer.getComparator().compare(iFirstField, iSecondField) > 0;
+    return
+        serializer.getComparator().compare(iContext.getDatabaseSession(), iFirstField, iSecondField)
+            > 0;
   }
 
   @Override
   public boolean isSupportingBinaryEvaluate() {
-    return binaryEvaluate;
+    return true;
   }
 }

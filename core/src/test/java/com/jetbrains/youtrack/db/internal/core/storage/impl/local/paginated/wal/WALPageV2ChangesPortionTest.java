@@ -22,12 +22,12 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSingleLongValueInStartChunk() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
     pointer.putLong(64, 31);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
     changesCollector.setLongValue(pointer, 42, 64);
     Assert.assertEquals(changesCollector.getLongValue(pointer, 64), 42);
 
@@ -37,11 +37,11 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSingleLongValuesInMiddleOfChunk() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
     pointer.putLong(60, 31);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
     changesCollector.setLongValue(pointer, 42, 60);
     Assert.assertEquals(changesCollector.getLongValue(pointer, 60), 42);
 
@@ -51,11 +51,11 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSingleIntValue() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
     pointer.putLong(64, 31);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
     changesCollector.setIntValue(pointer, 42, 64);
     Assert.assertEquals(changesCollector.getIntValue(pointer, 64), 42);
 
@@ -65,12 +65,12 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSingleShortValue() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
     pointer.putShort(64, (short) 31);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
     changesCollector.setShortValue(pointer, (short) 42, 64);
     Assert.assertEquals(changesCollector.getShortValue(pointer, 64), 42);
 
@@ -80,11 +80,11 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSingleByteValue() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
     pointer.put(64, (byte) 31);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
     changesCollector.setByteValue(pointer, (byte) 42, 64);
     Assert.assertEquals(changesCollector.getByteValue(pointer, 64), 42);
 
@@ -94,8 +94,8 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testMoveData() {
-    byte[] data = new byte[1024];
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = new byte[1024];
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
     pointer.position(64);
     pointer.put(new byte[]{11, 12, 13, 14});
@@ -103,8 +103,8 @@ public class WALPageV2ChangesPortionTest {
     pointer.position(74);
     pointer.put(new byte[]{21, 22, 23, 24});
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    byte[] values = new byte[]{1, 2, 3, 4};
+    var changesCollector = new WALPageChangesPortion(1024);
+    var values = new byte[]{1, 2, 3, 4};
 
     changesCollector.setBinaryValue(pointer, values, 64);
     changesCollector.moveData(pointer, 64, 74, 4);
@@ -114,7 +114,7 @@ public class WALPageV2ChangesPortionTest {
 
     changesCollector.applyChanges(pointer);
 
-    byte[] result = new byte[4];
+    var result = new byte[4];
     pointer.position(64);
     pointer.get(result);
 
@@ -127,17 +127,17 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testBinaryValueTwoChunksFromStart() {
-    final byte[] originalData = new byte[1024];
+    final var originalData = new byte[1024];
 
-    Random random = new Random();
+    var random = new Random();
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
+    var data = Arrays.copyOf(originalData, originalData.length);
 
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    byte[] changes = new byte[128];
+    var changesCollector = new WALPageChangesPortion(1024);
+    var changes = new byte[128];
 
     random.nextBytes(changes);
 
@@ -146,7 +146,7 @@ public class WALPageV2ChangesPortionTest {
     Assertions.assertThat(changesCollector.getBinaryValue(pointer, 64, 128)).isEqualTo(changes);
 
     changesCollector.applyChanges(pointer);
-    byte[] result = new byte[128];
+    var result = new byte[128];
     pointer.position(64);
     pointer.get(result);
 
@@ -155,17 +155,17 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testBinaryValueTwoChunksInMiddle() {
-    final byte[] originalData = new byte[1024];
+    final var originalData = new byte[1024];
 
-    Random random = new Random();
+    var random = new Random();
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
+    var data = Arrays.copyOf(originalData, originalData.length);
 
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    byte[] changes = new byte[128];
+    var changesCollector = new WALPageChangesPortion(1024);
+    var changes = new byte[128];
 
     random.nextBytes(changes);
 
@@ -174,7 +174,7 @@ public class WALPageV2ChangesPortionTest {
 
     changesCollector.applyChanges(pointer);
 
-    byte[] result = new byte[128];
+    var result = new byte[128];
     pointer.position(32);
     pointer.get(result);
 
@@ -183,16 +183,16 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testBinaryValueTwoChunksTwoPortionsInMiddle() {
-    Random random = new Random();
+    var random = new Random();
 
-    byte[] originalData = new byte[65536];
+    var originalData = new byte[65536];
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = Arrays.copyOf(originalData, originalData.length);
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(65536);
-    byte[] changes = new byte[1024];
+    var changesCollector = new WALPageChangesPortion(65536);
+    var changes = new byte[1024];
 
     random.nextBytes(changes);
 
@@ -202,7 +202,7 @@ public class WALPageV2ChangesPortionTest {
 
     changesCollector.applyChanges(pointer);
 
-    byte[] result = new byte[1024];
+    var result = new byte[1024];
 
     pointer.position(1000);
     pointer.get(result);
@@ -212,16 +212,16 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSimpleApplyChanges() {
-    Random random = new Random();
+    var random = new Random();
 
-    byte[] originalData = new byte[1024];
+    var originalData = new byte[1024];
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var data = Arrays.copyOf(originalData, originalData.length);
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    byte[] changes = new byte[128];
+    var changesCollector = new WALPageChangesPortion(1024);
+    var changes = new byte[128];
 
     random.nextBytes(changes);
 
@@ -230,7 +230,7 @@ public class WALPageV2ChangesPortionTest {
     Assertions.assertThat(changesCollector.getBinaryValue(pointer, 32, 128)).isEqualTo(changes);
 
     changesCollector.applyChanges(pointer);
-    byte[] res = new byte[128];
+    var res = new byte[128];
     pointer.position(32);
     pointer.get(res);
 
@@ -239,17 +239,17 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSerializationAndRestore() {
-    Random random = new Random();
-    byte[] originalData = new byte[1024];
+    var random = new Random();
+    var originalData = new byte[1024];
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
+    var data = Arrays.copyOf(originalData, originalData.length);
 
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
 
-    byte[] changes = new byte[128];
+    var changes = new byte[128];
     random.nextBytes(changes);
 
     changesCollector.setBinaryValue(pointer, changes, 32);
@@ -257,15 +257,15 @@ public class WALPageV2ChangesPortionTest {
     Assertions.assertThat(changesCollector.getBinaryValue(pointer, 32, 128)).isEqualTo(changes);
     changesCollector.applyChanges(pointer);
 
-    ByteBuffer newBuffer =
+    var newBuffer =
         ByteBuffer.wrap(Arrays.copyOf(originalData, originalData.length))
             .order(ByteOrder.nativeOrder());
 
-    int size = changesCollector.serializedSize();
-    byte[] content = new byte[size];
+    var size = changesCollector.serializedSize();
+    var content = new byte[size];
     changesCollector.toStream(0, content);
 
-    WALPageChangesPortion changesCollectorRestored = new WALPageChangesPortion(1024);
+    var changesCollectorRestored = new WALPageChangesPortion(1024);
     changesCollectorRestored.fromStream(0, content);
     changesCollectorRestored.applyChanges(newBuffer);
 
@@ -276,17 +276,17 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testSerializationAndRestoreFromBuffer() {
-    Random random = new Random();
-    byte[] originalData = new byte[1024];
+    var random = new Random();
+    var originalData = new byte[1024];
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
+    var data = Arrays.copyOf(originalData, originalData.length);
 
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
 
-    byte[] changes = new byte[128];
+    var changes = new byte[128];
     random.nextBytes(changes);
 
     changesCollector.setBinaryValue(pointer, changes, 32);
@@ -294,15 +294,15 @@ public class WALPageV2ChangesPortionTest {
     Assertions.assertThat(changesCollector.getBinaryValue(pointer, 32, 128)).isEqualTo(changes);
     changesCollector.applyChanges(pointer);
 
-    ByteBuffer newBuffer =
+    var newBuffer =
         ByteBuffer.wrap(Arrays.copyOf(originalData, originalData.length))
             .order(ByteOrder.nativeOrder());
 
-    int size = changesCollector.serializedSize();
-    byte[] content = new byte[size];
+    var size = changesCollector.serializedSize();
+    var content = new byte[size];
     changesCollector.toStream(0, content);
 
-    WALPageChangesPortion changesCollectorRestored = new WALPageChangesPortion(1024);
+    var changesCollectorRestored = new WALPageChangesPortion(1024);
     changesCollectorRestored.fromStream(ByteBuffer.wrap(content).order(ByteOrder.nativeOrder()));
     changesCollectorRestored.applyChanges(newBuffer);
 
@@ -313,11 +313,11 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testEmptyChanges() {
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    int size = changesCollector.serializedSize();
-    byte[] bytes = new byte[size];
+    var changesCollector = new WALPageChangesPortion(1024);
+    var size = changesCollector.serializedSize();
+    var bytes = new byte[size];
     changesCollector.toStream(0, bytes);
-    WALPageChangesPortion changesCollectorRestored = new WALPageChangesPortion(1024);
+    var changesCollectorRestored = new WALPageChangesPortion(1024);
     changesCollectorRestored.fromStream(0, bytes);
 
     Assert.assertEquals(size, changesCollectorRestored.serializedSize());
@@ -325,46 +325,46 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testReadNoChanges() {
-    byte[] data = new byte[1024];
+    var data = new byte[1024];
     data[0] = 1;
     data[1] = 2;
-    ByteBuffer pointer = ByteBuffer.wrap(data);
+    var pointer = ByteBuffer.wrap(data);
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
-    byte[] bytes = changesCollector.getBinaryValue(pointer, 0, 2);
+    var changesCollector = new WALPageChangesPortion(1024);
+    var bytes = changesCollector.getBinaryValue(pointer, 0, 2);
     Assert.assertEquals(bytes[0], 1);
     Assert.assertEquals(bytes[1], 2);
   }
 
   @Test
   public void testGetCrossChanges() {
-    Random random = new Random();
+    var random = new Random();
 
-    byte[] originalData = new byte[1024];
+    var originalData = new byte[1024];
     random.nextBytes(originalData);
 
-    byte[] data = Arrays.copyOf(originalData, originalData.length);
+    var data = Arrays.copyOf(originalData, originalData.length);
 
-    ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
-    WALPageChangesPortion changesCollector = new WALPageChangesPortion(1024);
+    var changesCollector = new WALPageChangesPortion(1024);
 
-    byte[] changes = new byte[32];
+    var changes = new byte[32];
     random.nextBytes(changes);
 
     changesCollector.setBinaryValue(pointer, changes, 32);
     changesCollector.setBinaryValue(pointer, changes, 128);
 
-    byte[] content = changesCollector.getBinaryValue(pointer, 32, 128);
+    var content = changesCollector.getBinaryValue(pointer, 32, 128);
 
-    byte[] expected = Arrays.copyOfRange(originalData, 32, 160);
+    var expected = Arrays.copyOfRange(originalData, 32, 160);
     System.arraycopy(changes, 0, expected, 0, 32);
     System.arraycopy(changes, 0, expected, 96, 32);
 
     Assertions.assertThat(content).isEqualTo(expected);
 
     changesCollector.applyChanges(pointer);
-    byte[] result = new byte[128];
+    var result = new byte[128];
     pointer.position(32);
     pointer.get(result);
 
@@ -373,25 +373,25 @@ public class WALPageV2ChangesPortionTest {
 
   @Test
   public void testMultiPortionReadIfFirstPortionIsNotChanged() {
-    Random random = new Random();
+    var random = new Random();
 
-    final byte[] originalData = new byte[WALPageChangesPortion.PORTION_BYTES * 4];
+    final var originalData = new byte[WALPageChangesPortion.PORTION_BYTES * 4];
     random.nextBytes(originalData);
 
-    final byte[] data = Arrays.copyOf(originalData, originalData.length);
+    final var data = Arrays.copyOf(originalData, originalData.length);
 
-    final ByteBuffer pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
-    final WALPageChangesPortion changes = new WALPageChangesPortion(data.length);
+    final var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
+    final var changes = new WALPageChangesPortion(data.length);
 
-    final byte[] smallChange = new byte[32];
+    final var smallChange = new byte[32];
     random.nextBytes(smallChange);
 
     changes.setBinaryValue(pointer, smallChange, WALPageChangesPortion.PORTION_BYTES + 37);
 
-    final byte[] actual =
+    final var actual =
         changes.getBinaryValue(pointer, 0, WALPageChangesPortion.PORTION_BYTES * 2);
 
-    final byte[] expected =
+    final var expected =
         Arrays.copyOfRange(originalData, 0, WALPageChangesPortion.PORTION_BYTES * 2);
     System.arraycopy(
         smallChange, 0, expected, WALPageChangesPortion.PORTION_BYTES + 37, smallChange.length);
@@ -400,7 +400,7 @@ public class WALPageV2ChangesPortionTest {
 
     changes.applyChanges(pointer);
 
-    byte[] result = new byte[WALPageChangesPortion.PORTION_BYTES * 2];
+    var result = new byte[WALPageChangesPortion.PORTION_BYTES * 2];
     pointer.position(0);
     pointer.get(result);
 

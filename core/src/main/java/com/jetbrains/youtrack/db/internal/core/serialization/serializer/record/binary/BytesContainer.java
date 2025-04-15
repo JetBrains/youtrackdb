@@ -43,7 +43,7 @@ public class BytesContainer {
   }
 
   public int alloc(final int toAlloc) {
-    final int cur = offset;
+    final var cur = offset;
     offset += toAlloc;
     if (bytes.length < offset) {
       resize();
@@ -52,10 +52,10 @@ public class BytesContainer {
   }
 
   public int allocExact(final int toAlloc) {
-    final int cur = offset;
+    final var cur = offset;
     offset += toAlloc;
     if (bytes.length < offset) {
-      byte[] newArray = new byte[offset];
+      var newArray = new byte[offset];
       System.arraycopy(bytes, 0, newArray, 0, bytes.length);
       bytes = newArray;
     }
@@ -71,17 +71,17 @@ public class BytesContainer {
     if (bytes.length == offset) {
       return bytes;
     }
-    final byte[] fitted = new byte[offset];
+    final var fitted = new byte[offset];
     System.arraycopy(bytes, 0, fitted, 0, offset);
     return fitted;
   }
 
   private void resize() {
-    int newLength = bytes.length;
+    var newLength = bytes.length;
     while (newLength < offset) {
       newLength *= 2;
     }
-    final byte[] newBytes = new byte[newLength];
+    final var newBytes = new byte[newLength];
     System.arraycopy(bytes, 0, newBytes, 0, bytes.length);
     bytes = newBytes;
   }

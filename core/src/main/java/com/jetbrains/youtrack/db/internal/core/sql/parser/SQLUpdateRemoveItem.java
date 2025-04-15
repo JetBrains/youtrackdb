@@ -2,12 +2,11 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -42,7 +41,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
   }
 
   public SQLUpdateRemoveItem copy() {
-    SQLUpdateRemoveItem result = new SQLUpdateRemoveItem(-1);
+    var result = new SQLUpdateRemoveItem(-1);
     result.left = left == null ? null : left.copy();
     result.right = right == null ? null : right.copy();
     return result;
@@ -57,7 +56,7 @@ public class SQLUpdateRemoveItem extends SimpleNode {
       return false;
     }
 
-    SQLUpdateRemoveItem that = (SQLUpdateRemoveItem) o;
+    var that = (SQLUpdateRemoveItem) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -67,36 +66,35 @@ public class SQLUpdateRemoveItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
   }
 
   public void applyUpdate(ResultInternal result, CommandContext ctx) {
     if (right != null) {
-      Object leftVal = left.execute(result, ctx);
-      Object rightVal = right.execute(result, ctx);
+      var leftVal = left.execute(result, ctx);
+      var rightVal = right.execute(result, ctx);
       if (rightVal instanceof Result && ((Result) rightVal).isEntity()) {
-        rightVal = ((Result) rightVal).getEntity().get();
+        rightVal = ((Result) rightVal).asEntity();
       }
-      if (rightVal instanceof Collection
-          && ((Collection) rightVal)
+      if (rightVal instanceof Collection<?>
+          && ((Collection<?>) rightVal)
           .stream().allMatch(x -> x instanceof Result && ((Result) x).isEntity())) {
         rightVal =
-            ((Collection) rightVal)
+            ((Collection<?>) rightVal)
                 .stream()
-                .map(o -> o)
-                .map(x -> ((Result) x).getEntity().get())
+                .map(x -> ((Result) x).asEntity())
                 .collect(Collectors.toList());
       }
       if (MultiValue.isMultiValue(leftVal)) {
         MultiValue.remove(leftVal, rightVal, false);
         if (MultiValue.isMultiValue(rightVal)) {
-          Iterator<?> iter = MultiValue.getMultiValueIterator(rightVal);
+          var iter = MultiValue.getMultiValueIterator(rightVal);
           while (iter.hasNext()) {
-            Object item = iter.next();
-            if (item instanceof Result && ((Result) item).getIdentity().isPresent()) {
-              MultiValue.remove(leftVal, ((Result) item).getIdentity().get(), false);
+            var item = iter.next();
+            if (item instanceof Result && ((Result) item).getIdentity() != null) {
+              MultiValue.remove(leftVal, ((Result) item).getIdentity(), false);
             } else {
               MultiValue.remove(leftVal, item, false);
             }

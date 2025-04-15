@@ -7,5 +7,5 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
  */
 public interface ValuesConverter<T> {
 
-  T convert(DatabaseSessionInternal db, T value);
+  T convert(DatabaseSessionInternal session, T value);
 }

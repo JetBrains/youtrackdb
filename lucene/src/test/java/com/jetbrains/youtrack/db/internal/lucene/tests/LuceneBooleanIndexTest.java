@@ -20,12 +20,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,37 +33,37 @@ public class LuceneBooleanIndexTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    SchemaClass personClass = db.createVertexClass("Person");
-    personClass.createProperty(db, "isDeleted", PropertyType.BOOLEAN);
+    var personClass = session.createVertexClass("Person");
+    personClass.createProperty("isDeleted", PropertyType.BOOLEAN);
 
-    db.command("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
+    session.execute("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
         .close();
 
-    for (int i = 0; i < 1000; i++) {
-      Vertex person = db.newVertex("Person");
+    for (var i = 0; i < 1000; i++) {
+      session.begin();
+      var person = session.newVertex("Person");
       person.setProperty("isDeleted", i % 2 == 0);
-      db.begin();
-      db.save(person);
-      db.commit();
+      session.commit();
     }
   }
 
   @Test
   public void shouldQueryBooleanField() {
+    session.begin();
+    var docs = session.query("select from Person where search_class('false') = true");
 
-    ResultSet docs = db.query("select from Person where search_class('false') = true");
-
-    List<Result> results = docs.stream().collect(Collectors.toList());
+    var results = docs.stream().collect(Collectors.toList());
     assertThat(results).hasSize(500);
 
-    assertThat(results.get(0).<Boolean>getProperty("isDeleted")).isFalse();
+    assertThat(results.getFirst().<Boolean>getProperty("isDeleted")).isFalse();
     docs.close();
 
-    docs = db.query("select from Person where search_class('true') = true");
+    docs = session.query("select from Person where search_class('true') = true");
 
     results = docs.stream().collect(Collectors.toList());
     assertThat(results).hasSize(500);
-    assertThat(results.get(0).<Boolean>getProperty("isDeleted")).isTrue();
+    assertThat(results.getFirst().<Boolean>getProperty("isDeleted")).isTrue();
     docs.close();
+    session.commit();
   }
 }

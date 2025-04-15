@@ -32,7 +32,7 @@ public class ContainsKeyOperatorTest {
 
   @Test
   public void test() {
-    SQLContainsKeyOperator op = new SQLContainsKeyOperator(-1);
+    var op = new SQLContainsKeyOperator(-1);
 
     Assert.assertFalse(op.execute(null, null));
     Assert.assertFalse(op.execute(null, "foo"));

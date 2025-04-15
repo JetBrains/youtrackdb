@@ -1,8 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.EntityPropertiesVisitor;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -15,18 +16,17 @@ public final class LinksRewriter implements EntityPropertiesVisitor {
     this.converterData = converterData;
   }
 
+  @Nullable
   @Override
   public Object visitField(DatabaseSessionInternal db, PropertyType type, PropertyType linkedType,
       Object value) {
-    boolean oldAutoConvertValue = false;
-
-    final ValuesConverter valuesConverter =
+    final var valuesConverter =
         ImportConvertersFactory.INSTANCE.getConverter(value, converterData);
     if (valuesConverter == null) {
       return value;
     }
 
-    final Object newValue = valuesConverter.convert(db, value);
+    final var newValue = valuesConverter.convert(db, value);
 
     // this code intentionally uses == instead of equals, in such case we may distinguish rids which
     // already contained in

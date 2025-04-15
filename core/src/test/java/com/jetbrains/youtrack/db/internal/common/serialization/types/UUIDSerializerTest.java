@@ -1,92 +1,102 @@
 package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.UUID;
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class UUIDSerializerTest {
 
   private static final int FIELD_SIZE = 16;
   private static final UUID OBJECT = UUID.randomUUID();
-  private UUIDSerializer uuidSerializer;
+  private static UUIDSerializer uuidSerializer;
+  private static BinarySerializerFactory serializerFactory;
 
-  @Before
-  public void beforeClass() {
+  @BeforeClass
+  public static void beforeClass() {
     uuidSerializer = new UUIDSerializer();
+    serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
   }
 
   @Test
   public void testFieldSize() {
-    Assert.assertEquals(uuidSerializer.getObjectSize(OBJECT), FIELD_SIZE);
+    Assert.assertEquals(FIELD_SIZE, uuidSerializer.getObjectSize(serializerFactory, OBJECT));
   }
 
   @Test
   public void testSerializationInByteBuffer() {
-    final int serializationOffset = 5;
-    final ByteBuffer buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
+    final var serializationOffset = 5;
+    final var buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
     buffer.position(serializationOffset);
 
-    uuidSerializer.serializeInByteBufferObject(OBJECT, buffer);
+    uuidSerializer.serializeInByteBufferObject(serializerFactory, OBJECT, buffer);
 
-    final int binarySize = buffer.position() - serializationOffset;
-    Assert.assertEquals(binarySize, FIELD_SIZE);
-
-    buffer.position(serializationOffset);
-    Assert.assertEquals(uuidSerializer.getObjectSizeInByteBuffer(buffer), FIELD_SIZE);
+    final var binarySize = buffer.position() - serializationOffset;
+    Assert.assertEquals(FIELD_SIZE, binarySize);
 
     buffer.position(serializationOffset);
-    Assert.assertEquals(uuidSerializer.deserializeFromByteBufferObject(buffer), OBJECT);
+    Assert.assertEquals(FIELD_SIZE,
+        uuidSerializer.getObjectSizeInByteBuffer(serializerFactory, buffer));
 
-    Assert.assertEquals(buffer.position() - serializationOffset, FIELD_SIZE);
+    buffer.position(serializationOffset);
+    Assert.assertEquals(OBJECT,
+        uuidSerializer.deserializeFromByteBufferObject(serializerFactory, buffer));
+
+    Assert.assertEquals(FIELD_SIZE, buffer.position() - serializationOffset);
   }
 
   @Test
   public void testSerializationInImmutableByteBufferPosition() {
-    final int serializationOffset = 5;
-    final ByteBuffer buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
+    final var serializationOffset = 5;
+    final var buffer = ByteBuffer.allocate(FIELD_SIZE + serializationOffset);
     buffer.position(serializationOffset);
 
-    uuidSerializer.serializeInByteBufferObject(OBJECT, buffer);
+    uuidSerializer.serializeInByteBufferObject(serializerFactory, OBJECT, buffer);
 
-    final int binarySize = buffer.position() - serializationOffset;
-    Assert.assertEquals(binarySize, FIELD_SIZE);
+    final var binarySize = buffer.position() - serializationOffset;
+    Assert.assertEquals(FIELD_SIZE, binarySize);
 
     buffer.position(0);
     Assert.assertEquals(
-        uuidSerializer.getObjectSizeInByteBuffer(serializationOffset, buffer), FIELD_SIZE);
+        uuidSerializer.getObjectSizeInByteBuffer(serializerFactory, serializationOffset, buffer),
+        FIELD_SIZE);
     Assert.assertEquals(0, buffer.position());
 
     Assert.assertEquals(
-        uuidSerializer.deserializeFromByteBufferObject(serializationOffset, buffer), OBJECT);
+        OBJECT,
+        uuidSerializer.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
+            buffer));
     Assert.assertEquals(0, buffer.position());
   }
 
   @Test
   public void testsSerializationWALChanges() {
-    final int serializationOffset = 5;
+    final var serializationOffset = 5;
 
-    final ByteBuffer buffer =
+    final var buffer =
         ByteBuffer.allocateDirect(
                 FIELD_SIZE + serializationOffset + WALPageChangesPortion.PORTION_BYTES)
             .order(ByteOrder.nativeOrder());
-    final byte[] data = new byte[FIELD_SIZE];
+    final var data = new byte[FIELD_SIZE];
 
-    uuidSerializer.serializeNativeObject(OBJECT, data, 0);
+    uuidSerializer.serializeNativeObject(OBJECT, serializerFactory, data, 0);
 
     WALChanges walChanges = new WALPageChangesPortion();
     walChanges.setBinaryValue(buffer, data, serializationOffset);
 
     Assert.assertEquals(
-        uuidSerializer.getObjectSizeInByteBuffer(buffer, walChanges, serializationOffset),
-        FIELD_SIZE);
+        FIELD_SIZE,
+        uuidSerializer.getObjectSizeInByteBuffer(buffer, walChanges, serializationOffset));
     Assert.assertEquals(
-        uuidSerializer.deserializeFromByteBufferObject(buffer, walChanges, serializationOffset),
-        OBJECT);
+        OBJECT,
+        uuidSerializer.deserializeFromByteBufferObject(serializerFactory, buffer, walChanges,
+            serializationOffset));
 
     Assert.assertEquals(0, buffer.position());
   }

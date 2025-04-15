@@ -254,8 +254,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return Returns a reference to the newly created instance of {@code ReadersEntry}
    */
   private ReadersEntry addState() {
-    final AtomicInteger state = new AtomicInteger(SRWL_STATE_NOT_READING);
-    final ReadersEntry newEntry = new ReadersEntry(state);
+    final var state = new AtomicInteger(SRWL_STATE_NOT_READING);
+    final var newEntry = new ReadersEntry(state);
     entry.set(newEntry);
     readersStateList.add(state);
     readersStateArrayRef.set(null);
@@ -272,13 +272,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * lock is released.
    */
   public void sharedLock() {
-    ReadersEntry localEntry = entry.get();
+    var localEntry = entry.get();
     // Initialize a new Reader-state for this thread if needed
     if (localEntry == null) {
       localEntry = addState();
     }
 
-    final AtomicInteger currentReadersState = localEntry.state;
+    final var currentReadersState = localEntry.state;
     // The "optimistic" code path takes only two synchronized calls:
     // a set() on a cache line that should be held in exclusive mode
     // by the current thread, and a get() on a cache line that is shared.
@@ -309,7 +309,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @throws IllegalMonitorStateException if the current thread does not hold this lock.
    */
   public void sharedUnlock() {
-    final ReadersEntry localEntry = entry.get();
+    final var localEntry = entry.get();
     if (localEntry == null) {
       // ERROR: Tried to unlock a non read-locked lock
       throw new IllegalMonitorStateException();
@@ -336,7 +336,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     stampedLock.writeLock();
 
     // We can only do this after writerOwner has been set to the current thread
-    AtomicInteger[] localReadersStateArray = readersStateArrayRef.get();
+    var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
       // a linearizability condition
@@ -347,7 +347,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     // Scan the array of Reader states
-    for (AtomicInteger readerState : localReadersStateArray) {
+    for (var readerState : localReadersStateArray) {
       while (readerState != null && readerState.get() == SRWL_STATE_READING) {
         Thread.yield();
       }
@@ -386,13 +386,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return {@code true} if the read lock was acquired
    */
   public boolean sharedTryLock() {
-    ReadersEntry localEntry = entry.get();
+    var localEntry = entry.get();
     // Initialize a new Reader-state for this thread if needed
     if (localEntry == null) {
       localEntry = addState();
     }
 
-    final AtomicInteger currentReadersState = localEntry.state;
+    final var currentReadersState = localEntry.state;
     currentReadersState.set(SRWL_STATE_READING);
     if (!stampedLock.isWriteLocked()) {
       // Acquired lock in read-only mode
@@ -425,14 +425,14 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return {@code true} if the read lock was acquired
    */
   public boolean sharedTryLockNanos(long nanosTimeout) {
-    final long lastTime = System.nanoTime();
-    ReadersEntry localEntry = entry.get();
+    final var lastTime = System.nanoTime();
+    var localEntry = entry.get();
     // Initialize a new Reader-state for this thread if needed
     if (localEntry == null) {
       localEntry = addState();
     }
 
-    final AtomicInteger currentReadersState = localEntry.state;
+    final var currentReadersState = localEntry.state;
     while (true) {
       currentReadersState.set(SRWL_STATE_READING);
       if (!stampedLock.isWriteLocked()) {
@@ -478,7 +478,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     // We can only do this after writerOwner has been set to the current thread
-    AtomicInteger[] localReadersStateArray = readersStateArrayRef.get();
+    var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
       // a linearizability condition
@@ -489,7 +489,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     // Scan the array of Reader states
-    for (AtomicInteger readerState : localReadersStateArray) {
+    for (var readerState : localReadersStateArray) {
       if (readerState != null && readerState.get() == SRWL_STATE_READING) {
         // There is at least one ongoing Reader so give up
         stampedLock.asWriteLock().unlock();
@@ -528,14 +528,14 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * before the lock could be acquired.
    */
   public boolean exclusiveTryLockNanos(long nanosTimeout) throws java.lang.InterruptedException {
-    final long lastTime = System.nanoTime();
+    final var lastTime = System.nanoTime();
     // Try to acquire the lock in write-mode
     if (stampedLock.tryWriteLock(nanosTimeout, TimeUnit.NANOSECONDS) == 0) {
       return false;
     }
 
     // We can only do this after writerOwner has been set to the current thread
-    AtomicInteger[] localReadersStateArray = readersStateArrayRef.get();
+    var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
       // a linearizability condition
@@ -546,7 +546,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     }
 
     // Scan the array of Reader states
-    for (AtomicInteger readerState : localReadersStateArray) {
+    for (var readerState : localReadersStateArray) {
       while (readerState != null && readerState.get() == SRWL_STATE_READING) {
         if (System.nanoTime() - lastTime < nanosTimeout) {
           Thread.yield();

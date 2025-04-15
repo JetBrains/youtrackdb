@@ -66,14 +66,14 @@ public class CommandExecutorUtility {
       if ((Boolean) java8MethodIsArray.invoke(result)) {
         List<?> partial = new ArrayList(((Map) result).values());
         List<Object> finalResult = new ArrayList<Object>();
-        for (Object o : partial) {
+        for (var o : partial) {
           finalResult.add(transformResult(o));
         }
         return finalResult;
       } else {
         Map<Object, Object> mapResult = (Map) result;
         List<Object> keys = new ArrayList<Object>(mapResult.keySet());
-        for (Object key : keys) {
+        for (var key : keys) {
           mapResult.put(key, transformResult(mapResult.get(key)));
         }
         return mapResult;

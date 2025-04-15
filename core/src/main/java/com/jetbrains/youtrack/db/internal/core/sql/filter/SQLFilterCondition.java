@@ -19,37 +19,30 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorMatches;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -57,6 +50,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * Run-time query condition evaluator.
@@ -82,54 +76,41 @@ public class SQLFilterCondition {
   }
 
   public Object evaluate(
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final EntityImpl iCurrentResult,
       final CommandContext iContext) {
-    var db = iContext.getDatabase();
-    boolean binaryEvaluation =
-        operator != null
-            && operator.isSupportingBinaryEvaluate()
-            && iCurrentRecord != null
+    var session = iContext.getDatabaseSession();
+    var binaryEvaluation =
+        operator != null && operator.isSupportingBinaryEvaluate()
+            && session.getSerializer().getSupportBinaryEvaluate()
+            && iCurrentRecord != null && iCurrentRecord.isEntity()
             && iCurrentRecord.getIdentity().isPersistent();
 
-    if (left instanceof SQLQuery<?>)
-    // EXECUTE SUB QUERIES ONLY ONCE
-    {
-      left = ((SQLQuery<?>) left).setContext(iContext).execute(iContext.getDatabase());
-    }
-
-    Object l = evaluate(iCurrentRecord, iCurrentResult, left, iContext, binaryEvaluation);
+    var l = evaluate(iCurrentRecord, iCurrentResult, left, iContext, binaryEvaluation);
 
     if (operator == null || operator.canShortCircuit(l)) {
       return l;
     }
 
-    if (right instanceof SQLQuery<?>)
-    // EXECUTE SUB QUERIES ONLY ONCE
-    {
-      right = ((SQLQuery<?>) right).setContext(iContext).execute(iContext.getDatabase());
-    }
-
-    Object r = evaluate(iCurrentRecord, iCurrentResult, right, iContext, binaryEvaluation);
-    ImmutableSchema schema =
-        DatabaseRecordThreadLocal.instance().get().getMetadata().getImmutableSchemaSnapshot();
+    var r = evaluate(iCurrentRecord, iCurrentResult, right, iContext, binaryEvaluation);
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
 
     if (binaryEvaluation && l instanceof BinaryField) {
       if (r != null && !(r instanceof BinaryField)) {
-        final PropertyType type = PropertyType.getTypeByValue(r);
+        final var type = PropertyTypeInternal.getTypeByValue(r);
 
         if (RecordSerializerBinary.INSTANCE
             .getCurrentSerializer()
             .getComparator()
             .isBinaryComparable(type)) {
-          final BytesContainer bytes = new BytesContainer();
+          final var bytes = new BytesContainer();
           RecordSerializerBinary.INSTANCE
               .getCurrentSerializer()
-              .serializeValue(db, bytes, r, type, null, schema, null);
+              .serializeValue(session, bytes, r, type, null, schema, null);
           bytes.offset = 0;
-          final Collate collate =
+          final var collate =
               r instanceof SQLFilterItemField
-                  ? ((SQLFilterItemField) r).getCollate(iCurrentRecord)
+                  ? ((SQLFilterItemField) r).getCollate(session, iCurrentRecord)
                   : null;
           r = new BinaryField(null, type, bytes, collate);
           if (!(right instanceof SQLFilterItem || right instanceof SQLFilterCondition))
@@ -147,19 +128,19 @@ public class SQLFilterCondition {
 
     if (binaryEvaluation && r instanceof BinaryField) {
       if (l != null && !(l instanceof BinaryField)) {
-        final PropertyType type = PropertyType.getTypeByValue(l);
+        final var type = PropertyTypeInternal.getTypeByValue(l);
         if (RecordSerializerBinary.INSTANCE
             .getCurrentSerializer()
             .getComparator()
             .isBinaryComparable(type)) {
-          final BytesContainer bytes = new BytesContainer();
+          final var bytes = new BytesContainer();
           RecordSerializerBinary.INSTANCE
               .getCurrentSerializer()
-              .serializeValue(db, bytes, l, type, null, schema, null);
+              .serializeValue(session, bytes, l, type, null, schema, null);
           bytes.offset = 0;
-          final Collate collate =
+          final var collate =
               l instanceof SQLFilterItemField
-                  ? ((SQLFilterItemField) l).getCollate(iCurrentRecord)
+                  ? ((SQLFilterItemField) l).getCollate(session, iCurrentRecord)
                   : null;
           l = new BinaryField(null, type, bytes, collate);
           if (!(left instanceof SQLFilterItem || left instanceof SQLFilterCondition))
@@ -181,9 +162,13 @@ public class SQLFilterCondition {
 
     if (!binaryEvaluation) {
       // no collate for regular expressions, otherwise quotes will result in no match
-      final Collate collate =
-          operator instanceof QueryOperatorMatches ? null : getCollate(iCurrentRecord);
-      final Object[] convertedValues = checkForConversion(db, iCurrentRecord, l, r, collate);
+      Collate collate = null;
+      if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
+        var entity = iCurrentRecord.asEntity();
+        collate = operator instanceof QueryOperatorMatches ? null : getCollate(session, entity);
+      }
+
+      final var convertedValues = checkForConversion(session, l, r, collate);
       if (convertedValues != null) {
         l = convertedValues[0];
         r = convertedValues[1];
@@ -213,6 +198,7 @@ public class SQLFilterCondition {
     return result;
   }
 
+  @Nullable
   @Deprecated
   public Collate getCollate() {
     if (left instanceof SQLFilterItemField) {
@@ -223,15 +209,17 @@ public class SQLFilterCondition {
     return null;
   }
 
-  public Collate getCollate(Identifiable identifiable) {
+  @Nullable
+  public Collate getCollate(DatabaseSessionInternal db, Identifiable identifiable) {
     if (left instanceof SQLFilterItemField) {
-      return ((SQLFilterItemField) left).getCollate(identifiable);
+      return ((SQLFilterItemField) left).getCollate(db, identifiable);
     } else if (right instanceof SQLFilterItemField) {
-      return ((SQLFilterItemField) right).getCollate(identifiable);
+      return ((SQLFilterItemField) right).getCollate(db, identifiable);
     }
     return null;
   }
 
+  @Nullable
   public RID getBeginRidRange(DatabaseSession session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
@@ -244,6 +232,7 @@ public class SQLFilterCondition {
     return operator.getBeginRidRange(session, left, right);
   }
 
+  @Nullable
   public RID getEndRidRange(DatabaseSession session) {
     if (operator == null) {
       if (left instanceof SQLFilterCondition) {
@@ -280,7 +269,7 @@ public class SQLFilterCondition {
 
   @Override
   public String toString() {
-    StringBuilder buffer = new StringBuilder(128);
+    var buffer = new StringBuilder(128);
 
     buffer.append('(');
     buffer.append(left);
@@ -294,6 +283,36 @@ public class SQLFilterCondition {
       buffer.append(right);
       if (right instanceof String) {
         buffer.append('\'');
+      }
+      buffer.append(')');
+    }
+
+    return buffer.toString();
+  }
+
+  public String asString(DatabaseSessionInternal session) {
+    var buffer = new StringBuilder(128);
+
+    buffer.append('(');
+    if (left instanceof SQLFilterItemAbstract filterItemAbstract) {
+      buffer.append(filterItemAbstract.asString(session));
+    } else {
+      buffer.append(left);
+    }
+    if (operator != null) {
+      buffer.append(' ');
+      buffer.append(operator);
+      buffer.append(' ');
+      if (right instanceof SQLFilterItemAbstract filterItemAbstract) {
+        buffer.append(filterItemAbstract.asString(session));
+      } else {
+        if (right instanceof String) {
+          buffer.append('\'');
+        }
+        buffer.append(right);
+        if (right instanceof String) {
+          buffer.append('\'');
+        }
       }
       buffer.append(')');
     }
@@ -321,12 +340,13 @@ public class SQLFilterCondition {
     return operator;
   }
 
+  @Nullable
   protected Integer getInteger(Object iValue) {
     if (iValue == null) {
       return null;
     }
 
-    final String stringValue = iValue.toString();
+    final var stringValue = iValue.toString();
 
     if (NULL_VALUE.equals(stringValue)) {
       return null;
@@ -343,12 +363,13 @@ public class SQLFilterCondition {
     }
   }
 
+  @Nullable
   protected static Float getFloat(final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
-    final String stringValue = iValue.toString();
+    final var stringValue = iValue.toString();
 
     if (NULL_VALUE.equals(stringValue)) {
       return null;
@@ -357,21 +378,21 @@ public class SQLFilterCondition {
     return !stringValue.isEmpty() ? Float.valueOf(stringValue) : Float.valueOf(0);
   }
 
-  protected Date getDate(final Object value) {
+  @Nullable
+  protected Date getDate(final Object value, DatabaseSessionInternal session) {
     if (value == null) {
       return null;
     }
 
-    final StorageConfiguration config =
-        DatabaseRecordThreadLocal.instance().get().getStorageInfo().getConfiguration();
+    final var config = session.getStorageInfo().getConfiguration();
 
     if (value instanceof Long) {
-      Calendar calendar = Calendar.getInstance(config.getTimeZone());
+      var calendar = Calendar.getInstance(config.getTimeZone());
       calendar.setTimeInMillis(((Long) value));
       return calendar.getTime();
     }
 
-    String stringValue = value.toString();
+    var stringValue = value.toString();
 
     if (NULL_VALUE.equals(stringValue)) {
       return null;
@@ -385,7 +406,7 @@ public class SQLFilterCondition {
       return new Date(Long.valueOf(stringValue).longValue());
     }
 
-    SimpleDateFormat formatter = config.getDateFormatInstance();
+    var formatter = config.getDateFormatInstance();
 
     if (stringValue.length() > config.getDateFormat().length())
     // ASSUMES YOU'RE USING THE DATE-TIME FORMATTE
@@ -400,18 +421,19 @@ public class SQLFilterCondition {
         return new Date(Double.valueOf(stringValue).longValue());
       } catch (Exception pe2) {
         throw BaseException.wrapException(
-            new QueryParsingException(
+            new QueryParsingException(session.getDatabaseName(),
                 "Error on conversion of date '"
                     + stringValue
                     + "' using the format: "
                     + formatter.toPattern()),
-            pe2);
+            pe2, session);
       }
     }
   }
 
-  protected Object evaluate(
-      Identifiable iCurrentRecord,
+  @Nullable
+  protected static Object evaluate(
+      Result iCurrentRecord,
       final EntityImpl iCurrentResult,
       final Object iValue,
       final CommandContext iContext,
@@ -424,27 +446,17 @@ public class SQLFilterCondition {
       return iValue;
     }
 
-    try {
-      if (iCurrentRecord != null) {
-        iCurrentRecord = iCurrentRecord.getRecord();
-        if (((RecordAbstract) iCurrentRecord).getInternalStatus()
-            == RecordElement.STATUS.NOT_LOADED) {
-          var db = iContext.getDatabase();
-          iCurrentRecord = db.bindToSession(iCurrentRecord);
+    var session = iContext.getDatabaseSession();
+    if (iCurrentRecord != null && iCurrentRecord.isEntity()) {
+      var entity = iCurrentRecord.asEntity();
+      if (binaryEvaluation
+          && iValue instanceof SQLFilterItemField
+          && !entity.isDirty()
+          && !((RecordId)entity.getIdentity()).isTemporary()) {
+        final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
+        if (bField != null) {
+          return bField;
         }
-      }
-    } catch (RecordNotFoundException ignore) {
-      return null;
-    }
-
-    if (binaryEvaluation
-        && iValue instanceof SQLFilterItemField
-        && iCurrentRecord != null
-        && !((EntityImpl) iCurrentRecord).isDirty()
-        && !iCurrentRecord.getIdentity().isTemporary()) {
-      final BinaryField bField = ((SQLFilterItemField) iValue).getBinaryField(iCurrentRecord);
-      if (bField != null) {
-        return bField;
       }
     }
 
@@ -457,18 +469,13 @@ public class SQLFilterCondition {
       return ((SQLFilterCondition) iValue).evaluate(iCurrentRecord, iCurrentResult, iContext);
     }
 
-    if (iValue instanceof SQLFunctionRuntime f) {
-      // STATELESS FUNCTION: EXECUTE IT
-      return f.execute(iCurrentRecord, iCurrentRecord, iCurrentResult, iContext);
-    }
-
     if (MultiValue.isMultiValue(iValue) && !Map.class.isAssignableFrom(iValue.getClass())) {
       final Iterable<?> multiValue = MultiValue.getMultiValueIterable(iValue);
 
       // MULTI VALUE: RETURN A COPY
-      final ArrayList<Object> result = new ArrayList<Object>(MultiValue.getSize(iValue));
+      final var result = new ArrayList<>(MultiValue.getSize(iValue));
 
-      for (final Object value : multiValue) {
+      for (final var value : multiValue) {
         if (value instanceof SQLFilterItem) {
           result.add(((SQLFilterItem) value).getValue(iCurrentRecord, iCurrentResult, iContext));
         } else {
@@ -483,12 +490,12 @@ public class SQLFilterCondition {
   }
 
   private Object[] checkForConversion(
-      DatabaseSession session, final Identifiable o, Object l, Object r,
+      DatabaseSessionInternal session, Object l, Object r,
       final Collate collate) {
     Object[] result = null;
 
-    final Object oldL = l;
-    final Object oldR = r;
+    final var oldL = l;
+    final var oldR = r;
     if (collate != null) {
 
       l = collate.transform(l);
@@ -540,10 +547,10 @@ public class SQLFilterCondition {
           }
         } else if (r instanceof Date && !(l instanceof Collection || l instanceof Date)) {
           // DATES
-          result = new Object[]{getDate(l), r};
+          result = new Object[]{getDate(l, session), r};
         } else if (l instanceof Date && !(r instanceof Collection || r instanceof Date)) {
           // DATES
-          result = new Object[]{l, getDate(r)};
+          result = new Object[]{l, getDate(r, session)};
         } else if (r instanceof Float && !(l instanceof Float || l instanceof Collection)) {
           // FLOATS
           result = new Object[]{getFloat(l), r};

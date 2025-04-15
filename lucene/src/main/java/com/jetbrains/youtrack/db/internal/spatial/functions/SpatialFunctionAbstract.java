@@ -13,8 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.shape.Shape;
 
 /**
@@ -29,7 +33,7 @@ public abstract class SpatialFunctionAbstract extends SQLFunctionAbstract {
   }
 
   boolean containsNull(Object[] params) {
-    for (Object param : params) {
+    for (var param : params) {
       if (param == null) {
         return true;
       }
@@ -38,14 +42,27 @@ public abstract class SpatialFunctionAbstract extends SQLFunctionAbstract {
     return false;
   }
 
+  @Nullable
   protected Shape toShape(Object param) {
-    final Object singleItem = getSingleItem(param);
+    Shape result = null;
+    if (param instanceof Result res) {
+      if (res.isEntity() || res.hasProperty(EntityHelper.ATTRIBUTE_CLASS)) {
+        result = factory.fromObject(res);
+      }
+    }
+
+    if (result != null) {
+      return result;
+    }
+
+    final var singleItem = getSingleItem(param);
     if (singleItem != null) {
-      final Object singleProp = getSingleProperty(singleItem, false);
+      final var singleProp = getSingleProperty(singleItem);
       if (singleProp != null) {
         return factory.fromObject(singleProp);
       }
     }
+
     return null;
   }
 }

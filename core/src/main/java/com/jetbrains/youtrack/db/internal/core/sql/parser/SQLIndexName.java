@@ -35,7 +35,7 @@ public class SQLIndexName extends SimpleNode {
   }
 
   public SQLIndexName copy() {
-    SQLIndexName result = new SQLIndexName(-1);
+    var result = new SQLIndexName(-1);
     result.value = value;
     return result;
   }
@@ -49,7 +49,7 @@ public class SQLIndexName extends SimpleNode {
       return false;
     }
 
-    SQLIndexName that = (SQLIndexName) o;
+    var that = (SQLIndexName) o;
 
     return Objects.equals(value, that.value);
   }
@@ -60,7 +60,7 @@ public class SQLIndexName extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("value", value);
     return result;
   }

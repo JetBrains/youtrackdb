@@ -4,15 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -22,139 +20,133 @@ public class DocumentTrackingNestedCollectionsTest extends DbTestBase {
 
   @Test
   public void testTrackingNestedSet() {
-
-    db.begin();
+    session.begin();
     RID orid;
-    EntityImpl document = new EntityImpl();
-    Set objects = new HashSet();
+    var entity = (EntityImpl) session.newEntity();
+    var objects = entity.<EmbeddedSet<Object>>newEmbeddedSet("objects");
 
-    document.field("objects", objects);
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-
-    objects = document.field("objects");
-    Set subObjects = new HashSet();
+    var subObjects = session.newEmbeddedSet();
     objects.add(subObjects);
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    orid = entity.getIdentity();
 
-    document = db.bindToSession(document);
-    orid = document.getIdentity();
-    objects = document.field("objects");
-    subObjects = (Set) objects.iterator().next();
+    objects = entity.getOrCreateEmbeddedSet("objects");
+    subObjects = objects.iterator().next();
 
-    EntityImpl nestedDoc = new EntityImpl();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
+    session.commit();
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
-
-    document = db.load(orid);
-    objects = document.field("objects");
-    subObjects = (Set) objects.iterator().next();
+    session.begin();
+    entity = session.load(orid);
+    objects = entity.getProperty("objects");
+    subObjects = objects.iterator().next();
 
     assertFalse(subObjects.isEmpty());
+    session.commit();
   }
 
   @Test
   public void testChangesValuesNestedTrackingSet() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    var objects = session.newEmbeddedSet();
 
-    db.begin();
-    EntityImpl document = new EntityImpl();
-    Set objects = new HashSet();
-
-    document.field("objects", objects);
-    Set subObjects = new HashSet();
+    document.setProperty("objects", objects);
+    var subObjects = session.newEmbeddedSet();
     objects.add(subObjects);
 
-    EntityImpl nestedDoc = new EntityImpl();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
-    document = db.bindToSession(document);
-    objects = document.field("objects");
-    subObjects = (Set) objects.iterator().next();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    objects = document.getProperty("objects");
+    subObjects = (EmbeddedSet<Object>) objects.iterator().next();
     subObjects.add("one");
 
     assertTrue(document.isDirty());
-    MultiValueChangeTimeLine<Object, Object> nestedTimiline =
-        ((TrackedMultiValue<Object, Object>) subObjects).getTimeLine();
+    var nestedTimiline =
+        ((TrackedMultiValue<Object, Object>) subObjects).getTransactionTimeLine();
     assertEquals(1, nestedTimiline.getMultiValueChangeEvents().size());
-    List<MultiValueChangeEvent<Object, Object>> multiValueChangeEvents =
+    var multiValueChangeEvents =
         nestedTimiline.getMultiValueChangeEvents();
     assertEquals("one", multiValueChangeEvents.get(0).getValue());
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testChangesValuesNestedTrackingList() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    var objects = session.newEmbeddedList();
 
-    db.begin();
-    EntityImpl document = new EntityImpl();
-    List objects = new ArrayList();
-
-    document.field("objects", objects);
-    List subObjects = new ArrayList();
+    document.setEmbeddedList("objects", objects);
+    var subObjects = session.newEmbeddedList();
     objects.add(subObjects);
 
-    EntityImpl nestedDoc = new EntityImpl();
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity();
     subObjects.add(nestedDoc);
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
-    document = db.bindToSession(document);
-    objects = document.field("objects");
-    subObjects = (List) objects.iterator().next();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    objects = document.getEmbeddedList("objects");
+    subObjects = (EmbeddedList<Object>) objects.iterator().next();
     subObjects.add("one");
-    subObjects.add(new EntityImpl());
+    subObjects.add(session.newEmbeddedEntity());
 
     assertTrue(document.isDirty());
-    List<MultiValueChangeEvent<Object, Object>> multiValueChangeEvents =
-        ((TrackedMultiValue<Object, Object>) subObjects).getTimeLine().getMultiValueChangeEvents();
+    var multiValueChangeEvents =
+        ((TrackedMultiValue<Object, Object>) subObjects).getTransactionTimeLine()
+            .getMultiValueChangeEvents();
     assertEquals(1, multiValueChangeEvents.get(0).getKey());
     assertEquals("one", multiValueChangeEvents.get(0).getValue());
     assertEquals(2, multiValueChangeEvents.get(1).getKey());
     assertTrue(multiValueChangeEvents.get(1).getValue() instanceof EntityImpl);
-    db.commit();
+    session.commit();
   }
 
   @Test
   public void testChangesValuesNestedTrackingMap() {
-    db.begin();
-    EntityImpl document = new EntityImpl();
-    Map objects = new HashMap();
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var objects = entity.<EmbeddedMap<Object>>newEmbeddedMap("objects");
 
-    document.field("objects", objects);
-    Map subObjects = new HashMap();
+    var subObjects = session.newEmbeddedMap();
     objects.put("first", subObjects);
 
-    EntityImpl nestedDoc = new EntityImpl();
+    var nestedDoc = session.newEmbeddedEntity();
     subObjects.put("one", nestedDoc);
 
-    document.save(db.getClusterNameById(db.getDefaultClusterId()));
-    db.commit();
+    session.commit();
 
-    db.begin();
-    document = db.bindToSession(document);
-    objects = document.field("objects");
-    subObjects = (Map) objects.values().iterator().next();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    objects = entity.getOrCreateEmbeddedMap("objects");
+    subObjects = objects.values().iterator().next();
     subObjects.put("one", "String");
-    subObjects.put("two", new EntityImpl());
+    subObjects.put("two", session.newEmbeddedEntity());
 
-    assertTrue(document.isDirty());
-    List<MultiValueChangeEvent<Object, Object>> multiValueChangeEvents =
-        ((TrackedMultiValue<Object, Object>) subObjects).getTimeLine().getMultiValueChangeEvents();
+    assertTrue(entity.isDirty());
+    var multiValueChangeEvents =
+        ((TrackedMultiValue<?, ?>) subObjects).getTransactionTimeLine()
+            .getMultiValueChangeEvents();
     assertEquals("one", multiValueChangeEvents.get(0).getKey());
     assertEquals("String", multiValueChangeEvents.get(0).getValue());
     assertEquals("two", multiValueChangeEvents.get(1).getKey());
     assertTrue(multiValueChangeEvents.get(1).getValue() instanceof EntityImpl);
-    db.commit();
+    session.commit();
   }
 }

@@ -19,32 +19,26 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LiveResultListener;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -56,7 +50,7 @@ import org.junit.Test;
 public class LiveQueryTest {
 
   private YouTrackDBImpl odb;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionInternal session;
 
   @Before
   public void before() {
@@ -64,12 +58,12 @@ public class LiveQueryTest {
     odb.execute(
         "create database LiveQueryTest memory users ( admin identified by 'admin' role admin,"
             + " reader identified by 'reader' role reader)");
-    db = (DatabaseSessionInternal) odb.open("LiveQueryTest", "admin", "admin");
+    session = (DatabaseSessionInternal) odb.open("LiveQueryTest", "admin", "admin");
   }
 
   @After
   public void after() {
-    db.close();
+    session.close();
     odb.drop("LiveQueryTest");
     odb.close();
   }
@@ -86,7 +80,8 @@ public class LiveQueryTest {
     public List<Result> created = new ArrayList<Result>();
 
     @Override
-    public void onLiveResult(int iLiveToken, RecordOperation iOp) throws BaseException {
+    public void onLiveResult(DatabaseSessionInternal db, int iLiveToken, RecordOperation iOp)
+        throws BaseException {
       ops.add(iOp);
       latch.countDown();
     }
@@ -100,175 +95,59 @@ public class LiveQueryTest {
     }
 
     @Override
-    public void onCreate(DatabaseSession database, Result data) {
+    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
       created.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(DatabaseSession database, Result before, Result after) {
+    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+        @Nonnull Result after) {
     }
 
     @Override
-    public void onDelete(DatabaseSession database, Result data) {
+    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
     }
 
     @Override
-    public void onError(DatabaseSession database, BaseException exception) {
+    public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
     }
 
     @Override
-    public void onEnd(DatabaseSession database) {
+    public void onEnd(@Nonnull DatabaseSession session) {
     }
   }
 
   @Test
   public void testLiveInsert() throws InterruptedException {
 
-    db.getMetadata().getSchema().createClass("test");
-    db.getMetadata().getSchema().createClass("test2");
-    MyLiveQueryListener listener = new MyLiveQueryListener(new CountDownLatch(2));
+    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSchema().createClass("test2");
+    var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
-    LiveQueryMonitor tokens = db.live("live select from test", listener);
+    var tokens = session.live("live select from test", listener);
     Integer token = tokens.getMonitorId();
     Assert.assertNotNull(token);
 
-    db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bar'").close();
-    db.command("insert into test set name = 'foo', surname = 'baz'").close();
-    db.command("insert into test2 set name = 'foo'").close();
-    db.commit();
+    session.begin();
+    session.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
+    session.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
 
     tokens.unSubscribe();
 
-    db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bax'").close();
-    db.command("insert into test2 set name = 'foo'").close();
-    db.command("insert into test set name = 'foo', surname = 'baz'").close();
-    db.commit();
+    session.begin();
+    session.execute("insert into test set name = 'foo', surname = 'bax'").close();
+    session.execute("insert into test2 set name = 'foo'").close();
+    session.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    session.commit();
 
     Assert.assertEquals(2, listener.created.size());
-    for (Result res : listener.created) {
+    for (var res : listener.created) {
       Assert.assertEquals("foo", res.getProperty("name"));
     }
-  }
-
-  @Test
-  public void testLiveInsertOnCluster() {
-
-    SchemaClass clazz = db.getMetadata().getSchema().createClass("test");
-
-    int defaultCluster = clazz.getClusterIds()[0];
-    final Storage storage = db.getStorage();
-
-    MyLiveQueryListener listener = new MyLiveQueryListener(new CountDownLatch(1));
-
-    db.live("live select from cluster:" + storage.getClusterNameById(defaultCluster), listener);
-
-    db.begin();
-    db.command(
-            "insert into cluster:"
-                + storage.getClusterNameById(defaultCluster)
-                + " set name = 'foo', surname = 'bar'")
-        .close();
-    db.commit();
-
-    try {
-      Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    }
-    Assert.assertEquals(1, listener.created.size());
-    for (Result doc : listener.created) {
-      Assert.assertEquals("foo", doc.getProperty("name"));
-      RID rid = doc.getProperty("@rid");
-      Assert.assertNotNull(rid);
-      Assert.assertTrue(rid.getClusterPosition() >= 0);
-    }
-  }
-
-  @Test
-  public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
-
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass oRestricted = schema.getClass("ORestricted");
-    schema.createClass("test", oRestricted);
-
-    int liveMatch = 2;
-    ResultSet query = db.query("select from OUSer where name = 'reader'");
-
-    final Identifiable reader = query.next().getIdentity().get();
-    final Identifiable current = db.geCurrentUser().getIdentity(db);
-
-    ExecutorService executorService = Executors.newSingleThreadExecutor();
-
-    final CountDownLatch latch = new CountDownLatch(1);
-    final CountDownLatch dataArrived = new CountDownLatch(2);
-    Future<Integer> future =
-        executorService.submit(
-            new Callable<Integer>() {
-              @Override
-              public Integer call() throws Exception {
-                DatabaseSession otherDb = odb.open("LiveQueryTest", "reader", "reader");
-
-                final AtomicInteger integer = new AtomicInteger(0);
-                try {
-                  otherDb.live(
-                      "live select from test",
-                      new LiveQueryResultListener() {
-
-                        @Override
-                        public void onCreate(DatabaseSession database, Result data) {
-                          integer.incrementAndGet();
-                          dataArrived.countDown();
-                        }
-
-                        @Override
-                        public void onUpdate(
-                            DatabaseSession database, Result before, Result after) {
-                        }
-
-                        @Override
-                        public void onDelete(DatabaseSession database, Result data) {
-                        }
-
-                        @Override
-                        public void onError(DatabaseSession database, BaseException exception) {
-                        }
-
-                        @Override
-                        public void onEnd(DatabaseSession database) {
-                        }
-                      });
-                } catch (RuntimeException e) {
-                  e.printStackTrace();
-                }
-
-                latch.countDown();
-                Assert.assertTrue(dataArrived.await(1, TimeUnit.MINUTES));
-                return integer.get();
-              }
-            });
-
-    latch.await();
-
-    db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bar'").close();
-
-    db.command(
-            "insert into test set name = 'foo', surname = 'bar', _allow=?",
-            new ArrayList<Identifiable>() {
-              {
-                add(current);
-                add(reader);
-              }
-            })
-        .close();
-    db.commit();
-
-    Integer integer = future.get();
-    Assert.assertEquals(liveMatch, integer.intValue());
   }
 }

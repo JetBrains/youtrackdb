@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 
@@ -38,12 +39,14 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
   public static final byte ID = 1;
   public static final BooleanSerializer INSTANCE = new BooleanSerializer();
 
-  public int getObjectSize(Boolean object, Object... hints) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, Boolean object,
+      Object... hints) {
     return BOOLEAN_SIZE;
   }
 
   public void serialize(
-      final Boolean object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Boolean object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     stream[startPosition] = object ? (byte) 1 : (byte) 0;
   }
 
@@ -51,7 +54,8 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     stream[startPosition] = value ? (byte) 1 : (byte) 0;
   }
 
-  public Boolean deserialize(final byte[] stream, final int startPosition) {
+  public Boolean deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return stream[startPosition] == 1;
   }
 
@@ -59,7 +63,8 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     return stream[startPosition] == 1;
   }
 
-  public int getObjectSize(byte[] stream, int startPosition) {
+  public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     return BOOLEAN_SIZE;
   }
 
@@ -67,14 +72,16 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     return ID;
   }
 
-  public int getObjectSizeNative(byte[] stream, int startPosition) {
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     return BOOLEAN_SIZE;
   }
 
   @Override
   public void serializeNativeObject(
-      final Boolean object, final byte[] stream, final int startPosition, final Object... hints) {
-    serialize(object, stream, startPosition);
+      final Boolean object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
+    serialize(object, serializerFactory, stream, startPosition);
   }
 
   public void serializeNative(final boolean object, final byte[] stream, final int startPosition) {
@@ -82,8 +89,9 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
   }
 
   @Override
-  public Boolean deserializeNativeObject(final byte[] stream, final int startPosition) {
-    return deserialize(stream, startPosition);
+  public Boolean deserializeNativeObject(BinarySerializerFactory serializerFactory,
+      final byte[] stream, final int startPosition) {
+    return deserialize(serializerFactory, stream, startPosition);
   }
 
   public boolean deserializeNative(final byte[] stream, final int startPosition) {
@@ -99,7 +107,8 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
   }
 
   @Override
-  public Boolean preprocess(final Boolean value, final Object... hints) {
+  public Boolean preprocess(BinarySerializerFactory serializerFactory, final Boolean value,
+      final Object... hints) {
     return value;
   }
 
@@ -107,7 +116,8 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Boolean object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, Boolean object,
+      ByteBuffer buffer, Object... hints) {
     buffer.put(object ? (byte) 1 : (byte) 0);
   }
 
@@ -115,12 +125,14 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
    * {@inheritDoc}
    */
   @Override
-  public Boolean deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Boolean deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return buffer.get() > 0;
   }
 
   @Override
-  public Boolean deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Boolean deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
     return buffer.get(offset) > 0;
   }
 
@@ -128,12 +140,14 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return BOOLEAN_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return BOOLEAN_SIZE;
   }
 
@@ -142,7 +156,8 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
    */
   @Override
   public Boolean deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return walChanges.getByteValue(buffer, offset) > 0;
   }
 

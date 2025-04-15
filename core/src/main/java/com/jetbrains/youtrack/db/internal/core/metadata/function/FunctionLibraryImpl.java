@@ -22,18 +22,15 @@ package com.jetbrains.youtrack.db.internal.core.metadata.function;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.MetadataUpdateListener;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
@@ -42,6 +39,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
 
 /**
  * Manages stored functions.
@@ -49,25 +47,22 @@ import java.util.regex.Pattern;
 public class FunctionLibraryImpl {
 
   public static final String CLASSNAME = "OFunction";
-  protected final Map<String, Function> functions = new ConcurrentHashMap<String, Function>();
+  private static final String DROPPED_FUNCTIONS_MAP = "droppedFunctionsMap";
+  protected final ConcurrentHashMap<String, Function> functions = new ConcurrentHashMap<>();
   private final AtomicBoolean needReload = new AtomicBoolean(false);
 
   public FunctionLibraryImpl() {
   }
 
-  public void create(DatabaseSessionInternal db) {
-    init(db);
+  public static void create(DatabaseSessionInternal session) {
+    init(session);
   }
 
-  public void load() {
-    throw new UnsupportedOperationException();
-  }
-
-  public void load(DatabaseSessionInternal db) {
+  public void load(DatabaseSessionInternal session) {
     // COPY CALLBACK IN RAM
     final Map<String, CallableFunction<Object, Map<Object, Object>>> callbacks =
         new HashMap<String, CallableFunction<Object, Map<Object, Object>>>();
-    for (Map.Entry<String, Function> entry : functions.entrySet()) {
+    for (var entry : functions.entrySet()) {
       if (entry.getValue().getCallback() != null) {
         callbacks.put(entry.getKey(), entry.getValue().getCallback());
       }
@@ -76,70 +71,85 @@ public class FunctionLibraryImpl {
     functions.clear();
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
-    if (db.getMetadata().getImmutableSchemaSnapshot().existsClass("OFunction")) {
-      try (ResultSet result = db.query("select from OFunction order by name")) {
+    if (session.getMetadata().getImmutableSchemaSnapshot().existsClass("OFunction")) {
+      try (var result = session.query("select from OFunction order by name")) {
         while (result.hasNext()) {
-          Result res = result.next();
-          EntityImpl d = (EntityImpl) res.getEntity().get();
+          var res = result.next();
+          var d = (EntityImpl) res.asEntity();
           // skip the function records which do not contain real data
-          if (d.fields() == 0) {
+          if (d.getPropertiesCount() == 0) {
             continue;
           }
 
-          final Function f = new Function(d);
+          final var f = new Function(session, d);
 
           // RESTORE CALLBACK IF ANY
-          f.setCallback(callbacks.get(f.getName(db)));
+          f.setCallback(callbacks.get(f.getName()));
 
-          functions.put(d.field("name").toString().toUpperCase(Locale.ENGLISH), f);
+          functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
         }
       }
     }
   }
 
-  public void droppedFunction(EntityImpl function) {
-    functions.remove(function.field("name").toString());
-    onFunctionsChanged(DatabaseRecordThreadLocal.instance().get());
+  public static void onAfterFunctionDropped(FrontendTransactionImpl currentTx,
+      EntityImpl functionEntity) {
+    @SuppressWarnings("unchecked")
+    var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_FUNCTIONS_MAP);
+    if (droppedSequencesMap == null) {
+      droppedSequencesMap = new HashMap<>();
+    }
+
+    currentTx.setCustomData(DROPPED_FUNCTIONS_MAP, droppedSequencesMap);
+    droppedSequencesMap.put(functionEntity.getIdentity(),
+        functionEntity.getProperty("name"));
   }
 
-  public void createdFunction(EntityImpl function) {
-    EntityImpl metadataCopy = function.copy();
-    final Function f = new Function(metadataCopy);
-    functions.put(metadataCopy.field("name").toString().toUpperCase(Locale.ENGLISH), f);
-    onFunctionsChanged(DatabaseRecordThreadLocal.instance().get());
+
+  public void onFunctionDropped(@Nonnull DatabaseSessionInternal session, @Nonnull RID rid) {
+    var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
+
+    @SuppressWarnings("unchecked")
+    var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_FUNCTIONS_MAP);
+    var functionName = droppedSequencesMap.get(rid);
+
+    functions.remove(functionName);
+    onFunctionsChanged(session);
+  }
+
+  public void createdFunction(DatabaseSessionInternal session, EntityImpl function) {
+    final var f = new Function(session, function.getIdentity());
+    functions.put(function.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
+    onFunctionsChanged(session);
   }
 
   public Set<String> getFunctionNames() {
     return Collections.unmodifiableSet(functions.keySet());
   }
 
-  public Function getFunction(final String iName) {
-    reloadIfNeeded(DatabaseRecordThreadLocal.instance().get());
+  public Function getFunction(DatabaseSessionInternal session, final String iName) {
+    reloadIfNeeded(session);
     return functions.get(iName.toUpperCase(Locale.ENGLISH));
   }
 
-  public Function createFunction(final String iName) {
-    throw new UnsupportedOperationException("Use Create function with database on internal api");
-  }
-
   public synchronized Function createFunction(
-      DatabaseSessionInternal database, final String iName) {
-    init(database);
-    reloadIfNeeded(DatabaseRecordThreadLocal.instance().get());
+      DatabaseSessionInternal session, final String iName) {
+    init(session);
+    reloadIfNeeded(session);
 
-    database.begin();
-    final Function f = new Function(database).setName(database, iName);
+    session.begin();
+    final var f = new Function(session).setName(iName);
     try {
-      f.save(database);
+      f.save(session);
       functions.put(iName.toUpperCase(Locale.ENGLISH), f);
-      database.commit();
+      session.commit();
     } catch (RecordDuplicatedException ex) {
       LogManager.instance().error(this, "Exception is suppressed, original exception is ", ex);
 
       //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
       throw BaseException.wrapException(
           new FunctionDuplicatedException("Function with name '" + iName + "' already exist"),
-          null);
+          null, session.getDatabaseName());
     }
 
     return f;
@@ -149,32 +159,33 @@ public class FunctionLibraryImpl {
     functions.clear();
   }
 
-  protected void init(final DatabaseSessionInternal db) {
-    if (db.getMetadata().getSchema().existsClass("OFunction")) {
-      final SchemaClass f = db.getMetadata().getSchema().getClass("OFunction");
-      SchemaProperty prop = f.getProperty("name");
-      if (prop.getAllIndexes(db).isEmpty()) {
-        prop.createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX);
+  protected static void init(final DatabaseSessionInternal session) {
+    if (session.getMetadata().getSchema().existsClass("OFunction")) {
+      var f = session.getMetadata().getSchema().getClassInternal("OFunction");
+      var prop = f.getPropertyInternal("name");
+
+      if (prop.getAllIndexes().isEmpty()) {
+        prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
       }
       return;
     }
 
-    var f = (SchemaClassInternal) db.getMetadata().getSchema().createClass("OFunction");
-    SchemaProperty prop = f.createProperty(db, "name", PropertyType.STRING, (PropertyType) null,
+    var f = (SchemaClassInternal) session.getMetadata().getSchema().createClass("OFunction");
+    var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
         true);
-    prop.createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX);
+    prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
-    f.createProperty(db, "code", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty(db, "language", PropertyType.STRING, (PropertyType) null, true);
-    f.createProperty(db, "idempotent", PropertyType.BOOLEAN, (PropertyType) null, true);
-    f.createProperty(db, "parameters", PropertyType.EMBEDDEDLIST, PropertyType.STRING, true);
+    f.createProperty("code", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
+    f.createProperty("language", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
+    f.createProperty("idempotent", PropertyTypeInternal.BOOLEAN, (PropertyTypeInternal) null, true);
+    f.createProperty("parameters", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.STRING,
+        true);
   }
 
   public synchronized void dropFunction(DatabaseSessionInternal session, Function function) {
     reloadIfNeeded(session);
-    String name = function.getName(session);
-    EntityImpl entity = function.getDocument(session);
-    entity.delete();
+    var name = function.getName();
+    function.delete(session);
     functions.remove(name.toUpperCase(Locale.ENGLISH));
   }
 
@@ -182,47 +193,47 @@ public class FunctionLibraryImpl {
     reloadIfNeeded(session);
 
     session.executeInTx(
-        () -> {
-          Function function = getFunction(iName);
-          EntityImpl entity = function.getDocument(session);
-          entity.delete();
+        transaction -> {
+          var function = getFunction(session, iName);
+          function.delete(session);
           functions.remove(iName.toUpperCase(Locale.ENGLISH));
         });
   }
 
-  public void updatedFunction(EntityImpl function) {
-    DatabaseSessionInternal database = DatabaseRecordThreadLocal.instance().get();
-    reloadIfNeeded(database);
-    String oldName = (String) function.getOriginalValue("name");
+  public void updatedFunction(DatabaseSessionInternal session, EntityImpl function) {
+    reloadIfNeeded(session);
+    var oldName = (String) function.getOriginalValue("name");
     if (oldName != null) {
       functions.remove(oldName.toUpperCase(Locale.ENGLISH));
     }
-    EntityImpl metadataCopy = function.copy();
     CallableFunction<Object, Map<Object, Object>> callBack = null;
-    Function oldFunction = functions.get(metadataCopy.field("name").toString());
+    var oldFunction = functions.get(function.getProperty("name").toString());
     if (oldFunction != null) {
       callBack = oldFunction.getCallback();
     }
-    final Function f = new Function(metadataCopy);
+
+    final var f = new Function(session, function.getIdentity());
     if (callBack != null) {
       f.setCallback(callBack);
     }
-    functions.put(metadataCopy.field("name").toString().toUpperCase(Locale.ENGLISH), f);
-    onFunctionsChanged(database);
+
+    functions.put(function.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
+    onFunctionsChanged(session);
   }
 
-  private void reloadIfNeeded(DatabaseSessionInternal database) {
+  private void reloadIfNeeded(DatabaseSessionInternal session) {
     if (needReload.get()) {
-      load(database);
+      load(session);
       needReload.set(false);
     }
   }
 
-  private void onFunctionsChanged(DatabaseSessionInternal database) {
-    for (MetadataUpdateListener listener : database.getSharedContext().browseListeners()) {
-      listener.onFunctionLibraryUpdate(database, database.getName());
+  private static void onFunctionsChanged(DatabaseSessionInternal session) {
+    for (var listener : session.getSharedContext().browseListeners()) {
+      listener.onFunctionLibraryUpdate(session, session.getDatabaseName());
     }
-    database.getSharedContext().getYouTrackDB().getScriptManager().close(database.getName());
+    session.getSharedContext().getYouTrackDB().getScriptManager()
+        .close(session.getDatabaseName());
   }
 
   public synchronized void update() {
@@ -232,7 +243,9 @@ public class FunctionLibraryImpl {
   public static void validateFunctionRecord(EntityImpl entity) throws DatabaseException {
     String name = entity.getProperty("name");
     if (!Pattern.compile("[A-Za-z][A-Za-z0-9_]*").matcher(name).matches()) {
-      throw new DatabaseException("Invalid function name: " + name);
+      var session = entity.getBoundedToSession();
+      throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+          "Invalid function name: " + name);
     }
   }
 }

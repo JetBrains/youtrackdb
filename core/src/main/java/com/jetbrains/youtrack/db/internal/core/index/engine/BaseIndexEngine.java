@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -13,7 +14,7 @@ public interface BaseIndexEngine {
 
   int getId();
 
-  void init(IndexMetadata metadata);
+  void init(DatabaseSessionInternal session, IndexMetadata metadata);
 
   void flush();
 
@@ -23,12 +24,12 @@ public interface BaseIndexEngine {
 
   void delete(AtomicOperation atomicOperation) throws IOException;
 
-  void clear(AtomicOperation atomicOperation) throws IOException;
+  void clear(Storage storage, AtomicOperation atomicOperation) throws IOException;
 
   void close();
 
   Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionInternal session, Object rangeFrom,
+      DatabaseSessionInternal db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
@@ -53,7 +54,7 @@ public interface BaseIndexEngine {
 
   Stream<Object> keyStream();
 
-  long size(IndexEngineValuesTransformer transformer);
+  long size(Storage storage, IndexEngineValuesTransformer transformer);
 
   boolean hasRangeQuerySupport();
 
@@ -64,25 +65,8 @@ public interface BaseIndexEngine {
   /**
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * index engine.
-   *
-   * <p>
-   *
-   * <p>If this index engine supports a more narrow locking, for example key-based sharding, it may
-   * use the provided {@code key} to infer a more narrow lock scope, but that is not a requirement.
-   *
-   * @param key the index key to lock.
-   * @return {@code true} if this index was locked entirely, {@code false} if this index locking is
-   * sensitive to the provided {@code key} and only some subset of this index was locked.
    */
-  boolean acquireAtomicExclusiveLock(Object key);
+  boolean acquireAtomicExclusiveLock();
 
   String getIndexNameByKey(Object key);
-
-  void updateUniqueIndexVersion(Object key);
-
-  int getUniqueIndexVersion(Object key);
-
-  default boolean hasRidBagTreesSupport() {
-    return false;
-  }
 }

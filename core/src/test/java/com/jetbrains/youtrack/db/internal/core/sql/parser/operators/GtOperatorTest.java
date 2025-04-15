@@ -31,7 +31,7 @@ public class GtOperatorTest {
 
   @Test
   public void test() {
-    SQLGtOperator op = new SQLGtOperator(-1);
+    var op = new SQLGtOperator(-1);
     Assert.assertFalse(op.execute(1, 1));
     Assert.assertTrue(op.execute(1, 0));
     Assert.assertFalse(op.execute(0, 1));

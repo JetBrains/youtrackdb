@@ -26,14 +26,14 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
       throw new IllegalStateException("Cannot calculate projections without a previous source");
     }
 
-    ExecutionStream parentRs = prev.start(ctx);
+    var parentRs = prev.start(ctx);
     return parentRs.map(this::mapResult);
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    Object oldCurrent = ctx.getVariable("$current");
+    var oldCurrent = ctx.getVariable("$current");
     ctx.setVariable("$current", result);
-    Result newResult = calculateProjections(ctx, result);
+    var newResult = calculateProjections(ctx, result);
     ctx.setVariable("$current", oldCurrent);
     return newResult;
   }
@@ -44,9 +44,9 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
 
-    String result = spaces + "+ CALCULATE PROJECTIONS";
+    var result = spaces + "+ CALCULATE PROJECTIONS";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

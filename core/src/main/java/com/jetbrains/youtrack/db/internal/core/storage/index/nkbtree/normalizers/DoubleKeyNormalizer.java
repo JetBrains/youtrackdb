@@ -8,8 +8,8 @@ public class DoubleKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final double matKey = (double) key;
-    final ByteBuffer bb = ByteBuffer.allocate(9);
+    final var matKey = (double) key;
+    final var bb = ByteBuffer.allocate(9);
     // IEEE 754 (endian sensitive), positive, big-endian to match lexicographical ordering of bytes
     // for comparison
     bb.order(ByteOrder.BIG_ENDIAN);

@@ -18,7 +18,6 @@
   <test name="Security">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.SecurityTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.RestrictedTest"/>
     </classes>
   </test>
   <test name="Population">
@@ -31,23 +30,19 @@
       <class name="com.jetbrains.youtrack.db.auto.CRUDDocumentValidationTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DBRecordMetadataTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DocumentTrackingTest"/>
-      <class
-        name="com.jetbrains.youtrack.db.auto.EmbeddedEntitySerializationTest"/>
     </classes>
   </test>
   <test name="Tx">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.TransactionAtomicTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.TransactionOptimisticTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.FrontendTransactionImplTest"/>
       <class name="com.jetbrains.youtrack.db.auto.TransactionConsistencyTest"/>
     </classes>
   </test>
   <test name="Index">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.DateIndexTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.SQLSelectHashIndexReuseTest"/>
       <class name="com.jetbrains.youtrack.db.auto.IndexTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.IndexClusterTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ByteArrayKeyTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ClassIndexManagerTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLSelectIndexReuseTest"/>
@@ -84,9 +79,6 @@
   <test name="Query">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.WrongQueryTest"/>
-      <class
-        name="com.jetbrains.youtrack.db.auto.FetchPlanComplexNestedLevelsTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.LiveQueryTest"/>
     </classes>
   </test>
   <test name="Graph">
@@ -97,11 +89,6 @@
   <test name="GEO">
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.GEOTest"/>
-    </classes>
-  </test>
-  <test name="IndexManager">
-    <classes>
-      <class name="com.jetbrains.youtrack.db.auto.IndexManagerTest"/>
     </classes>
   </test>
   <test name="Binary">
@@ -134,14 +121,13 @@
     <classes>
       <class name="com.jetbrains.youtrack.db.auto.TruncateClassTest"/>
       <class name="com.jetbrains.youtrack.db.auto.DateTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.SQLFindReferencesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.SQLCreateLinkTest"/>
       <class name="com.jetbrains.youtrack.db.auto.MultipleDBTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentUpdatesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.ConcurrentQueriesTest"/>
       <class name="com.jetbrains.youtrack.db.auto.CollateTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.EmbeddedRidBagTest"/>
-      <class name="com.jetbrains.youtrack.db.auto.SBTreeRidBagTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.EmbeddedLinkBagTest"/>
+      <class name="com.jetbrains.youtrack.db.auto.BTreeBasedLinkBagTest"/>
       <class name="com.jetbrains.youtrack.db.auto.RemoteProtocolCommandsTest"/>
     </classes>
   </test>

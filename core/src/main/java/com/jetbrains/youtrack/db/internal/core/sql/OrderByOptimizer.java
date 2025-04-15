@@ -39,20 +39,20 @@ public class OrderByOptimizer {
       return false;
     }
 
-    final IndexDefinition definition = index.getDefinition();
-    final List<String> fields = definition.getFields();
-    final int endIndex = Math.min(fields.size(), orderedFields.size());
+    final var definition = index.getDefinition();
+    final var fields = definition.getFields();
+    final var endIndex = Math.min(fields.size(), orderedFields.size());
 
-    final String firstOrder = orderedFields.get(0).getValue();
-    for (int i = 0; i < endIndex; i++) {
-      final Pair<String, String> pair = orderedFields.get(i);
+    final var firstOrder = orderedFields.get(0).getValue();
+    for (var i = 0; i < endIndex; i++) {
+      final var pair = orderedFields.get(i);
 
       if (!firstOrder.equals(pair.getValue())) {
         return false;
       }
 
-      final String orderFieldName = orderedFields.get(i).getKey();
-      final String indexFieldName = fields.get(i);
+      final var orderFieldName = orderedFields.get(i).getKey();
+      final var indexFieldName = fields.get(i);
 
       if (!orderFieldName.equals(indexFieldName)) {
         return false;
@@ -80,16 +80,16 @@ public class OrderByOptimizer {
       return false;
     }
 
-    final IndexDefinition definition = index.getDefinition();
-    final List<String> indexFields = definition.getFields();
-    int endIndex = Math.min(indexFields.size(), equalsFilterFields.size());
+    final var definition = index.getDefinition();
+    final var indexFields = definition.getFields();
+    var endIndex = Math.min(indexFields.size(), equalsFilterFields.size());
 
-    final String firstOrder = orderedFields.get(0).getValue();
+    final var firstOrder = orderedFields.get(0).getValue();
 
     // check that all the "equals" clauses are a prefix for the index
-    for (int i = 0; i < endIndex; i++) {
-      final String equalsFieldName = equalsFilterFields.get(i);
-      final String indexFieldName = indexFields.get(i);
+    for (var i = 0; i < endIndex; i++) {
+      final var equalsFieldName = equalsFilterFields.get(i);
+      final var indexFieldName = indexFields.get(i);
       if (!equalsFieldName.equals(indexFieldName)) {
         return false;
       }
@@ -101,16 +101,16 @@ public class OrderByOptimizer {
       return false;
     }
     // check that after that prefix there all the Order By fields in the right order
-    for (int i = equalsFilterFields.size(); i < endIndex; i++) {
-      int fieldOrderInOrderByClause = i - equalsFilterFields.size();
-      final Pair<String, String> pair = orderedFields.get(fieldOrderInOrderByClause);
+    for (var i = equalsFilterFields.size(); i < endIndex; i++) {
+      var fieldOrderInOrderByClause = i - equalsFilterFields.size();
+      final var pair = orderedFields.get(fieldOrderInOrderByClause);
 
       if (!firstOrder.equals(pair.getValue())) {
         return false;
       }
 
-      final String orderFieldName = pair.getKey();
-      final String indexFieldName = indexFields.get(i);
+      final var orderFieldName = pair.getKey();
+      final var indexFieldName = indexFields.get(i);
 
       if (!orderFieldName.equals(indexFieldName)) {
         return false;

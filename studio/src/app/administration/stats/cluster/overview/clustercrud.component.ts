@@ -14,11 +14,11 @@ import { downgradeComponent } from "@angular/upgrade/static";
 import { MetersAggregator } from "../../../../util";
 
 @Component({
-  selector: "cluster-crud",
-  templateUrl: "./clustercrud.component.html",
+  selector: "collection-crud",
+  templateUrl: "./collectioncrud.component.html",
   styles: [""]
 })
-class ClusterCrudComponent implements OnInit, OnChanges {
+class CollectionCrudComponent implements OnInit, OnChanges {
   @Input()
   private name;
   @Input()
@@ -53,10 +53,10 @@ class ClusterCrudComponent implements OnInit, OnChanges {
   }
 
   private createAggregates() {
-    let servers = Object.keys(this.stats.clusterStats);
+    let servers = Object.keys(this.stats.collectionStats);
     let aggregates = servers
       .map(s => {
-        return this.stats.clusterStats[s]["meters"];
+        return this.stats.collectionStats[s]["meters"];
       })
       .reduce((prev, current) => {
         if (Object.keys(prev).length == 0) {
@@ -88,4 +88,4 @@ class ClusterCrudComponent implements OnInit, OnChanges {
   }
 }
 
-export { ClusterCrudComponent };
+export { CollectionCrudComponent };

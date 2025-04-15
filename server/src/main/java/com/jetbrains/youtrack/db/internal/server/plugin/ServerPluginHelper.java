@@ -28,10 +28,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnClientConnection(
       final YouTrackDBServer iServer, final ClientConnection connection) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           plugin.getInstance().onClientConnection(connection);
         }
@@ -41,10 +41,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnClientDisconnection(
       final YouTrackDBServer iServer, final ClientConnection connection) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onClientDisconnection(connection);
         }
@@ -54,10 +54,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnBeforeClientRequest(
       final YouTrackDBServer iServer, final ClientConnection connection, final byte iRequestType) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onBeforeClientRequest(connection, iRequestType);
         }
@@ -67,10 +67,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnAfterClientRequest(
       final YouTrackDBServer iServer, final ClientConnection connection, final byte iRequestType) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onAfterClientRequest(connection, iRequestType);
         }
@@ -81,10 +81,10 @@ public class ServerPluginHelper {
   public static void invokeHandlerCallbackOnClientError(
       final YouTrackDBServer iServer, final ClientConnection connection,
       final Throwable iThrowable) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onClientError(connection, iThrowable);
         }
@@ -94,10 +94,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnSocketAccepted(
       final YouTrackDBServer iServer, final NetworkProtocol networkProtocol) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onSocketAccepted(networkProtocol);
         }
@@ -107,10 +107,10 @@ public class ServerPluginHelper {
 
   public static void invokeHandlerCallbackOnSocketDestroyed(
       final YouTrackDBServer iServer, final NetworkProtocol networkProtocol) {
-    final Collection<ServerPluginInfo> plugins = iServer.getPlugins();
+    final var plugins = iServer.getPlugins();
     if (plugins != null) {
-      for (ServerPluginInfo plugin : plugins) {
-        final ServerPlugin pluginInstance = plugin.getInstance();
+      for (var plugin : plugins) {
+        final var pluginInstance = plugin.getInstance();
         if (pluginInstance != null) {
           pluginInstance.onSocketDestroyed(networkProtocol);
         }

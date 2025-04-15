@@ -25,13 +25,13 @@ public class SQLInteger extends SQLNumber {
   }
 
   public void setValue(int sign, String stringValue) {
-    int radix = radix(stringValue);
+    var radix = radix(stringValue);
     stringValue = convertToJavaByRadix(stringValue, radix);
 
     if (stringValue.endsWith("L") || stringValue.endsWith("l")) {
       value = Long.parseLong(stringValue.substring(0, stringValue.length() - 1), radix) * sign;
     } else {
-      long longValue = Long.parseLong(sign > 0 ? stringValue : "-" + stringValue, radix);
+      var longValue = Long.parseLong(sign > 0 ? stringValue : "-" + stringValue, radix);
       if (longValue > Integer.MAX_VALUE || longValue < Integer.MIN_VALUE) {
         value = longValue;
       } else {
@@ -73,7 +73,7 @@ public class SQLInteger extends SQLNumber {
   }
 
   public SQLInteger copy() {
-    SQLInteger result = new SQLInteger(-1);
+    var result = new SQLInteger(-1);
     result.value = value;
     return result;
   }
@@ -87,7 +87,7 @@ public class SQLInteger extends SQLNumber {
       return false;
     }
 
-    SQLInteger oInteger = (SQLInteger) o;
+    var oInteger = (SQLInteger) o;
 
     return Objects.equals(value, oInteger.value);
   }
@@ -98,7 +98,7 @@ public class SQLInteger extends SQLNumber {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("value", value);
     return result;
   }

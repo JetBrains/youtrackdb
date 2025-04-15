@@ -27,6 +27,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -91,7 +92,7 @@ public class ConsoleCommandStream implements CommandStream {
 
   private void init() {
     try {
-      final int next = reader.read();
+      final var next = reader.read();
       if (next > -1) {
         nextCharacter = (char) next;
       } else {
@@ -103,13 +104,14 @@ public class ConsoleCommandStream implements CommandStream {
     }
   }
 
+  @Nullable
   private Character nextCharacter() throws IOException {
     if (nextCharacter == null) {
       return null;
     }
 
-    final Character result = nextCharacter;
-    final int next = reader.read();
+    final var result = nextCharacter;
+    final var next = reader.read();
     if (next < 0) {
       nextCharacter = null;
     } else {
@@ -128,11 +130,11 @@ public class ConsoleCommandStream implements CommandStream {
   public String nextCommand() {
     try {
       state = State.TEXT;
-      final StringBuilder result = new StringBuilder();
+      final var result = new StringBuilder();
 
       while (true) {
-        Character c = nextCharacter();
-        Symbol symbol = symbol(c);
+        var c = nextCharacter();
+        var symbol = symbol(c);
 
         switch (state) {
           case TEXT:
@@ -299,7 +301,7 @@ public class ConsoleCommandStream implements CommandStream {
   }
 
   private boolean isControlBlock(StringBuilder result) {
-    String cmd = result.toString().trim();
+    var cmd = result.toString().trim();
     if (cmd.length() < 6) {
       return false;
     }

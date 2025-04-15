@@ -2,19 +2,13 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -23,14 +17,12 @@ import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -48,7 +40,6 @@ public class LiveQueryRemoteTest {
 
   @Before
   public void before() throws Exception {
-    GlobalConfiguration.SERVER_BACKWARD_COMPATIBILITY.setValue(false);
     server = new YouTrackDBServer(false);
     server.startup(
         getClass()
@@ -88,46 +79,46 @@ public class LiveQueryRemoteTest {
     public List<Result> ops = new ArrayList<Result>();
 
     @Override
-    public void onCreate(DatabaseSession database, Result data) {
+    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
       ops.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(DatabaseSession database, Result before, Result after) {
+    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+        @Nonnull Result after) {
       ops.add(after);
       latch.countDown();
     }
 
     @Override
-    public void onDelete(DatabaseSession database, Result data) {
+    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
       ops.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onError(DatabaseSession database, BaseException exception) {
+    public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
     }
 
     @Override
-    public void onEnd(DatabaseSession database) {
+    public void onEnd(@Nonnull DatabaseSession session) {
       ended.countDown();
     }
   }
 
   @Test
   public void testRidSelect() throws InterruptedException {
-    MyLiveQueryListener listener = new MyLiveQueryListener(new CountDownLatch(1));
+    var listener = new MyLiveQueryListener(new CountDownLatch(1));
     db.begin();
-    Vertex item = db.newVertex();
-    item.save();
+    var item = db.newVertex();
     db.commit();
 
-    db.live("LIVE SELECT FROM " + item.getIdentity(), listener);
+    youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "LIVE SELECT FROM " + item.getIdentity(), listener);
     db.begin();
     item = db.load(item.getIdentity());
     item.setProperty("x", "z");
-    item.save();
     db.commit();
 
     Assert.assertTrue(listener.latch.await(10, TimeUnit.SECONDS));
@@ -139,15 +130,16 @@ public class LiveQueryRemoteTest {
     db.getMetadata().getSchema().createClass("test");
     db.getMetadata().getSchema().createClass("test2");
 
-    MyLiveQueryListener listener = new MyLiveQueryListener(new CountDownLatch(2));
+    var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
-    LiveQueryMonitor monitor = db.live("select from test", listener);
+    var monitor = youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "select from test", listener);
     Assert.assertNotNull(monitor);
 
     db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bar'").close();
-    db.command("insert into test set name = 'foo', surname = 'baz'").close();
-    db.command("insert into test2 set name = 'foo'").close();
+    db.execute("insert into test set name = 'foo', surname = 'bar'").close();
+    db.execute("insert into test set name = 'foo', surname = 'baz'").close();
+    db.execute("insert into test2 set name = 'foo'").close();
     db.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
@@ -156,13 +148,13 @@ public class LiveQueryRemoteTest {
     Assert.assertTrue(listener.ended.await(1, TimeUnit.MINUTES));
 
     db.begin();
-    db.command("insert into test set name = 'foo', surname = 'bax'");
-    db.command("insert into test2 set name = 'foo'");
-    db.command("insert into test set name = 'foo', surname = 'baz'");
+    db.execute("insert into test set name = 'foo', surname = 'bax'");
+    db.execute("insert into test2 set name = 'foo'");
+    db.execute("insert into test set name = 'foo', surname = 'baz'");
     db.commit();
 
     Assert.assertEquals(2, listener.ops.size());
-    for (Result doc : listener.ops) {
+    for (var doc : listener.ops) {
       Assert.assertEquals("test", doc.getProperty("@class"));
       Assert.assertEquals("foo", doc.getProperty("name"));
       RID rid = doc.getProperty("@rid");
@@ -174,72 +166,70 @@ public class LiveQueryRemoteTest {
   @Ignore
   public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass oRestricted = schema.getClass("ORestricted");
+    var oRestricted = schema.getClass("ORestricted");
     schema.createClass("test", oRestricted);
 
-    int liveMatch = 1;
-    ResultSet query = db.query("select from OUSer where name = 'reader'");
+    var liveMatch = 1;
+    var query = db.query("select from OUSer where name = 'reader'");
 
-    final Identifiable reader = query.next().getIdentity().orElse(null);
-    final Identifiable current = db.geCurrentUser().getIdentity(db);
+    final Identifiable reader = query.next().getIdentity();
+    final var current = db.getCurrentUser().getIdentity();
 
-    ExecutorService executorService = Executors.newSingleThreadExecutor();
+    var executorService = Executors.newSingleThreadExecutor();
 
-    final CountDownLatch latch = new CountDownLatch(1);
-    final CountDownLatch dataArrived = new CountDownLatch(1);
-    Future<Integer> future =
+    final var latch = new CountDownLatch(1);
+    final var dataArrived = new CountDownLatch(1);
+    var future =
         executorService.submit(
-            new Callable<Integer>() {
-              @Override
-              public Integer call() throws Exception {
-                DatabaseSession db =
-                    youTrackDB.open(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader");
+            () -> {
+              final var integer = new AtomicInteger(0);
+              youTrackDB.live(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader",
+                  "live select from test",
+                  new LiveQueryResultListener() {
 
-                final AtomicInteger integer = new AtomicInteger(0);
-                db.live(
-                    "live select from test",
-                    new LiveQueryResultListener() {
+                    @Override
+                    public void onCreate(@Nonnull DatabaseSessionInternal session,
+                        @Nonnull Result data) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onCreate(DatabaseSession database, Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onUpdate(
+                        @Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+                        @Nonnull Result after) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onUpdate(
-                          DatabaseSession database, Result before, Result after) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onDelete(@Nonnull DatabaseSessionInternal session,
+                        @Nonnull Result data) {
+                      integer.incrementAndGet();
+                      dataArrived.countDown();
+                    }
 
-                      @Override
-                      public void onDelete(DatabaseSession database, Result data) {
-                        integer.incrementAndGet();
-                        dataArrived.countDown();
-                      }
+                    @Override
+                    public void onError(@Nonnull DatabaseSession session,
+                        @Nonnull BaseException exception) {
+                    }
 
-                      @Override
-                      public void onError(DatabaseSession database, BaseException exception) {
-                      }
+                    @Override
+                    public void onEnd(@Nonnull DatabaseSession session) {
+                    }
+                  });
 
-                      @Override
-                      public void onEnd(DatabaseSession database) {
-                      }
-                    });
-
-                latch.countDown();
-                Assert.assertTrue(dataArrived.await(2, TimeUnit.MINUTES));
-                return integer.get();
-              }
+              latch.countDown();
+              Assert.assertTrue(dataArrived.await(2, TimeUnit.MINUTES));
+              return integer.get();
             });
 
     latch.await();
 
     query.close();
-    db.command("insert into test set name = 'foo', surname = 'bar'");
+    db.execute("insert into test set name = 'foo', surname = 'bar'");
 
-    db.command(
+    db.execute(
         "insert into test set name = 'foo', surname = 'bar', _allow=?",
         new ArrayList<Identifiable>() {
           {
@@ -248,7 +238,7 @@ public class LiveQueryRemoteTest {
           }
         });
 
-    Integer integer = future.get();
+    var integer = future.get();
     Assert.assertEquals(liveMatch, integer.intValue());
   }
 
@@ -258,26 +248,26 @@ public class LiveQueryRemoteTest {
     db.getMetadata().getSchema().createClass("test");
     db.getMetadata().getSchema().createClass("test2");
 
-    int txSize = 100;
+    var txSize = 100;
 
-    MyLiveQueryListener listener = new MyLiveQueryListener(new CountDownLatch(txSize));
+    var listener = new MyLiveQueryListener(new CountDownLatch(txSize));
 
-    LiveQueryMonitor monitor = db.live("select from test", listener);
+    var monitor = youTrackDB.live(db.getDatabaseName(), db.getCurrentUserName(), "admin",
+        "select from test", listener);
     Assert.assertNotNull(monitor);
 
     db.begin();
-    for (int i = 0; i < txSize; i++) {
-      Entity elem = db.newEntity("test");
+    for (var i = 0; i < txSize; i++) {
+      var elem = db.newEntity("test");
       elem.setProperty("name", "foo");
       elem.setProperty("surname", "bar" + i);
-      elem.save();
     }
     db.commit();
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
 
     Assert.assertEquals(txSize, listener.ops.size());
-    for (Result doc : listener.ops) {
+    for (var doc : listener.ops) {
       Assert.assertEquals("test", doc.getProperty("@class"));
       Assert.assertEquals("foo", doc.getProperty("name"));
       RID rid = doc.getProperty("@rid");

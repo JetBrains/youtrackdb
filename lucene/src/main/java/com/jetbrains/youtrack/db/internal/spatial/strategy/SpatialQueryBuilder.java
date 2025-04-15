@@ -13,8 +13,9 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import java.util.HashMap;
@@ -28,12 +29,12 @@ public class SpatialQueryBuilder extends SpatialQueryBuilderAbstract {
   private final Map<String, SpatialQueryBuilderAbstract> operators =
       new HashMap<String, SpatialQueryBuilderAbstract>();
 
-  public SpatialQueryBuilder(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  public SpatialQueryBuilder(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     super(manager, factory);
     initOperators(manager, factory);
   }
 
-  private void initOperators(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  private void initOperators(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     addOperator(new SpatialQueryBuilderWithin(manager, factory));
     addOperator(new SpatialQueryBuilderContains(manager, factory));
     addOperator(new SpatialQueryBuilderNear(manager, factory));
@@ -47,11 +48,12 @@ public class SpatialQueryBuilder extends SpatialQueryBuilderAbstract {
     operators.put(builder.getName(), builder);
   }
 
-  public SpatialQueryContext build(Map<String, Object> query) throws Exception {
+  public SpatialQueryContext build(DatabaseSessionInternal db, Map<String, Object> query)
+      throws Exception {
 
-    SpatialQueryBuilderAbstract operation = parseOperation(query);
+    var operation = parseOperation(query);
 
-    return operation.build(query);
+    return operation.build(db, query);
   }
 
   @Override
@@ -61,8 +63,8 @@ public class SpatialQueryBuilder extends SpatialQueryBuilderAbstract {
 
   private SpatialQueryBuilderAbstract parseOperation(Map<String, Object> query) {
 
-    String operator = (String) query.get(GEO_FILTER);
-    SpatialQueryBuilderAbstract spatialQueryBuilder = operators.get(operator);
+    var operator = (String) query.get(GEO_FILTER);
+    var spatialQueryBuilder = operators.get(operator);
     if (spatialQueryBuilder == null) {
       throw new IndexEngineException("Operator " + operator + " not supported.", null);
     }

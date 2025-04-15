@@ -41,10 +41,10 @@ public abstract class SQLFunctionConfigurableAbstract extends SQLFunctionAbstrac
 
   @Override
   public String toString() {
-    final StringBuilder buffer = new StringBuilder(name);
+    final var buffer = new StringBuilder(name);
     buffer.append('(');
     if (configuredParameters != null) {
-      for (int i = 0; i < configuredParameters.length; ++i) {
+      for (var i = 0; i < configuredParameters.length; ++i) {
         if (i > 0) {
           buffer.append(',');
         }

@@ -68,14 +68,14 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     final int embeddedSize = getByteValue(EMBEDDED_RIDS_SIZE_OFFSET);
 
     if (embeddedSize < EMBEDDED_RIDS_BOUNDARY) {
-      final int position = embeddedSize * RID_SIZE + RIDS_OFFSET;
+      final var position = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
-      setShortValue(position, (short) rid.getClusterId());
-      setLongValue(position + ShortSerializer.SHORT_SIZE, rid.getClusterPosition());
+      setShortValue(position, (short) rid.getCollectionId());
+      setLongValue(position + ShortSerializer.SHORT_SIZE, rid.getCollectionPosition());
 
       setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) (embeddedSize + 1));
 
-      final int size = getIntValue(RIDS_SIZE_OFFSET);
+      final var size = getIntValue(RIDS_SIZE_OFFSET);
       setIntValue(RIDS_SIZE_OFFSET, size + 1);
 
       return -1;
@@ -89,24 +89,24 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
   }
 
   public void decrementSize() {
-    final int size = getIntValue(RIDS_SIZE_OFFSET);
+    final var size = getIntValue(RIDS_SIZE_OFFSET);
     assert size >= 1;
 
     setIntValue(RIDS_SIZE_OFFSET, size - 1);
   }
 
   public List<RID> getValues() {
-    final int size = getIntValue(RIDS_SIZE_OFFSET);
+    final var size = getIntValue(RIDS_SIZE_OFFSET);
     final List<RID> rids = new ArrayList<>(size);
 
     final int embeddedSize = getByteValue(EMBEDDED_RIDS_SIZE_OFFSET);
-    final int end = embeddedSize * RID_SIZE + RIDS_OFFSET;
+    final var end = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
-    for (int position = RIDS_OFFSET; position < end; position += RID_SIZE) {
-      final int clusterId = getShortValue(position);
-      final long clusterPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
+    for (var position = RIDS_OFFSET; position < end; position += RID_SIZE) {
+      final int collectionId = getShortValue(position);
+      final var collectionPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
 
-      rids.add(new RecordId(clusterId, clusterPosition));
+      rids.add(new RecordId(collectionId, collectionPosition));
     }
 
     return rids;
@@ -121,19 +121,19 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
   }
 
   public int removeValue(final RID rid) {
-    final int size = getIntValue(RIDS_SIZE_OFFSET);
+    final var size = getIntValue(RIDS_SIZE_OFFSET);
 
     final int embeddedSize = getByteValue(EMBEDDED_RIDS_SIZE_OFFSET);
-    final int end = embeddedSize * RID_SIZE + RIDS_OFFSET;
+    final var end = embeddedSize * RID_SIZE + RIDS_OFFSET;
 
-    for (int position = RIDS_OFFSET; position < end; position += RID_SIZE) {
-      final int clusterId = getShortValue(position);
-      if (clusterId != rid.getClusterId()) {
+    for (var position = RIDS_OFFSET; position < end; position += RID_SIZE) {
+      final int collectionId = getShortValue(position);
+      if (collectionId != rid.getCollectionId()) {
         continue;
       }
 
-      final long clusterPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
-      if (clusterPosition == rid.getClusterPosition()) {
+      final var collectionPosition = getLongValue(position + ShortSerializer.SHORT_SIZE);
+      if (collectionPosition == rid.getCollectionPosition()) {
         moveData(position + RID_SIZE, position, end - (position + RID_SIZE));
         setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) (embeddedSize - 1));
         setIntValue(RIDS_SIZE_OFFSET, size - 1);

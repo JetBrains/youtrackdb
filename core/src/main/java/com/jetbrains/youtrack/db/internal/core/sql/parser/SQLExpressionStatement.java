@@ -23,9 +23,9 @@ public class SQLExpressionStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    Object expResult = expression.execute(new ResultInternal(db), ctx);
-    ResultInternal item = new ResultInternal(db);
+    var db = ctx.getDatabaseSession();
+    var expResult = expression.execute(new ResultInternal(db), ctx);
+    var item = new ResultInternal(db);
     item.setProperty("result", expResult);
     return ExecutionStream.singleton(item);
   }
@@ -37,7 +37,7 @@ public class SQLExpressionStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLStatement copy() {
-    SQLExpressionStatement result = new SQLExpressionStatement(-1);
+    var result = new SQLExpressionStatement(-1);
     result.expression = expression.copy();
     return result;
   }
@@ -65,7 +65,7 @@ public class SQLExpressionStatement extends SQLSimpleExecStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLExpressionStatement that = (SQLExpressionStatement) o;
+    var that = (SQLExpressionStatement) o;
     return Objects.equals(expression, that.expression);
   }
 

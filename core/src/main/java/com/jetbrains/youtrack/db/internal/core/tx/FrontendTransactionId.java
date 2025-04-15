@@ -39,7 +39,7 @@ public class FrontendTransactionId {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    FrontendTransactionId that = (FrontendTransactionId) o;
+    var that = (FrontendTransactionId) o;
     return position == that.position
         && sequence == that.sequence
         && Objects.equals(nodeOwner, that.nodeOwner);
@@ -57,8 +57,8 @@ public class FrontendTransactionId {
     } else {
       nodeOwner = Optional.empty();
     }
-    int position = input.readInt();
-    long sequence = input.readLong();
+    var position = input.readInt();
+    var sequence = input.readLong();
     return new FrontendTransactionId(nodeOwner, position, sequence);
   }
 

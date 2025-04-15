@@ -4,19 +4,20 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.atLeastOnce;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryListener;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinaryServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.LiveCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrack.db.internal.server.token.TokenHandlerImpl;
 import java.io.IOException;
+import javax.annotation.Nonnull;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -42,12 +43,12 @@ public class LiveCommandResultListenerTest extends BaseMemoryInternalDatabase {
   private static class TestResultListener implements CommandResultListener {
 
     @Override
-    public boolean result(DatabaseSessionInternal querySession, Object iRecord) {
+    public boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord) {
       return false;
     }
 
     @Override
-    public void end() {
+    public void end(@Nonnull DatabaseSessionInternal session) {
     }
 
     @Override
@@ -61,25 +62,26 @@ public class LiveCommandResultListenerTest extends BaseMemoryInternalDatabase {
     MockitoAnnotations.initMocks(this);
     Mockito.when(server.getContextConfiguration()).thenReturn(new ContextConfiguration());
 
-    ClientConnectionManager manager = new ClientConnectionManager(server);
+    var manager = new ClientConnectionManager(server);
     protocol = new NetworkProtocolBinary(server);
     protocol.initVariables(server, channelBinary);
     connection = manager.connect(protocol);
-    TokenHandlerImpl tokenHandler = new TokenHandlerImpl(new ContextConfiguration());
+    var tokenHandler = new TokenHandlerImpl(new ContextConfiguration());
     Mockito.when(server.getTokenHandler()).thenReturn(tokenHandler);
-    byte[] token = tokenHandler.getSignedBinaryToken(db, db.geCurrentUser(), connection.getData());
+    var token = tokenHandler.getSignedBinaryToken(session, session.getCurrentUser(),
+        connection.getData());
     connection = manager.connect(protocol, connection, token);
-    connection.setDatabase(db);
-    connection.getData().setSerializationImpl(RecordSerializerNetwork.NAME);
+    connection.setSession(session);
+    connection.getData().setSerializationImpl(RecordSerializerNetworkBase.NAME);
     Mockito.when(server.getClientConnectionManager()).thenReturn(manager);
   }
 
   @Test
   public void testSimpleMessageSend() throws IOException {
-    LiveCommandResultListener listener =
+    var listener =
         new LiveCommandResultListener(server, connection, new TestResultListener());
-    RecordOperation op = new RecordOperation(new EntityImpl(), RecordOperation.CREATED);
-    listener.onLiveResult(10, op);
+    var op = new RecordOperation(new EntityImpl(session), RecordOperation.CREATED);
+    listener.onLiveResult(session, 10, op);
     Mockito.verify(channelBinary, atLeastOnce()).writeBytes(Mockito.any(byte[].class));
   }
 
@@ -87,12 +89,12 @@ public class LiveCommandResultListenerTest extends BaseMemoryInternalDatabase {
   public void testNetworkError() throws IOException {
     Mockito.when(channelBinary.writeInt(Mockito.anyInt()))
         .thenThrow(new IOException("Mock Exception"));
-    LiveCommandResultListener listener =
+    var listener =
         new LiveCommandResultListener(server, connection, new TestResultListener());
-    LiveQueryHook.subscribe(10, rawListener, db);
-    assertTrue(LiveQueryHook.getOpsReference(db).getQueueThread().hasToken(10));
-    RecordOperation op = new RecordOperation(new EntityImpl(), RecordOperation.CREATED);
-    listener.onLiveResult(10, op);
-    assertFalse(LiveQueryHook.getOpsReference(db).getQueueThread().hasToken(10));
+    LiveQueryHook.subscribe(10, rawListener, session);
+    assertTrue(LiveQueryHook.getOpsReference(session).getQueueThread().hasToken(10));
+    var op = new RecordOperation(new EntityImpl(session), RecordOperation.CREATED);
+    listener.onLiveResult(session, 10, op);
+    assertFalse(LiveQueryHook.getOpsReference(session).getQueueThread().hasToken(10));
   }
 }

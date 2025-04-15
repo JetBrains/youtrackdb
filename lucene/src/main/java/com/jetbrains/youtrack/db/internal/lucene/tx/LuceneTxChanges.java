@@ -18,8 +18,9 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tx;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.Collections;
 import java.util.Set;
 import org.apache.lucene.document.Document;
@@ -45,7 +46,7 @@ public interface LuceneTxChanges {
     return Collections.emptySet();
   }
 
-  boolean isDeleted(Document document, Object key, Identifiable value);
+  boolean isDeleted(Storage storage, Document document, Object key, Identifiable value);
 
   boolean isUpdated(Document document, Object key, Identifiable value);
 

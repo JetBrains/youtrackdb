@@ -21,9 +21,9 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.StringWriter;
 
@@ -32,8 +32,8 @@ public class ServerCommandGetClass extends ServerCommandAuthenticatedDbAbstract 
   private static final String[] NAMES = {"GET|class/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(iRequest.getUrl(), 3, "Syntax error: class/<database>/<class-name>");
 
     iRequest.getData().commandInfo = "Returns the information of a class in the schema";
@@ -42,12 +42,12 @@ public class ServerCommandGetClass extends ServerCommandAuthenticatedDbAbstract 
     DatabaseSessionInternal db = null;
 
     try {
-      db = getProfiledDatabaseInstance(iRequest);
+      db = getProfiledDatabaseSessionInstance(iRequest);
 
       if (db.getMetadata().getSchema().existsClass(urlParts[2])) {
         var cls = db.getMetadata().getSchemaInternal().getClassInternal(urlParts[2]);
-        final StringWriter buffer = new StringWriter();
-        final JSONWriter json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
+        final var buffer = new StringWriter();
+        final var json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
         ServerCommandGetDatabase.exportClass(db, json, cls);
         iResponse.send(
             HttpUtils.STATUS_OK_CODE,

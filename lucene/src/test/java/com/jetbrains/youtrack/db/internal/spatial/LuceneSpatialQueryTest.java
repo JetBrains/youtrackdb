@@ -15,20 +15,16 @@ package com.jetbrains.youtrack.db.internal.spatial;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
-import java.util.Enumeration;
-import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,37 +38,38 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
 
-    SchemaClass oClass = schema.createClass("Place");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "latitude", PropertyType.DOUBLE);
-    oClass.createProperty(db, "longitude", PropertyType.DOUBLE);
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    var oClass = schema.createClass("Place");
+    oClass.addSuperClass(v);
+    oClass.createProperty("latitude", PropertyType.DOUBLE);
+    oClass.createProperty("longitude", PropertyType.DOUBLE);
+    oClass.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
+    session.execute("CREATE INDEX Place.l_lon ON Place(latitude,longitude) SPATIAL ENGINE LUCENE")
         .close();
 
     try {
-      ZipFile zipFile =
+      var zipFile =
           new ZipFile(new File(ClassLoader.getSystemResource("location.csv.zip").getPath()));
-      Enumeration<? extends ZipEntry> entries = zipFile.entries();
+      var entries = zipFile.entries();
       while (entries.hasMoreElements()) {
-        ZipEntry entry = entries.nextElement();
+        var entry = entries.nextElement();
 
         YouTrackDBEnginesManager.instance()
+            .getScheduler()
             .scheduleTask(
                 new Runnable() {
                   @Override
                   public void run() {
 
-                    Runtime runtime = Runtime.getRuntime();
+                    var runtime = Runtime.getRuntime();
 
-                    StringBuilder sb = new StringBuilder();
-                    long maxMemory = runtime.maxMemory();
-                    long allocatedMemory = runtime.totalMemory();
-                    long freeMemory = runtime.freeMemory();
+                    var sb = new StringBuilder();
+                    var maxMemory = runtime.maxMemory();
+                    var allocatedMemory = runtime.totalMemory();
+                    var freeMemory = runtime.freeMemory();
                     LogManager.instance()
                         .info(
                             this,
@@ -87,37 +84,38 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
                 10000);
         if (entry.getName().equals("location.csv")) {
 
-          InputStream stream = zipFile.getInputStream(entry);
-          LineNumberReader lnr = new LineNumberReader(new InputStreamReader(stream));
+          var stream = zipFile.getInputStream(entry);
+          var lnr = new LineNumberReader(new InputStreamReader(stream));
 
           String line;
-          int i = 0;
+          var i = 0;
           while ((line = lnr.readLine()) != null) {
-            String[] nextLine = line.split(",");
-            EntityImpl doc = new EntityImpl("Place");
-            doc.field("name", nextLine[3]);
-            doc.field("country", nextLine[1]);
+            var nextLine = line.split(",");
+            var doc = ((EntityImpl) session.newEntity("Place"));
+            doc.setProperty("name", nextLine[3]);
+            doc.setProperty("country", nextLine[1]);
             try {
 
-              Double lat = PropertyType.convert(db, nextLine[5], Double.class).doubleValue();
-              Double lng = PropertyType.convert(db, nextLine[6], Double.class).doubleValue();
-              doc.field("latitude", lat);
-              doc.field("longitude", lng);
+              Double lat = PropertyTypeInternal.convert(session, nextLine[5], Double.class)
+                  .doubleValue();
+              Double lng = PropertyTypeInternal.convert(session, nextLine[6], Double.class)
+                  .doubleValue();
+              doc.setProperty("latitude", lat);
+              doc.setProperty("longitude", lng);
             } catch (Exception e) {
               continue;
             }
 
-            doc.save();
             if (i % 100000 == 0) {
               LogManager.instance().info(this, "Imported: [%d] records", i);
-              db.commit();
-              db.begin();
+              session.commit();
+              session.begin();
             }
             i++;
           }
           lnr.close();
           stream.close();
-          db.commit();
+          session.commit();
         }
       }
 
@@ -130,10 +128,10 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
   @Ignore
   public void testNearQuery() {
 
-    String query =
+    var query =
         "select *,$distance from Place where [latitude,longitude,$spatial] NEAR"
             + " [41.893056,12.482778,{\"maxDistance\": 0.5}]";
-    ResultSet docs = db.query(query);
+    var docs = session.query(query);
 
     Assert.assertTrue(docs.hasNext());
 
@@ -148,10 +146,10 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
   @Test
   @Ignore
   public void testWithinQuery() {
-    String query =
+    var query =
         "select * from Place where [latitude,longitude] WITHIN"
             + " [[51.507222,-0.1275],[55.507222,-0.1275]]";
-    ResultSet docs = db.query(query);
+    var docs = session.query(query);
     Assert.assertEquals(238, docs.stream().count());
   }
 }

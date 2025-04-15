@@ -19,16 +19,15 @@
  */
 package com.jetbrains.youtrack.db.api.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Contains the description of a persistent class property.
  */
-public interface SchemaProperty extends Comparable<SchemaProperty> {
+public interface SchemaProperty {
   enum ATTRIBUTES {
     LINKEDTYPE,
     LINKEDCLASS,
@@ -53,9 +52,9 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
    */
   String getFullName();
 
-  SchemaProperty setName(DatabaseSession session, String iName);
+  SchemaProperty setName(String iName);
 
-  void set(DatabaseSession session, ATTRIBUTES attribute, Object iValue);
+  void set(ATTRIBUTES attribute, Object iValue);
 
   PropertyType getType();
 
@@ -67,29 +66,29 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
    */
   SchemaClass getLinkedClass();
 
-  SchemaProperty setLinkedClass(DatabaseSession session, SchemaClass oClass);
+  SchemaProperty setLinkedClass(SchemaClass oClass);
 
   PropertyType getLinkedType();
 
-  SchemaProperty setLinkedType(DatabaseSession session, PropertyType type);
+  SchemaProperty setLinkedType(@Nonnull PropertyType type);
 
   boolean isNotNull();
 
-  SchemaProperty setNotNull(DatabaseSession session, boolean iNotNull);
+  SchemaProperty setNotNull(boolean iNotNull);
 
   Collate getCollate();
 
-  SchemaProperty setCollate(DatabaseSession session, String iCollateName);
+  SchemaProperty setCollate(String iCollateName);
 
-  SchemaProperty setCollate(DatabaseSession session, Collate collate);
+  SchemaProperty setCollate(Collate collate);
 
   boolean isMandatory();
 
-  SchemaProperty setMandatory(DatabaseSession session, boolean mandatory);
+  SchemaProperty setMandatory(boolean mandatory);
 
   boolean isReadonly();
 
-  SchemaProperty setReadonly(DatabaseSession session, boolean iReadonly);
+  SchemaProperty setReadonly(boolean iReadonly);
 
   /**
    * Min behavior depends on the Property PropertyType.
@@ -110,12 +109,11 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
   String getMin();
 
   /**
-   * @param session
-   * @param min     can be null
+   * @param min can be null
    * @return this property
    * @see SchemaProperty#getMin()
    */
-  SchemaProperty setMin(DatabaseSession session, String min);
+  SchemaProperty setMin(String min);
 
   /**
    * Max behavior depends on the Property PropertyType.
@@ -136,12 +134,11 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
   String getMax();
 
   /**
-   * @param session
-   * @param max     can be null
+   * @param max can be null
    * @return this property
    * @see SchemaProperty#getMax()
    */
-  SchemaProperty setMax(DatabaseSession session, String max);
+  SchemaProperty setMax(String max);
 
   /**
    * Default value for the property; can be function
@@ -151,45 +148,40 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
   String getDefaultValue();
 
   /**
-   * @param session
    * @param defaultValue can be null
    * @return this property
    * @see SchemaProperty#getDefaultValue()
    */
-  SchemaProperty setDefaultValue(DatabaseSession session, String defaultValue);
+  SchemaProperty setDefaultValue(String defaultValue);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param session
-   * @param iType   One of types supported.
-   *                <ul>
-   *                  <li>UNIQUE: Doesn't allow duplicates
-   *                  <li>NOTUNIQUE: Allow duplicates
-   *                  <li>FULLTEXT: Indexes single word for full text search
-   *                </ul>
+   * @param iType One of types supported.
+   *              <ul>
+   *                <li>UNIQUE: Doesn't allow duplicates
+   *                <li>NOTUNIQUE: Allow duplicates
+   *              </ul>
    */
-  String createIndex(DatabaseSession session, final INDEX_TYPE iType);
+  String createIndex(final INDEX_TYPE iType);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param session
    * @param iType
    * @return
    */
-  String createIndex(DatabaseSession session, final String iType);
+  String createIndex(final String iType);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param session
    * @param iType    One of types supported.
    *                 <ul>
    *                   <li>UNIQUE: Doesn't allow duplicates
@@ -199,14 +191,13 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
    * @param metadata the index metadata
    * @return
    */
-  String createIndex(DatabaseSession session, String iType, Map<String, ?> metadata);
+  String createIndex(String iType, Map<String, Object> metadata);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param session
    * @param iType    One of types supported.
    *                 <ul>
    *                   <li>UNIQUE: Doesn't allow duplicates
@@ -216,29 +207,25 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
    * @param metadata the index metadata
    * @return Index name
    */
-  String createIndex(DatabaseSession session, INDEX_TYPE iType, Map<String, ?> metadata);
+  String createIndex(INDEX_TYPE iType, Map<String, Object> metadata);
 
-  /**
-   * @return All indexes in which this property participates.
-   */
-  Collection<String> getAllIndexes(DatabaseSession session);
 
   String getRegexp();
 
-  SchemaProperty setRegexp(DatabaseSession session, String regexp);
+  SchemaProperty setRegexp(String regexp);
 
   /**
    * Change the type. It checks for compatibility between the change of type.
    */
-  SchemaProperty setType(DatabaseSession session, final PropertyType iType);
+  SchemaProperty setType(final PropertyType iType);
 
   String getCustom(final String iName);
 
-  SchemaProperty setCustom(DatabaseSession session, final String iName, final String iValue);
+  SchemaProperty setCustom(final String iName, final String iValue);
 
-  void removeCustom(DatabaseSession session, final String iName);
+  void removeCustom(final String iName);
 
-  void clearCustom(DatabaseSession session);
+  void clearCustom();
 
   Set<String> getCustomKeys();
 
@@ -250,5 +237,5 @@ public interface SchemaProperty extends Comparable<SchemaProperty> {
 
   String getDescription();
 
-  SchemaProperty setDescription(DatabaseSession session, String iDescription);
+  SchemaProperty setDescription(String iDescription);
 }

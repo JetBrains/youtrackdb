@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer;
 
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import java.util.concurrent.CountDownLatch;
 
 final class WaitingListNode {
@@ -26,7 +26,7 @@ final class WaitingListNode {
           new ThreadInterruptedException(
               "Thread was interrupted while was waiting for completion of 'waiting linked list'"
                   + " operation"),
-          e);
+          e, (String) null);
     }
   }
 }

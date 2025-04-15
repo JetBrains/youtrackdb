@@ -18,7 +18,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDifference;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDistinct;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionDocument;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionFirst;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionIntersect;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.coll.SQLFunctionLast;
@@ -63,6 +62,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionStr
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionSysdate;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionThrowCME;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionUUID;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.result.SQLFunctionDetachResult;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.sequence.SQLFunctionSequence;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.stat.SQLFunctionMedian;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.stat.SQLFunctionMode;
@@ -89,7 +89,6 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionSymmetricDifference.NAME, SQLFunctionSymmetricDifference.class);
     register(SQLFunctionDistance.NAME, new SQLFunctionDistance());
     register(SQLFunctionDistinct.NAME, SQLFunctionDistinct.class);
-    register(SQLFunctionDocument.NAME, SQLFunctionDocument.class);
     register(SQLFunctionEncode.NAME, new SQLFunctionEncode());
     register(SQLFunctionEval.NAME, SQLFunctionEval.class);
     register(SQLFunctionFirst.NAME, new SQLFunctionFirst());
@@ -136,5 +135,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionShortestPath.NAME, SQLFunctionShortestPath.class);
     register(SQLFunctionDijkstra.NAME, SQLFunctionDijkstra.class);
     register(SQLFunctionAstar.NAME, SQLFunctionAstar.class);
+    //result set functions
+    register(SQLFunctionDetachResult.NAME, SQLFunctionDetachResult.class);
   }
 }

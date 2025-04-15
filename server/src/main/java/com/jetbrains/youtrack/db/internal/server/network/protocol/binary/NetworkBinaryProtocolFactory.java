@@ -22,33 +22,23 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.binary;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CreateRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedConnectRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedStatusRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
@@ -63,8 +53,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.OpenRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RebeginTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest;
@@ -74,7 +62,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackTransact
 import com.jetbrains.youtrack.db.internal.client.remote.message.SBTCreateTreeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFetchEntriesMajorRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFirstKeyRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetRealBagSizeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SendTransactionStateRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
@@ -83,7 +70,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigu
 import com.jetbrains.youtrack.db.internal.client.remote.message.ShutdownRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.UpdateRecordRequest;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import java.util.function.Function;
 
@@ -126,43 +112,34 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_DROP -> new DropDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_SIZE -> new GetSizeRequest();
       case ChannelBinaryProtocol.REQUEST_DB_COUNTRECORDS -> new CountRecordsRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER -> new DistributedStatusRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_COUNT -> new CountRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DATARANGE -> new GetClusterDataRangeRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_ADD -> new AddClusterRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DROP -> new DropClusterRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_COUNT -> new CountRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_ADD -> new AddCollectionRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_DROP -> new DropCollectionRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_METADATA -> new GetRecordMetadataRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_LOAD -> new ReadRecordRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_EXISTS -> new RecordExistsRequest();
       case ChannelBinaryProtocol.REQUEST_SEND_TRANSACTION_STATE ->
           new SendTransactionStateRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CREATE -> new CreateRecordRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_UPDATE -> new UpdateRecordRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_HIGHER -> new HigherPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_CEILING -> new CeilingPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_LOWER -> new LowerPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_FLOOR -> new FloorPhysicalPositionsRequest();
-      case ChannelBinaryProtocol.REQUEST_COMMAND -> new CommandRequest();
       case ChannelBinaryProtocol.REQUEST_SERVER_QUERY -> new ServerQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
       case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY_NEXT_PAGE -> new QueryNextPageRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_COMMIT -> new CommitRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_GET -> new GetGlobalConfigurationRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_SET -> new SetGlobalConfigurationRequest();
       case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
       case ChannelBinaryProtocol.REQUEST_DB_FREEZE -> new FreezeDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CLEAN_OUT -> new CleanOutRecordRequest();
       case ChannelBinaryProtocol.REQUEST_CREATE_SBTREE_BONSAI -> new SBTCreateTreeRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET -> new SBTGetRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_FIRST_KEY -> new SBTFirstKeyRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET_ENTRIES_MAJOR ->
           new SBTFetchEntriesMajorRequest<>();
-      case ChannelBinaryProtocol.REQUEST_RIDBAG_GET_SIZE -> new SBTGetRealBagSizeRequest();
       case ChannelBinaryProtocol.REQUEST_INCREMENTAL_BACKUP -> new IncrementalBackupRequest();
       case ChannelBinaryProtocol.REQUEST_DB_IMPORT -> new ImportRequest();
-      case ChannelBinaryProtocol.DISTRIBUTED_CONNECT -> new DistributedConnectRequest();
       default -> throw new DatabaseException("binary protocol command with code: " + requestType);
     };
   }
@@ -174,10 +151,6 @@ public class NetworkBinaryProtocolFactory {
     return switch (requestType) {
       case ChannelBinaryProtocol.SUBSCRIBE_PUSH -> new SubscribeRequest();
       case ChannelBinaryProtocol.UNSUBSCRIBE_PUSH -> new UnsubscribeRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_FETCH -> new FetchTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_REBEGIN -> new RebeginTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_BEGIN -> new BeginTransactionRequest();
-      case ChannelBinaryProtocol.REQUEST_TX_COMMIT -> new Commit37Request();
       case ChannelBinaryProtocol.REQUEST_TX_ROLLBACK -> new RollbackTransactionRequest();
       case ChannelBinaryProtocol.REQUEST_DB_OPEN -> new Open37Request();
       case ChannelBinaryProtocol.REQUEST_CONNECT -> new Connect37Request();
@@ -192,20 +165,15 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_DROP -> new DropDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_SIZE -> new GetSizeRequest();
       case ChannelBinaryProtocol.REQUEST_DB_COUNTRECORDS -> new CountRecordsRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER -> new DistributedStatusRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_COUNT -> new CountRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DATARANGE -> new GetClusterDataRangeRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_ADD -> new AddClusterRequest();
-      case ChannelBinaryProtocol.REQUEST_CLUSTER_DROP -> new DropClusterRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_COUNT -> new CountRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_ADD -> new AddCollectionRequest();
+      case ChannelBinaryProtocol.REQUEST_COLLECTION_DROP -> new DropCollectionRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_METADATA -> new GetRecordMetadataRequest();
       case ChannelBinaryProtocol.REQUEST_RECORD_LOAD -> new ReadRecordRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CREATE -> new CreateRecordRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_UPDATE -> new UpdateRecordRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_HIGHER -> new HigherPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_CEILING -> new CeilingPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_LOWER -> new LowerPhysicalPositionsRequest();
       case ChannelBinaryProtocol.REQUEST_POSITIONS_FLOOR -> new FloorPhysicalPositionsRequest();
-      case ChannelBinaryProtocol.REQUEST_COMMAND -> new CommandRequest();
       case ChannelBinaryProtocol.REQUEST_SERVER_QUERY -> new ServerQueryRequest();
       case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
       case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();
@@ -215,16 +183,13 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
       case ChannelBinaryProtocol.REQUEST_DB_FREEZE -> new FreezeDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_RECORD_CLEAN_OUT -> new CleanOutRecordRequest();
       case ChannelBinaryProtocol.REQUEST_CREATE_SBTREE_BONSAI -> new SBTCreateTreeRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET -> new SBTGetRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_FIRST_KEY -> new SBTFirstKeyRequest();
       case ChannelBinaryProtocol.REQUEST_SBTREE_BONSAI_GET_ENTRIES_MAJOR ->
           new SBTFetchEntriesMajorRequest<>();
-      case ChannelBinaryProtocol.REQUEST_RIDBAG_GET_SIZE -> new SBTGetRealBagSizeRequest();
       case ChannelBinaryProtocol.REQUEST_INCREMENTAL_BACKUP -> new IncrementalBackupRequest();
       case ChannelBinaryProtocol.REQUEST_DB_IMPORT -> new ImportRequest();
-      case ChannelBinaryProtocol.DISTRIBUTED_CONNECT -> new DistributedConnectRequest();
       default -> throw new DatabaseException(
           "binary protocol command with code: " + requestType + " for protocol version 37");
     };
@@ -236,7 +201,6 @@ public class NetworkBinaryProtocolFactory {
   public static BinaryRequest<? extends BinaryResponse> createRequest38(int requestType) {
     return switch (requestType) {
       case ChannelBinaryProtocol.REQUEST_TX_FETCH -> new FetchTransaction38Request();
-      case ChannelBinaryProtocol.REQUEST_TX_REBEGIN -> new RebeginTransaction38Request();
       case ChannelBinaryProtocol.REQUEST_TX_BEGIN -> new BeginTransaction38Request();
       case ChannelBinaryProtocol.REQUEST_SEND_TRANSACTION_STATE ->
           new SendTransactionStateRequest();

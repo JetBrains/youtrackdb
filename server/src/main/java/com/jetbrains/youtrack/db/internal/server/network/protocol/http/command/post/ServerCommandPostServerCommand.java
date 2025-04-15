@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import java.util.ArrayList;
@@ -40,37 +40,36 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] urlParts = checkSyntax(iRequest.getUrl(), 1, "Syntax error: servercommand");
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var urlParts = checkSyntax(iRequest.getUrl(), 1, "Syntax error: servercommand");
 
     // TRY TO GET THE COMMAND FROM THE URL, THEN FROM THE CONTENT
-    final String language = urlParts.length > 2 ? urlParts[2].trim() : "sql";
-    String text = urlParts.length > 3 ? urlParts[3].trim() : iRequest.getContent();
-    int limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4].trim()) : -1;
-    String fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
-    final String accept = iRequest.getHeader("accept");
+    final var language = urlParts.length > 2 ? urlParts[2].trim() : "sql";
+    var text = urlParts.length > 3 ? urlParts[3].trim() : iRequest.getContent();
+    var limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4].trim()) : -1;
+    var fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
+    final var accept = iRequest.getHeader("accept");
 
     Object params = null;
-    String mode = "resultset";
+    var mode = "resultset";
 
-    boolean returnExecutionPlan = true;
+    var returnExecutionPlan = true;
 
-    long begin = System.currentTimeMillis();
+    var begin = System.currentTimeMillis();
     if (iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final EntityImpl entity = new EntityImpl();
-        entity.fromJSON(iRequest.getContent());
-        text = entity.field("command");
-        params = entity.field("parameters");
+        final var content = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+        text = (String) content.get("command");
+        params = content.get("parameters");
 
-        if ("false".equalsIgnoreCase("" + entity.field("returnExecutionPlan"))) {
+        if ("false".equalsIgnoreCase("" + content.get("returnExecutionPlan"))) {
           returnExecutionPlan = false;
         }
 
         if (params instanceof Collection) {
-          final Object[] paramArray = new Object[((Collection) params).size()];
+          final var paramArray = new Object[((Collection) params).size()];
           ((Collection) params).toArray(paramArray);
           params = paramArray;
         }
@@ -90,9 +89,9 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
     iRequest.getData().commandInfo = "Command";
     iRequest.getData().commandDetail = text;
 
-    ResultSet result = executeStatement(language, text, params);
+    var result = executeStatement(language, text, params);
 
-    int i = 0;
+    var i = 0;
     List response = new ArrayList();
     while (result.hasNext()) {
       if (limit >= 0 && i >= limit) {
@@ -104,13 +103,14 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
 
     Map<String, Object> additionalContent = new HashMap<>();
     if (returnExecutionPlan) {
-      result
-          .getExecutionPlan()
-          .ifPresent(x -> additionalContent.put("executionPlan", x.toResult(null).toEntity()));
+      var plan = result.getExecutionPlan();
+      if (plan != null) {
+        additionalContent.put("executionPlan", plan.toResult(null).toMap());
+      }
     }
 
     result.close();
-    long elapsedMs = System.currentTimeMillis() - begin;
+    var elapsedMs = System.currentTimeMillis() - begin;
 
     String format = null;
     if (fetchPlan != null) {

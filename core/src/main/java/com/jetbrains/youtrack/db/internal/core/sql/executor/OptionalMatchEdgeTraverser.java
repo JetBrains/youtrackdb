@@ -3,6 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -24,40 +26,46 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     }
   }
 
+  @Nullable
   public Result next(CommandContext ctx) {
     init(ctx);
     if (!downstream.hasNext(ctx)) {
       throw new IllegalStateException();
     }
 
-    String endPointAlias = getEndpointAlias();
-    Object prevValue = sourceRecord.getProperty(endPointAlias);
-    Result next = downstream.next(ctx);
+    var endPointAlias = getEndpointAlias();
+    var prevValue = sourceRecord.getProperty(endPointAlias);
+    var next = downstream.next(ctx);
 
     if (isEmptyOptional(prevValue)) {
       return sourceRecord;
     }
     if (!isEmptyOptional(next)) {
-      if (prevValue != null && !equals(prevValue, next.getEntity().get())) {
+      if (prevValue != null && !Objects.equals(prevValue, next)) {
         return null;
       }
     }
 
-    var db = ctx.getDatabase();
-    ResultInternal result = new ResultInternal(db);
-    for (String prop : sourceRecord.getPropertyNames()) {
+    var session = ctx.getDatabaseSession();
+    var result = new ResultInternal(session);
+    for (var prop : sourceRecord.getPropertyNames()) {
       result.setProperty(prop, sourceRecord.getProperty(prop));
     }
-    result.setProperty(endPointAlias, next.getEntity().map(x -> toResult(db, x)).orElse(null));
+    if (next.isEntity()) {
+      result.setProperty(endPointAlias, toResult(session, next.asEntity()));
+    }
+    if (next instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
+      result.setProperty(endPointAlias,
+          ResultInternal.toResultInternal(resultInternal.asRelation(), ctx.getDatabaseSession(),
+              null));
+    } else {
+      result.setProperty(endPointAlias, null);
+    }
+
     return result;
   }
 
   public static boolean isEmptyOptional(Object elem) {
-    if (elem == EMPTY_OPTIONAL) {
-      return true;
-    }
-
-    return elem instanceof Result && EMPTY_OPTIONAL == ((Result) elem).getEntity()
-        .orElse(null);
+    return elem == EMPTY_OPTIONAL;
   }
 }

@@ -16,14 +16,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
 
@@ -41,13 +40,14 @@ public class SQLMethodFormat extends AbstractSQLMethod {
   @Override
   public Object execute(
       final Object iThis,
-      final Identifiable iRecord,
+      final Result iRecord,
       final CommandContext iContext,
       Object ioResult,
       final Object[] iParams) {
 
+    var session = iContext.getDatabaseSession();
     // TRY TO RESOLVE AS DYNAMIC VALUE
-    Object v = getParameterValue(iRecord, iParams[0].toString());
+    var v = getParameterValue(session, iRecord, iParams[0].toString());
     if (v == null)
     // USE STATIC ONE
     {
@@ -57,23 +57,23 @@ public class SQLMethodFormat extends AbstractSQLMethod {
     if (v != null) {
       if (isCollectionOfDates(ioResult)) {
         List<String> result = new ArrayList<String>();
-        Iterator<?> iterator = MultiValue.getMultiValueIterator(ioResult);
-        final SimpleDateFormat format = new SimpleDateFormat(v.toString());
+        var iterator = MultiValue.getMultiValueIterator(ioResult);
+        final var format = new SimpleDateFormat(v.toString());
         if (iParams.length > 1) {
           format.setTimeZone(TimeZone.getTimeZone(iParams[1].toString()));
         } else {
-          format.setTimeZone(DateHelper.getDatabaseTimeZone());
+          format.setTimeZone(DateHelper.getDatabaseTimeZone(session));
         }
         while (iterator.hasNext()) {
           result.add(format.format(iterator.next()));
         }
         ioResult = result;
       } else if (ioResult instanceof Date) {
-        final SimpleDateFormat format = new SimpleDateFormat(v.toString());
+        final var format = new SimpleDateFormat(v.toString());
         if (iParams.length > 1) {
           format.setTimeZone(TimeZone.getTimeZone(iParams[1].toString()));
         } else {
-          format.setTimeZone(DateHelper.getDatabaseTimeZone());
+          format.setTimeZone(DateHelper.getDatabaseTimeZone(session));
         }
         ioResult = format.format(ioResult);
       } else {
@@ -86,9 +86,9 @@ public class SQLMethodFormat extends AbstractSQLMethod {
 
   private boolean isCollectionOfDates(Object ioResult) {
     if (MultiValue.isMultiValue(ioResult)) {
-      Iterator<?> iterator = MultiValue.getMultiValueIterator(ioResult);
+      var iterator = MultiValue.getMultiValueIterator(ioResult);
       while (iterator.hasNext()) {
-        Object item = iterator.next();
+        var item = iterator.next();
         if (item != null && !(item instanceof Date)) {
           return false;
         }

@@ -1,165 +1,186 @@
 package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
+import java.util.HashSet;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class TraverseTest extends DbTestBase {
-
-  private EntityImpl rootDocument;
-  private Traverse traverse;
-
-  public void beforeTest() throws Exception {
-    super.beforeTest();
-
-    rootDocument = new EntityImpl();
-    traverse = new Traverse(db);
-    traverse.target(rootDocument).fields("*");
-  }
 
   @Test
   public void testDepthTraverse() {
+    EntityImpl rootDocument;
+    Traverse traverse;
 
-    final EntityImpl aa = new EntityImpl();
-    final EntityImpl ab = new EntityImpl();
-    final EntityImpl ba = new EntityImpl();
-    final EntityImpl bb = new EntityImpl();
-    final EntityImpl a = new EntityImpl();
+    session.begin();
+    rootDocument = (EntityImpl) session.newEntity();
+
+    final var aa = (EntityImpl) session.newEntity();
+    final var ab = (EntityImpl) session.newEntity();
+    final var ba = (EntityImpl) session.newEntity();
+    final var bb = (EntityImpl) session.newEntity();
+    final var a = (EntityImpl) session.newEntity();
     a.setProperty("aa", aa, PropertyType.LINK);
     a.setProperty("ab", ab, PropertyType.LINK);
-    final EntityImpl b = new EntityImpl();
+    final var b = (EntityImpl) session.newEntity();
     b.setProperty("ba", ba, PropertyType.LINK);
     b.setProperty("bb", bb, PropertyType.LINK);
 
     rootDocument.setProperty("a", a, PropertyType.LINK);
     rootDocument.setProperty("b", b, PropertyType.LINK);
 
-    final EntityImpl c1 = new EntityImpl();
-    final EntityImpl c1a = new EntityImpl();
+    final var c1 = (EntityImpl) session.newEntity();
+    final var c1a = (EntityImpl) session.newEntity();
     c1.setProperty("c1a", c1a, PropertyType.LINK);
-    final EntityImpl c1b = new EntityImpl();
+    final var c1b = (EntityImpl) session.newEntity();
     c1.setProperty("c1b", c1b, PropertyType.LINK);
-    final EntityImpl c2 = new EntityImpl();
-    final EntityImpl c2a = new EntityImpl();
+    final var c2 = (EntityImpl) session.newEntity();
+    final var c2a = (EntityImpl) session.newEntity();
     c2.setProperty("c2a", c2a, PropertyType.LINK);
-    final EntityImpl c2b = new EntityImpl();
+    final var c2b = (EntityImpl) session.newEntity();
     c2.setProperty("c2b", c2b, PropertyType.LINK);
-    final EntityImpl c3 = new EntityImpl();
-    final EntityImpl c3a = new EntityImpl();
+    final var c3 = (EntityImpl) session.newEntity();
+    final var c3a = (EntityImpl) session.newEntity();
     c3.setProperty("c3a", c3a, PropertyType.LINK);
-    final EntityImpl c3b = new EntityImpl();
+    final var c3b = (EntityImpl) session.newEntity();
     c3.setProperty("c3b", c3b, PropertyType.LINK);
-    rootDocument.setProperty("c", new ArrayList<>(Arrays.asList(c1, c2, c3)),
-        PropertyType.LINKLIST);
+    rootDocument.getOrCreateLinkList("c").addAll(new ArrayList<>(Arrays.asList(c1, c2, c3)));
 
-    db.executeInTx(() -> rootDocument.save(db.getClusterNameById(db.getDefaultClusterId())));
+    session.commit();
 
-    rootDocument = db.bindToSession(rootDocument);
-    final List<EntityImpl> expectedResult =
-        Arrays.asList(
+    session.begin();
+    var activeTx15 = session.getActiveTransaction();
+    rootDocument = activeTx15.load(rootDocument);
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    var activeTx2 = session.getActiveTransaction();
+    var activeTx3 = session.getActiveTransaction();
+    var activeTx4 = session.getActiveTransaction();
+    var activeTx5 = session.getActiveTransaction();
+    var activeTx6 = session.getActiveTransaction();
+    var activeTx7 = session.getActiveTransaction();
+    var activeTx8 = session.getActiveTransaction();
+    var activeTx9 = session.getActiveTransaction();
+    var activeTx10 = session.getActiveTransaction();
+    var activeTx11 = session.getActiveTransaction();
+    var activeTx12 = session.getActiveTransaction();
+    var activeTx13 = session.getActiveTransaction();
+    var activeTx14 = session.getActiveTransaction();
+    final var expectedResult =
+        new HashSet<>(Arrays.asList(
             rootDocument,
-            db.bindToSession(a),
-            db.bindToSession(aa),
-            db.bindToSession(ab),
-            db.bindToSession(b),
-            db.bindToSession(ba),
-            db.bindToSession(bb),
-            db.bindToSession(c1),
-            db.bindToSession(c1a),
-            db.bindToSession(c1b),
-            db.bindToSession(c2),
-            db.bindToSession(c2a),
-            db.bindToSession(c2b),
-            db.bindToSession(c3),
-            db.bindToSession(c3a),
-            db.bindToSession(c3b));
+            activeTx14.load(a),
+            activeTx13.load(aa),
+            activeTx12.load(ab),
+            activeTx11.load(b),
+            activeTx10.load(ba),
+            activeTx9.load(bb),
+            activeTx8.load(c1),
+            activeTx7.load(c1a),
+            activeTx6.load(c1b),
+            activeTx5.load(c2),
+            activeTx4.load(c2a),
+            activeTx3.load(c2b),
+            activeTx2.load(c3),
+            activeTx1.load(c3a),
+            activeTx.load(c3b)));
 
-    final List<Identifiable> results = traverse.execute(db);
+    traverse = new Traverse(session);
+    traverse.target(rootDocument).fields("*");
+    final var results = new HashSet<>(traverse.execute(session));
 
-    compareTraverseResults(expectedResult, results);
+    Assert.assertEquals(expectedResult, results);
+    session.commit();
   }
 
   @Test
   public void testBreadthTraverse() throws Exception {
-    traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
+    EntityImpl rootDocument;
+    Traverse traverse;
 
-    final EntityImpl aa = new EntityImpl();
-    final EntityImpl ab = new EntityImpl();
-    final EntityImpl ba = new EntityImpl();
-    final EntityImpl bb = new EntityImpl();
-    final EntityImpl a = new EntityImpl();
+    session.begin();
+    rootDocument = (EntityImpl) session.newEntity();
+    final var aa = (EntityImpl) session.newEntity();
+    final var ab = (EntityImpl) session.newEntity();
+    final var ba = (EntityImpl) session.newEntity();
+    final var bb = (EntityImpl) session.newEntity();
+    final var a = (EntityImpl) session.newEntity();
     a.setProperty("aa", aa, PropertyType.LINK);
     a.setProperty("ab", ab, PropertyType.LINK);
-    final EntityImpl b = new EntityImpl();
+    final var b = (EntityImpl) session.newEntity();
     b.setProperty("ba", ba, PropertyType.LINK);
     b.setProperty("bb", bb, PropertyType.LINK);
 
     rootDocument.setProperty("a", a, PropertyType.LINK);
     rootDocument.setProperty("b", b, PropertyType.LINK);
 
-    final EntityImpl c1 = new EntityImpl();
-    final EntityImpl c1a = new EntityImpl();
+    final var c1 = (EntityImpl) session.newEntity();
+    final var c1a = (EntityImpl) session.newEntity();
     c1.setProperty("c1a", c1a, PropertyType.LINK);
-    final EntityImpl c1b = new EntityImpl();
+    final var c1b = (EntityImpl) session.newEntity();
     c1.setProperty("c1b", c1b, PropertyType.LINK);
-    final EntityImpl c2 = new EntityImpl();
-    final EntityImpl c2a = new EntityImpl();
+    final var c2 = (EntityImpl) session.newEntity();
+    final var c2a = (EntityImpl) session.newEntity();
     c2.setProperty("c2a", c2a, PropertyType.LINK);
-    final EntityImpl c2b = new EntityImpl();
+    final var c2b = (EntityImpl) session.newEntity();
     c2.setProperty("c2b", c2b, PropertyType.LINK);
-    final EntityImpl c3 = new EntityImpl();
-    final EntityImpl c3a = new EntityImpl();
+    final var c3 = (EntityImpl) session.newEntity();
+    final var c3a = (EntityImpl) session.newEntity();
     c3.setProperty("c3a", c3a, PropertyType.LINK);
-    final EntityImpl c3b = new EntityImpl();
+    final var c3b = (EntityImpl) session.newEntity();
     c3.setProperty("c3b", c3b, PropertyType.LINK);
-    rootDocument.setProperty("c", new ArrayList<>(Arrays.asList(c1, c2, c3)),
-        PropertyType.LINKLIST);
+    rootDocument.getOrCreateLinkList("c").addAll(new ArrayList<>(Arrays.asList(c1, c2, c3)));
+    session.commit();
 
-    db.executeInTx(() -> rootDocument.save(db.getClusterNameById(db.getDefaultClusterId())));
+    session.begin();
+    var activeTx15 = session.getActiveTransaction();
+    rootDocument = activeTx15.load(rootDocument);
+    traverse = new Traverse(session);
 
-    rootDocument = db.bindToSession(rootDocument);
-    final List<EntityImpl> expectedResult =
-        Arrays.asList(
+    traverse.target(rootDocument).fields("*");
+    traverse.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
+
+    var activeTx = session.getActiveTransaction();
+    var activeTx1 = session.getActiveTransaction();
+    var activeTx2 = session.getActiveTransaction();
+    var activeTx3 = session.getActiveTransaction();
+    var activeTx4 = session.getActiveTransaction();
+    var activeTx5 = session.getActiveTransaction();
+    var activeTx6 = session.getActiveTransaction();
+    var activeTx7 = session.getActiveTransaction();
+    var activeTx8 = session.getActiveTransaction();
+    var activeTx9 = session.getActiveTransaction();
+    var activeTx10 = session.getActiveTransaction();
+    var activeTx11 = session.getActiveTransaction();
+    var activeTx12 = session.getActiveTransaction();
+    var activeTx13 = session.getActiveTransaction();
+    var activeTx14 = session.getActiveTransaction();
+    final var expectedResult =
+        new HashSet<>(Arrays.asList(
             rootDocument,
-            db.bindToSession(a),
-            db.bindToSession(b),
-            db.bindToSession(aa),
-            db.bindToSession(ab),
-            db.bindToSession(ba),
-            db.bindToSession(bb),
-            db.bindToSession(c1),
-            db.bindToSession(c2),
-            db.bindToSession(c3),
-            db.bindToSession(c1a),
-            db.bindToSession(c1b),
-            db.bindToSession(c2a),
-            db.bindToSession(c2b),
-            db.bindToSession(c3a),
-            db.bindToSession(c3b));
-
-    final List<Identifiable> results = traverse.execute(db);
-
-    compareTraverseResults(expectedResult, results);
+            activeTx14.load(a),
+            activeTx13.load(b),
+            activeTx12.load(aa),
+            activeTx11.load(ab),
+            activeTx10.load(ba),
+            activeTx9.load(bb),
+            activeTx8.load(c1),
+            activeTx7.load(c2),
+            activeTx6.load(c3),
+            activeTx5.load(c1a),
+            activeTx4.load(c1b),
+            activeTx3.load(c2a),
+            activeTx2.load(c2b),
+            activeTx1.load(c3a),
+            activeTx.load(c3b)));
+    final var results = new HashSet<>(traverse.execute(session));
+    Assert.assertEquals(expectedResult, results);
+    session.rollback();
   }
 
-  private void compareTraverseResults(List<EntityImpl> expectedResult,
-      List<Identifiable> results) {
-    boolean equality = results.size() == expectedResult.size();
-    for (int i = 0; i < expectedResult.size() && equality; i++) {
-      equality &= results.get(i).equals(expectedResult.get(i));
-    }
-    System.out.println("Expected: " + expectedResult);
-    System.out.println();
-    System.out.println("Actual:   " + results);
-    Assert.assertTrue(equality);
-  }
+
 }

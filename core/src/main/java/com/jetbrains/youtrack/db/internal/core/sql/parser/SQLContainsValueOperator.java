@@ -18,7 +18,7 @@ public class SQLContainsValueOperator extends SimpleNode implements SQLBinaryCom
   @Override
   public boolean execute(Object iLeft, Object iRight) {
     if (iLeft instanceof Map<?, ?>) {
-      final Map<String, ?> map = (Map<String, ?>) iLeft;
+      final var map = (Map<String, ?>) iLeft;
       return map.containsValue(iRight);
     }
     return false;

@@ -29,8 +29,8 @@ public class ErrorResponse implements BinaryResponse {
       StorageRemoteSession session) throws IOException {
     messages = new HashMap<>();
     while (network.readByte() == 1) {
-      String key = network.readString();
-      String value = network.readString();
+      var key = network.readString();
+      var value = network.readString();
       messages.put(key, value);
     }
     result = network.readBytes();
@@ -40,7 +40,7 @@ public class ErrorResponse implements BinaryResponse {
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {
-    for (Entry<String, String> entry : messages.entrySet()) {
+    for (var entry : messages.entrySet()) {
       // MORE DETAILS ARE COMING AS EXCEPTION
       channel.writeByte((byte) 1);
 

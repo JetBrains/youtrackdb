@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.local;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -15,7 +15,7 @@ public interface SBTree<K, V> {
       AtomicOperation atomicOperation,
       BinarySerializer<K> keySerializer,
       BinarySerializer<V> valueSerializer,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       int keySize,
       boolean nullPointerSupport)
       throws IOException;
@@ -47,7 +47,7 @@ public interface SBTree<K, V> {
       String name,
       BinarySerializer<K> keySerializer,
       BinarySerializer<V> valueSerializer,
-      PropertyType[] keyTypes,
+      PropertyTypeInternal[] keyTypes,
       int keySize,
       boolean nullPointerSupport);
 

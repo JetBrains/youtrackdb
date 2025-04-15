@@ -19,17 +19,18 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.Command;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Base class for traversing.
@@ -47,7 +48,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
   private int maxDepth = -1;
 
   public Traverse(DatabaseSessionInternal db) {
-    context.setDatabase(db);
+    context.setDatabaseSession(db);
   }
 
   public enum STRATEGY {
@@ -60,7 +61,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
    * large results the list could be huge. it's always better to use it as an Iterable and lazy fetch each result on next() call.
    */
   public List<Identifiable> execute(DatabaseSessionInternal session) {
-    context.setDatabase(session);
+    context.setDatabaseSession(session);
     final List<Identifiable> result = new ArrayList<>();
 
     while (hasNext()) {
@@ -97,14 +98,16 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
     return lastTraversed != null;
   }
 
+  @Nullable
   public Identifiable next() {
     if (Thread.interrupted()) {
-      throw new CommandExecutionException("The traverse execution has been interrupted");
+      throw new CommandExecutionException(context.getDatabaseSession().getDatabaseName(),
+          "The traverse execution has been interrupted");
     }
 
     if (lastTraversed != null) {
       // RETURN LATEST AND RESET IT
-      final Identifiable result = lastTraversed;
+      final var result = lastTraversed;
       lastTraversed = null;
       return result;
     }
@@ -153,7 +156,8 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
   public Traverse target(final Iterator<? extends Identifiable> iTarget) {
     target = iTarget;
     context.reset();
-    new TraverseRecordSetProcess(this, (Iterator<Identifiable>) target, TraversePath.empty());
+    new TraverseRecordSetProcess(this, (Iterator<Identifiable>) target, TraversePath.empty(),
+        context.getDatabaseSession());
     return this;
   }
 
@@ -178,14 +182,14 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
   }
 
   public Traverse fields(final Collection<Object> iFields) {
-    for (Object f : iFields) {
+    for (var f : iFields) {
       field(f);
     }
     return this;
   }
 
   public Traverse fields(final String... iFields) {
-    for (String f : iFields) {
+    for (var f : iFields) {
       field(f);
     }
     return this;

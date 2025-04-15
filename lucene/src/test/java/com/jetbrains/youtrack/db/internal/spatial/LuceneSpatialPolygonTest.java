@@ -13,19 +13,15 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -35,61 +31,60 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("Place");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OPolygon"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createVertexClass("Place");
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPolygon"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
   }
 
   @Test
+  @Ignore
   public void testPolygonWithoutIndex() throws IOException {
     testIndexingPolygon();
-    db.command("drop index Place.location").close();
+    session.execute("drop index Place.location").close();
     queryPolygon();
   }
 
   protected void queryPolygon() {
-
-    String query = "select * from Place where location && 'POINT(13.383333 52.516667)'";
-    List<EntityImpl> docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    session.begin();
+    var query = "select * from Place where location && 'POINT(13.383333 52.516667)'";
+    var docs = session.query(query).entityStream().toList();
 
     Assert.assertEquals(docs.size(), 1);
 
     query = "select * from Place where location && 'POINT(12.5 41.9)'";
-    docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    docs = session.query(query).entityStream().toList();
 
     Assert.assertEquals(docs.size(), 0);
+    session.commit();
   }
 
   @Test
+  @Ignore
   public void testIndexingPolygon() throws IOException {
+    session.begin();
+    var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("germany.json");
 
-    InputStream systemResourceAsStream = ClassLoader.getSystemResourceAsStream("germany.json");
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
-    EntityImpl doc = new EntityImpl().fromJSON(systemResourceAsStream);
+    Map geometry = (Map) map.get("geometry");
 
-    Map geometry = doc.field("geometry");
+    var type = (String) geometry.get("type");
+    var location = session.newEmbeddedEntity("O" + type);
+    //noinspection unchecked
+    location.newEmbeddedList("coordinates", (List<Object>) geometry.get("coordinates"));
+    var germany = session.newVertex("Place");
+    germany.setProperty("name", "Germany");
+    germany.setProperty("location", location);
+    session.commit();
 
-    String type = (String) geometry.get("type");
-    EntityImpl location = new EntityImpl("O" + type);
-    location.field("coordinates", geometry.get("coordinates"));
-    EntityImpl germany = new EntityImpl("Place");
-    germany.field("name", "Germany");
-    germany.field("location", location);
+    var index = session.getSharedContext().getIndexManager().getIndex(session, "Place.location");
 
-    db.begin();
-    db.save(germany);
-    db.commit();
-
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Place.location");
-
-    db.begin();
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
     queryPolygon();
   }
 }

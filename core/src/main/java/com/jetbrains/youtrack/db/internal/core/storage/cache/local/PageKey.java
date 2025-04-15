@@ -31,7 +31,7 @@ final class PageKey implements Comparable<PageKey> {
       return false;
     }
 
-    final PageKey pageKey = (PageKey) o;
+    final var pageKey = (PageKey) o;
 
     if (fileId != pageKey.fileId) {
       return false;
@@ -41,7 +41,7 @@ final class PageKey implements Comparable<PageKey> {
 
   @Override
   public int hashCode() {
-    int result = fileId;
+    var result = fileId;
     result = 31 * result + (int) (pageIndex ^ (pageIndex >>> 32));
     return result;
   }

@@ -17,11 +17,9 @@
 
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import java.io.IOException;
 
@@ -42,9 +40,9 @@ public class ServerCommandIsEnterprise extends ServerCommandAuthenticatedServerA
   }
 
   @Override
-  public boolean execute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(HttpRequest iRequest, HttpResponse iResponse) throws Exception {
 
-    final String[] parts = checkSyntax(iRequest.getUrl(), 1, "Syntax error: isEE");
+    final var parts = checkSyntax(iRequest.getUrl(), 1, "Syntax error: isEE");
 
     if ("GET".equalsIgnoreCase(iRequest.getHttpMethod())) {
       doGet(iRequest, iResponse, parts);
@@ -53,21 +51,16 @@ public class ServerCommandIsEnterprise extends ServerCommandAuthenticatedServerA
     return false;
   }
 
-  private void doGet(OHttpRequest iRequest, HttpResponse iResponse, String[] parts)
+  private void doGet(HttpRequest iRequest, HttpResponse iResponse, String[] parts)
       throws IOException {
 
     if ("isEE".equalsIgnoreCase(parts[0])) {
 
-      EntityImpl context = YouTrackDBEnginesManager.instance().getProfiler().getContext();
-
-      if (context.getProperty("enterprise") == null) {
-        context.setProperty("enterprise", false);
-      }
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,
           "OK",
           HttpUtils.CONTENT_JSON,
-          context.toJSON("prettyPrint"),
+          "{\"enterprise\": true}",
           null);
 
     } else {

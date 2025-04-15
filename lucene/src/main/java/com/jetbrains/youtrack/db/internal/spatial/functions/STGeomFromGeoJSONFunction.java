@@ -13,11 +13,11 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 
@@ -37,21 +37,22 @@ public class STGeomFromGeoJSONFunction extends SQLFunctionAbstract {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
-    String geom = (String) iParams[0];
+    var geom = (String) iParams[0];
     try {
-      return factory.fromGeoJson(geom);
+      return factory.fromGeoJson(geom, iContext.getDatabaseSession());
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new CommandExecutionException(String.format("Cannot parse geometry {%s}", geom)), e);
+          new CommandExecutionException(iContext.getDatabaseSession(),
+              String.format("Cannot parse geometry {%s}", geom)), e, iContext.getDatabaseSession());
     }
   }
 
   @Override
   public String getSyntax(DatabaseSession session) {
-    return null;
+    return "";
   }
 }

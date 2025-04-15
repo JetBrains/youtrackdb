@@ -25,7 +25,7 @@ public class DeleteDirectory {
 
   @Parameters(value = "path")
   public DeleteDirectory(String iPath) {
-    final File f = new File(iPath);
+    final var f = new File(iPath);
 
     if (f.exists()) {
       deleteDirectory(f);
@@ -36,7 +36,7 @@ public class DeleteDirectory {
 
   private void deleteDirectory(File iDirectory) {
     if (iDirectory.isDirectory()) {
-      for (File f : iDirectory.listFiles()) {
+      for (var f : iDirectory.listFiles()) {
         if (f.isDirectory()) {
           deleteDirectory(f);
         } else if (!f.delete()) {

@@ -53,7 +53,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   static {
     Unsafe localUnsafe;
     try {
-      Field f = Unsafe.class.getDeclaredField("theUnsafe");
+      var f = Unsafe.class.getDeclaredField("theUnsafe");
       f.setAccessible(true);
       localUnsafe = (Unsafe) f.get(null);
     } catch (NoSuchFieldException | IllegalAccessException e) {
@@ -122,12 +122,12 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
    * @return singleton instance.
    */
   public static DirectMemoryAllocator instance() {
-    final DirectMemoryAllocator inst = INSTANCE_HOLDER.get();
+    final var inst = INSTANCE_HOLDER.get();
     if (inst != null) {
       return inst;
     }
 
-    final DirectMemoryAllocator newAllocator = new DirectMemoryAllocator();
+    final var newAllocator = new DirectMemoryAllocator();
     if (INSTANCE_HOLDER.compareAndSet(null, newAllocator)) {
       return newAllocator;
     }
@@ -141,8 +141,9 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
     trackedBuffers = new HashMap<>();
 
     if (PROFILE_MEMORY) {
-      final long printInterval = (long) MEMORY_STATISTICS_PRINTING_INTERVAL * 60 * 1_000;
+      final var printInterval = (long) MEMORY_STATISTICS_PRINTING_INTERVAL * 60 * 1_000;
       YouTrackDBEnginesManager.instance()
+          .getScheduler()
           .scheduleTask(new MemoryStatPrinter(consumptionMaps), printInterval, printInterval);
     }
   }
@@ -183,7 +184,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
 
     memoryConsumption.add(size);
     if (PROFILE_MEMORY) {
-      final EnumMap<Intention, ModifiableLong> consumptionMap = memoryConsumptionByIntention.get();
+      final var consumptionMap = memoryConsumptionByIntention.get();
 
       if (consumptionMap.isEmpty()) {
         consumptionMaps.add(
@@ -210,7 +211,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
 
   private void accumulateEvictedConsumptionMaps(
       EnumMap<Intention, ModifiableLong> consumptionMap) {
-    ConsumptionMapEvictionIndicator evictionIndicator =
+    var evictionIndicator =
         (ConsumptionMapEvictionIndicator) consumptionMapEvictionQueue.poll();
     while (evictionIndicator != null) {
       consumptionMaps.remove(evictionIndicator);
@@ -228,7 +229,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
       throw new IllegalArgumentException("Null value is passed");
     }
 
-    final long ptr = pointer.getNativePointer();
+    final var ptr = pointer.getNativePointer();
     if (ptr > 0) {
 
       if (unsafe != null) {
@@ -240,10 +241,10 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
       memoryConsumption.add(-pointer.getSize());
 
       if (PROFILE_MEMORY) {
-        final EnumMap<Intention, ModifiableLong> consumptionMap =
+        final var consumptionMap =
             memoryConsumptionByIntention.get();
 
-        final boolean wasEmpty = consumptionMap.isEmpty();
+        final var wasEmpty = consumptionMap.isEmpty();
 
         accumulateEvictedConsumptionMaps(consumptionMap);
 
@@ -272,15 +273,15 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   private static String printMemoryStatistics(
       final EnumMap<Intention, ModifiableLong> memoryConsumptionByIntention) {
     long total = 0;
-    final StringBuilder stringBuilder = new StringBuilder();
+    final var stringBuilder = new StringBuilder();
     stringBuilder.append(
         "\r\n-----------------------------------------------------------------------------\r\n");
     stringBuilder.append("Memory profiling results for YouTrackDB direct memory allocation\r\n");
     stringBuilder.append("Amount of memory consumed by category in bytes/Kb/Mb/Gb\r\n");
     stringBuilder.append("\r\n");
 
-    for (final Intention intention : Intention.values()) {
-      final ModifiableLong consumedMemory = memoryConsumptionByIntention.get(intention);
+    for (final var intention : Intention.values()) {
+      final var consumedMemory = memoryConsumptionByIntention.get(intention);
       stringBuilder.append(intention.name()).append(" : ");
       if (consumedMemory != null) {
         total += consumedMemory.value;
@@ -329,7 +330,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   public void checkMemoryLeaks() {
     if (TRACK) {
       synchronized (this) {
-        for (TrackedPointerReference reference : trackedReferences) {
+        for (var reference : trackedReferences) {
           LogManager.instance()
               .error(
                   this,
@@ -342,7 +343,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
 
         assert trackedReferences.isEmpty();
       }
-      final long memCons = memoryConsumption.longValue();
+      final var memCons = memoryConsumption.longValue();
 
       if (memCons > 0) {
         LogManager.instance()
@@ -364,7 +365,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   private Pointer track(Pointer pointer) {
     if (TRACK) {
       synchronized (this) {
-        final TrackedPointerReference reference =
+        final var reference =
             new TrackedPointerReference(pointer, trackedPointersQueue);
         trackedReferences.add(reference);
         trackedBuffers.put(new TrackedPointerKey(pointer), reference);
@@ -378,7 +379,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
    * Checks reference queue to find direct memory leaks
    */
   public void checkTrackedPointerLeaks() {
-    boolean leaked = false;
+    var leaked = false;
 
     TrackedPointerReference reference;
     while ((reference = (TrackedPointerReference) trackedPointersQueue.poll()) != null) {
@@ -405,11 +406,11 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   private void untrack(Pointer pointer) {
     if (TRACK) {
       synchronized (this) {
-        final TrackedPointerKey trackedBufferKey = new TrackedPointerKey(pointer);
+        final var trackedBufferKey = new TrackedPointerKey(pointer);
 
-        final TrackedPointerReference reference = trackedBuffers.remove(trackedBufferKey);
+        final var reference = trackedBuffers.remove(trackedBufferKey);
         if (reference == null) {
-          final Object[] iAdditionalArgs = new Object[]{id(pointer)};
+          final var iAdditionalArgs = new Object[]{id(pointer)};
           LogManager.instance()
               .error(
                   this,
@@ -484,7 +485,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
     @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
     @Override
     public boolean equals(Object obj) {
-      final Pointer pointer = get();
+      final var pointer = get();
       return pointer != null && pointer == ((TrackedPointerKey) obj).get();
     }
   }
@@ -517,13 +518,13 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
 
     @Override
     public void run() {
-      final EnumMap<Intention, ModifiableLong> accumulator = new EnumMap<>(Intention.class);
+      final var accumulator = new EnumMap<Intention, ModifiableLong>(Intention.class);
 
-      for (final ConsumptionMapEvictionIndicator consumptionMap : consumptionMaps) {
+      for (final var consumptionMap : consumptionMaps) {
         accumulateConsumptionStatistics(accumulator, consumptionMap);
       }
 
-      final String memoryStat = printMemoryStatistics(accumulator);
+      final var memoryStat = printMemoryStatistics(accumulator);
       LogManager.instance().info(this, memoryStat);
     }
   }
@@ -531,7 +532,7 @@ public class DirectMemoryAllocator implements DirectMemoryAllocatorMXBean {
   private static void accumulateConsumptionStatistics(
       EnumMap<Intention, ModifiableLong> accumulator,
       ConsumptionMapEvictionIndicator consumptionMap) {
-    for (final Map.Entry<Intention, ModifiableLong> entry :
+    for (final var entry :
         consumptionMap.consumptionMap.entrySet()) {
       accumulator.compute(
           entry.getKey(),

@@ -19,16 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLCreateIndex;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation bound to one schema class property.
@@ -37,10 +41,10 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   protected String className;
   protected String field;
-  protected PropertyType keyType;
+  protected PropertyTypeInternal keyType;
 
   public PropertyIndexDefinition(final String iClassName, final String iField,
-      final PropertyType iType) {
+      final PropertyTypeInternal iType) {
     super();
     className = iClassName;
     field = iField;
@@ -69,17 +73,18 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return Collections.singletonList(field + " collate " + collate.getName());
   }
 
+  @Nullable
   public Object getDocumentValueToIndex(
-      DatabaseSessionInternal session, final EntityImpl entity) {
-    if (PropertyType.LINK.equals(keyType)) {
-      final Identifiable identifiable = entity.field(field);
+      FrontendTransaction transaction, final EntityImpl entity) {
+    if (PropertyTypeInternal.LINK.equals(keyType)) {
+      final Identifiable identifiable = entity.getPropertyInternal(field);
       if (identifiable != null) {
-        return createValue(session, identifiable.getIdentity());
+        return createValue(transaction, identifiable.getIdentity());
       } else {
         return null;
       }
     }
-    return createValue(session, entity.<Object>field(field));
+    return createValue(transaction, entity.<Object>getPropertyInternal(field));
   }
 
   @Override
@@ -95,7 +100,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
       return false;
     }
 
-    final PropertyIndexDefinition that = (PropertyIndexDefinition) o;
+    final var that = (PropertyIndexDefinition) o;
 
     if (!className.equals(that.className)) {
       return false;
@@ -108,7 +113,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + className.hashCode();
     result = 31 * result + field.hashCode();
     result = 31 * result + keyType.hashCode();
@@ -133,57 +138,82 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
         + '}';
   }
 
-  public Object createValue(DatabaseSessionInternal session, final List<?> params) {
-    return PropertyType.convert(session, params.get(0), keyType.getDefaultJavaType());
+  public Object createValue(FrontendTransaction transaction, final List<?> params) {
+    return keyType.convert(params.getFirst(), null, null, transaction.getDatabaseSession());
   }
 
   /**
    * {@inheritDoc}
    */
-  public Object createValue(DatabaseSessionInternal session, final Object... params) {
-    return PropertyType.convert(session, refreshRid(session, params[0]),
-        keyType.getDefaultJavaType());
+  public Object createValue(FrontendTransaction transaction, final Object... params) {
+    return keyType.convert(refreshRid(transaction.getDatabaseSession(), params[0]), null, null,
+        transaction.getDatabaseSession());
   }
 
   public int getParamCount() {
     return 1;
   }
 
-  public PropertyType[] getTypes() {
-    return new PropertyType[]{keyType};
+  public PropertyTypeInternal[] getTypes() {
+    return new PropertyTypeInternal[]{keyType};
   }
 
-  public void fromStream(@Nonnull EntityImpl entity) {
-    serializeFromStream(entity);
+  public void fromMap(@Nonnull Map<String, ?> map) {
+    serializeFromMap(map);
+  }
+
+  @Nonnull
+  @Override
+  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
+    var result = session.newEmbeddedMap();
+    serializeToMap(result, session);
+    return result;
   }
 
   @Override
-  public final @Nonnull EntityImpl toStream(@Nonnull EntityImpl entity) {
-    serializeToStream(entity);
-    return entity;
+  public void toJson(@Nonnull JsonGenerator jsonGenerator) {
+    try {
+      jsonGenerator.writeStartObject();
+      serializeToJson(jsonGenerator);
+      jsonGenerator.writeEndObject();
+    } catch (final Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
-  protected void serializeToStream(EntityImpl entity) {
-    super.serializeToStream(entity);
-
-    entity.setPropertyInternal("className", className);
-    entity.setPropertyInternal("field", field);
-    entity.setPropertyInternal("keyType", keyType.toString());
-    entity.setPropertyInternal("collate", collate.getName());
-    entity.setPropertyInternal("nullValuesIgnored", isNullValuesIgnored());
+  protected void serializeToJson(JsonGenerator jsonGenerator) {
+    try {
+      jsonGenerator.writeStringField("className", className);
+      jsonGenerator.writeStringField("field", field);
+      jsonGenerator.writeStringField("keyType", keyType.toString());
+      jsonGenerator.writeStringField("collate", collate.getName());
+      jsonGenerator.writeBooleanField("nullValuesIgnored", isNullValuesIgnored());
+    } catch (final Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
-  protected void serializeFromStream(EntityImpl entity) {
-    super.serializeFromStream(entity);
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
+    super.serializeToMap(map, session);
 
-    className = entity.field("className");
-    field = entity.field("field");
+    map.put("className", className);
+    map.put("field", field);
+    map.put("keyType", keyType.toString());
+    map.put("collate", collate.getName());
+    map.put("nullValuesIgnored", isNullValuesIgnored());
+  }
 
-    final String keyTypeStr = entity.field("keyType");
-    keyType = PropertyType.valueOf(keyTypeStr);
+  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
+    super.serializeFromMap(map);
 
-    setCollate((String) entity.field("collate"));
-    setNullValuesIgnored(!Boolean.FALSE.equals(entity.<Boolean>field("nullValuesIgnored")));
+    className = (String) map.get("className");
+    field = (String) map.get("field");
+
+    final var keyTypeStr = (String) map.get("keyType");
+    keyType = PropertyTypeInternal.valueOf(keyTypeStr);
+
+    setCollate((String) map.get("collate"));
+    setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));
   }
 
   /**
@@ -199,14 +229,14 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   protected StringBuilder createIndexDDLWithFieldType(
       String indexName, String indexType, String engine) {
-    final StringBuilder ddl = createIndexDDLWithoutFieldType(indexName, indexType, engine);
+    final var ddl = createIndexDDLWithoutFieldType(indexName, indexType, engine);
     ddl.append(' ').append(keyType.name());
     return ddl;
   }
 
   protected StringBuilder createIndexDDLWithoutFieldType(
       final String indexName, final String indexType, final String engine) {
-    final StringBuilder ddl = new StringBuilder("create index `");
+    final var ddl = new StringBuilder("create index `");
 
     ddl.append(indexName).append("` on `");
     ddl.append(className).append("` ( `").append(field).append("`");
@@ -219,55 +249,41 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     ddl.append(indexType);
 
     if (engine != null) {
-      ddl.append(' ').append(CommandExecutorSQLCreateIndex.KEYWORD_ENGINE + " ").append(engine);
+      ddl.append(" ENGINE  ").append(engine);
     }
     return ddl;
   }
 
-  protected void processAdd(
+  protected static void processAdd(
       final Object value,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
-    if (value == null) {
-      return;
-    }
-
-    final int removeCount = keysToRemove.getInt(value);
-    if (removeCount > 0) {
-      int newRemoveCount = removeCount - 1;
-      if (newRemoveCount > 0) {
-        keysToRemove.put(value, newRemoveCount);
-      } else {
-        keysToRemove.removeInt(value);
-      }
-    } else {
-      final int addCount = keysToAdd.getInt(value);
-      if (addCount > 0) {
-        keysToAdd.put(value, addCount + 1);
-      } else {
-        keysToAdd.put(value, 1);
-      }
-    }
+    processAddRemoval(value, keysToRemove, keysToAdd);
   }
 
-  protected void processRemoval(
+  protected static void processRemoval(
       final Object value,
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
+    processAddRemoval(value, keysToAdd, keysToRemove);
+  }
+
+  private static void processAddRemoval(Object value, Object2IntMap<Object> keysToAdd,
+      Object2IntMap<Object> keysToRemove) {
     if (value == null) {
       return;
     }
 
-    final int addCount = keysToAdd.getInt(value);
+    final var addCount = keysToAdd.getInt(value);
     if (addCount > 0) {
-      int newAddCount = addCount - 1;
+      var newAddCount = addCount - 1;
       if (newAddCount > 0) {
         keysToAdd.put(value, newAddCount);
       } else {
         keysToAdd.removeInt(value);
       }
     } else {
-      final int removeCount = keysToRemove.getInt(value);
+      final var removeCount = keysToRemove.getInt(value);
       if (removeCount > 0) {
         keysToRemove.put(value, removeCount + 1);
       } else {

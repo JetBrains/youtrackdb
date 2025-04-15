@@ -2,9 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -31,8 +30,8 @@ public class SQLDropDatabaseStatement extends SQLSimpleExecServerStatement {
     } else {
       nameString = "" + nameParam.getValue(ctx.getInputParameters());
     }
-    YouTrackDBInternal server = ctx.getServer();
-    ResultInternal result = new ResultInternal(ctx.getDatabase());
+    var server = ctx.getServer();
+    var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("operation", "drop database");
     result.setProperty("name", nameString);
 
@@ -44,12 +43,12 @@ public class SQLDropDatabaseStatement extends SQLSimpleExecServerStatement {
         server.drop(nameString, null, null);
         result.setProperty("dropped", true);
       } catch (Exception e) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Could not drop database " + nameString + ":" + e.getMessage());
       }
     }
 
-    return ExecutionStream.singleton(result);
+    return ExecutionStream.singleton(result.detach());
   }
 
   @Override

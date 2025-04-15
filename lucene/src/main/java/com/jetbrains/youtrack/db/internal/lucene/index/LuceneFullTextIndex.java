@@ -16,22 +16,31 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngine;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.Query;
 
 public class LuceneFullTextIndex extends LuceneIndexNotUnique {
 
-  public LuceneFullTextIndex(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public LuceneFullTextIndex(@Nullable RID identity,
+      @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
   }
 
-  public Document buildDocument(DatabaseSessionInternal session, final Object key) {
+  public LuceneFullTextIndex(@Nonnull Storage storage) {
+    super(storage);
+  }
+
+  public Document buildDocument(DatabaseSessionInternal db, final Object key) {
 
     while (true) {
       try {
@@ -39,8 +48,8 @@ public class LuceneFullTextIndex extends LuceneIndexNotUnique {
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-              return indexEngine.buildDocument(session, key, null);
+              var indexEngine = (LuceneIndexEngine) engine;
+              return indexEngine.buildDocument(db, key, null);
             });
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
@@ -48,15 +57,15 @@ public class LuceneFullTextIndex extends LuceneIndexNotUnique {
     }
   }
 
-  public Query buildQuery(final Object query) {
+  public Query buildQuery(final Object query, DatabaseSessionInternal session) {
     while (true) {
       try {
         return storage.callIndexEngine(
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
-              return indexEngine.buildQuery(query);
+              var indexEngine = (LuceneIndexEngine) engine;
+              return indexEngine.buildQuery(query, session);
             });
       } catch (InvalidIndexEngineIdException e) {
         doReloadIndexEngine();
@@ -71,7 +80,7 @@ public class LuceneFullTextIndex extends LuceneIndexNotUnique {
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
+              var indexEngine = (LuceneIndexEngine) engine;
               return indexEngine.queryAnalyzer();
             });
       } catch (final InvalidIndexEngineIdException e) {
@@ -87,7 +96,7 @@ public class LuceneFullTextIndex extends LuceneIndexNotUnique {
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
+              var indexEngine = (LuceneIndexEngine) engine;
               return indexEngine.isCollectionIndex();
             });
       } catch (InvalidIndexEngineIdException e) {
@@ -103,7 +112,7 @@ public class LuceneFullTextIndex extends LuceneIndexNotUnique {
             false,
             indexId,
             engine -> {
-              LuceneIndexEngine indexEngine = (LuceneIndexEngine) engine;
+              var indexEngine = (LuceneIndexEngine) engine;
               return indexEngine.indexAnalyzer();
             });
       } catch (InvalidIndexEngineIdException e) {

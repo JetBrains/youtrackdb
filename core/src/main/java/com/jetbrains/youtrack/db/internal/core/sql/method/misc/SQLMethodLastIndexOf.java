@@ -16,9 +16,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 
 /**
  *
@@ -34,11 +34,11 @@ public class SQLMethodLastIndexOf extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    final String toFind = IOUtils.getStringContent(iParams[0].toString());
+    final var toFind = IOUtils.getStringContent(iParams[0].toString());
     if (iParams.length > 1) {
       return iThis.toString().lastIndexOf(toFind, Integer.parseInt(iParams[1].toString()));
     } else {

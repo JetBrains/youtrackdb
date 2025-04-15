@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
@@ -44,9 +43,9 @@ public class BinaryProtocolAnyResultTest {
 
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
-    DatabaseSession db = youTrackDB.open("test", "admin", "admin");
+    var db = youTrackDB.open("test", "admin", "admin");
 
-    Object res = db.execute("SQL", " let $one = select from OUser limit 1; return [$one,1]");
+    Object res = db.runScript("SQL", " let $one = select from OUser limit 1; return [$one,1]");
 
     assertTrue(res instanceof List);
     assertTrue(((List) res).get(0) instanceof Collection);

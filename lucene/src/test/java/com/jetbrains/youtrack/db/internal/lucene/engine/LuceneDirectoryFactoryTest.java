@@ -17,7 +17,6 @@ import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.RAMDirectory;
@@ -52,10 +51,10 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
-      DatabaseSessionInternal db =
+              + " disk users (admin identified by 'adminpwd' role admin)");
+      var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      Directory directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
+      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       assertThat(directory).isInstanceOf(NIOFSDirectory.class);
       assertThat(new File(
           getBaseDirectoryPath(getClass()) + File.separator + databaseName
@@ -74,10 +73,10 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
-      DatabaseSessionInternal db =
+              + " disk users (admin identified by 'adminpwd' role admin)");
+      var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      Directory directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
+      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       assertThat(directory).isInstanceOf(MMapDirectory.class);
       assertThat(new File(
           getBaseDirectoryPath(getClass()) + File.separator + databaseName
@@ -95,10 +94,10 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
       ctx.execute(
           "create database "
               + databaseName
-              + " plocal users (admin identified by 'adminpwd' role admin)");
-      DatabaseSessionInternal db =
+              + " disk users (admin identified by 'adminpwd' role admin)");
+      var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      Directory directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
+      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       assertThat(directory).isInstanceOf(RAMDirectory.class);
       ctx.drop(databaseName);
     }
@@ -113,9 +112,9 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
           "create database "
               + databaseName
               + " memory users (admin identified by 'adminpwd' role admin)");
-      DatabaseSessionInternal db =
+      var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      final Directory directory =
+      final var directory =
           fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       // 'DatabaseType.MEMORY' and 'DIRECTORY_RAM' determines the RAMDirectory.
       assertThat(directory).isInstanceOf(RAMDirectory.class);
@@ -132,9 +131,9 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
           "create database "
               + databaseName
               + " memory users (admin identified by 'adminpwd' role admin)");
-      DatabaseSessionInternal db =
+      var db =
           (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      final Directory directory =
+      final var directory =
           fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
       // 'DatabaseType.MEMORY' plus 'DIRECTORY_MMAP' leads to the same result as just
       // 'DIRECTORY_RAM'.

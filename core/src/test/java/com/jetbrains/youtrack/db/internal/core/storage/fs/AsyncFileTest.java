@@ -20,14 +20,16 @@ public class AsyncFileTest {
 
   private static Path buildDirectoryPath;
 
+  private static final String STORAGE_NAME = AsyncFileTest.class.getSimpleName();
+
   @BeforeClass
   public static void beforeClass() {
-    String buildDirectory = System.getProperty("buildDirectory");
+    var buildDirectory = System.getProperty("buildDirectory");
     if (buildDirectory == null || buildDirectory.isEmpty()) {
       buildDirectory = ".";
     }
 
-    buildDirectory += File.separator + "localPaginatedClusterTestV2";
+    buildDirectory += File.separator + "localPaginatedCollectionTestV2";
     buildDirectoryPath = Paths.get(buildDirectory);
   }
 
@@ -39,23 +41,23 @@ public class AsyncFileTest {
   @Test
   public void testWrite() throws Exception {
     final AsyncFile file =
-        new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+        new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
 
     file.allocateSpace(128);
     file.allocateSpace(256);
 
-    final long position = file.allocateSpace(1024);
+    final var position = file.allocateSpace(1024);
     Assert.assertEquals(128 + 256, position);
 
-    final byte[] data = new byte[1024];
-    final Random random = new Random();
+    final var data = new byte[1024];
+    final var random = new Random();
 
     random.nextBytes(data);
 
     file.write(position, ByteBuffer.wrap(data));
 
-    final ByteBuffer result = ByteBuffer.allocate(1024).order(ByteOrder.nativeOrder());
+    final var result = ByteBuffer.allocate(1024).order(ByteOrder.nativeOrder());
     file.read(position, result, true);
 
     Assert.assertArrayEquals(data, result.array());
@@ -64,17 +66,18 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWrite() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     file.create();
 
     file.allocateSpace(128);
     file.allocateSpace(256);
 
-    final long position = file.allocateSpace(1024);
+    final var position = file.allocateSpace(1024);
     Assert.assertEquals(128 + 256, position);
 
-    final byte[] data = new byte[1024];
-    final Random random = new Random();
+    final var data = new byte[1024];
+    final var random = new Random();
 
     random.nextBytes(data);
 
@@ -83,7 +86,7 @@ public class AsyncFileTest {
     file.close();
     file.open();
 
-    final ByteBuffer result = ByteBuffer.allocate(1024).order(ByteOrder.nativeOrder());
+    final var result = ByteBuffer.allocate(1024).order(ByteOrder.nativeOrder());
     file.read(position, result, true);
     Assert.assertArrayEquals(data, result.array());
 
@@ -92,22 +95,23 @@ public class AsyncFileTest {
 
   @Test
   public void testWriteSeveralChunks() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     file.create();
 
-    final long position1 = file.allocateSpace(128);
-    final long position2 = file.allocateSpace(256);
-    final long position3 = file.allocateSpace(1024);
+    final var position1 = file.allocateSpace(128);
+    final var position2 = file.allocateSpace(256);
+    final var position3 = file.allocateSpace(1024);
 
     Assert.assertEquals(0, position1);
     Assert.assertEquals(128, position2);
     Assert.assertEquals(128 + 256, position3);
 
-    final byte[] data1 = new byte[128];
-    final byte[] data2 = new byte[256];
-    final byte[] data3 = new byte[1024];
+    final var data1 = new byte[128];
+    final var data2 = new byte[256];
+    final var data3 = new byte[1024];
 
-    final Random random = new Random();
+    final var random = new Random();
 
     random.nextBytes(data1);
     random.nextBytes(data2);
@@ -119,12 +123,12 @@ public class AsyncFileTest {
     buffers.add(new RawPairLongObject<>(position2, ByteBuffer.wrap(data2)));
     buffers.add(new RawPairLongObject<>(position3, ByteBuffer.wrap(data3)));
 
-    final IOResult result = file.write(buffers);
+    final var result = file.write(buffers);
     result.await();
 
-    final ByteBuffer result1 = ByteBuffer.allocate(128);
-    final ByteBuffer result2 = ByteBuffer.allocate(256);
-    final ByteBuffer result3 = ByteBuffer.allocate(1024);
+    final var result1 = ByteBuffer.allocate(128);
+    final var result2 = ByteBuffer.allocate(256);
+    final var result3 = ByteBuffer.allocate(1024);
 
     file.read(position1, result1, true);
     file.read(position2, result2, true);
@@ -139,18 +143,19 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunks() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     file.create();
 
-    final long position1 = file.allocateSpace(128);
-    final long position2 = file.allocateSpace(256);
-    final long position3 = file.allocateSpace(1024);
+    final var position1 = file.allocateSpace(128);
+    final var position2 = file.allocateSpace(256);
+    final var position3 = file.allocateSpace(1024);
 
-    final byte[] data1 = new byte[128];
-    final byte[] data2 = new byte[256];
-    final byte[] data3 = new byte[1024];
+    final var data1 = new byte[128];
+    final var data2 = new byte[256];
+    final var data3 = new byte[1024];
 
-    final Random random = new Random();
+    final var random = new Random();
 
     random.nextBytes(data1);
     random.nextBytes(data2);
@@ -162,14 +167,14 @@ public class AsyncFileTest {
     buffers.add(new RawPairLongObject<>(position2, ByteBuffer.wrap(data2)));
     buffers.add(new RawPairLongObject<>(position3, ByteBuffer.wrap(data3)));
 
-    final IOResult result = file.write(buffers);
+    final var result = file.write(buffers);
     result.await();
     file.close();
     file.open();
 
-    final ByteBuffer result1 = ByteBuffer.allocate(128);
-    final ByteBuffer result2 = ByteBuffer.allocate(256);
-    final ByteBuffer result3 = ByteBuffer.allocate(1024);
+    final var result1 = ByteBuffer.allocate(128);
+    final var result2 = ByteBuffer.allocate(256);
+    final var result3 = ByteBuffer.allocate(1024);
 
     file.read(position1, result1, true);
     file.read(position2, result2, true);
@@ -184,18 +189,19 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunksTwo() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     file.create();
 
-    final long position1 = file.allocateSpace(128);
-    final long position2 = file.allocateSpace(256);
-    final long position3 = file.allocateSpace(1024);
+    final var position1 = file.allocateSpace(128);
+    final var position2 = file.allocateSpace(256);
+    final var position3 = file.allocateSpace(1024);
 
-    final byte[] data1 = new byte[128];
-    final byte[] data2 = new byte[256];
-    final byte[] data3 = new byte[1024];
+    final var data1 = new byte[128];
+    final var data2 = new byte[256];
+    final var data3 = new byte[1024];
 
-    final Random random = new Random();
+    final var random = new Random();
 
     random.nextBytes(data1);
     random.nextBytes(data2);
@@ -206,14 +212,14 @@ public class AsyncFileTest {
     buffers.add(new RawPairLongObject<>(position1, ByteBuffer.wrap(data1)));
     buffers.add(new RawPairLongObject<>(position2, ByteBuffer.wrap(data2)));
 
-    final IOResult result = file.write(buffers);
+    final var result = file.write(buffers);
     result.await();
 
     file.write(position3, ByteBuffer.wrap(data3));
 
-    final ByteBuffer result1 = ByteBuffer.allocate(128);
-    final ByteBuffer result2 = ByteBuffer.allocate(256);
-    final ByteBuffer result3 = ByteBuffer.allocate(1024);
+    final var result1 = ByteBuffer.allocate(128);
+    final var result2 = ByteBuffer.allocate(256);
+    final var result3 = ByteBuffer.allocate(1024);
 
     file.read(position1, result1, true);
     file.read(position2, result2, true);
@@ -228,22 +234,23 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunksThree() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     file.create();
 
-    final long position1 = file.allocateSpace(128 * 1024);
-    final long position2 = file.allocateSpace(256 * 1024);
-    final long position3 = file.allocateSpace(1024 * 1024);
+    final var position1 = file.allocateSpace(128 * 1024);
+    final var position2 = file.allocateSpace(256 * 1024);
+    final var position3 = file.allocateSpace(1024 * 1024);
 
     Assert.assertEquals(0, position1);
     Assert.assertEquals(128 * 1024, position2);
     Assert.assertEquals(128 * 1024 + 256 * 1024, position3);
 
-    final byte[] data1 = new byte[128 * 1024];
-    final byte[] data2 = new byte[256 * 1024];
-    final byte[] data3 = new byte[1024 * 1024];
+    final var data1 = new byte[128 * 1024];
+    final var data2 = new byte[256 * 1024];
+    final var data3 = new byte[1024 * 1024];
 
-    final Random random = new Random();
+    final var random = new Random();
 
     random.nextBytes(data1);
     random.nextBytes(data2);
@@ -255,14 +262,14 @@ public class AsyncFileTest {
     buffers.add(new RawPairLongObject<>(position2, ByteBuffer.wrap(data2)));
     buffers.add(new RawPairLongObject<>(position3, ByteBuffer.wrap(data3)));
 
-    final IOResult result = file.write(buffers);
+    final var result = file.write(buffers);
     result.await();
     file.close();
     file.open();
 
-    final ByteBuffer result1 = ByteBuffer.allocate(128 * 1024);
-    final ByteBuffer result2 = ByteBuffer.allocate(256 * 1024);
-    final ByteBuffer result3 = ByteBuffer.allocate(1024 * 1024);
+    final var result1 = ByteBuffer.allocate(128 * 1024);
+    final var result2 = ByteBuffer.allocate(256 * 1024);
+    final var result3 = ByteBuffer.allocate(1024 * 1024);
 
     file.read(position1, result1, true);
     file.read(position2, result2, true);
@@ -277,7 +284,8 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenClose() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool());
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+        STORAGE_NAME);
     Assert.assertFalse(file.isOpen());
 
     file.create();

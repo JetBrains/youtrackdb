@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

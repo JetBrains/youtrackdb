@@ -18,5 +18,3 @@
 
 
 com.jetbrains.youtrack.db.internal.core.index.DefaultIndexFactory
-com.jetbrains.youtrack.db.internal.core.storage.index.hashindex.local.HashIndexFactory
-com.jetbrains.youtrack.db.internal.core.sharding.auto.AutoShardingIndexFactory

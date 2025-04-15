@@ -19,11 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post.ServerCommandPostCommand;
 import java.util.ArrayList;
@@ -37,55 +34,53 @@ public class ServerCommandGetQuery extends ServerCommandAuthenticatedDbAbstract 
 
   @Override
   @SuppressWarnings("unchecked")
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             4,
             "Syntax error: query/<database>/sql/<query-text>[/<limit>][/<fetchPlan>].<br>Limit is"
                 + " optional and is set to 20 by default. Set to 0 to have no limits.");
 
-    int limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4]) : 20;
-    String fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
-    final String text = urlParts[3];
-    final String accept = iRequest.getHeader("accept");
+    final var text = urlParts[3];
+    final var accept = iRequest.getHeader("accept");
 
     iRequest.getData().commandInfo = "Query";
     iRequest.getData().commandDetail = text;
 
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
-      SQLStatement stm = ServerCommandPostCommand.parseStatement("SQL", text, db);
-      ResultSet result = db.query(text);
-      limit = ServerCommandPostCommand.getLimitFromStatement(stm, limit);
-      String localFetchPlan = ServerCommandPostCommand.getFetchPlanFromStatement(stm);
-      if (localFetchPlan != null) {
-        fetchPlan = localFetchPlan;
-      }
-      int i = 0;
-      List response = new ArrayList();
-      while (result.hasNext()) {
-        if (limit >= 0 && i >= limit) {
-          break;
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      var stm = ServerCommandPostCommand.parseStatement("SQL", text, db);
+      db.executeInTx(transaction -> {
+        var limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4]) : 20;
+        var fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
+
+        var result = db.query(text);
+        limit = ServerCommandPostCommand.getLimitFromStatement(stm, limit);
+        var localFetchPlan = ServerCommandPostCommand.getFetchPlanFromStatement(stm);
+        if (localFetchPlan != null) {
+          fetchPlan = localFetchPlan;
         }
-        response.add(result.next());
-        i++;
-      }
+        var i = 0;
+        List response = new ArrayList();
+        while (result.hasNext()) {
+          if (limit >= 0 && i >= limit) {
+            break;
+          }
+          response.add(result.next());
+          i++;
+        }
 
-      Map<String, Object> additionalContent = new HashMap<>();
+        Map<String, Object> additionalContent = new HashMap<>();
 
-      result
-          .getExecutionPlan()
-          .ifPresent(x -> additionalContent.put("executionPlan", x.toResult(db).toEntity()));
+        var plan = result
+            .getExecutionPlan();
+        if (plan != null) {
+          additionalContent.put("executionPlan", plan.toResult(db).toMap());
+        }
+        result.close();
 
-      result.close();
-
-      String format = null;
-      if (fetchPlan != null) {
-        format = "fetchPlan:" + fetchPlan;
-      }
-
-      iResponse.writeRecords(response, fetchPlan, null, accept, additionalContent, db);
-
+        iResponse.writeRecords(response, fetchPlan, null, accept, additionalContent, db);
+      });
     }
 
     return false;

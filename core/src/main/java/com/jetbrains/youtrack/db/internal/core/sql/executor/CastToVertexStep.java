@@ -2,16 +2,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
 public class CastToVertexStep extends AbstractExecutionStep {
-
   public CastToVertexStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
   }
@@ -19,30 +14,28 @@ public class CastToVertexStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    var upstream = prev.start(ctx);
+    return upstream.map(CastToVertexStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
-    if (result.getEntity().orElse(null) instanceof Vertex) {
-      return result;
-    }
-    var db = ctx.getDatabase();
+  private static Result mapResult(Result result, CommandContext ctx) {
+    var db = ctx.getDatabaseSession();
     if (result.isVertex()) {
       if (result instanceof ResultInternal) {
-        ((ResultInternal) result).setIdentifiable(result.toEntity().toVertex());
+        ((ResultInternal) result).setIdentifiable(result.asVertex());
       } else {
-        result = new ResultInternal(db, result.toEntity().toVertex());
+        result = new ResultInternal(db, result.asVertex());
       }
     } else {
-      throw new CommandExecutionException("Current entity is not a vertex: " + result);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Current entity is not a vertex: " + result);
     }
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result = ExecutionStepInternal.getIndent(depth, indent) + "+ CAST TO VERTEX";
+    var result = ExecutionStepInternal.getIndent(depth, indent) + "+ CAST TO VERTEX";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

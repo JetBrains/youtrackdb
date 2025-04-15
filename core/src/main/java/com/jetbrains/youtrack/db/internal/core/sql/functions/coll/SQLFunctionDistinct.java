@@ -19,12 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Keeps items only once removing duplicates
@@ -39,13 +40,14 @@ public class SQLFunctionDistinct extends SQLFunctionAbstract {
     super(NAME, 1, 1);
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
-    final Object value = iParams[0];
+    final var value = iParams[0];
 
     if (value != null && !context.contains(value)) {
       context.add(value);

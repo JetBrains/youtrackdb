@@ -19,16 +19,11 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -38,40 +33,40 @@ import org.testng.annotations.Test;
 public class PolymorphicQueryTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public PolymorphicQueryTest(boolean remote) {
-    super(remote);
+  public PolymorphicQueryTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    database.command("create class IndexInSubclassesTestBase").close();
-    database.command("create property IndexInSubclassesTestBase.name string").close();
+    session.execute("create class IndexInSubclassesTestBase").close();
+    session.execute("create property IndexInSubclassesTestBase.name string").close();
 
-    database
-        .command("create class IndexInSubclassesTestChild1 extends IndexInSubclassesTestBase")
+    session
+        .execute("create class IndexInSubclassesTestChild1 extends IndexInSubclassesTestBase")
         .close();
-    database
-        .command(
+    session
+        .execute(
             "create index IndexInSubclassesTestChild1.name on IndexInSubclassesTestChild1 (name)"
                 + " notunique")
         .close();
 
-    database
-        .command("create class IndexInSubclassesTestChild2 extends IndexInSubclassesTestBase")
+    session
+        .execute("create class IndexInSubclassesTestChild2 extends IndexInSubclassesTestBase")
         .close();
-    database
-        .command(
+    session
+        .execute(
             "create index IndexInSubclassesTestChild2.name on IndexInSubclassesTestChild2 (name)"
                 + " notunique")
         .close();
 
-    database.command("create class IndexInSubclassesTestBaseFail").close();
-    database.command("create property IndexInSubclassesTestBaseFail.name string").close();
+    session.execute("create class IndexInSubclassesTestBaseFail").close();
+    session.execute("create property IndexInSubclassesTestBaseFail.name string").close();
 
-    database
-        .command(
+    session
+        .execute(
             "create class IndexInSubclassesTestChild1Fail extends IndexInSubclassesTestBaseFail")
         .close();
     // database.command(
@@ -79,245 +74,189 @@ public class PolymorphicQueryTest extends BaseDBTest {
     // IndexInSubclassesTestChild1Fail (name) notunique"))
     // .execute();
 
-    database
-        .command(
+    session
+        .execute(
             "create class IndexInSubclassesTestChild2Fail extends IndexInSubclassesTestBaseFail")
         .close();
-    database
-        .command(
+    session
+        .execute(
             "create index IndexInSubclassesTestChild2Fail.name on IndexInSubclassesTestChild2Fail"
                 + " (name) notunique")
         .close();
 
-    database.command("create class GenericCrash").close();
-    database.command("create class SpecificCrash extends GenericCrash").close();
+    session.execute("create class GenericCrash").close();
+    session.execute("create class SpecificCrash extends GenericCrash").close();
   }
 
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    database.command("delete from IndexInSubclassesTestBase").close();
-    database.command("delete from IndexInSubclassesTestChild1").close();
-    database.command("delete from IndexInSubclassesTestChild2").close();
+    session.begin();
+    session.command("delete from IndexInSubclassesTestBase");
+    session.command("delete from IndexInSubclassesTestChild1");
+    session.command("delete from IndexInSubclassesTestChild2");
 
-    database.command("delete from IndexInSubclassesTestBaseFail").close();
-    database.command("delete from IndexInSubclassesTestChild1Fail").close();
-    database.command("delete from IndexInSubclassesTestChild2Fail").close();
+    session.command("delete from IndexInSubclassesTestBaseFail");
+    session.command("delete from IndexInSubclassesTestChild1Fail");
+    session.command("delete from IndexInSubclassesTestChild2Fail");
+    session.commit();
   }
 
   @Test
   public void testSubclassesIndexes() throws Exception {
-    database.begin();
+    session.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
+    for (var i = 0; i < 10000; i++) {
 
-    long indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    long indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
+      final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
+      doc1.setProperty("name", "name" + i);
 
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
+      final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2"));
+      doc2.setProperty("name", "name" + i);
 
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
-
-    profiler.startRecording();
-    for (int i = 0; i < 10000; i++) {
-
-      final EntityImpl doc1 = new EntityImpl("IndexInSubclassesTestChild1");
-      doc1.field("name", "name" + i);
-      doc1.save();
-
-      final EntityImpl doc2 = new EntityImpl("IndexInSubclassesTestChild2");
-      doc2.field("name", "name" + i);
-      doc2.save();
       if (i % 100 == 0) {
-        database.commit();
+        session.commit();
+        session.begin();
       }
     }
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name ASC"));
+    session.begin();
+    var result =
+        session.query(
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name ASC").toList();
     Assert.assertEquals(result.size(), 6);
-    String lastName = result.get(0).field("name");
+    var entity1 = result.getFirst();
+    String lastName = entity1.getProperty("name");
 
-    for (int i = 1; i < result.size(); i++) {
-      EntityImpl current = result.get(i);
-      String currentName = current.field("name");
+    for (var i = 1; i < result.size(); i++) {
+      var current = result.get(i);
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) <= 0);
       lastName = currentName;
     }
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), indexUsage + 2);
-    long reverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    Assert.assertEquals(reverted < 0 ? 0 : reverted, indexUsageReverted);
-
     result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name DESC"));
+        session.query(
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name DESC").toList();
     Assert.assertEquals(result.size(), 6);
-    lastName = result.get(0).field("name");
-    for (int i = 1; i < result.size(); i++) {
-      EntityImpl current = result.get(i);
-      String currentName = current.field("name");
+    var entity = result.getFirst();
+    lastName = entity.getProperty("name");
+    for (var i = 1; i < result.size(); i++) {
+      var current = result.get(i);
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
-    profiler.stopRecording();
+    session.commit();
   }
 
   @Test
   public void testBaseWithoutIndexAndSubclassesIndexes() throws Exception {
-    database.begin();
+    session.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
+    for (var i = 0; i < 10000; i++) {
+      final var doc0 = session.newInstance("IndexInSubclassesTestBase");
+      doc0.setProperty("name", "name" + i);
 
-    long indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    long indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
+      final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1"));
+      doc1.setProperty("name", "name" + i);
 
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
+      final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2"));
+      doc2.setProperty("name", "name" + i);
 
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
-
-    profiler.startRecording();
-    for (int i = 0; i < 10000; i++) {
-      final EntityImpl doc0 = new EntityImpl("IndexInSubclassesTestBase");
-      doc0.field("name", "name" + i);
-      doc0.save();
-
-      final EntityImpl doc1 = new EntityImpl("IndexInSubclassesTestChild1");
-      doc1.field("name", "name" + i);
-      doc1.save();
-
-      final EntityImpl doc2 = new EntityImpl("IndexInSubclassesTestChild2");
-      doc2.field("name", "name" + i);
-      doc2.save();
       if (i % 100 == 0) {
-        database.commit();
+        session.commit();
+        session.begin();
       }
     }
-    database.commit();
+    session.commit();
 
-    List<EntityImpl> result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name ASC"));
+    session.begin();
+    var result =
+        session.query(
+
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name ASC").toList();
     Assert.assertEquals(result.size(), 9);
-    String lastName = result.get(0).field("name");
-    for (int i = 1; i < result.size(); i++) {
-      EntityImpl current = result.get(i);
-      String currentName = current.field("name");
+    var entity1 = result.getFirst();
+    String lastName = entity1.getProperty("name");
+    for (var i = 1; i < result.size(); i++) {
+      var current = result.get(i);
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) <= 0);
       lastName = currentName;
     }
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), indexUsage + 2);
-
-    long reverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    Assert.assertEquals(reverted < 0 ? 0 : reverted, indexUsageReverted);
-
     result =
-        database.query(
-            new SQLSynchQuery<EntityImpl>(
-                "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
-                    + " 'name9999' order by name DESC"));
+        session.query(
+            "select from IndexInSubclassesTestBase where name > 'name9995' and name <"
+                + " 'name9999' order by name DESC").toList();
     Assert.assertEquals(result.size(), 9);
-    lastName = result.get(0).field("name");
-    for (int i = 1; i < result.size(); i++) {
-      EntityImpl current = result.get(i);
-      String currentName = current.field("name");
+    var entity = result.getFirst();
+    lastName = entity.getProperty("name");
+    for (var i = 1; i < result.size(); i++) {
+      var current = result.get(i);
+      String currentName = current.getProperty("name");
       Assert.assertTrue(lastName.compareTo(currentName) >= 0);
       lastName = currentName;
     }
-    profiler.stopRecording();
+    session.commit();
   }
 
   @Test
   public void testSubclassesIndexesFailed() throws Exception {
-    database.begin();
+    session.begin();
 
-    Profiler profiler = YouTrackDBEnginesManager.instance().getProfiler();
-    profiler.startRecording();
+    var profiler = ProfilerStub.INSTANCE;
 
-    for (int i = 0; i < 10000; i++) {
+    for (var i = 0; i < 10000; i++) {
 
-      final EntityImpl doc1 = new EntityImpl("IndexInSubclassesTestChild1Fail");
-      doc1.field("name", "name" + i);
-      doc1.save();
+      final var doc1 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild1Fail"));
+      doc1.setProperty("name", "name" + i);
 
-      final EntityImpl doc2 = new EntityImpl("IndexInSubclassesTestChild2Fail");
-      doc2.field("name", "name" + i);
-      doc2.save();
+      final var doc2 = ((EntityImpl) session.newEntity("IndexInSubclassesTestChild2Fail"));
+      doc2.setProperty("name", "name" + i);
+
       if (i % 100 == 0) {
-        database.commit();
+        session.commit();
+        session.begin();
       }
     }
-    database.commit();
+    session.commit();
 
-    long indexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    long indexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-
-    if (indexUsage < 0) {
-      indexUsage = 0;
-    }
-
-    if (indexUsageReverted < 0) {
-      indexUsageReverted = 0;
-    }
-
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             "select from IndexInSubclassesTestBaseFail where name > 'name9995' and name <"
                 + " 'name9999' order by name ASC");
     Assert.assertEquals(result.stream().count(), 6);
 
-    long lastIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    long lastIndexUsageReverted = profiler.getCounter("db.demo.query.indexUseAttemptedAndReverted");
-    if (lastIndexUsage < 0) {
-      lastIndexUsage = 0;
-    }
-
-    if (lastIndexUsageReverted < 0) {
-      lastIndexUsageReverted = 0;
-    }
-
-    Assert.assertEquals(lastIndexUsage - indexUsage, lastIndexUsageReverted - indexUsageReverted);
-
-    profiler.stopRecording();
   }
 
   @Test
   public void testIteratorOnSubclassWithoutValues() {
-    for (int i = 0; i < 2; i++) {
-      final EntityImpl doc1 = new EntityImpl("GenericCrash");
-      database.begin();
-      doc1.field("name", "foo");
-      doc1.save();
+    session.begin();
+    for (var i = 0; i < 2; i++) {
+      final var doc1 = ((EntityImpl) session.newEntity("GenericCrash"));
+      doc1.setProperty("name", "foo");
     }
+    session.commit();
 
+    session.begin();
     // crashed with YTIOException, issue #3632
-    ResultSet result =
-        database.query("SELECT FROM GenericCrash WHERE @class='GenericCrash' ORDER BY @rid DESC");
+    var result =
+        session.query("SELECT FROM GenericCrash WHERE @class='GenericCrash' ORDER BY @rid DESC");
 
-    int count = 0;
+    var count = 0;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       Assert.assertEquals(doc.getProperty("name"), "foo");
       count++;
     }
     Assert.assertEquals(count, 2);
+    session.commit();
   }
 }

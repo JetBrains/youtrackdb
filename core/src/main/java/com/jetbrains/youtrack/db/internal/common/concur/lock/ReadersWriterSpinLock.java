@@ -43,7 +43,7 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
   private final transient ThreadLocal<WNode> myNode = new InitWNode();
 
   public ReadersWriterSpinLock() {
-    final WNode wNode = new WNode();
+    final var wNode = new WNode();
     wNode.locked = false;
 
     tail.set(wNode);
@@ -59,9 +59,9 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
    * @return <code>true</code> if read lock was acquired.
    */
   public boolean tryAcquireReadLock(long timeout) {
-    final ModifiableInteger lHolds = lockHolds.get();
+    final var lHolds = lockHolds.get();
 
-    final int holds = lHolds.intValue();
+    final var holds = lHolds.intValue();
     if (holds > 0) {
       // we have already acquire read lock
       lHolds.increment();
@@ -73,9 +73,9 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
 
     distributedCounter.increment();
 
-    WNode wNode = tail.get();
+    var wNode = tail.get();
 
-    final long start = System.nanoTime();
+    final var start = System.nanoTime();
     while (wNode.locked) {
       distributedCounter.decrement();
 
@@ -83,7 +83,7 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
         wNode.waitingReaders.put(Thread.currentThread(), Boolean.TRUE);
 
         if (wNode.locked && wNode == tail.get()) {
-          final long parkTimeout = timeout - (System.nanoTime() - start);
+          final var parkTimeout = timeout - (System.nanoTime() - start);
           if (parkTimeout > 0) {
             LockSupport.parkNanos(this, parkTimeout);
           } else {
@@ -115,9 +115,9 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
   }
 
   public void acquireReadLock() {
-    final ModifiableInteger lHolds = lockHolds.get();
+    final var lHolds = lockHolds.get();
 
-    final int holds = lHolds.intValue();
+    final var holds = lHolds.intValue();
     if (holds > 0) {
       // we have already acquire read lock
       lHolds.increment();
@@ -129,7 +129,7 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
 
     distributedCounter.increment();
 
-    WNode wNode = tail.get();
+    var wNode = tail.get();
     while (wNode.locked) {
       distributedCounter.decrement();
 
@@ -153,8 +153,8 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
   }
 
   public void releaseReadLock() {
-    final ModifiableInteger lHolds = lockHolds.get();
-    final int holds = lHolds.intValue();
+    final var lHolds = lockHolds.get();
+    final var holds = lHolds.intValue();
     if (holds > 1) {
       lHolds.decrement();
       return;
@@ -170,17 +170,17 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
   }
 
   public void acquireWriteLock() {
-    final ModifiableInteger lHolds = lockHolds.get();
+    final var lHolds = lockHolds.get();
 
     if (lHolds.intValue() < 0) {
       lHolds.decrement();
       return;
     }
 
-    final WNode node = myNode.get();
+    final var node = myNode.get();
     node.locked = true;
 
-    final WNode pNode = tail.getAndSet(myNode.get());
+    final var pNode = tail.getAndSet(myNode.get());
 
     while (pNode.locked) {
       pNode.waitingWriter = Thread.currentThread();
@@ -203,7 +203,7 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
   }
 
   public void releaseWriteLock() {
-    final ModifiableInteger lHolds = lockHolds.get();
+    final var lHolds = lockHolds.get();
 
     if (lHolds.intValue() < -1) {
       lHolds.increment();
@@ -212,21 +212,21 @@ public class ReadersWriterSpinLock extends AbstractOwnableSynchronizer {
 
     setExclusiveOwnerThread(null);
 
-    final WNode node = myNode.get();
+    final var node = myNode.get();
     myNode.set(new WNode());
     node.locked = false;
 
-    final Thread waitingWriter = node.waitingWriter;
+    final var waitingWriter = node.waitingWriter;
     if (waitingWriter != null) {
       LockSupport.unpark(waitingWriter);
     }
 
     while (!node.waitingReaders.isEmpty()) {
       final Set<Thread> readers = node.waitingReaders.keySet();
-      final Iterator<Thread> threadIterator = readers.iterator();
+      final var threadIterator = readers.iterator();
 
       while (threadIterator.hasNext()) {
-        final Thread reader = threadIterator.next();
+        final var reader = threadIterator.next();
         threadIterator.remove();
 
         LockSupport.unpark(reader);

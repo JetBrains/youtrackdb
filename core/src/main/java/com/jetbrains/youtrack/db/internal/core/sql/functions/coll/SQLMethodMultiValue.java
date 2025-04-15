@@ -16,13 +16,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Works against multi value objects like collections, maps and arrays.
@@ -40,10 +41,11 @@ public class SQLMethodMultiValue extends AbstractSQLMethod {
     return "multivalue(<index>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -52,20 +54,20 @@ public class SQLMethodMultiValue extends AbstractSQLMethod {
     }
 
     if (iParams.length == 1 && !MultiValue.isMultiValue(iParams[0])) {
-      return DocumentHelper.getFieldValue(iContext.getDatabase(), iThis, iParams[0].toString(),
+      return EntityHelper.getFieldValue(iContext.getDatabaseSession(), iThis, iParams[0].toString(),
           iContext);
     }
 
-    var database = iContext.getDatabase();
+    var database = iContext.getDatabaseSession();
     // MULTI VALUES
     final List<Object> list = new ArrayList<Object>();
-    for (Object iParam : iParams) {
+    for (var iParam : iParams) {
       if (MultiValue.isMultiValue(iParam)) {
-        for (Object o : MultiValue.getMultiValueIterable(iParam)) {
-          list.add(DocumentHelper.getFieldValue(database, iThis, o.toString(), iContext));
+        for (var o : MultiValue.getMultiValueIterable(iParam)) {
+          list.add(EntityHelper.getFieldValue(database, iThis, o.toString(), iContext));
         }
       } else {
-        list.add(DocumentHelper.getFieldValue(database, iThis, iParam.toString(), iContext));
+        list.add(EntityHelper.getFieldValue(database, iThis, iParam.toString(), iContext));
       }
     }
 

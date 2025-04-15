@@ -31,7 +31,7 @@ public final class CellBTreeSingleValueEntryV3<K>
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    final CellBTreeSingleValueEntryV3<?> that = (CellBTreeSingleValueEntryV3<?>) o;
+    final var that = (CellBTreeSingleValueEntryV3<?>) o;
     return leftChild == that.leftChild
         && rightChild == that.rightChild
         && Objects.equals(key, that.key)

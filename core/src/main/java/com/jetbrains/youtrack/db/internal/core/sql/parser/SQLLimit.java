@@ -2,10 +2,10 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -53,18 +53,19 @@ public class SQLLimit extends SimpleNode {
       return num.getValue().intValue();
     }
     if (inputParam != null) {
-      Object paramValue = inputParam.getValue(ctx.getInputParameters());
+      var paramValue = inputParam.getValue(ctx.getInputParameters());
       if (paramValue instanceof Number) {
         return ((Number) paramValue).intValue();
       } else {
-        throw new CommandExecutionException("Invalid value for LIMIT: " + paramValue);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Invalid value for LIMIT: " + paramValue);
       }
     }
-    throw new CommandExecutionException("No value for LIMIT");
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "No value for LIMIT");
   }
 
   public SQLLimit copy() {
-    SQLLimit result = new SQLLimit(-1);
+    var result = new SQLLimit(-1);
     result.num = num == null ? null : num.copy();
     result.inputParam = inputParam == null ? null : inputParam.copy();
     return result;
@@ -79,7 +80,7 @@ public class SQLLimit extends SimpleNode {
       return false;
     }
 
-    SQLLimit oLimit = (SQLLimit) o;
+    var oLimit = (SQLLimit) o;
 
     if (!Objects.equals(num, oLimit.num)) {
       return false;
@@ -89,13 +90,13 @@ public class SQLLimit extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = num != null ? num.hashCode() : 0;
+    var result = num != null ? num.hashCode() : 0;
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (num != null) {
       result.setProperty("num", num.serialize(db));
     }

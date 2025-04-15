@@ -18,61 +18,39 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.NotSendRequestException;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.db.TransactionOptimisticClient;
 import com.jetbrains.youtrack.db.internal.client.remote.db.YTLiveQueryMonitorRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.AddCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.DropCollectionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.HigherPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.HigherPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ImportRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ImportResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.IncrementalBackupRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.IncrementalBackupResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LowerPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.LowerPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Open37Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Open37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PushDistributedConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PushFunctionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PushIndexManagerRequest;
@@ -81,23 +59,16 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.PushSequencesReq
 import com.jetbrains.youtrack.db.internal.client.remote.message.PushStorageConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.QueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest37;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadResponse37;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackTransactionRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SendTransactionStateRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SendTransactionStateResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeDistributedConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeFunctionsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeIndexManagerRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeLiveQueryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeLiveQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSchemaRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSequencesRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeStorageConfigurationRequest;
@@ -111,47 +82,37 @@ import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestAsynch;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
-import com.jetbrains.youtrack.db.internal.core.config.StorageClusterConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
+import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.TokenException;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.security.CredentialInterceptor;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LiveQuery;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -163,10 +124,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -195,18 +154,16 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   private CONNECTION_STRATEGY connectionStrategy = CONNECTION_STRATEGY.STICKY;
 
-  private final SBTreeCollectionManagerRemote sbTreeCollectionManager =
-      new SBTreeCollectionManagerRemote();
+  private final LinkCollectionsBTreeManagerRemote sbTreeCollectionManager =
+      new LinkCollectionsBTreeManagerRemote();
   private final RemoteURLs serverURLs;
-  private final Map<String, StorageCluster> clusterMap = new ConcurrentHashMap<String, StorageCluster>();
+  private final Map<String, StorageCollection> collectionMap = new ConcurrentHashMap<String, StorageCollection>();
   private final ExecutorService asynchExecutor;
-  private final EntityImpl clusterConfiguration = new EntityImpl();
   private final AtomicInteger users = new AtomicInteger(0);
   private final ContextConfiguration clientConfiguration;
   private final int connectionRetry;
   private final int connectionRetryDelay;
-  private StorageCluster[] clusters = CommonConst.EMPTY_CLUSTER_ARRAY;
-  private int defaultClusterId;
+  private StorageCollection[] collections = CommonConst.EMPTY_COLLECTION_ARRAY;
   public RemoteConnectionManager connectionManager;
   private final Set<StorageRemoteSession> sessions =
       Collections.newSetFromMap(new ConcurrentHashMap<StorageRemoteSession, Boolean>());
@@ -363,7 +320,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           } catch (IOException e) {
             throw new NotSendRequestException("Cannot send request on this channel");
           }
-          final T response = request.createResponse();
+          final var response = request.createResponse();
           T ret = null;
           if (pMode == 0) {
             // SYNC
@@ -427,8 +384,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             throw new NotSendRequestException("Cannot send request on this channel");
           }
 
-          int prev = network.getSocketTimeout();
-          T response = request.createResponse();
+          var prev = network.getSocketTimeout();
+          var response = request.createResponse();
           try {
             if (timeout > 0) {
               network.setSocketTimeout(timeout);
@@ -462,9 +419,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public <T> T baseNetworkOperation(
       DatabaseSessionRemote remoteSession, final StorageRemoteOperation<T> operation,
       final String errorMessage, int retry) {
-    StorageRemoteSession session = getCurrentSession(remoteSession);
+    var session = getCurrentSession(remoteSession);
     if (session.commandExecuting) {
-      throw new DatabaseException(
+      throw new DatabaseException(name,
           "Cannot execute the request because an asynchronous operation is in progress. Please use"
               + " a different connection");
     }
@@ -497,7 +454,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
         // In case i do not have a token or i'm switching between server i've to execute a open
         // operation.
-        StorageRemoteNodeSession nodeSession = session.getServerSession(network.getServerURL());
+        var nodeSession = session.getServerSession(network.getServerURL());
         if (nodeSession == null || !nodeSession.isValid() && !session.isStickToSession()) {
           if (nodeSession != null) {
             session.removeServerSession(nodeSession.getServerURL());
@@ -529,42 +486,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         connectionManager.release(network);
         handleDBFreeze();
         serverUrl = null;
-      } catch (TokenException | TokenSecurityException e) {
-        connectionManager.release(network);
-        session.removeServerSession(network.getServerURL());
-
-        if (session.isStickToSession()) {
-          retry--;
-          if (retry <= 0) {
-            throw BaseException.wrapException(new StorageException(errorMessage), e);
-          } else {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "Caught Network I/O errors on %s, trying an automatic reconnection... (error:"
-                        + " %s)",
-                    network.getServerURL(),
-                    e.getMessage());
-            LogManager.instance().debug(this, "I/O error stack: ", e);
-
-            connectionManager.remove(network);
-            try {
-              Thread.sleep(connectionRetryDelay);
-            } catch (java.lang.InterruptedException e1) {
-              LogManager.instance()
-                  .error(this, "Exception was suppressed, original exception is ", e);
-              throw BaseException.wrapException(new ThreadInterruptedException(e1.getMessage()),
-                  e1);
-            }
-          }
-        }
-
-        serverUrl = null;
       } catch (OfflineNodeException e) {
         connectionManager.release(network);
         // Remove the current url because the node is offline
         this.serverURLs.remove(serverUrl);
-        for (StorageRemoteSession activeSession : sessions) {
+        for (var activeSession : sessions) {
           // Not thread Safe ...
           activeSession.removeServerSession(serverUrl);
         }
@@ -579,14 +505,15 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         LogManager.instance().debug(this, "I/O error stack: ", e);
         connectionManager.remove(network);
         if (--retry <= 0) {
-          throw BaseException.wrapException(new YTIOException(e.getMessage()), e);
+          throw BaseException.wrapException(new YTIOException(e.getMessage()), e, name);
         } else {
           try {
             Thread.sleep(connectionRetryDelay);
           } catch (java.lang.InterruptedException e1) {
             LogManager.instance()
                 .error(this, "Exception was suppressed, original exception is ", e);
-            throw BaseException.wrapException(new ThreadInterruptedException(e1.getMessage()), e1);
+            throw BaseException.wrapException(new ThreadInterruptedException(e1.getMessage()),
+                e1, name);
           }
         }
         serverUrl = null;
@@ -595,14 +522,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         throw e;
       } catch (Exception e) {
         connectionManager.release(network);
-        throw BaseException.wrapException(new StorageException(errorMessage), e);
+        throw BaseException.wrapException(new StorageException(name, errorMessage), e, name);
       } finally {
         session.commandExecuting = false;
       }
     } while (true);
   }
 
-  public boolean isAssigningClusterIds() {
+  public boolean isAssigningCollectionIds() {
     return false;
   }
 
@@ -615,7 +542,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public int getSessionId(DatabaseSessionRemote database) {
-    StorageRemoteSession session = getCurrentSession(database);
+    var session = getCurrentSession(database);
     return session != null ? session.getSessionId() : -1;
   }
 
@@ -625,13 +552,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     var remoteDb = (DatabaseSessionRemote) db;
     addUser();
     try {
-      StorageRemoteSession session = getCurrentSession(remoteDb);
+      var session = getCurrentSession(remoteDb);
       if (status == STATUS.CLOSED
           || !iUserName.equals(session.connectionUserName)
           || !iUserPassword.equals(session.connectionUserPassword)
           || session.sessions.isEmpty()) {
 
-        CredentialInterceptor ci = SecurityManager.instance().newCredentialInterceptor();
+        var ci = SecurityManager.instance().newCredentialInterceptor();
 
         if (ci != null) {
           ci.intercept(getURL(), iUserName, iUserPassword);
@@ -643,7 +570,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           session.connectionUserPassword = iUserPassword;
         }
 
-        String strategy = conf.getValueAsString(GlobalConfiguration.CLIENT_CONNECTION_STRATEGY);
+        var strategy = conf.getValueAsString(GlobalConfiguration.CLIENT_CONNECTION_STRATEGY);
         if (strategy != null) {
           connectionStrategy = CONNECTION_STRATEGY.valueOf(strategy.toUpperCase(Locale.ENGLISH));
         }
@@ -666,17 +593,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         throw (RuntimeException) e;
       } else {
         throw BaseException.wrapException(
-            new StorageException("Cannot open the remote storage: " + name), e);
+            new StorageException(name, "Cannot open the remote storage: " + name), e, name);
       }
     }
   }
 
-  public SBTreeCollectionManager getSBtreeCollectionManager() {
+  public LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
     return sbTreeCollectionManager;
   }
 
   public void reload(DatabaseSessionInternal database) {
-    ReloadResponse37 res =
+    var res =
         networkOperation((DatabaseSessionRemote) database, new ReloadRequest37(),
             "error loading storage configuration");
     final StorageConfiguration storageConfiguration =
@@ -705,9 +632,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       return;
     }
 
-    final StorageRemoteSession session = getCurrentSession((DatabaseSessionRemote) database);
+    final var session = getCurrentSession((DatabaseSessionRemote) database);
     if (session != null) {
-      final Collection<StorageRemoteNodeSession> nodes = session.getAllServerSessions();
+      final var nodes = session.getAllServerSessions();
       if (!nodes.isEmpty()) {
         ContextConfiguration config = null;
         if (configuration != null) {
@@ -733,7 +660,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
 
     // FROM HERE FORWARD COMPLETELY CLOSE THE STORAGE
-    for (Entry<Integer, LiveQueryClientListener> listener : liveQueryListener.entrySet()) {
+    for (var listener : liveQueryListener.entrySet()) {
       listener.getValue().onEnd();
     }
     liveQueryListener.clear();
@@ -760,8 +687,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     stateLock.writeLock().lock();
     try {
       // CLOSE ALL THE SOCKET POOLS
-      sbTreeCollectionManager.close();
-
       status = STATUS.CLOSED;
 
     } finally {
@@ -778,7 +703,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       return false;
     }
 
-    final int remainingUsers = getUsers() > 0 ? removeUser() : 0;
+    final var remainingUsers = getUsers() > 0 ? removeUser() : 0;
 
     return force || remainingUsers == 0;
   }
@@ -806,33 +731,20 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             + " class.");
   }
 
-  public Set<String> getClusterNames() {
+  public Set<String> getCollectionNames() {
     stateLock.readLock().lock();
     try {
 
-      return new HashSet<String>(clusterMap.keySet());
+      return new HashSet<String>(collectionMap.keySet());
 
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  private void updateCollectionsFromChanges(
-      final SBTreeCollectionManager collectionManager,
-      final Map<UUID, BonsaiCollectionPointer> changes) {
-    if (collectionManager != null) {
-      for (Entry<UUID, BonsaiCollectionPointer> coll : changes.entrySet()) {
-        collectionManager.updateCollectionPointer(coll.getKey(), coll.getValue());
-      }
-      if (RecordSerializationContext.getDepth() <= 1) {
-        collectionManager.clearPendingCollections();
-      }
-    }
-  }
-
   public RecordMetadata getRecordMetadata(DatabaseSessionInternal session, final RID rid) {
-    GetRecordMetadataRequest request = new GetRecordMetadataRequest(rid);
-    GetRecordMetadataResponse response =
+    var request = new GetRecordMetadataRequest(rid);
+    var response =
         networkOperation((DatabaseSessionRemote) session, request,
             "Error on record metadata read " + rid);
 
@@ -857,11 +769,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return response.isRecordExists();
   }
 
-  public @Nonnull RawBuffer readRecord(
-      DatabaseSessionInternal session, final RecordId iRid,
-      final boolean iIgnoreCache,
-      boolean prefetchRecords,
-      final RecordCallback<RawBuffer> iCallback) {
+  public @Nonnull ReadRecordResult readRecord(
+      DatabaseSessionInternal session, final RecordId iRid, boolean fetchPreviousRid,
+      boolean fetchNextRid) {
 
     var remoteSession = (DatabaseSessionRemote) session;
     if (getCurrentSession(remoteSession).commandExecuting)
@@ -872,25 +782,25 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
               + " a different connection");
     }
 
-    ReadRecordRequest request = new ReadRecordRequest(iIgnoreCache, iRid, null, false);
-    ReadRecordResponse response = networkOperation(remoteSession, request,
+    var request = new ReadRecordRequest(false, iRid, null, false);
+    var response = networkOperation(remoteSession, request,
         "Error on read record " + iRid);
 
     return response.getResult();
   }
 
+  @Override
+  public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+    return 0;
+  }
+
   public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
       CallableFunction<Void, Void> started) {
-    IncrementalBackupRequest request = new IncrementalBackupRequest(backupDirectory);
-    IncrementalBackupResponse response =
+    var request = new IncrementalBackupRequest(backupDirectory);
+    var response =
         networkOperationNoRetry((DatabaseSessionRemote) session, request,
             "Error on incremental backup");
     return response.getFileName();
-  }
-
-  public boolean supportIncremental() {
-    // THIS IS FALSE HERE THOUGH WE HAVE SOME SUPPORT FOR SOME SPECIFIC CASES FROM REMOTE
-    return false;
   }
 
   public void fullIncrementalBackup(final OutputStream stream)
@@ -912,30 +822,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         "This operations is part of internal API and is not supported in remote storage");
   }
 
-  public boolean cleanOutRecord(
-      DatabaseSessionInternal session, final RecordId recordId,
-      final int recordVersion,
-      final int iMode,
-      final RecordCallback<Boolean> callback) {
-
-    RecordCallback<CleanOutRecordResponse> realCallback = null;
-    if (callback != null) {
-      realCallback = (iRID, response) -> callback.call(iRID, response.getResult());
-    }
-
-    final CleanOutRecordRequest request = new CleanOutRecordRequest(recordVersion, recordId);
-    final CleanOutRecordResponse response =
-        asyncNetworkOperationNoRetry((DatabaseSessionRemote) session,
-            request, iMode, recordId, realCallback, "Error on delete record " + recordId);
-    Boolean result = null;
-    if (response != null) {
-      result = response.getResult();
-    }
-    return result != null ? result : false;
-  }
-
   public List<String> backup(
-      OutputStream out,
+      DatabaseSessionInternal db, OutputStream out,
       Map<String, Object> options,
       Callable<Object> callable,
       final CommandOutputListener iListener,
@@ -943,7 +831,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       int bufferSize)
       throws IOException {
     throw new UnsupportedOperationException(
-        "backup is not supported against remote storage. Open the database with plocal or use the"
+        "backup is not supported against remote storage. Open the database with disk or use the"
             + " incremental backup in the Enterprise Edition");
   }
 
@@ -954,7 +842,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       final CommandOutputListener iListener)
       throws IOException {
     throw new UnsupportedOperationException(
-        "restore is not supported against remote storage. Open the database with plocal or use"
+        "restore is not supported against remote storage. Open the database with disk or use"
             + " Enterprise Edition");
   }
 
@@ -962,143 +850,125 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return clientConfiguration;
   }
 
-  public long count(DatabaseSessionInternal session, final int iClusterId) {
-    return count(session, new int[]{iClusterId});
+  public long count(DatabaseSessionInternal session, final int iCollectionId) {
+    return count(session, new int[]{iCollectionId});
   }
 
-  public long count(DatabaseSessionInternal session, int iClusterId, boolean countTombstones) {
-    return count(session, new int[]{iClusterId}, countTombstones);
-  }
-
-  public long[] getClusterDataRange(DatabaseSessionInternal session, final int iClusterId) {
-    GetClusterDataRangeRequest request = new GetClusterDataRangeRequest(iClusterId);
-    GetClusterDataRangeResponse response =
-        networkOperation((DatabaseSessionRemote) session,
-            request, "Error on getting last entry position count in cluster: " + iClusterId);
-    return response.getPos();
+  public long count(DatabaseSessionInternal session, int iCollectionId, boolean countTombstones) {
+    return count(session, new int[]{iCollectionId}, countTombstones);
   }
 
   public PhysicalPosition[] higherPhysicalPositions(
-      DatabaseSessionInternal session, final int iClusterId,
-      final PhysicalPosition iClusterPosition) {
-    HigherPhysicalPositionsRequest request =
-        new HigherPhysicalPositionsRequest(iClusterId, iClusterPosition);
+      DatabaseSessionInternal session, final int iCollectionId,
+      final PhysicalPosition iCollectionPosition, int limit) {
+    var request =
+        new HigherPhysicalPositionsRequest(iCollectionId, iCollectionPosition, limit);
 
-    HigherPhysicalPositionsResponse response =
+    var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving higher positions after " + iClusterPosition.clusterPosition);
+            "Error on retrieving higher positions after " + iCollectionPosition.collectionPosition);
     return response.getNextPositions();
   }
 
   public PhysicalPosition[] ceilingPhysicalPositions(
-      DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
+      DatabaseSessionInternal session, final int collectionId,
+      final PhysicalPosition physicalPosition, int limit) {
 
-    CeilingPhysicalPositionsRequest request =
-        new CeilingPhysicalPositionsRequest(clusterId, physicalPosition);
+    var request =
+        new CeilingPhysicalPositionsRequest(collectionId, physicalPosition, limit);
 
-    CeilingPhysicalPositionsResponse response =
+    var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving ceiling positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving ceiling positions after " + physicalPosition.collectionPosition);
     return response.getPositions();
   }
 
   public PhysicalPosition[] lowerPhysicalPositions(
-      DatabaseSessionInternal session, final int iClusterId,
-      final PhysicalPosition physicalPosition) {
-    LowerPhysicalPositionsRequest request =
-        new LowerPhysicalPositionsRequest(physicalPosition, iClusterId);
-    LowerPhysicalPositionsResponse response =
+      DatabaseSessionInternal session, final int iCollectionId,
+      final PhysicalPosition physicalPosition, int limit) {
+    var request =
+        new LowerPhysicalPositionsRequest(physicalPosition, iCollectionId, limit);
+    var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving lower positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving lower positions after " + physicalPosition.collectionPosition);
     return response.getPreviousPositions();
   }
 
   public PhysicalPosition[] floorPhysicalPositions(
-      DatabaseSessionInternal session, final int clusterId,
-      final PhysicalPosition physicalPosition) {
-    FloorPhysicalPositionsRequest request =
-        new FloorPhysicalPositionsRequest(physicalPosition, clusterId);
-    FloorPhysicalPositionsResponse response =
+      DatabaseSessionInternal session, final int collectionId,
+      final PhysicalPosition physicalPosition, int limit) {
+    var request =
+        new FloorPhysicalPositionsRequest(physicalPosition, collectionId, limit);
+    var response =
         networkOperation((DatabaseSessionRemote) session,
             request,
-            "Error on retrieving floor positions after " + physicalPosition.clusterPosition);
+            "Error on retrieving floor positions after " + physicalPosition.collectionPosition);
     return response.getPositions();
   }
 
   public long getSize(DatabaseSessionInternal session) {
-    GetSizeRequest request = new GetSizeRequest();
-    GetSizeResponse response = networkOperation((DatabaseSessionRemote) session, request,
+    var request = new GetSizeRequest();
+    var response = networkOperation((DatabaseSessionRemote) session, request,
         "Error on read database size");
     return response.getSize();
   }
 
+  @Override
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid) {
+    throw new UnsupportedOperationException();
+  }
+
   public long countRecords(DatabaseSessionInternal session) {
-    CountRecordsRequest request = new CountRecordsRequest();
-    CountRecordsResponse response =
+    var request = new CountRecordsRequest();
+    var response =
         networkOperation((DatabaseSessionRemote) session, request,
             "Error on read database record count");
     return response.getCountRecords();
   }
 
-  public long count(DatabaseSessionInternal session, final int[] iClusterIds) {
-    return count(session, iClusterIds, false);
+  public long count(DatabaseSessionInternal session, final int[] iCollectionIds) {
+    return count(session, iCollectionIds, false);
   }
 
-  public long count(DatabaseSessionInternal session, final int[] iClusterIds,
+  public long count(DatabaseSessionInternal session, final int[] iCollectionIds,
       final boolean countTombstones) {
-    CountRequest request = new CountRequest(iClusterIds, countTombstones);
-    CountResponse response =
+    var request = new CountRequest(iCollectionIds, countTombstones);
+    var response =
         networkOperation((DatabaseSessionRemote) session,
-            request, "Error on read record count in clusters: " + Arrays.toString(iClusterIds));
+            request,
+            "Error on read record count in collections: " + Arrays.toString(iCollectionIds));
     return response.getCount();
   }
 
-  /**
-   * Execute the command remotely and get the results back.
-   */
-  public Object command(DatabaseSessionInternal database, final CommandRequestText iCommand) {
-
-    final boolean live = iCommand instanceof LiveQuery;
-    final boolean asynch =
-        iCommand instanceof CommandRequestAsynch
-            && ((CommandRequestAsynch) iCommand).isAsynchronous();
-
-    CommandRequest request = new CommandRequest(database, asynch, iCommand, live);
-    CommandResponse response =
-        networkOperation((DatabaseSessionRemote) database, request,
-            "Error on executing command: " + iCommand);
-    return response.getResult();
-  }
-
   public void stickToSession(DatabaseSessionRemote database) {
-    StorageRemoteSession session = getCurrentSession(database);
+    var session = getCurrentSession(database);
     session.stickToSession();
   }
 
   public void unstickToSession(DatabaseSessionRemote database) {
-    StorageRemoteSession session = getCurrentSession(database);
+    var session = getCurrentSession(database);
     session.unStickToSession();
   }
 
   public RemoteQueryResult query(DatabaseSessionRemote db, String query, Object[] args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             "sql", query, args, QueryRequest.QUERY, db.getSerializer(), recordsPerPage);
-    QueryResponse response = networkOperation(db, request, "Error on executing command: " + query);
+    var response = networkOperation(db, request, "Error on executing command: " + query);
     try {
       if (response.isTxChanges()) {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1120,21 +990,21 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public RemoteQueryResult query(DatabaseSessionRemote db, String query, Map args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             "sql", query, args, QueryRequest.QUERY, db.getSerializer(), recordsPerPage);
-    QueryResponse response = networkOperation(db, request, "Error on executing command: " + query);
+    var response = networkOperation(db, request, "Error on executing command: " + query);
 
     try {
       if (response.isTxChanges()) {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1156,14 +1026,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public RemoteQueryResult command(DatabaseSessionRemote db, String query, Object[] args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             "sql", query, args, QueryRequest.COMMAND, db.getSerializer(), recordsPerPage);
-    QueryResponse response =
+    var response =
         networkOperationNoRetry(db, request, "Error on executing command: " + query);
 
     try {
@@ -1171,7 +1041,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1192,21 +1062,21 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public RemoteQueryResult command(DatabaseSessionRemote db, String query, Map args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             "sql", query, args, QueryRequest.COMMAND, db.getSerializer(), recordsPerPage);
-    QueryResponse response =
+    var response =
         networkOperationNoRetry(db, request, "Error on executing command: " + query);
     try {
       if (response.isTxChanges()) {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1228,14 +1098,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public RemoteQueryResult execute(
       DatabaseSessionRemote db, String language, String query, Object[] args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             language, query, args, QueryRequest.EXECUTE, db.getSerializer(), recordsPerPage);
-    QueryResponse response =
+    var response =
         networkOperationNoRetry(db, request, "Error on executing command: " + query);
 
     try {
@@ -1243,7 +1113,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1267,14 +1137,14 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public RemoteQueryResult execute(
       DatabaseSessionRemote db, String language, String query, Map args) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryRequest request =
+    var request =
         new QueryRequest(db,
             language, query, args, QueryRequest.EXECUTE, db.getSerializer(), recordsPerPage);
-    QueryResponse response =
+    var response =
         networkOperationNoRetry(db, request, "Error on executing command: " + query);
 
     try {
@@ -1282,7 +1152,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         fetchTransaction(db);
       }
 
-      RemoteResultSet rs =
+      var rs =
           new RemoteResultSet(
               db,
               response.getQueryId(),
@@ -1304,17 +1174,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public void closeQuery(DatabaseSessionRemote database, String queryId) {
     unstickToSession(database);
-    CloseQueryRequest request = new CloseQueryRequest(queryId);
+    var request = new CloseQueryRequest(queryId);
     networkOperation(database, request, "Error closing query: " + queryId);
   }
 
   public void fetchNextPage(DatabaseSessionRemote database, RemoteResultSet rs) {
-    int recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
-    QueryNextPageRequest request = new QueryNextPageRequest(rs.getQueryId(), recordsPerPage);
-    QueryResponse response =
+    var request = new QueryNextPageRequest(rs.getQueryId(), recordsPerPage);
+    var response =
         networkOperation(database, request,
             "Error on fetching next page for statment: " + rs.getQueryId());
 
@@ -1329,38 +1199,33 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  public List<RecordOperation> commit(final TransactionOptimistic iTx) {
-    var remoteSession = (DatabaseSessionRemote) iTx.getDatabase();
+  public void commit(final FrontendTransactionImpl tx) {
+    var remoteSession = (DatabaseSessionRemote) tx.getDatabaseSession();
     unstickToSession(remoteSession);
 
-    final Commit38Request request =
-        new Commit38Request(iTx.getDatabase(),
-            iTx.getId(), true, true, iTx.getRecordOperations(), Collections.emptyMap());
+    var transaction = (FrontendClientServerTransaction) tx;
+    final var request =
+        new Commit38Request(tx.getDatabaseSession(),
+            transaction.getId(), transaction.getOperationsToSendOnClient(),
+            transaction.getReceivedDirtyCounters());
 
-    final Commit37Response response = networkOperationNoRetry(remoteSession, request,
+    final var response = networkOperationNoRetry(remoteSession, request,
         "Error on commit");
 
-    // two pass iteration, we update cluster ids, and then update positions
-    for (var updatedPair : response.getUpdatedRids()) {
-      iTx.updateIdentityAfterCommit(updatedPair.first(), updatedPair.second());
-    }
+    // two pass iteration, we update collection ids, and then update positions
+    updateTxFromResponse(transaction, response);
 
-    updateCollectionsFromChanges(
-        iTx.getDatabase().getSbTreeCollectionManager(), response.getCollectionChanges());
-    // SET ALL THE RECORDS AS UNDIRTY
-    for (RecordOperation txEntry : iTx.getRecordOperations()) {
-      RecordInternal.unsetDirty(txEntry.record);
+    for (var txEntry : transaction.getRecordOperationsInternal()) {
+      final var rec = txEntry.record;
+      rec.unsetDirty();
     }
-
-    return null;
   }
 
-  public void rollback(TransactionInternal iTx) {
-    var remoteSession = (DatabaseSessionRemote) iTx.getDatabase();
+  public void rollback(FrontendTransaction iTx) {
+    var remoteSession = (DatabaseSessionRemote) iTx.getDatabaseSession();
     try {
-      if (((TransactionOptimistic) iTx).isStartedOnServer()
-          && !getCurrentSession(remoteSession).getAllServerSessions().isEmpty()) {
-        RollbackTransactionRequest request = new RollbackTransactionRequest(iTx.getId());
+      if (!getCurrentSession(remoteSession).getAllServerSessions().isEmpty()) {
+        var request = new RollbackTransactionRequest(iTx.getId());
         networkOperation(remoteSession, request,
             "Error on fetching next page for statement: " + request);
       }
@@ -1369,147 +1234,127 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  public int getClusterIdByName(final String iClusterName) {
+  public int getCollectionIdByName(final String iCollectionName) {
     stateLock.readLock().lock();
     try {
 
-      if (iClusterName == null) {
+      if (iCollectionName == null) {
         return -1;
       }
 
-      if (Character.isDigit(iClusterName.charAt(0))) {
-        return Integer.parseInt(iClusterName);
+      if (Character.isDigit(iCollectionName.charAt(0))) {
+        return Integer.parseInt(iCollectionName);
       }
 
-      final StorageCluster cluster = clusterMap.get(iClusterName.toLowerCase(Locale.ENGLISH));
-      if (cluster == null) {
+      final var collection = collectionMap.get(iCollectionName.toLowerCase(Locale.ENGLISH));
+      if (collection == null) {
         return -1;
       }
 
-      return cluster.getId();
+      return collection.getId();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public int getDefaultClusterId() {
-    return defaultClusterId;
-  }
-
-  public void setDefaultClusterId(int defaultClusterId) {
-    this.defaultClusterId = defaultClusterId;
-  }
-
-  public int addCluster(DatabaseSessionInternal database, final String iClusterName,
+  public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final Object... iArguments) {
-    return addCluster(database, iClusterName, -1);
+    return addCollection(database, iCollectionName, -1);
   }
 
-  public int addCluster(DatabaseSessionInternal database, final String iClusterName,
+  public int addCollection(DatabaseSessionInternal database, final String iCollectionName,
       final int iRequestedId) {
-    AddClusterRequest request = new AddClusterRequest(iRequestedId, iClusterName);
-    AddClusterResponse response = networkOperationNoRetry((DatabaseSessionRemote) database,
+    var request = new AddCollectionRequest(iRequestedId, iCollectionName);
+    var response = networkOperationNoRetry((DatabaseSessionRemote) database,
         request,
-        "Error on add new cluster");
-    addNewClusterToConfiguration(response.getClusterId(), iClusterName);
-    return response.getClusterId();
+        "Error on add new collection");
+    addNewCollectionToConfiguration(response.getCollectionId(), iCollectionName);
+    return response.getCollectionId();
   }
 
-  public String getClusterNameById(int clusterId) {
+  public String getCollectionNameById(int collectionId) {
     stateLock.readLock().lock();
     try {
-      if (clusterId < 0 || clusterId >= clusters.length) {
-        throw new StorageException("Cluster with id " + clusterId + " does not exist");
+      if (collectionId < 0 || collectionId >= collections.length) {
+        throw new StorageException(name, "Collection with id " + collectionId + " does not exist");
       }
 
-      final StorageCluster cluster = clusters[clusterId];
-      return cluster.getName();
+      final var collection = collections[collectionId];
+      return collection.getName();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public long getClusterRecordsSizeById(int clusterId) {
+  public long getCollectionRecordsSizeById(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public long getClusterRecordsSizeByName(String clusterName) {
+  public long getCollectionRecordsSizeByName(String collectionName) {
     throw new UnsupportedOperationException();
   }
 
-  public String getClusterRecordConflictStrategy(int clusterId) {
+  public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public boolean isSystemCluster(int clusterId) {
+  public boolean isSystemCollection(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  public long getLastClusterPosition(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
+  public boolean dropCollection(DatabaseSessionInternal database, final int iCollectionId) {
 
-  public long getClusterNextPosition(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
+    var request = new DropCollectionRequest(iCollectionId);
 
-  public PaginatedCluster.RECORD_STATUS getRecordStatus(RID rid) {
-    throw new UnsupportedOperationException();
-  }
-
-  public boolean dropCluster(DatabaseSessionInternal database, final int iClusterId) {
-
-    DropClusterRequest request = new DropClusterRequest(iClusterId);
-
-    DropClusterResponse response =
+    var response =
         networkOperationNoRetry((DatabaseSessionRemote) database, request,
-            "Error on removing of cluster");
+            "Error on removing of collection");
     if (response.getResult()) {
-      removeClusterFromConfiguration(iClusterId);
+      removeCollectionFromConfiguration(iCollectionId);
     }
     return response.getResult();
   }
 
-  public String getClusterName(DatabaseSessionInternal database, int clusterId) {
+  public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
     stateLock.readLock().lock();
     try {
-      if (clusterId == RID.CLUSTER_ID_INVALID)
-      // GET THE DEFAULT CLUSTER
-      {
-        clusterId = defaultClusterId;
+      if (collectionId == RID.COLLECTION_ID_INVALID) {
+        // GET THE DEFAULT COLLECTION
+        throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
       }
 
-      if (clusterId >= clusters.length) {
+      if (collectionId >= collections.length) {
         stateLock.readLock().unlock();
         reload(database);
         stateLock.readLock().lock();
       }
 
-      if (clusterId < clusters.length) {
-        return clusters[clusterId].getName();
+      if (collectionId < collections.length) {
+        return collections[collectionId].getName();
       }
     } finally {
       stateLock.readLock().unlock();
     }
 
-    throw new StorageException("Cluster " + clusterId + " is absent in storage.");
+    throw new StorageException(name, "Collection " + collectionId + " is absent in storage.");
   }
 
-  public boolean setClusterAttribute(int id, StorageCluster.ATTRIBUTES attribute, Object value) {
+  public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute,
+      Object value) {
     return false;
   }
 
-  public void removeClusterFromConfiguration(int iClusterId) {
+  public void removeCollectionFromConfiguration(int iCollectionId) {
     stateLock.writeLock().lock();
     try {
-      // If this is false the clusters may be already update by a push
-      if (clusters.length > iClusterId && clusters[iClusterId] != null) {
-        // Remove cluster locally waiting for the push
-        final StorageCluster cluster = clusters[iClusterId];
-        clusters[iClusterId] = null;
-        clusterMap.remove(cluster.getName());
+      // If this is false the collections may be already update by a push
+      if (collections.length > iCollectionId && collections[iCollectionId] != null) {
+        // Remove collection locally waiting for the push
+        final var collection = collections[iCollectionId];
+        collections[iCollectionId] = null;
+        collectionMap.remove(collection.getName());
         ((StorageConfigurationRemote) configuration)
-            .dropCluster(iClusterId); // endResponse must be called before this line, which
+            .dropCollection(iCollectionId); // endResponse must be called before this line, which
         // call updateRecord
       }
     } finally {
@@ -1520,36 +1365,37 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public void synch() {
   }
 
-  public String getPhysicalClusterNameById(final int iClusterId) {
+  @Nullable
+  public String getPhysicalCollectionNameById(final int iCollectionId) {
     stateLock.readLock().lock();
     try {
 
-      if (iClusterId >= clusters.length) {
+      if (iCollectionId >= collections.length) {
         return null;
       }
 
-      final StorageCluster cluster = clusters[iClusterId];
-      return cluster != null ? cluster.getName() : null;
+      final var collection = collections[iCollectionId];
+      return collection != null ? collection.getName() : null;
 
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public int getClusterMap() {
+  public int getCollectionMap() {
     stateLock.readLock().lock();
     try {
-      return clusterMap.size();
+      return collectionMap.size();
     } finally {
       stateLock.readLock().unlock();
     }
   }
 
-  public Collection<StorageCluster> getClusterInstances() {
+  public Collection<StorageCollection> getCollectionInstances() {
     stateLock.readLock().lock();
     try {
 
-      return Arrays.asList(clusters);
+      return Arrays.asList(collections);
 
     } finally {
       stateLock.readLock().unlock();
@@ -1558,10 +1404,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public long getVersion() {
     throw new UnsupportedOperationException("getVersion");
-  }
-
-  public EntityImpl getClusterConfiguration() {
-    return clusterConfiguration;
   }
 
   /**
@@ -1587,10 +1429,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return true;
   }
 
-  public boolean isPermanentRequester() {
-    return false;
-  }
-
   public RecordConflictStrategy getRecordConflictStrategy() {
     throw new UnsupportedOperationException("getRecordConflictStrategy");
   }
@@ -1603,10 +1441,10 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return EngineRemote.NAME + ":" + url;
   }
 
-  public int getClusters() {
+  public int getCollections() {
     stateLock.readLock().lock();
     try {
-      return clusterMap.size();
+      return collectionMap.size();
     } finally {
       stateLock.readLock().unlock();
     }
@@ -1616,8 +1454,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return EngineRemote.NAME;
   }
 
+  @Nullable
   public String getUserName(DatabaseSessionInternal database) {
-    final StorageRemoteSession session = getCurrentSession((DatabaseSessionRemote) database);
+    final var session = getCurrentSession((DatabaseSessionRemote) database);
     if (session == null) {
       return null;
     }
@@ -1625,19 +1464,19 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   protected void reopenRemoteDatabase(DatabaseSessionRemote database) {
-    String currentURL = getCurrentServerURL(database);
+    var currentURL = getCurrentServerURL(database);
     do {
       do {
-        final SocketChannelBinaryAsynchClient network = getNetwork(currentURL);
+        final var network = getNetwork(currentURL);
         try {
-          StorageRemoteSession session = getCurrentSession(database);
-          StorageRemoteNodeSession nodeSession =
+          var session = getCurrentSession(database);
+          var nodeSession =
               session.getOrCreateServerSession(network.getServerURL());
           if (nodeSession == null || !nodeSession.isValid()) {
             openRemoteDatabase(database, network);
             return;
           } else {
-            ReopenRequest request = new ReopenRequest();
+            var request = new ReopenRequest();
 
             try {
               network.writeByte(request.getCommand());
@@ -1648,9 +1487,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
               endRequest(network);
             }
 
-            ReopenResponse response = request.createResponse();
+            var response = request.createResponse();
             try {
-              byte[] newToken = network.beginResponse(database, nodeSession.getSessionId(), true);
+              var newToken = network.beginResponse(database, nodeSession.getSessionId(), true);
               response.read(database, network, session);
               if (newToken != null && newToken.length > 0) {
                 nodeSession.setSession(response.getSessionId(), newToken);
@@ -1685,7 +1524,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
         } catch (SecurityException ex) {
           LogManager.instance().debug(this, "Invalidate token for url=%s", ex, currentURL);
-          StorageRemoteSession session = getCurrentSession(database);
+          var session = getCurrentSession(database);
           session.removeServerSession(currentURL);
 
           if (network != null) {
@@ -1725,22 +1564,22 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     // REFILL ORIGINAL SERVER LIST
     serverURLs.reloadOriginalURLs();
 
-    throw new StorageException(
+    throw new StorageException(name,
         "Cannot create a connection to remote server address(es): " + serverURLs.getUrls());
   }
 
   protected void openRemoteDatabase(DatabaseSessionRemote database) throws IOException {
-    final String currentURL = getNextAvailableServerURL(true, getCurrentSession(database));
+    final var currentURL = getNextAvailableServerURL(true, getCurrentSession(database));
     openRemoteDatabase(database, currentURL);
   }
 
   public void openRemoteDatabase(DatabaseSessionRemote database,
       SocketChannelBinaryAsynchClient network) throws IOException {
 
-    StorageRemoteSession session = getCurrentSession(database);
-    StorageRemoteNodeSession nodeSession =
+    var session = getCurrentSession(database);
+    var nodeSession =
         session.getOrCreateServerSession(network.getServerURL());
-    Open37Request request =
+    var request =
         new Open37Request(name, session.connectionUserName, session.connectionUserPassword);
     try {
       network.writeByte(request.getCommand());
@@ -1751,7 +1590,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       endRequest(network);
     }
     final int sessionId;
-    Open37Response response = request.createResponse();
+    var response = request.createResponse();
     try {
       network.beginResponse(database, nodeSession.getSessionId(), true);
       response.read(database, network, session);
@@ -1760,7 +1599,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       connectionManager.release(network);
     }
     sessionId = response.getSessionId();
-    byte[] token = response.getSessionToken();
+    var token = response.getSessionToken();
     if (token.length == 0) {
       token = null;
     }
@@ -1771,8 +1610,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         .debug(
             this, "Client connected to %s with session id=%d", network.getServerURL(), sessionId);
 
-    // READ CLUSTER CONFIGURATION
-    // updateClusterConfiguration(network.getServerURL(),
+    // READ COLLECTION CONFIGURATION
+    // updateCollectionConfiguration(network.getServerURL(),
     // response.getDistributedConfiguration());
 
     // This need to be protected by a lock for now, let's see in future
@@ -1799,7 +1638,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
                       .getValueAsLong(GlobalConfiguration.NETWORK_REQUEST_TIMEOUT));
           pushThread.start();
           subscribeStorageConfiguration(session);
-          subscribeDistributedConfiguration(session);
           subscribeSchema(session);
           subscribeIndexManager(session);
           subscribeFunctions(session);
@@ -1811,9 +1649,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     }
   }
 
-  private void subscribeDistributedConfiguration(StorageRemoteSession nodeSession) {
-    pushThread.subscribe(new SubscribeDistributedConfigurationRequest(), nodeSession);
-  }
 
   private void subscribeStorageConfiguration(StorageRemoteSession nodeSession) {
     pushThread.subscribe(new SubscribeStorageConfigurationRequest(), nodeSession);
@@ -1868,15 +1703,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           throw e;
 
         } catch (IOException e) {
-          if (network != null) {
-            connectionManager.remove(network);
-          }
+          connectionManager.remove(network);
         } catch (Exception e) {
           if (network != null) {
             // REMOVE THE NETWORK CONNECTION IF ANY
             connectionManager.remove(network);
           }
-          throw BaseException.wrapException(new StorageException(e.getMessage()), e);
+          throw BaseException.wrapException(new StorageException(name, e.getMessage()), e, name);
         }
       } while (connectionManager.getReusableConnections(currentURL) > 0);
 
@@ -1889,21 +1722,21 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     // REFILL ORIGINAL SERVER LIST
     serverURLs.reloadOriginalURLs();
 
-    throw new StorageException(
+    throw new StorageException(name,
         "Cannot create a connection to remote server address(es): " + serverURLs.getUrls());
   }
 
   protected String useNewServerURL(DatabaseSessionRemote database, final String iUrl) {
-    int pos = iUrl.indexOf('/');
+    var pos = iUrl.indexOf('/');
     if (pos >= iUrl.length() - 1)
     // IGNORE ENDING /
     {
       pos = -1;
     }
 
-    final String url = pos > -1 ? iUrl.substring(0, pos) : iUrl;
-    String newUrl = serverURLs.removeAndGet(url);
-    StorageRemoteSession session = getCurrentSession(database);
+    final var url = pos > -1 ? iUrl.substring(0, pos) : iUrl;
+    var newUrl = serverURLs.removeAndGet(url);
+    var session = getCurrentSession(database);
     if (session != null) {
       session.currentUrl = newUrl;
       session.serverURLIndex = 0;
@@ -1965,8 +1798,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         throw cause;
       } catch (Exception cause) {
         throw BaseException.wrapException(
-            new StorageException("Cannot open a connection to remote server: " + iCurrentURL),
-            cause);
+            new StorageException(null, "Cannot open a connection to remote server: " + iCurrentURL),
+            cause, (String) null);
       }
       if (!network.tryLock()) {
         // CANNOT LOCK IT, MAYBE HASN'T BE CORRECTLY UNLOCKED BY PREVIOUS USER?
@@ -1987,8 +1820,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   public static void beginResponse(
       DatabaseSessionInternal db, SocketChannelBinaryAsynchClient iNetwork,
       StorageRemoteSession session) throws IOException {
-    StorageRemoteNodeSession nodeSession = session.getServerSession(iNetwork.getServerURL());
-    byte[] newToken = iNetwork.beginResponse(db, nodeSession.getSessionId(), true);
+    var nodeSession = session.getServerSession(iNetwork.getServerURL());
+    var newToken = iNetwork.beginResponse(db, nodeSession.getSessionId(), true);
     if (newToken != null && newToken.length > 0) {
       nodeSession.setSession(nodeSession.getSessionId(), newToken);
     }
@@ -2026,34 +1859,30 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
         return;
       }
       this.configuration = storageConfiguration;
-      final List<StorageClusterConfiguration> configClusters = storageConfiguration.getClusters();
-      StorageCluster[] clusters = new StorageCluster[configClusters.size()];
-      for (StorageClusterConfiguration clusterConfig : configClusters) {
-        if (clusterConfig != null) {
-          final StorageClusterRemote cluster = new StorageClusterRemote();
-          String clusterName = clusterConfig.getName();
-          final int clusterId = clusterConfig.getId();
-          if (clusterName != null) {
-            clusterName = clusterName.toLowerCase(Locale.ENGLISH);
-            cluster.configure(clusterId, clusterName);
-            if (clusterId >= clusters.length) {
-              clusters = Arrays.copyOf(clusters, clusterId + 1);
+      final var configCollections = storageConfiguration.getCollections();
+      var collections = new StorageCollection[configCollections.size()];
+      for (var collectionConfig : configCollections) {
+        if (collectionConfig != null) {
+          final var collection = new StorageCollectionRemote();
+          var collectionName = collectionConfig.getName();
+          final var collectionId = collectionConfig.getId();
+          if (collectionName != null) {
+            collectionName = collectionName.toLowerCase(Locale.ENGLISH);
+            collection.configure(collectionId, collectionName);
+            if (collectionId >= collections.length) {
+              collections = Arrays.copyOf(collections, collectionId + 1);
             }
-            clusters[clusterId] = cluster;
+            collections[collectionId] = collection;
           }
         }
       }
 
-      this.clusters = clusters;
-      clusterMap.clear();
-      for (int i = 0; i < clusters.length; ++i) {
-        if (clusters[i] != null) {
-          clusterMap.put(clusters[i].getName(), clusters[i]);
+      this.collections = collections;
+      collectionMap.clear();
+      for (var collection : collections) {
+        if (collection != null) {
+          collectionMap.put(collection.getName(), collection);
         }
-      }
-      final StorageCluster defaultCluster = clusterMap.get(Storage.CLUSTER_DEFAULT_NAME);
-      if (defaultCluster != null) {
-        defaultClusterId = clusterMap.get(Storage.CLUSTER_DEFAULT_NAME).getId();
       }
     } finally {
       stateLock.writeLock().unlock();
@@ -2066,7 +1895,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       return null;
     }
 
-    StorageRemoteSession session = db.getSessionMetadata();
+    var session = db.getSessionMetadata();
     if (session == null) {
       session = new StorageRemoteSession(sessionSerialId.decrementAndGet());
       sessions.add(session);
@@ -2080,7 +1909,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     if (status == STATUS.CLOSED) {
       return true;
     }
-    final StorageRemoteSession session = getCurrentSession((DatabaseSessionRemote) database);
+    final var session = getCurrentSession((DatabaseSessionRemote) database);
     if (session == null) {
       return false;
     }
@@ -2089,17 +1918,10 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   public StorageRemote copy(
       final DatabaseSessionRemote source, final DatabaseSessionRemote dest) {
-    DatabaseSessionInternal origin = null;
-    if (DatabaseRecordThreadLocal.instance() != null) {
-      origin = DatabaseRecordThreadLocal.instance().getIfDefined();
-    }
-
-    origin = DatabaseDocumentTxInternal.getInternal(origin);
-
-    final StorageRemoteSession session = source.getSessionMetadata();
+    final var session = source.getSessionMetadata();
     if (session != null) {
       // TODO:may run a session reopen
-      final StorageRemoteSession newSession =
+      final var newSession =
           new StorageRemoteSession(sessionSerialId.decrementAndGet());
       newSession.connectionUserName = session.connectionUserName;
       newSession.connectionUserPassword = session.connectionUserPassword;
@@ -2110,9 +1932,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       openRemoteDatabase(dest);
     } catch (IOException e) {
       LogManager.instance().error(this, "Error during database open", e);
-    } finally {
-      DatabaseRecordThreadLocal.instance().set(origin);
     }
+
     return this;
   }
 
@@ -2121,84 +1942,99 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       final InputStream inputStream,
       final String name,
       final CommandOutputListener listener) {
-    ImportRequest request = new ImportRequest(inputStream, options, name);
+    var request = new ImportRequest(inputStream, options, name);
 
-    ImportResponse response =
+    var response =
         networkOperationRetryTimeout(database,
             request,
             "Error sending import request",
             0,
             clientConfiguration.getValueAsInteger(GlobalConfiguration.NETWORK_REQUEST_TIMEOUT));
 
-    for (String message : response.getMessages()) {
+    for (var message : response.getMessages()) {
       listener.onMessage(message);
     }
   }
 
-  public void addNewClusterToConfiguration(int clusterId, String iClusterName) {
+  public void addNewCollectionToConfiguration(int collectionId, String iCollectionName) {
     stateLock.writeLock().lock();
     try {
       // If this if is false maybe the content was already update by the push
-      if (clusters.length <= clusterId || clusters[clusterId] == null) {
-        // Adding the cluster waiting for the push
-        final StorageClusterRemote cluster = new StorageClusterRemote();
-        cluster.configure(clusterId, iClusterName.toLowerCase(Locale.ENGLISH));
+      if (collections.length <= collectionId || collections[collectionId] == null) {
+        // Adding the collection waiting for the push
+        final var collection = new StorageCollectionRemote();
+        collection.configure(collectionId, iCollectionName.toLowerCase(Locale.ENGLISH));
 
-        if (clusters.length <= clusterId) {
-          clusters = Arrays.copyOf(clusters, clusterId + 1);
+        if (collections.length <= collectionId) {
+          collections = Arrays.copyOf(collections, collectionId + 1);
         }
-        clusters[cluster.getId()] = cluster;
-        clusterMap.put(cluster.getName().toLowerCase(Locale.ENGLISH), cluster);
+        collections[collection.getId()] = collection;
+        collectionMap.put(collection.getName().toLowerCase(Locale.ENGLISH), collection);
       }
     } finally {
       stateLock.writeLock().unlock();
     }
   }
 
-  public void beginTransaction(TransactionOptimistic transaction) {
-    var database = (DatabaseSessionRemote) transaction.getDatabase();
-    BeginTransaction38Request request =
+  public void beginTransaction(FrontendClientServerTransaction transaction) {
+    var database = (DatabaseSessionRemote) transaction.getDatabaseSession();
+    var request =
         new BeginTransaction38Request(database,
             transaction.getId(),
-            true,
-            true,
-            transaction.getRecordOperations(), Collections.emptyMap());
-    BeginTransactionResponse response =
+            transaction.getRecordOperationsInternal(), transaction.getReceivedDirtyCounters());
+    var response =
         networkOperationNoRetry(database, request, "Error on remote transaction begin");
-    for (Map.Entry<RecordId, RecordId> entry : response.getUpdatedIds().entrySet()) {
-      transaction.updateIdentityAfterCommit(entry.getValue(), entry.getKey());
-    }
 
+    updateTxFromResponse(transaction, response);
     stickToSession(database);
   }
 
-  public void sendTransactionState(TransactionOptimistic transaction) {
-    var database = (DatabaseSessionRemote) transaction.getDatabase();
-    SendTransactionStateRequest request =
-        new SendTransactionStateRequest(database, transaction.getId(),
-            transaction.getRecordOperations());
+  private static void updateTxFromResponse(FrontendClientServerTransaction transaction,
+      BeginTransactionResponse response) {
+    transaction.clearReceivedDirtyCounters();
 
-    SendTransactionStateResponse response =
+    for (var pair : response.getOldToUpdatedRids()) {
+      var oldRid = pair.first();
+      var newRid = pair.second();
+
+      var txEntry = transaction.getRecordEntry(oldRid);
+      assert txEntry.record.getIdentity() instanceof ChangeableIdentity;
+      txEntry.record.getIdentity()
+          .setCollectionAndPosition(newRid.getCollectionId(), newRid.getCollectionPosition());
+
+      assert transaction.assertIdentityChangedAfterCommit(oldRid, newRid);
+    }
+
+    transaction.mergeReceivedTransaction(response.getRecordOperations(), Collections.emptyList());
+    transaction.syncDirtyCountersAfterServerMerge();
+  }
+
+  public void sendTransactionState(FrontendClientServerTransaction transaction) {
+    var database = (DatabaseSessionRemote) transaction.getDatabaseSession();
+    var request =
+        new SendTransactionStateRequest(database, transaction.getId(),
+            transaction.getRecordOperationsInternal(), transaction.getReceivedDirtyCounters());
+
+    var response =
         networkOperationNoRetry(database, request,
             "Error on remote transaction state send");
 
-    for (Map.Entry<RecordId, RecordId> entry : response.getUpdatedIds().entrySet()) {
-      transaction.updateIdentityAfterCommit(entry.getValue(), entry.getKey());
-    }
-
+    updateTxFromResponse(transaction, response);
     stickToSession(database);
   }
 
 
   public void fetchTransaction(DatabaseSessionRemote remote) {
-    TransactionOptimisticClient transaction = remote.getActiveTx();
-    FetchTransaction38Request request = new FetchTransaction38Request(transaction.getId());
-    FetchTransaction38Response response =
+    var transaction = remote.getActiveTx();
+    var request = new FetchTransaction38Request(transaction.getId(),
+        transaction.getReceivedDirtyCounters());
+    var response =
         networkOperation(remote, request, "Error fetching transaction from server side");
 
-    transaction.replaceContent(response.getOperations());
+    updateTxFromResponse(transaction, response);
   }
 
+  @Nullable
   public BinaryPushRequest createPush(byte type) {
     return switch (type) {
       case ChannelBinaryProtocol.REQUEST_PUSH_DISTRIB_CONFIG ->
@@ -2214,22 +2050,27 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     };
   }
 
+  @Nullable
   public BinaryPushResponse executeUpdateDistributedConfig(
       PushDistributedConfigurationRequest request) {
     serverURLs.updateDistributedNodes(request.getHosts(), configuration.getContextConfiguration());
     return null;
   }
 
-  public BinaryPushResponse executeUpdateFunction(PushFunctionsRequest request) {
-    DatabaseSessionRemote.updateFunction(this);
-    return null;
-  }
-
+  @Nullable
   public BinaryPushResponse executeUpdateSequences(PushSequencesRequest request) {
     DatabaseSessionRemote.updateSequences(this);
     return null;
   }
 
+  @Nullable
+  public BinaryPushResponse executeUpdateIndexManager(PushIndexManagerRequest request) {
+    DatabaseSessionRemote.updateIndexManager(this);
+    return null;
+  }
+
+
+  @Nullable
   public BinaryPushResponse executeUpdateStorageConfig(PushStorageConfigurationRequest payload) {
     final StorageConfiguration storageConfiguration =
         new StorageConfigurationRemote(
@@ -2241,56 +2082,57 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return null;
   }
 
-  public BinaryPushResponse executeUpdateSchema(PushSchemaRequest request) {
-    EntityImpl schema = request.getSchema();
-    RecordInternal.setIdentity(schema, new RecordId(configuration.getSchemaRecordId()));
-    DatabaseSessionRemote.updateSchema(this, schema);
+  @Nullable
+  public BinaryPushResponse executeUpdateFunction(PushFunctionsRequest request) {
+    DatabaseSessionRemote.updateFunction(this);
     return null;
   }
 
-  public BinaryPushResponse executeUpdateIndexManager(PushIndexManagerRequest request) {
-    EntityImpl indexManager = request.getIndexManager();
-    RecordInternal.setIdentity(indexManager, new RecordId(configuration.getIndexMgrRecordId()));
-    DatabaseSessionRemote.updateIndexManager(this, indexManager);
+  @Nullable
+  public BinaryPushResponse executeUpdateSchema(PushSchemaRequest request) {
+    DatabaseSessionRemote.updateSchema(this);
     return null;
   }
+
 
   public LiveQueryMonitor liveQuery(
+      DatabasePoolInternal sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
       Object[] params) {
 
-    SubscribeLiveQueryRequest request = new SubscribeLiveQueryRequest(query, params);
-    SubscribeLiveQueryResponse response = pushThread.subscribe(request,
+    var request = new SubscribeLiveQueryRequest(query, params);
+    var response = pushThread.subscribe(request,
         getCurrentSession(database));
     if (response == null) {
-      throw new DatabaseException(
+      throw new DatabaseException(name,
           "Impossible to start the live query, check server log for additional information");
     }
     registerLiveListener(response.getMonitorId(), listener);
-    return new YTLiveQueryMonitorRemote(database, response.getMonitorId());
+    return new YTLiveQueryMonitorRemote(sessionPool, response.getMonitorId());
   }
 
   public LiveQueryMonitor liveQuery(
+      DatabasePoolInternal sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
       Map<String, ?> params) {
-    SubscribeLiveQueryRequest request =
+    var request =
         new SubscribeLiveQueryRequest(query, (Map<String, Object>) params);
-    SubscribeLiveQueryResponse response = pushThread.subscribe(request,
+    var response = pushThread.subscribe(request,
         getCurrentSession(database));
     if (response == null) {
-      throw new DatabaseException(
+      throw new DatabaseException(name,
           "Impossible to start the live query, check server log for additional information");
     }
     registerLiveListener(response.getMonitorId(), listener);
-    return new YTLiveQueryMonitorRemote(database, response.getMonitorId());
+    return new YTLiveQueryMonitorRemote(sessionPool, response.getMonitorId());
   }
 
   public void unsubscribeLive(DatabaseSessionRemote database, int monitorId) {
-    UnsubscribeRequest request =
+    var request =
         new UnsubscribeRequest(new UnsubscribeLiveQueryRequest(monitorId));
     networkOperation(database, request, "Error on unsubscribe of live query");
   }
@@ -2300,9 +2142,9 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public static HashMap<String, Object> paramsArrayToParamsMap(Object[] positionalParams) {
-    HashMap<String, Object> params = new HashMap<>();
+    var params = new HashMap<String, Object>();
     if (positionalParams != null) {
-      for (int i = 0; i < positionalParams.length; i++) {
+      for (var i = 0; i < positionalParams.length; i++) {
         params.put(Integer.toString(i), positionalParams[i]);
       }
     }
@@ -2310,7 +2152,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   public void executeLiveQueryPush(LiveQueryPushRequest pushRequest) {
-    LiveQueryClientListener listener = liveQueryListener.get(pushRequest.getMonitorId());
+    var listener = liveQueryListener.get(pushRequest.getMonitorId());
     if (listener.onEvent(pushRequest)) {
       liveQueryListener.remove(pushRequest.getMonitorId());
     }
@@ -2322,14 +2164,13 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       return;
     }
     StorageRemoteSession aValidSession = null;
-    for (StorageRemoteSession session : sessions) {
+    for (var session : sessions) {
       if (session.getServerSession(host) != null) {
         aValidSession = session;
         break;
       }
     }
     if (aValidSession != null) {
-      subscribeDistributedConfiguration(aValidSession);
       subscribeStorageConfiguration(aValidSession);
     } else {
       LogManager.instance()
@@ -2356,16 +2197,17 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
       this.connectionManager.remove((SocketChannelBinaryAsynchClient) network);
     }
     if (e instanceof java.lang.InterruptedException) {
-      for (LiveQueryClientListener liveListener : liveQueryListener.values()) {
+      for (var liveListener : liveQueryListener.values()) {
         liveListener.onEnd();
       }
     } else {
-      for (LiveQueryClientListener liveListener : liveQueryListener.values()) {
+      for (var liveListener : liveQueryListener.values()) {
         if (e instanceof BaseException) {
           liveListener.onError((BaseException) e);
         } else {
           liveListener.onError(
-              BaseException.wrapException(new DatabaseException("Live query disconnection "), e));
+              BaseException.wrapException(new DatabaseException(name, "Live query disconnection "),
+                  e, name));
         }
       }
     }
@@ -2407,11 +2249,11 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     throw new UnsupportedOperationException();
   }
 
-  public void setClusterSelection(String clusterSelection) {
+  public void setCollectionSelection(String collectionSelection) {
     throw new UnsupportedOperationException();
   }
 
-  public void setMinimumClusters(int minimumClusters) {
+  public void setMinimumCollections(int minimumCollections) {
     throw new UnsupportedOperationException();
   }
 
@@ -2443,10 +2285,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return sharedContext;
   }
 
-  public boolean isDistributed() {
-    return false;
-  }
-
   public STATUS getStatus() {
     return status;
   }
@@ -2455,26 +2293,45 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     close(session, false);
   }
 
-  public boolean dropCluster(DatabaseSessionInternal session, final String iClusterName) {
-    return dropCluster(session, getClusterIdByName(iClusterName));
+  public boolean dropCollection(DatabaseSessionInternal session, final String iCollectionName) {
+    return dropCollection(session, getCollectionIdByName(iCollectionName));
   }
 
   public CurrentStorageComponentsFactory getComponentsFactory() {
     return componentsFactory;
   }
 
+  @Nullable
   @Override
   public Storage getUnderlying() {
     return null;
   }
 
   @Override
-  public int[] getClustersIds(Set<String> filterClusters) {
+  public int[] getCollectionsIds(Set<String> filterCollections) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public YouTrackDBInternal getContext() {
     return context;
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Map<String, ?> args) {
+    try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
+      return liveQuery(sessionPool,
+          session, query, new LiveQueryClientListener(sessionPool, listener), args);
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+      LiveQueryResultListener listener, Object... args) {
+    try (var session = (DatabaseSessionRemote) sessionPool.acquire()) {
+      return liveQuery(sessionPool,
+          session, query, new LiveQueryClientListener(sessionPool, listener), args);
+    }
   }
 }

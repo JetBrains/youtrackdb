@@ -13,33 +13,33 @@ public class FunctionLibraryTest extends DbTestBase {
 
   @Test
   public void testSimpleFunctionCreate() {
-    Function func = db.getMetadata().getFunctionLibrary().createFunction("TestFunc");
+    var func = session.getMetadata().getFunctionLibrary().createFunction("TestFunc");
     assertNotNull(func);
-    func = db.getMetadata().getFunctionLibrary().getFunction("TestFunc");
+    func = session.getMetadata().getFunctionLibrary().getFunction(session, "TestFunc");
     assertNotNull(func);
   }
 
   @Test(expected = FunctionDuplicatedException.class)
   public void testDuplicateFunctionCreate() {
-    Function func = db.getMetadata().getFunctionLibrary().createFunction("TestFunc");
+    var func = session.getMetadata().getFunctionLibrary().createFunction("TestFunc");
     assertNotNull(func);
-    db.getMetadata().getFunctionLibrary().createFunction("TestFunc");
+    session.getMetadata().getFunctionLibrary().createFunction("TestFunc");
   }
 
   @Test
   public void testFunctionCreateDrop() {
-    Function func = db.getMetadata().getFunctionLibrary().createFunction("TestFunc");
+    var func = session.getMetadata().getFunctionLibrary().createFunction("TestFunc");
     assertNotNull(func);
-    func = db.getMetadata().getFunctionLibrary().getFunction("TestFunc");
+    func = session.getMetadata().getFunctionLibrary().getFunction(session, "TestFunc");
     assertNotNull(func);
-    db.getMetadata().getFunctionLibrary().dropFunction(db, "TestFunc");
-    func = db.getMetadata().getFunctionLibrary().getFunction("TestFunc");
+    session.getMetadata().getFunctionLibrary().dropFunction(session, "TestFunc");
+    func = session.getMetadata().getFunctionLibrary().getFunction(session, "TestFunc");
     assertNull(func);
-    func = db.getMetadata().getFunctionLibrary().createFunction("TestFunc1");
-    db.begin();
-    db.getMetadata().getFunctionLibrary().dropFunction(db, func);
-    db.commit();
-    func = db.getMetadata().getFunctionLibrary().getFunction("TestFunc");
+    func = session.getMetadata().getFunctionLibrary().createFunction("TestFunc1");
+    session.begin();
+    session.getMetadata().getFunctionLibrary().dropFunction(session, func);
+    session.commit();
+    func = session.getMetadata().getFunctionLibrary().getFunction(session, "TestFunc");
     assertNull(func);
   }
 }

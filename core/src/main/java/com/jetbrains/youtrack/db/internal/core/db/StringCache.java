@@ -14,7 +14,7 @@ public class StringCache {
 
   public String getString(final byte[] bytes, final int offset, final int len)
       throws UnsupportedEncodingException {
-    StringCacheKey key = new StringCacheKey(bytes, offset, len);
+    var key = new StringCacheKey(bytes, offset, len);
     String value;
     synchronized (this) {
       value = this.values.get(key);
@@ -23,7 +23,7 @@ public class StringCache {
       value = new String(bytes, offset, len, StandardCharsets.UTF_8).intern();
 
       // Crate a new buffer to avoid to cache big buffers;
-      byte[] newBytes = new byte[len];
+      var newBytes = new byte[len];
       System.arraycopy(bytes, offset, newBytes, 0, len);
       key = new StringCacheKey(newBytes, 0, len);
       synchronized (this) {

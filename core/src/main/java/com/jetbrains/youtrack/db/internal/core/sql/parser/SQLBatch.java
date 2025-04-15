@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.Map;
 import java.util.Objects;
 
@@ -25,9 +25,10 @@ public class SQLBatch extends SimpleNode {
     if (this.num != null) {
       return num.getValue().intValue();
     } else if (inputParam != null) {
-      Object obj = inputParam.getValue(ctx.getInputParameters());
+      var obj = inputParam.getValue(ctx.getInputParameters());
       if (obj == null || !(obj instanceof Number)) {
-        throw new CommandExecutionException(obj + " is not a number (BATCH)");
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            obj + " is not a number (BATCH)");
       }
       return ((Number) obj).intValue();
     }
@@ -61,7 +62,7 @@ public class SQLBatch extends SimpleNode {
   }
 
   public SQLBatch copy() {
-    SQLBatch result = new SQLBatch(-1);
+    var result = new SQLBatch(-1);
     result.inputParam = inputParam == null ? null : inputParam.copy();
     result.num = num == null ? null : num.copy();
     return result;
@@ -76,7 +77,7 @@ public class SQLBatch extends SimpleNode {
       return false;
     }
 
-    SQLBatch oBatch = (SQLBatch) o;
+    var oBatch = (SQLBatch) o;
 
     if (!Objects.equals(num, oBatch.num)) {
       return false;
@@ -86,7 +87,7 @@ public class SQLBatch extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = num != null ? num.hashCode() : 0;
+    var result = num != null ? num.hashCode() : 0;
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
     return result;
   }

@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -35,6 +35,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * TRAVERSE operator.
@@ -65,7 +66,7 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
 
   @Override
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
@@ -104,22 +105,13 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
       }
 
       // TRANSFORM THE RID IN ODOCUMENT
-      iTarget = ((Identifiable) iTarget).getRecord();
+      var transaction = iContext.getDatabaseSession().getActiveTransaction();
+      iTarget = transaction.load(((Identifiable) iTarget));
     }
 
     if (iTarget instanceof EntityImpl target) {
 
       iEvaluatedRecords.add(target.getIdentity());
-
-      var db = iContext.getDatabase();
-      if (target.isNotBound(db)) {
-        try {
-          target = db.bindToSession(target);
-        } catch (final RecordNotFoundException ignore) {
-          // INVALID RID
-          return false;
-        }
-      }
 
       if (iLevel >= startDeepLevel && iCondition.evaluate(target, null, iContext) == Boolean.TRUE) {
         return true;
@@ -127,12 +119,12 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
 
       // TRAVERSE THE DOCUMENT ITSELF
       if (cfgFields != null) {
-        for (final String cfgField : cfgFields) {
+        for (final var cfgField : cfgFields) {
           if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAny.FULL_NAME)) {
             // ANY
-            for (final String fieldName : target.fieldNames()) {
+            for (final var fieldName : target.propertyNames()) {
               if (traverse(
-                  target.rawField(fieldName),
+                  target.getProperty(fieldName),
                   iCondition,
                   iLevel + 1,
                   iEvaluatedRecords,
@@ -142,9 +134,9 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
             }
           } else if (cfgField.equalsIgnoreCase(SQLFilterItemFieldAny.FULL_NAME)) {
             // ALL
-            for (final String fieldName : target.fieldNames()) {
+            for (final var fieldName : target.propertyNames()) {
               if (!traverse(
-                  target.rawField(fieldName),
+                  target.getProperty(fieldName),
                   iCondition,
                   iLevel + 1,
                   iEvaluatedRecords,
@@ -155,7 +147,8 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
             return true;
           } else {
             if (traverse(
-                target.rawField(cfgField), iCondition, iLevel + 1, iEvaluatedRecords, iContext)) {
+                target.getProperty(cfgField), iCondition, iLevel + 1, iEvaluatedRecords,
+                iContext)) {
               return true;
             }
           }
@@ -164,22 +157,22 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
 
     } else if (iTarget instanceof QueryRuntimeValueMulti multi) {
 
-      for (final Object o : multi.getValues()) {
+      for (final var o : multi.getValues()) {
         if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
       }
     } else if (iTarget instanceof Map<?, ?>) {
 
-      final Map<Object, Object> map = (Map<Object, Object>) iTarget;
-      for (final Object o : map.values()) {
+      final var map = (Map<Object, Object>) iTarget;
+      for (final var o : map.values()) {
         if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
       }
     } else if (MultiValue.isMultiValue(iTarget)) {
-      final Iterable<Object> collection = MultiValue.getMultiValueIterable(iTarget);
-      for (final Object o : collection) {
+      final var collection = MultiValue.getMultiValueIterable(iTarget);
+      for (final var o : collection) {
         if (traverse(o, iCondition, iLevel + 1, iEvaluatedRecords, iContext) == Boolean.TRUE) {
           return true;
         }
@@ -202,12 +195,12 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
       return this;
     }
 
-    final int start = !iParams.isEmpty() ? Integer.parseInt(iParams.get(0)) : startDeepLevel;
-    final int end = iParams.size() > 1 ? Integer.parseInt(iParams.get(1)) : endDeepLevel;
+    final var start = !iParams.isEmpty() ? Integer.parseInt(iParams.get(0)) : startDeepLevel;
+    final var end = iParams.size() > 1 ? Integer.parseInt(iParams.get(1)) : endDeepLevel;
 
-    String[] fields = new String[]{"any()"};
+    var fields = new String[]{"any()"};
     if (iParams.size() > 2) {
-      String f = iParams.get(2);
+      var f = iParams.get(2);
       if (f.startsWith("'") || f.startsWith("\"")) {
         f = f.substring(1, f.length() - 1);
       }
@@ -240,11 +233,13 @@ public class QueryOperatorTraverse extends QueryOperatorEqualityNotNulls {
         "%s(%d,%d,%s)", keyword, startDeepLevel, endDeepLevel, Arrays.toString(cfgFields));
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

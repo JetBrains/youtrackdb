@@ -41,7 +41,7 @@ public class SQLTimeout extends SimpleNode {
   }
 
   public SQLTimeout copy() {
-    SQLTimeout result = new SQLTimeout(-1);
+    var result = new SQLTimeout(-1);
     result.val = val;
     result.failureStrategy = failureStrategy;
     return result;
@@ -56,7 +56,7 @@ public class SQLTimeout extends SimpleNode {
       return false;
     }
 
-    SQLTimeout timeout = (SQLTimeout) o;
+    var timeout = (SQLTimeout) o;
 
     if (!Objects.equals(val, timeout.val)) {
       return false;
@@ -66,7 +66,7 @@ public class SQLTimeout extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = val != null ? val.hashCode() : 0;
+    var result = val != null ? val.hashCode() : 0;
     result = 31 * result + (failureStrategy != null ? failureStrategy.hashCode() : 0);
     return result;
   }
@@ -80,7 +80,7 @@ public class SQLTimeout extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("val", val);
     result.setProperty("failureStrategy", failureStrategy);
     return result;

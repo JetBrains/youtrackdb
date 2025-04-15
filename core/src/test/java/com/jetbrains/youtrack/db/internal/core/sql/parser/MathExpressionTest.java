@@ -33,9 +33,9 @@ public class MathExpressionTest {
   @Test
   public void testTypes() {
 
-    SQLMathExpression expr = new SQLMathExpression(-1);
+    var expr = new SQLMathExpression(-1);
 
-    SQLMathExpression.Operator[] basicOps =
+    var basicOps =
         new SQLMathExpression.Operator[]{
             SQLMathExpression.Operator.PLUS,
             SQLMathExpression.Operator.MINUS,
@@ -44,7 +44,7 @@ public class MathExpressionTest {
             SQLMathExpression.Operator.REM
         };
 
-    for (SQLMathExpression.Operator op : basicOps) {
+    for (var op : basicOps) {
       Assert.assertEquals(op.apply(1, 1).getClass(), Integer.class);
 
       Assert.assertEquals(op.apply((short) 1, (short) 1).getClass(), Integer.class);
@@ -73,7 +73,7 @@ public class MathExpressionTest {
 
   @Test
   public void testPriority() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(10));
     exp.addOperator(SQLMathExpression.Operator.PLUS);
     exp.addChildExpression(integer(5));
@@ -86,14 +86,14 @@ public class MathExpressionTest {
     exp.addOperator(SQLMathExpression.Operator.PLUS);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(208, result);
   }
 
   @Test
   public void testPriority2() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(1));
     exp.addOperator(SQLMathExpression.Operator.PLUS);
     exp.addChildExpression(integer(2));
@@ -112,85 +112,85 @@ public class MathExpressionTest {
     exp.addOperator(SQLMathExpression.Operator.PLUS);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(16, result);
   }
 
   @Test
   public void testPriority3() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(3));
     exp.addOperator(SQLMathExpression.Operator.RSHIFT);
     exp.addChildExpression(integer(1));
     exp.addOperator(SQLMathExpression.Operator.LSHIFT);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(2, result);
   }
 
   @Test
   public void testPriority4() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(3));
     exp.addOperator(SQLMathExpression.Operator.LSHIFT);
     exp.addChildExpression(integer(1));
     exp.addOperator(SQLMathExpression.Operator.RSHIFT);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(3, result);
   }
 
   @Test
   public void testAnd() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(5));
     exp.addOperator(SQLMathExpression.Operator.BIT_AND);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(1, result);
   }
 
   @Test
   public void testAnd2() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(5));
     exp.addOperator(SQLMathExpression.Operator.BIT_AND);
     exp.addChildExpression(integer(4));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(4, result);
   }
 
   @Test
   public void testOr() {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(integer(4));
     exp.addOperator(SQLMathExpression.Operator.BIT_OR);
     exp.addChildExpression(integer(1));
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(5, result);
   }
 
   private SQLMathExpression integer(Number i) {
-    SQLBaseExpression exp = new SQLBaseExpression(-1);
-    SQLInteger integer = new SQLInteger(-1);
+    var exp = new SQLBaseExpression(-1);
+    var integer = new SQLInteger(-1);
     integer.setValue(i);
     exp.number = integer;
     return exp;
   }
 
   private SQLMathExpression str(String value) {
-    final SQLBaseExpression exp = new SQLBaseExpression(-1);
+    final var exp = new SQLBaseExpression(-1);
     exp.string = "'" + value + "'";
     return exp;
   }
@@ -210,12 +210,12 @@ public class MathExpressionTest {
 
   private void testNullCoalescingGeneric(
       SQLMathExpression left, SQLMathExpression right, Object expected) {
-    SQLMathExpression exp = new SQLMathExpression(-1);
+    var exp = new SQLMathExpression(-1);
     exp.addChildExpression(left);
     exp.addOperator(Operator.NULL_COALESCING);
     exp.addChildExpression(right);
 
-    Object result = exp.execute((Result) null, null);
+    var result = exp.execute((Result) null, null);
     //    Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(expected, result);
   }

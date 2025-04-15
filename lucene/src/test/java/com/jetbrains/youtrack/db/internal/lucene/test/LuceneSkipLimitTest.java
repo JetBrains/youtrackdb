@@ -18,9 +18,7 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.api.record.RID;
-import java.io.InputStream;
-import java.util.List;
+import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,42 +32,42 @@ public class LuceneSkipLimitTest extends BaseLuceneTest {
   @Test
   public void testContext() {
 
-    List<RID> docs =
-        db.query("select * from Song where [title] LUCENE \"(title:man)\"").stream()
-            .map((r) -> r.getIdentity().get())
+    var docs =
+        session.query("select * from Song where [title] LUCENE \"(title:man)\"").stream()
+            .map(Result::getIdentity)
             .collect(Collectors.toList());
 
-    Assert.assertEquals(docs.size(), 14);
+    Assert.assertEquals(14, docs.size());
 
-    RID doc = docs.get(9);
+    var doc = docs.get(9);
     docs =
-        db
+        session
             .query("select * from Song where [title] LUCENE \"(title:man)\" skip 10 limit 10")
             .stream()
-            .map((r) -> r.getIdentity().get())
+            .map(Result::getIdentity)
             .collect(Collectors.toList());
 
-    Assert.assertEquals(docs.size(), 4);
+    Assert.assertEquals(4, docs.size());
 
     Assert.assertFalse(docs.contains(doc));
 
     docs =
-        db
+        session
             .query("select * from Song where [title] LUCENE \"(title:man)\" skip 14 limit 10")
             .stream()
-            .map((r) -> r.getIdentity().get())
+            .map(Result::getIdentity)
             .collect(Collectors.toList());
 
-    Assert.assertEquals(docs.size(), 0);
+    Assert.assertEquals(0, docs.size());
   }
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
-    db.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
   }
 }

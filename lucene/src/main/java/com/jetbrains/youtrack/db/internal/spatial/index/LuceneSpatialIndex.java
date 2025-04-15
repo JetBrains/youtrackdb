@@ -14,39 +14,45 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.index;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneIndexNotUnique;
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.spatial4j.shape.Shape;
 
 public class LuceneSpatialIndex extends LuceneIndexNotUnique {
 
   private final ShapeFactory shapeFactory = ShapeFactory.INSTANCE;
 
-  public LuceneSpatialIndex(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public LuceneSpatialIndex(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public LuceneSpatialIndex(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
-  public LuceneIndexNotUnique put(DatabaseSessionInternal session, Object key,
+  public LuceneIndexNotUnique put(FrontendTransaction transaction, Object key,
       Identifiable value) {
     if (key == null) {
       return this;
     }
-    return super.put(session, key, value);
+    return super.put(transaction, key, value);
   }
 
   @Override
@@ -58,7 +64,7 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
           false,
           indexId,
           engine -> {
-            if (((OLuceneSpatialIndexContainer) engine).isLegacy()) {
+            if (((LuceneSpatialIndexContainer) engine).isLegacy()) {
               return LuceneSpatialIndex.super.interpretTxKeyChanges(changes);
             } else {
               return interpretAsSpatial(changes);
@@ -73,19 +79,17 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
 
   @Override
   protected Object encodeKey(Object key) {
-
-    if (key instanceof EntityImpl) {
-      Shape shape = shapeFactory.fromDoc((EntityImpl) key);
+    if (key instanceof Result result) {
+      var shape = shapeFactory.fromResult(result);
       return shapeFactory.toGeometry(shape);
     }
     return key;
   }
 
   @Override
-  protected Object decodeKey(Object key) {
-
+  protected Object decodeKey(Object key, DatabaseSessionInternal session) {
     if (key instanceof Geometry geom) {
-      return shapeFactory.toDoc(geom);
+      return shapeFactory.toEmbeddedEntity(geom, session);
     }
     return key;
   }
@@ -94,12 +98,12 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
       FrontendTransactionIndexChangesPerKey item) {
     // 1. Handle common fast paths.
 
-    List<TransactionIndexEntry> entries = item.getEntriesAsList();
+    var entries = item.getEntriesAsList();
     Map<Identifiable, Integer> counters = new LinkedHashMap<>();
 
-    for (TransactionIndexEntry entry : entries) {
+    for (var entry : entries) {
 
-      Integer counter = counters.get(entry.getValue());
+      var counter = counters.get(entry.getValue());
       if (counter == null) {
         counter = 0;
       }
@@ -116,11 +120,11 @@ public class LuceneSpatialIndex extends LuceneIndexNotUnique {
       counters.put(entry.getValue(), counter);
     }
 
-    FrontendTransactionIndexChangesPerKey changes = new FrontendTransactionIndexChangesPerKey(
+    var changes = new FrontendTransactionIndexChangesPerKey(
         item.key);
 
-    for (Map.Entry<Identifiable, Integer> entry : counters.entrySet()) {
-      Identifiable oIdentifiable = entry.getKey();
+    for (var entry : counters.entrySet()) {
+      var oIdentifiable = entry.getKey();
       switch (entry.getValue()) {
         case 1:
           changes.add(oIdentifiable, FrontendTransactionIndexChanges.OPERATION.PUT);

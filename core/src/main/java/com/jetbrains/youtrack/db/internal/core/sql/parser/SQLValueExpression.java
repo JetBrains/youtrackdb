@@ -2,18 +2,19 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * this class is only used by the query executor to store pre-calculated values and store them in a
@@ -80,6 +81,7 @@ public class SQLValueExpression extends SQLExpression {
     return false;
   }
 
+  @Nullable
   public SQLValueExpression getExpandContent() {
     return null;
   }
@@ -97,12 +99,12 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   public AggregationContext getAggregationContext(CommandContext ctx) {
-    throw new CommandExecutionException("Cannot aggregate on " + this);
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot aggregate on " + this);
   }
 
   public SQLValueExpression copy() {
 
-    SQLValueExpression result = new SQLValueExpression(-1);
+    var result = new SQLValueExpression(-1);
     result.value = value;
     return result;
   }
@@ -116,7 +118,7 @@ public class SQLValueExpression extends SQLExpression {
       return false;
     }
 
-    SQLValueExpression that = (SQLValueExpression) o;
+    var that = (SQLValueExpression) o;
     return that.value == this.value;
   }
 
@@ -136,12 +138,13 @@ public class SQLValueExpression extends SQLExpression {
     return false;
   }
 
+  @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
 
   public void applyRemove(ResultInternal result, CommandContext ctx) {
-    throw new CommandExecutionException("Cannot apply REMOVE " + this);
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot apply REMOVE " + this);
   }
 
   public boolean isCount() {
@@ -162,10 +165,11 @@ public class SQLValueExpression extends SQLExpression {
     return true;
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     return true;
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return null;
   }

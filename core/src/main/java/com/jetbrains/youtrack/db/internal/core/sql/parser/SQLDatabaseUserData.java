@@ -55,8 +55,8 @@ public class SQLDatabaseUserData extends SimpleNode {
 
     if (!roles.isEmpty()) {
       builder.append("ROLE [");
-      boolean first = true;
-      for (SQLIdentifier role : roles) {
+      var first = true;
+      for (var role : roles) {
         if (!first) {
           builder.append(", ");
         }
@@ -87,8 +87,8 @@ public class SQLDatabaseUserData extends SimpleNode {
 
     if (!roles.isEmpty()) {
       builder.append("ROLE [");
-      boolean first = true;
-      for (SQLIdentifier role : roles) {
+      var first = true;
+      for (var role : roles) {
         if (!first) {
           builder.append(", ");
         }
@@ -101,7 +101,7 @@ public class SQLDatabaseUserData extends SimpleNode {
 
   @Override
   public SQLDatabaseUserData copy() {
-    SQLDatabaseUserData result = new SQLDatabaseUserData(-1);
+    var result = new SQLDatabaseUserData(-1);
     if (name != null) {
       result.name = name.copy();
     }
@@ -117,7 +117,7 @@ public class SQLDatabaseUserData extends SimpleNode {
       result.passwordParam = passwordParam.copy();
     }
 
-    for (SQLIdentifier role : roles) {
+    for (var role : roles) {
       result.roles.add(role.copy());
     }
 
@@ -125,10 +125,10 @@ public class SQLDatabaseUserData extends SimpleNode {
   }
 
   public void executeCreate(DatabaseSessionInternal db, CommandContext parentCtx) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     ctx.setInputParameters(parentCtx.getInputParameters());
-    ctx.setDatabase(db);
-    SQLCreateUserStatement stm = new SQLCreateUserStatement(-1);
+    ctx.setDatabaseSession(db);
+    var stm = new SQLCreateUserStatement(-1);
     if (name != null) {
       stm.name = name.copy();
     } else {
@@ -143,7 +143,7 @@ public class SQLDatabaseUserData extends SimpleNode {
       stm.passwordParam = passwordParam.copy();
     }
 
-    for (SQLIdentifier role : roles) {
+    for (var role : roles) {
       stm.roles.add(role.copy());
     }
 

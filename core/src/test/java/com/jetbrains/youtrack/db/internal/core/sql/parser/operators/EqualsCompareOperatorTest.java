@@ -32,7 +32,7 @@ public class EqualsCompareOperatorTest {
 
   @Test
   public void test() {
-    SQLEqualsCompareOperator op = new SQLEqualsCompareOperator(-1);
+    var op = new SQLEqualsCompareOperator(-1);
 
     Assert.assertFalse(op.execute(null, 1));
     Assert.assertFalse(op.execute(1, null));

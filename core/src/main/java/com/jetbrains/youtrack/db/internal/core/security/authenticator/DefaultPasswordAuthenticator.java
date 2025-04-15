@@ -21,15 +21,16 @@ package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 /**
  * Provides a default password authenticator.
@@ -47,20 +48,21 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final EntityImpl jsonConfig,
+  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     super.config(session, jsonConfig, security);
 
     try {
-      if (jsonConfig.containsField("users")) {
-        List<EntityImpl> usersList = jsonConfig.field("users");
+      if (jsonConfig.containsKey("users")) {
+        @SuppressWarnings("unchecked")
+        var usersList = (List<Map<String, Object>>) jsonConfig.get("users");
 
-        for (EntityImpl userDoc : usersList) {
+        for (var userDoc : usersList) {
 
-          SecurityUser userCfg = createServerUser(session, userDoc);
+          var userCfg = createServerUser(session, userDoc);
 
           if (userCfg != null) {
-            String checkName = userCfg.getName(session);
+            var checkName = userCfg.getName(session);
 
             if (!isCaseSensitive()) {
               checkName = checkName.toLowerCase(Locale.ENGLISH);
@@ -77,13 +79,13 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // Derived implementations can override this method to provide new server user implementations.
   protected SecurityUser createServerUser(DatabaseSessionInternal session,
-      final EntityImpl userDoc) {
+      final Map<String, Object> userMap) {
     SecurityUser userCfg = null;
 
-    if (userDoc.containsField("username") && userDoc.containsField("resources")) {
-      final String user = userDoc.field("username");
-      final String resources = userDoc.field("resources");
-      String password = userDoc.field("password");
+    if (userMap.containsKey("username") && userMap.containsKey("resources")) {
+      final var user = userMap.get("username").toString();
+      final var resources = userMap.get("resources").toString();
+      var password = (String) userMap.get("password");
 
       if (password == null) {
         password = "";
@@ -106,11 +108,12 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
 
     try {
-      SecurityUser user = getUser(username, session);
+      var user = getUser(username, session);
 
       if (isPasswordValid(session, user)) {
         if (SecurityManager.checkPassword(password, user.getPassword(session))) {
@@ -131,7 +134,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
       return false;
     }
 
-    SecurityUser userCfg = getUser(username, session);
+    var userCfg = getUser(username, session);
 
     if (userCfg != null) {
       // TODO: to verify if this logic match previous logic
@@ -158,7 +161,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
 
     synchronized (usersMap) {
       if (username != null) {
-        String checkName = username;
+        var checkName = username;
 
         if (!isCaseSensitive()) {
           checkName = username.toLowerCase(Locale.ENGLISH);

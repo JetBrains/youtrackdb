@@ -19,9 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -29,29 +28,22 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrack.db.internal.core.index.RuntimeKeyIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJSON;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -68,12 +60,16 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
   public static final int EXPORTER_VERSION = 13;
 
-  protected JSONWriter writer;
+  protected JsonGenerator jsonGenerator;
   protected long recordExported;
   protected int compressionLevel = Deflater.BEST_SPEED;
   protected int compressionBuffer = 16384; // 16Kb
 
   private final String tempFileName;
+
+  // these classes will be exported first. import tool relies on this order.
+  private static final Set<String> PRIORITY_EXPORT_CLASSES =
+      Set.of(SchemaClass.VERTEX_CLASS_NAME, SchemaClass.EDGE_CLASS_NAME);
 
   public DatabaseExport(
       final DatabaseSessionInternal iDatabase,
@@ -81,6 +77,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       final CommandOutputListener iListener)
       throws IOException {
     super(iDatabase, iFileName, iListener);
+    if (iDatabase.isRemote()) {
+      throw new DatabaseExportException("Database export can be done only in embedded environment");
+    }
 
     if (fileName == null) {
       throw new IllegalArgumentException("file name missing");
@@ -94,15 +93,16 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     this.tempFileName = fileName + ".tmp";
     FileUtils.prepareForFileCreationOrReplacement(Paths.get(tempFileName), this, "exporting");
 
-    final GZIPOutputStream gzipOS =
+    final var gzipOS =
         new GZIPOutputStream(new FileOutputStream(tempFileName), compressionBuffer) {
           {
             def.setLevel(compressionLevel);
           }
         };
 
-    writer = new JSONWriter(new OutputStreamWriter(gzipOS));
-    writer.beginObject();
+    var factory = new JsonFactory();
+    jsonGenerator = factory.createGenerator(new OutputStreamWriter(gzipOS));
+    jsonGenerator.writeStartObject();
   }
 
   public DatabaseExport(
@@ -113,8 +113,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     super(iDatabase, "streaming", iListener);
     this.tempFileName = null;
 
-    writer = new JSONWriter(new OutputStreamWriter(iOutputStream));
-    writer.beginObject();
+    var factory = new JsonFactory();
+    jsonGenerator = factory.createGenerator(new OutputStreamWriter(iOutputStream));
+    jsonGenerator.writeStartObject();
   }
 
   @Override
@@ -131,32 +132,34 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
   public DatabaseExport exportDatabase() {
     try {
       listener.onMessage(
-          "\nStarted export of database '" + database.getName() + "' to " + fileName + "...");
+          "\nStarted export of database '" + session.getDatabaseName() + "' to " + fileName
+              + "...");
 
-      long time = System.nanoTime();
+      var time = System.nanoTime();
 
-      database.executeInTx(() -> {
+      session.executeInTx(transaction -> {
         try {
           exportInfo();
-          exportClusters();
+          exportCollections();
           exportSchema();
           exportRecords();
           exportIndexDefinitions();
         } catch (IOException e) {
           throw new DatabaseExportException(
-              "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+              "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
         }
       });
 
       listener.onMessage(
           "\n\nDatabase export completed in " + ((System.nanoTime() - time) / 1000000) + "ms");
 
-      writer.flush();
+      jsonGenerator.flush();
     } catch (Exception e) {
       LogManager.instance()
-          .error(this, "Error on exporting database '%s' to: %s", e, database.getName(), fileName);
+          .error(this, "Error on exporting database '%s' to: %s", e, session.getDatabaseName(),
+              fileName);
       throw new DatabaseExportException(
-          "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+          "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
     } finally {
       close();
     }
@@ -167,55 +170,58 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     long totalFoundRecords = 0;
     long totalExportedRecords = 0;
 
-    int level = 1;
     listener.onMessage("\nExporting records...");
 
     final Set<RID> brokenRids = new HashSet<>();
 
-    writer.beginCollection(level, true, "records");
-    int exportedClusters = 0;
-    int maxClusterId = getMaxClusterId();
-    for (int i = 0; exportedClusters <= maxClusterId; ++i) {
-      String clusterName = database.getClusterNameById(i);
+    jsonGenerator.writeFieldName("records");
+    jsonGenerator.writeStartArray();
 
-      exportedClusters++;
+    var exportedCollections = 0;
+    var maxCollectionId = getMaxCollectionId();
+    for (var i = 0; exportedCollections <= maxCollectionId; ++i) {
+      var collectionName = session.getCollectionNameById(i);
 
-      long clusterExportedRecordsTot = 0;
-      if (clusterName != null) {
-        // CHECK IF THE CLUSTER IS INCLUDED
-        clusterExportedRecordsTot = database.countClusterElements(clusterName);
+      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
+        continue;
+      }
+
+      exportedCollections++;
+
+      long collectionExportedRecordsTot = 0;
+      if (collectionName != null) {
+        // CHECK IF THE COLLECTION IS INCLUDED
+        collectionExportedRecordsTot = session.countCollectionElements(collectionName);
       }
 
       listener.onMessage(
-          "\n- Cluster "
-              + (clusterName != null ? "'" + clusterName + "'" : "NULL")
+          "\n- Collection "
+              + (collectionName != null ? "'" + collectionName + "'" : "NULL")
               + " (id="
               + i
               + ")...");
 
-      long clusterExportedRecordsCurrent = 0;
-      if (clusterName != null) {
+      long collectionExportedRecordsCurrent = 0;
+      if (collectionName != null) {
         RecordAbstract rec = null;
         try {
-          RecordIteratorCluster<DBRecord> it = database.browseCluster(clusterName);
+          var it = session.browseCollection(collectionName);
 
           while (it.hasNext()) {
-            rec = (RecordAbstract) it.next();
+            rec = it.next();
             if (rec instanceof EntityImpl entity) {
               // CHECK IF THE CLASS OF THE DOCUMENT IS INCLUDED
-              final String className =
-                  entity.getClassName() != null
-                      ? entity.getClassName().toUpperCase(Locale.ENGLISH)
+              final var className =
+                  entity.getSchemaClassName() != null
+                      ? entity.getSchemaClassName().toUpperCase(Locale.ENGLISH)
                       : null;
             }
 
             if (exportRecord(
-                clusterExportedRecordsTot, clusterExportedRecordsCurrent, rec, brokenRids)) {
-              clusterExportedRecordsCurrent++;
+                collectionExportedRecordsTot, collectionExportedRecordsCurrent, rec, brokenRids)) {
+              collectionExportedRecordsCurrent++;
             }
           }
-
-          brokenRids.addAll(it.getBrokenRIDs());
         } catch (YTIOException e) {
           LogManager.instance()
               .error(
@@ -227,7 +233,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           throw e;
         } catch (Exception t) {
           if (rec != null) {
-            final byte[] buffer = rec.toStream();
+            final var buffer = rec.toStream();
 
             LogManager.instance()
                 .error(
@@ -248,12 +254,13 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       }
 
       listener.onMessage(
-          "OK (records=" + clusterExportedRecordsCurrent + "/" + clusterExportedRecordsTot + ")");
+          "OK (records="
+              + collectionExportedRecordsCurrent + "/" + collectionExportedRecordsTot + ")");
 
-      totalExportedRecords += clusterExportedRecordsCurrent;
-      totalFoundRecords += clusterExportedRecordsTot;
+      totalExportedRecords += collectionExportedRecordsCurrent;
+      totalFoundRecords += collectionExportedRecordsTot;
     }
-    writer.endCollection(level, true);
+    jsonGenerator.writeEndArray();
 
     listener.onMessage(
         "\n\nDone. Exported "
@@ -264,35 +271,31 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
             + brokenRids.size()
             + " records were detected as broken\n");
 
-    writer.beginCollection(level, true, "brokenRids");
+    jsonGenerator.writeFieldName("brokenRids");
+    jsonGenerator.writeStartArray();
 
-    boolean firsBrokenRid = true;
-    for (final RID rid : brokenRids) {
-      if (firsBrokenRid) {
-        firsBrokenRid = false;
-      } else {
-        writer.append(",");
-      }
-      writer.append(rid.toString());
+    for (final var rid : brokenRids) {
+      jsonGenerator.writeString(rid.toString());
     }
-    writer.endCollection(level, true);
+    jsonGenerator.writeEndArray();
   }
 
   public void close() {
 
-    if (writer == null) {
+    if (jsonGenerator == null) {
       return;
     }
 
     try {
-      writer.endObject();
-      writer.close();
-      writer = null;
+      jsonGenerator.writeEndObject();
+      jsonGenerator.close();
+      jsonGenerator = null;
     } catch (IOException e) {
       LogManager.instance()
-          .error(this, "Error on exporting database '%s' to: %s", e, database.getName(), fileName);
+          .error(this, "Error on exporting database '%s' to: %s", e, session.getDatabaseName(),
+              fileName);
       throw new DatabaseExportException(
-          "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+          "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
     }
 
     if (tempFileName != null) // may be null if writing to an output stream w/o file
@@ -302,106 +305,113 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       } catch (IOException e) {
         LogManager.instance()
             .error(
-                this, "Error on exporting database '%s' to: %s", e, database.getName(), fileName);
+                this, "Error on exporting database '%s' to: %s", e, session.getDatabaseName(),
+                fileName);
         throw new DatabaseExportException(
-            "Error on exporting database '" + database.getName() + "' to: " + fileName, e);
+            "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
       }
     }
   }
 
-  private int getMaxClusterId() {
-    int totalCluster = -1;
-    for (String clusterName : database.getClusterNames()) {
-      if (database.getClusterIdByName(clusterName) > totalCluster) {
-        totalCluster = database.getClusterIdByName(clusterName);
+  private int getMaxCollectionId() {
+    var totalCollection = -1;
+    for (var collectionName : session.getCollectionNames()) {
+      if (session.getCollectionIdByName(collectionName) > totalCollection) {
+        totalCollection = session.getCollectionIdByName(collectionName);
       }
     }
-    return totalCluster;
+    return totalCollection;
   }
 
   @Override
   protected void parseSetting(final String option, final List<String> items) {
     if (option.equalsIgnoreCase("-compressionLevel")) {
-      compressionLevel = Integer.parseInt(items.get(0));
+      compressionLevel = Integer.parseInt(items.getFirst());
     } else if (option.equalsIgnoreCase("-compressionBuffer")) {
-      compressionBuffer = Integer.parseInt(items.get(0));
+      compressionBuffer = Integer.parseInt(items.getFirst());
     } else {
       super.parseSetting(option, items);
     }
   }
 
-  private void exportClusters() throws IOException {
-    listener.onMessage("\nExporting clusters...");
+  private void exportCollections() throws IOException {
+    listener.onMessage("\nExporting collections...");
 
-    writer.beginCollection(1, true, "clusters");
-    int exportedClusters = 0;
+    jsonGenerator.writeFieldName("collections");
+    jsonGenerator.writeStartArray();
+    var exportedCollections = 0;
 
-    int maxClusterId = getMaxClusterId();
+    var maxCollectionId = getMaxCollectionId();
 
-    for (int clusterId = 0; clusterId <= maxClusterId; ++clusterId) {
+    for (var collectionId = 0; collectionId <= maxCollectionId; ++collectionId) {
 
-      final String clusterName = database.getClusterNameById(clusterId);
+      final var collectionName = session.getCollectionNameById(collectionId);
 
-      // exclude removed clusters
-      if (clusterName == null) {
+      // exclude removed collections
+      if (collectionName == null) {
         continue;
       }
 
-      // CHECK IF THE CLUSTER IS INCLUDED
-      writer.beginObject(2, true, null);
+      // CHECK IF THE COLLECTION IS INCLUDED
+      jsonGenerator.writeStartObject();
+      jsonGenerator.writeFieldName("name");
+      jsonGenerator.writeString(collectionName);
 
-      writer.writeAttribute(0, false, "name", clusterName);
-      writer.writeAttribute(0, false, "id", clusterId);
+      jsonGenerator.writeFieldName("id");
+      jsonGenerator.writeNumber(collectionId);
 
-      exportedClusters++;
-      writer.endObject(2, false);
+      exportedCollections++;
+      jsonGenerator.writeEndObject();
     }
 
-    listener.onMessage("OK (" + exportedClusters + " clusters)");
+    listener.onMessage("OK (" + exportedCollections + " collections)");
 
-    writer.endCollection(1, true);
+    jsonGenerator.writeEndArray();
   }
 
   private void exportInfo() throws IOException {
     listener.onMessage("\nExporting database info...");
 
-    writer.beginObject(1, true, "info");
-    writer.writeAttribute(2, true, "name", database.getName().replace('\\', '/'));
-    writer.writeAttribute(2, true, "default-cluster-id", database.getDefaultClusterId());
-    writer.writeAttribute(2, true, "exporter-version", EXPORTER_VERSION);
-    writer.writeAttribute(2, true, "engine-version", YouTrackDBConstants.getVersion());
-    final String engineBuild = YouTrackDBConstants.getBuildNumber();
+    jsonGenerator.writeObjectFieldStart("info");
+    jsonGenerator.writeFieldName("name");
+    jsonGenerator.writeString(session.getDatabaseName().replace('\\', '/'));
+
+    jsonGenerator.writeFieldName("exporter-version");
+    jsonGenerator.writeNumber(EXPORTER_VERSION);
+
+    jsonGenerator.writeFieldName("engine-version");
+    jsonGenerator.writeString(YouTrackDBConstants.getVersion());
+
+    final var engineBuild = YouTrackDBConstants.getBuildNumber();
     if (engineBuild != null) {
-      writer.writeAttribute(2, true, "engine-build", engineBuild);
+      jsonGenerator.writeFieldName("engine-build");
+      jsonGenerator.writeString(engineBuild);
     }
-    writer.writeAttribute(2, true, "storage-config-version", StorageConfiguration.CURRENT_VERSION);
-    writer.writeAttribute(2, true, "schema-version", SchemaShared.CURRENT_VERSION_NUMBER);
-    writer.writeAttribute(
-        2,
-        true,
-        "schemaRecordId",
-        database.getStorageInfo().getConfiguration().getSchemaRecordId());
-    writer.writeAttribute(
-        2,
-        true,
-        "indexMgrRecordId",
-        database.getStorageInfo().getConfiguration().getIndexMgrRecordId());
-    writer.endObject(1, true);
+
+    jsonGenerator.writeNumberField("storage-config-version",
+        StorageConfiguration.CURRENT_VERSION);
+    jsonGenerator.writeNumberField("schema-version", SchemaShared.CURRENT_VERSION_NUMBER);
+    jsonGenerator.writeStringField("schemaRecordId",
+        session.getStorageInfo().getConfiguration().getSchemaRecordId());
+    jsonGenerator.writeStringField("indexMgrRecordId",
+        session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+    jsonGenerator.writeEndObject();
 
     listener.onMessage("OK");
   }
 
   private void exportIndexDefinitions() throws IOException {
     listener.onMessage("\nExporting index info...");
-    writer.beginCollection(1, true, "indexes");
 
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-    indexManager.reload(database);
+    jsonGenerator.writeArrayFieldStart("indexes");
 
-    final Collection<? extends Index> indexes = indexManager.getIndexes(database);
+    final var indexManager = session.getSharedContext().getIndexManager();
+    indexManager.reload(session);
 
-    for (Index index : indexes) {
-      final String clsName =
+    final var indexes = indexManager.getIndexes(session);
+
+    for (var index : indexes) {
+      final var clsName =
           index.getDefinition() != null ? index.getDefinition().getClassName() : null;
       if (DatabaseImport.EXPORT_IMPORT_CLASS_NAME.equals(clsName)) {
         continue;
@@ -409,243 +419,185 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
 
       // CHECK TO FILTER CLASS
       listener.onMessage("\n- Index " + index.getName() + "...");
-      writer.beginObject(2, true, null);
-      writer.writeAttribute(3, true, "name", index.getName());
-      writer.writeAttribute(3, true, "type", index.getType());
+      jsonGenerator.writeStartObject();
+
+      jsonGenerator.writeStringField("name", index.getName());
+      jsonGenerator.writeStringField("type", index.getType());
+
       if (index.getAlgorithm() != null) {
-        writer.writeAttribute(3, true, "algorithm", index.getAlgorithm());
+        jsonGenerator.writeStringField("algorithm", index.getAlgorithm());
       }
 
-      if (!index.getClusters().isEmpty()) {
-        writer.writeAttribute(3, true, "clustersToIndex", index.getClusters());
+      if (!index.getCollections().isEmpty()) {
+        jsonGenerator.writeArrayFieldStart("collectionsToIndex");
+        for (var collection : index.getCollections()) {
+          jsonGenerator.writeString(collection);
+        }
+        jsonGenerator.writeEndArray();
       }
 
       if (index.getDefinition() != null) {
-        writer.beginObject(4, true, "definition");
+        jsonGenerator.writeObjectFieldStart("definition");
+        jsonGenerator.writeStringField("defClass", index.getDefinition().getClass().getName());
 
-        writer.writeAttribute(5, true, "defClass", index.getDefinition().getClass().getName());
-        writer.writeAttribute(5, true, "stream",
-            index.getDefinition().toStream(new EntityImpl()));
-
-        writer.endObject(4, true);
+        jsonGenerator.writeFieldName("stream");
+        index.getDefinition().toJson(jsonGenerator);
+        jsonGenerator.writeEndObject();
       }
 
       final var metadata = index.getMetadata();
       if (metadata != null) {
-        var entity = new EntityImpl();
-        entity.fromMap(metadata);
-
-        writer.writeAttribute(4, true, "metadata", entity);
+        jsonGenerator.writeFieldName("metadata");
+        JSONSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
       }
 
-      final EntityImpl configuration = index.getConfiguration(database);
-      if (configuration.field("blueprintsIndexClass") != null) {
-        writer.writeAttribute(
-            4, true, "blueprintsIndexClass", configuration.field("blueprintsIndexClass"));
-      }
-
-      writer.endObject(2, true);
+      jsonGenerator.writeEndObject();
       listener.onMessage("OK");
     }
 
-    writer.endCollection(1, true);
+    jsonGenerator.writeEndArray();
     listener.onMessage("\nOK (" + indexes.size() + " indexes)");
-  }
-
-  @SuppressWarnings({"rawtypes", "unchecked"})
-  private void exportManualIndexes() throws IOException {
-    listener.onMessage("\nExporting manual indexes content...");
-
-    final IndexManagerAbstract indexManager = database.getMetadata().getIndexManagerInternal();
-    indexManager.reload(database);
-
-    final Collection<? extends Index> indexes = indexManager.getIndexes(database);
-
-    EntityImpl exportEntry;
-
-    int manualIndexes = 0;
-    for (Index index : indexes) {
-      if (!index.isAutomatic()) {
-        if (manualIndexes == 0) {
-          writer.beginCollection(1, true, "manualIndexes");
-        }
-
-        listener.onMessage("\n- Exporting index " + index.getName() + " ...");
-
-        writer.beginObject(2, true, null);
-        writer.writeAttribute(3, true, "name", index.getName());
-
-        ResultSet indexContent = database.query("select from index:" + index.getName());
-
-        writer.beginCollection(3, true, "content");
-
-        int i = 0;
-        while (indexContent.hasNext()) {
-          Result indexEntry = indexContent.next();
-          if (i > 0) {
-            writer.append(",");
-          }
-
-          final IndexDefinition indexDefinition = index.getDefinition();
-
-          exportEntry = new EntityImpl();
-          exportEntry.setLazyLoad(false);
-
-          if (indexDefinition instanceof RuntimeKeyIndexDefinition
-              && ((RuntimeKeyIndexDefinition) indexDefinition).getSerializer() != null) {
-            final BinarySerializer binarySerializer =
-                ((RuntimeKeyIndexDefinition) indexDefinition).getSerializer();
-
-            final int dataSize = binarySerializer.getObjectSize(indexEntry.getProperty("key"));
-            final byte[] binaryContent = new byte[dataSize];
-            binarySerializer.serialize(indexEntry.getProperty("key"), binaryContent, 0);
-
-            exportEntry.field("binary", true);
-            exportEntry.field("key", binaryContent);
-          } else {
-            exportEntry.field("binary", false);
-            exportEntry.field("key", indexEntry.<Object>getProperty("key"));
-          }
-          exportEntry.field("rid", indexEntry.<Object>getProperty("rid"));
-
-          i++;
-
-          writer.append(exportEntry.toJSON());
-        }
-        writer.endCollection(3, true);
-
-        writer.endObject(2, true);
-        listener.onMessage("OK (entries=" + index.getInternal().size(database) + ")");
-        manualIndexes++;
-      }
-    }
-
-    if (manualIndexes > 0) {
-      writer.endCollection(1, true);
-    }
-    listener.onMessage("\nOK (" + manualIndexes + " manual indexes)");
   }
 
   private void exportSchema() throws IOException {
     listener.onMessage("\nExporting schema...");
 
-    writer.beginObject(1, true, "schema");
-    final Schema schema = (database.getMetadata()).getImmutableSchemaSnapshot();
+    jsonGenerator.writeObjectFieldStart("schema");
+    final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
     //noinspection deprecation
-    writer.writeAttribute(2, true, "version", schema.getVersion());
-    writer.writeAttribute(2, false, "blob-clusters", database.getBlobClusterIds());
-    if (!schema.getClasses(database).isEmpty()) {
-      writer.beginCollection(2, true, "classes");
+    jsonGenerator.writeNumberField("version", schema.getVersion());
+    jsonGenerator.writeArrayFieldStart("blob-collections");
+    for (var collectionId : session.getBlobCollectionIds()) {
+      jsonGenerator.writeNumber(collectionId);
+    }
+    jsonGenerator.writeEndArray();
 
-      final List<SchemaClass> classes = new ArrayList<>(schema.getClasses(database));
-      Collections.sort(classes);
+    if (!schema.getClasses().isEmpty()) {
+      jsonGenerator.writeArrayFieldStart("classes");
 
-      for (SchemaClass cls : classes) {
+      final List<SchemaClass> classes = new ArrayList<>(schema.getClasses());
+      classes.sort(Comparator.comparing(SchemaClass::getName, (n1, n2) -> {
+        final var n1priority = PRIORITY_EXPORT_CLASSES.contains(n1);
+        final var n2priority = PRIORITY_EXPORT_CLASSES.contains(n2);
+        if (n1priority == n2priority) {
+          return n1.compareTo(n2);
+        } else
+          return n1priority ? -1 : 1;
+      }));
+
+      for (var cls : classes) {
         // CHECK TO FILTER CLASS
-        writer.beginObject(3, true, null);
-        writer.writeAttribute(0, false, "name", cls.getName());
-        writer.writeAttribute(0, false, "cluster-ids", cls.getClusterIds());
+        jsonGenerator.writeStartObject();
+
+        jsonGenerator.writeStringField("name", cls.getName());
+
+        jsonGenerator.writeArrayFieldStart("collection-ids");
+        for (var collectionId : cls.getCollectionIds()) {
+          jsonGenerator.writeNumber(collectionId);
+        }
+        jsonGenerator.writeEndArray();
+
         if (cls.isStrictMode()) {
-          writer.writeAttribute(0, false, "strictMode", cls.isStrictMode());
+          jsonGenerator.writeBooleanField("strictMode", cls.isStrictMode());
         }
         if (!cls.getSuperClasses().isEmpty()) {
-          writer.writeAttribute(0, false, "super-classes", cls.getSuperClassesNames());
-        }
-        if (cls.getShortName() != null) {
-          writer.writeAttribute(0, false, "short-name", cls.getShortName());
+          jsonGenerator.writeArrayFieldStart("super-classes");
+          for (var superClass : cls.getSuperClasses()) {
+            jsonGenerator.writeString(superClass.getName());
+          }
+          jsonGenerator.writeEndArray();
         }
         if (cls.isAbstract()) {
-          writer.writeAttribute(0, false, "abstract", cls.isAbstract());
+          jsonGenerator.writeBooleanField("abstract", cls.isAbstract());
         }
-        writer.writeAttribute(
-            0, false, "cluster-selection", cls.getClusterSelectionStrategyName()); // @SINCE 1.7
 
-        if (!cls.properties(database).isEmpty()) {
-          writer.beginCollection(4, true, "properties");
+        if (!cls.getProperties().isEmpty()) {
+          jsonGenerator.writeArrayFieldStart("properties");
 
-          final List<SchemaProperty> properties = new ArrayList<>(cls.declaredProperties());
-          Collections.sort(properties);
+          final List<SchemaProperty> properties = new ArrayList<>(cls.getDeclaredProperties());
+          properties.sort(Comparator.comparing(SchemaProperty::getName));
 
-          for (SchemaProperty p : properties) {
-            writer.beginObject(5, true, null);
-            writer.writeAttribute(0, false, "name", p.getName());
-            writer.writeAttribute(0, false, "type", p.getType().toString());
+          for (var p : properties) {
+            jsonGenerator.writeStartObject();
+            jsonGenerator.writeStringField("name", p.getName());
+            jsonGenerator.writeStringField("type", p.getType().toString());
             if (p.isMandatory()) {
-              writer.writeAttribute(0, false, "mandatory", p.isMandatory());
+              jsonGenerator.writeBooleanField("mandatory", p.isMandatory());
+
             }
             if (p.isReadonly()) {
-              writer.writeAttribute(0, false, "readonly", p.isReadonly());
+              jsonGenerator.writeBooleanField("readonly", p.isReadonly());
             }
             if (p.isNotNull()) {
-              writer.writeAttribute(0, false, "not-null", p.isNotNull());
+              jsonGenerator.writeBooleanField("not-null", p.isNotNull());
             }
             if (p.getLinkedClass() != null) {
-              writer.writeAttribute(0, false, "linked-class", p.getLinkedClass().getName());
+              jsonGenerator.writeStringField("linked-class",
+                  p.getLinkedClass().getName());
             }
             if (p.getLinkedType() != null) {
-              writer.writeAttribute(0, false, "linked-type", p.getLinkedType().toString());
+              jsonGenerator.writeStringField("linked-type", p.getLinkedType().toString());
             }
             if (p.getMin() != null) {
-              writer.writeAttribute(0, false, "min", p.getMin());
+              jsonGenerator.writeStringField("min", p.getMin());
             }
             if (p.getMax() != null) {
-              writer.writeAttribute(0, false, "max", p.getMax());
+              jsonGenerator.writeStringField("max", p.getMax());
             }
             if (p.getCollate() != null) {
-              writer.writeAttribute(0, false, "collate", p.getCollate().getName());
+              jsonGenerator.writeStringField("collate", p.getCollate().getName());
             }
             if (p.getDefaultValue() != null) {
-              writer.writeAttribute(0, false, "default-value", p.getDefaultValue());
+              jsonGenerator.writeStringField("default-value", p.getDefaultValue());
             }
             if (p.getRegexp() != null) {
-              writer.writeAttribute(0, false, "regexp", p.getRegexp());
+              jsonGenerator.writeStringField("regexp", p.getRegexp());
             }
-            final Set<String> customKeys = p.getCustomKeys();
+            final var customKeys = p.getCustomKeys();
             final Map<String, String> custom = new HashMap<>();
-            for (String key : customKeys) {
+            for (var key : customKeys) {
               custom.put(key, p.getCustom(key));
             }
 
             if (!custom.isEmpty()) {
-              writer.writeAttribute(0, false, "customFields", custom);
+              jsonGenerator.writeObjectFieldStart("customFields");
+              for (var entry : custom.entrySet()) {
+                jsonGenerator.writeStringField(entry.getKey(), entry.getValue());
+              }
+              jsonGenerator.writeEndObject();
             }
-
-            writer.endObject(0, false);
+            jsonGenerator.writeEndObject();
           }
-          writer.endCollection(4, true);
+          jsonGenerator.writeEndArray();
         }
-        final Set<String> customKeys = cls.getCustomKeys();
+        final var customKeys = cls.getCustomKeys();
         final Map<String, String> custom = new HashMap<>();
-        for (String key : customKeys) {
+        for (var key : customKeys) {
           custom.put(key, cls.getCustom(key));
         }
 
         if (!custom.isEmpty()) {
-          writer.writeAttribute(0, false, "customFields", custom);
+          jsonGenerator.writeObjectFieldStart("customFields");
+          for (var entry : custom.entrySet()) {
+            jsonGenerator.writeStringField(entry.getKey(), entry.getValue());
+          }
+          jsonGenerator.writeEndObject();
         }
-        writer.endObject(3, true);
+        jsonGenerator.writeEndObject();
       }
-      writer.endCollection(2, true);
+      jsonGenerator.writeEndArray();
     }
 
-    writer.endObject(1, true);
-
-    listener.onMessage("OK (" + schema.getClasses(database).size() + " classes)");
+    jsonGenerator.writeEndObject();
+    listener.onMessage("OK (" + schema.getClasses().size() + " classes)");
   }
 
   private boolean exportRecord(
       long recordTot, long recordNum, RecordAbstract rec, Set<RID> brokenRids) {
     if (rec != null) {
       try {
-        if (useLineFeedForRecords) {
-          writer.append("\n");
-        }
-        if (recordExported > 0) {
-          writer.append(",");
-        }
-
-        final String format = RecordAbstract.BASE_FORMAT + ",dateAsLong";
-        RecordSerializerJSON.INSTANCE.toString(rec, writer, format);
+        final var format = "rid,version,class,type,keepTypes,internal,markEmbeddedEntities";
+        JSONSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;
         recordNum++;
@@ -662,7 +614,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
           brokenRids.add(rid);
         }
 
-        final byte[] buffer = rec.toStream();
+        final var buffer = rec.toStream();
 
         LogManager.instance()
             .error(

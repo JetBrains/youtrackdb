@@ -20,18 +20,11 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
-public interface Edge extends Entity {
-
+public interface Edge extends Element {
   /**
    * The name of the class of the edge record
    */
@@ -61,6 +54,7 @@ public interface Edge extends Entity {
    *
    * @return the vertex that this edge originates from
    */
+  @Nullable
   Vertex getFrom();
 
   /**
@@ -68,13 +62,15 @@ public interface Edge extends Entity {
    *
    * @return the identifiable object from where this edge originates
    */
-  Identifiable getFromIdentifiable();
+  @Nullable
+  Identifiable getFromLink();
 
   /**
    * Retrieves the vertex that this edge connects to.
    *
    * @return the vertex that this edge connects to
    */
+  @Nullable
   Vertex getTo();
 
   /**
@@ -82,7 +78,8 @@ public interface Edge extends Entity {
    *
    * @return the identifiable object from where the edge connects to
    */
-  Identifiable getToIdentifiable();
+  @Nullable
+  Identifiable getToLink();
 
   /**
    * Checks if the edge is lightweight.
@@ -92,13 +89,23 @@ public interface Edge extends Entity {
   boolean isLightweight();
 
   /**
+   * Checks if the edge is stateful.
+   *
+   * @return true if the edge is stateful, false otherwise.
+   */
+  default boolean isStateful() {
+    return !isLightweight();
+  }
+
+  /**
    * Retrieves the vertex connected to this edge in the specified direction.
    *
    * @param dir the direction of the edge (IN or OUT)
    * @return the vertex connected to this edge in the specified direction, or null if no vertex is
    * connected
    */
-  default Vertex getVertex(Direction dir) {
+  @Nullable
+  default Vertex getVertex(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getTo();
     } else if (dir == Direction.OUT) {
@@ -115,11 +122,12 @@ public interface Edge extends Entity {
    * @return the identifiable object of the vertex connected to this edge in the specified
    * direction, or null if no vertex is connected
    */
-  default Identifiable getVertexLink(Direction dir) {
+  @Nullable
+  default Identifiable getVertexLink(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
-      return getToIdentifiable();
+      return getToLink();
     } else if (dir == Direction.OUT) {
-      return getFromIdentifiable();
+      return getFromLink();
     }
     throw new IllegalArgumentException("Direction not supported: " + dir);
   }
@@ -130,107 +138,44 @@ public interface Edge extends Entity {
    * @param labels the labels to check
    * @return true if the labels match, false otherwise
    */
-  default boolean isLabeled(String[] labels) {
-    if (labels == null) {
-      return true;
-    }
-    if (labels.length == 0) {
-      return true;
-    }
-    Set<String> types = new HashSet<>();
-
-    Optional<SchemaClass> typeClass = getSchemaType();
-    if (typeClass.isPresent()) {
-      types.add(typeClass.get().getName());
-      typeClass.get().getAllSuperClasses().stream().map(SchemaClass::getName).forEach(types::add);
-    } else {
-      types.add(CLASS_NAME);
-    }
-    for (String s : labels) {
-      for (String type : types) {
-        if (type.equalsIgnoreCase(s)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
+  boolean isLabeled(@Nonnull String[] labels);
 
   /**
-   * Returns the names of defined properties except of properties used to manage edges.
+   * Retrieves the schema class associated with this edge.
    *
-   * @return all the names of defined properties
+   * @return the schema class associated with this edge.
    */
-  Set<String> getPropertyNames();
+  @Nonnull
+  SchemaClass getSchemaClass();
 
   /**
-   * Gets a property given its name. if the property name equals to {@link #DIRECTION_IN} or
-   * {@link #DIRECTION_OUT} method throws {@link IllegalArgumentException}. Those names are used to
-   * manage edges.
-   *
-   * @param name the property name
-   * @return Returns the property value
-   * @throws IllegalArgumentException if booked property name is used.
+   * Retrieves the class name associated with this edge
    */
-  <RET> RET getProperty(String name);
+  @Nonnull
+  String getSchemaClassName();
 
   /**
-   * This method similar to {@link #getProperty(String)} bun unlike before mentioned method it does
-   * not load link automatically. if the property name equals to {@link #DIRECTION_IN} or
-   * {@link #DIRECTION_OUT} method throws {@link IllegalArgumentException}. Those names are used to
-   * manage edges.
-   *
-   * @param name the name of the link property
-   * @return the link property value, or null if the property does not exist
-   * @throws IllegalArgumentException if booked property name is used or requested property is not a
-   *                                  link.
-   * @see #getProperty(String)
+   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
+   * an exception is thrown.
+   */
+  @Nonnull
+  StatefulEdge asStatefulEdge();
+
+  /**
+   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
+   * null is returned.
    */
   @Nullable
-  @Override
-  Identifiable getLinkProperty(String name);
+  StatefulEdge asStatefulEdgeOrNull();
 
   /**
-   * Check if a property exists in the Element. if the property name equals to {@link #DIRECTION_IN}
-   * or {@link #DIRECTION_OUT} method throws {@link IllegalArgumentException}. Those names are used
-   * to manage edges.
-   *
-   * @param propertyName Name of the property to check.
-   * @return true if exists otherwise false.
-   * @throws IllegalArgumentException if booked property name is used.
+   * Deletes the edge from the graph.
    */
-  boolean hasProperty(final String propertyName);
+  void delete();
 
-  /**
-   * Sets a property value, if the property name equals to {@link #DIRECTION_IN} or
-   * {@link #DIRECTION_OUT} update of such property is aborted. Those names are used to
-   *
-   * @param name  the property name
-   * @param value the property value
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(String name, Object value);
+  @Nonnull
+  Map<String, Object> toMap();
 
-  /**
-   * Sets a property value, if the property name equals to {@link #DIRECTION_IN} or
-   * {@link #DIRECTION_OUT} update of such property is aborted. Those names are used to manage
-   * edges.
-   *
-   * @param name      the property name
-   * @param value     the property value
-   * @param fieldType Forced type (not auto-determined)
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(String name, Object value, PropertyType... fieldType);
-
-  /**
-   * Remove a property, if the property name equals to {@link #DIRECTION_IN} or
-   * {@link #DIRECTION_OUT} removal of such property is aborted. Those names are used to manage
-   * edges.
-   *
-   * @param name the property name
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  <RET> RET removeProperty(String name);
+  @Nonnull
+  String toJSON();
 }

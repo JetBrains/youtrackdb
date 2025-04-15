@@ -21,9 +21,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -34,25 +32,25 @@ public class LuceneInheritanceQueryTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    final SchemaClass c1 = db.createVertexClass("C1");
-    c1.createProperty(db, "name", PropertyType.STRING);
-    c1.createIndex(db, "C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
+    final var c1 = session.createVertexClass("C1");
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createIndex("C1.name", "FULLTEXT", null, null, "LUCENE", new String[]{"name"});
 
-    final SchemaClass c2 = db.createClass("C2", "C1");
+    final var c2 = session.createClass("C2", "C1");
   }
 
   @Test
   public void testQuery() {
-    EntityImpl doc = new EntityImpl("C2");
-    doc.field("name", "abc");
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("C2"));
+    doc.setProperty("name", "abc");
+    session.commit();
 
-    db.begin();
-    db.save(doc);
-    db.commit();
-
-    ResultSet resultSet = db.query("select from C1 where search_class(\"abc\")=true ");
+    session.begin();
+    var resultSet = session.query("select from C1 where search_class(\"abc\")=true ");
 
     assertThat(resultSet).hasSize(1);
     resultSet.close();
+    session.commit();
   }
 }

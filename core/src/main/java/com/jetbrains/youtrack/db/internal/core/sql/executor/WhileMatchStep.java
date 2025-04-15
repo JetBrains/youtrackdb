@@ -30,7 +30,7 @@ public class WhileMatchStep extends AbstractUnrollStep {
   protected Collection<Result> unroll(Result res, CommandContext iContext) {
     body.reset(iContext);
     List<Result> result = new ArrayList<>();
-    ExecutionStream block = body.start();
+    var block = body.start();
     while (block.hasNext(iContext)) {
       result.add(block.next(iContext));
     }
@@ -40,10 +40,10 @@ public class WhileMatchStep extends AbstractUnrollStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String indentStep = ExecutionStepInternal.getIndent(1, indent);
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var indentStep = ExecutionStepInternal.getIndent(1, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
 
-    String result =
+    var result =
         spaces
             + "+ WHILE\n"
             + spaces

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.server.token;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Assert;
@@ -20,13 +19,13 @@ public class YouTrackDBServerUserTokenTest {
   @Test
   public void testToken() throws Exception {
 
-    SecurityUser root = server.authenticateUser("root", "root", "*");
+    var root = server.authenticateUser("root", "root", "*");
 
-    byte[] signedWebTokenServerUser = server.getTokenHandler().getSignedWebTokenServerUser(root);
+    var signedWebTokenServerUser = server.getTokenHandler().getSignedWebTokenServerUser(root);
 
     Assert.assertNotNull(signedWebTokenServerUser);
 
-    JsonWebToken token =
+    var token =
         (JsonWebToken) server.getTokenHandler().parseWebToken(signedWebTokenServerUser);
 
     server.getTokenHandler().validateServerUserToken(token, "", "");

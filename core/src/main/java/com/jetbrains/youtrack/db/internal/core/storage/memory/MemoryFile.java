@@ -49,11 +49,11 @@ public final class MemoryFile {
           index = lastIndex + 1;
         }
 
-        final ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-        final Pointer pointer =
+        final var bufferPool = ByteBufferPool.instance(null);
+        final var pointer =
             bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_MEMORY_STORAGE);
 
-        final CachePointer cachePointer = new CachePointer(pointer, bufferPool, id, (int) index);
+        final var cachePointer = new CachePointer(pointer, bufferPool, id, (int) index);
         cachePointer.incrementReferrer();
 
         cacheEntry =
@@ -64,7 +64,7 @@ public final class MemoryFile {
                 true,
                 readCache);
 
-        final CacheEntry oldCacheEntry = content.putIfAbsent(index, cacheEntry);
+        final var oldCacheEntry = content.putIfAbsent(index, cacheEntry);
 
         if (oldCacheEntry != null) {
           cachePointer.decrementReferrer();
@@ -101,11 +101,11 @@ public final class MemoryFile {
   }
 
   public void clear() {
-    boolean thereAreNotReleased = false;
+    var thereAreNotReleased = false;
 
     clearLock.writeLock().lock();
     try {
-      for (final CacheEntry entry : content.values()) {
+      for (final var entry : content.values()) {
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (entry) {
           thereAreNotReleased |= entry.getUsagesCount() > 0;

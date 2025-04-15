@@ -42,8 +42,8 @@ public class SQLFetchPlanItem extends SimpleNode {
         builder.append("[*]");
       }
 
-      boolean first = true;
-      for (String s : fieldChain) {
+      var first = true;
+      for (var s : fieldChain) {
         if (!first) {
           builder.append(".");
         }
@@ -67,8 +67,8 @@ public class SQLFetchPlanItem extends SimpleNode {
         builder.append("[*]");
       }
 
-      boolean first = true;
-      for (String s : fieldChain) {
+      var first = true;
+      for (var s : fieldChain) {
         if (!first) {
           builder.append(".");
         }
@@ -81,7 +81,7 @@ public class SQLFetchPlanItem extends SimpleNode {
   }
 
   public SQLFetchPlanItem copy() {
-    SQLFetchPlanItem result = new SQLFetchPlanItem(-1);
+    var result = new SQLFetchPlanItem(-1);
     result.star = star;
     result.leftDepth = leftDepth == null ? null : leftDepth.copy();
     result.leftStar = leftStar;
@@ -99,7 +99,7 @@ public class SQLFetchPlanItem extends SimpleNode {
       return false;
     }
 
-    SQLFetchPlanItem that = (SQLFetchPlanItem) o;
+    var that = (SQLFetchPlanItem) o;
 
     if (leftStar != that.leftStar) {
       return false;
@@ -118,7 +118,7 @@ public class SQLFetchPlanItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = star != null ? star.hashCode() : 0;
+    var result = star != null ? star.hashCode() : 0;
     result = 31 * result + (leftDepth != null ? leftDepth.hashCode() : 0);
     result = 31 * result + (leftStar ? 1 : 0);
     result = 31 * result + (rightDepth != null ? rightDepth.hashCode() : 0);
@@ -127,7 +127,7 @@ public class SQLFetchPlanItem extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("star", star);
     if (leftDepth != null) {
       result.setProperty("leftDepth", leftDepth.serialize(db));

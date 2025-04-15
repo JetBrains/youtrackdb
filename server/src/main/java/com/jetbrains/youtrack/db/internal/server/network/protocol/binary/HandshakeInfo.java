@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.binary;
 
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 
 /**
@@ -13,7 +13,7 @@ public class HandshakeInfo {
   private String driverVersion;
   private final byte encoding;
   private final byte errorEncoding;
-  private final RecordSerializer serializer;
+  private final RecordSerializerNetwork serializer;
 
   public HandshakeInfo(
       short protocolVersion,
@@ -26,7 +26,7 @@ public class HandshakeInfo {
     this.driverVersion = driverVersion;
     this.encoding = encoding;
     this.errorEncoding = errorEncoding;
-    this.serializer = RecordSerializerNetworkFactory.INSTANCE.forProtocol(protocolVersion);
+    this.serializer = RecordSerializerNetworkFactory.forProtocol(protocolVersion);
   }
 
   public short getProtocolVersion() {
@@ -53,7 +53,7 @@ public class HandshakeInfo {
     this.driverVersion = driverVersion;
   }
 
-  public RecordSerializer getSerializer() {
+  public RecordSerializerNetwork getSerializer() {
     return serializer;
   }
 

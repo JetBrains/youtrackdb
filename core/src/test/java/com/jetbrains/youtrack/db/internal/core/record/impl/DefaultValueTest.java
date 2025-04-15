@@ -4,13 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.util.Date;
 import org.junit.Test;
@@ -20,205 +17,236 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testKeepValueSerialization() {
     // create example schema
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassC");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassC");
 
-    SchemaProperty prop = classA.createProperty(db, "name", PropertyType.STRING);
-    prop.setDefaultValue(db, "uuid()");
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("uuid()");
 
-    EntityImpl doc = new EntityImpl("ClassC");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassC");
 
-    byte[] val = doc.toStream();
-    EntityImpl doc1 = new EntityImpl();
-    RecordInternal.unsetDirty(doc1);
+    var val = doc.toStream();
+    var doc1 = (EntityImpl) session.newEntity();
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(val);
-    doc1.deserializeFields();
-    assertEquals(doc.field("name"), (String) doc1.field("name"));
+    doc1.deserializeProperties();
+    assertEquals(doc.getProperty("name"), (String) doc1.getProperty("name"));
+    session.rollback();
   }
 
   @Test
   public void testDefaultValueDate() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATE);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
-    SchemaProperty some = classA.createProperty(db, "id", PropertyType.STRING);
-    some.setDefaultValue(db, "uuid()");
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var some = classA.createProperty("id", PropertyType.STRING);
+    some.setDefaultValue("uuid()");
 
-    db.begin();
-    EntityImpl doc = new EntityImpl(classA);
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    EntityImpl saved = doc;
+    session.commit();
 
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertTrue(saved.field("date") instanceof Date);
-    assertNotNull(saved.field("id"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertTrue(saved.getProperty("date") instanceof Date);
+    assertNotNull(saved.getProperty("id"));
 
-    db.begin();
-    Result inserted = db.command("insert into ClassA content {}").next();
-    db.commit();
+    var inserted = session.execute("insert into ClassA content {}").next();
+    session.commit();
 
-    EntityImpl seved1 = db.load(inserted.getIdentity().get());
-    assertNotNull(seved1.field("date"));
-    assertNotNull(seved1.field("id"));
-    assertTrue(seved1.field("date") instanceof Date);
+    session.begin();
+    EntityImpl seved1 = session.load(inserted.getIdentity());
+    assertNotNull(seved1.getProperty("date"));
+    assertNotNull(seved1.getProperty("id"));
+    assertTrue(seved1.getProperty("date") instanceof Date);
+    session.commit();
   }
 
   @Test
   public void testDefaultValueDateFromContent() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATE);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
-    SchemaProperty some = classA.createProperty(db, "id", PropertyType.STRING);
-    some.setDefaultValue(db, "uuid()");
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
+    var some = classA.createProperty("id", PropertyType.STRING);
+    some.setDefaultValue("uuid()");
 
-    String value = "2000-01-01 00:00:00";
+    var value = "2000-01-01 00:00:00";
 
-    db.begin();
-    EntityImpl doc = new EntityImpl(classA);
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(classA);
+    EntityImpl saved = doc;
+    session.commit();
 
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertTrue(saved.field("date") instanceof Date);
-    assertNotNull(saved.field("id"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertTrue(saved.getProperty("date") instanceof Date);
+    assertNotNull(saved.getProperty("id"));
+    session.commit();
 
-    db.begin();
-    Result inserted = db.command("insert into ClassA content {\"date\":\"" + value + "\"}")
+    session.begin();
+    var inserted = session.execute("insert into ClassA content {\"date\":\"" + value + "\"}")
         .next();
-    db.commit();
+    session.commit();
 
-    EntityImpl seved1 = db.load(inserted.getIdentity().get());
-    assertNotNull(seved1.field("date"));
-    assertNotNull(seved1.field("id"));
-    assertTrue(seved1.field("date") instanceof Date);
-    assertEquals(DateHelper.getDateTimeFormatInstance().format(seved1.field("date")), value);
+    session.begin();
+    EntityImpl seved1 = session.load(inserted.getIdentity());
+    assertNotNull(seved1.getProperty("date"));
+    assertNotNull(seved1.getProperty("id"));
+    assertTrue(seved1.getProperty("date") instanceof Date);
+    assertEquals(DateHelper.getDateTimeFormatInstance(session).format(seved1.getProperty("date")),
+        value);
+    session.commit();
   }
 
   @Test
   public void testDefaultValueFromJson() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATE);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
-    db.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON("{'@class':'ClassA','other':'other'}");
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassA");
+    doc.updateFromJSON("{\"@class\":\"ClassA\",\"other\":\"other\"}");
+    EntityImpl saved = doc;
+    session.commit();
 
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertTrue(saved.field("date") instanceof Date);
-    assertNotNull(saved.field("other"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertTrue(saved.getProperty("date") instanceof Date);
+    assertNotNull(saved.getProperty("other"));
+    session.commit();
   }
 
   @Test
   public void testDefaultValueProvidedFromJson() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATETIME);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
-    String value1 = DateHelper.getDateTimeFormatInstance().format(new Date());
-    db.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON("{'@class':'ClassA','date':'" + value1 + "','other':'other'}");
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    var value1 = DateHelper.getDateTimeFormatInstance(session).format(new Date());
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassA");
+    doc.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + value1 + "\",\"other\":\"other\"}");
+    EntityImpl saved = doc;
+    session.commit();
 
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertEquals(DateHelper.getDateTimeFormatInstance().format(saved.field("date")), value1);
-    assertNotNull(saved.field("other"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
+        value1);
+    assertNotNull(saved.getProperty("other"));
+    session.commit();
   }
 
   @Test
   public void testDefaultValueMandatoryReadonlyFromJson() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATE);
-    prop.setMandatory(db, true);
-    prop.setReadonly(db, true);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATE);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
-    db.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON("{'@class':'ClassA','other':'other'}");
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassA");
+    doc.updateFromJSON("{\"@class\":\"ClassA\",\"other\":\"other\"}");
+    EntityImpl saved = doc;
+    session.commit();
 
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertTrue(saved.field("date") instanceof Date);
-    assertNotNull(saved.field("other"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertTrue(saved.getProperty("date") instanceof Date);
+    assertNotNull(saved.getProperty("other"));
+    session.commit();
   }
 
   @Test
   public void testDefaultValueProvidedMandatoryReadonlyFromJson() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATETIME);
-    prop.setMandatory(db, true);
-    prop.setReadonly(db, true);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
-    String value1 = DateHelper.getDateTimeFormatInstance().format(new Date());
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON("{'@class':'ClassA','date':'" + value1 + "','other':'other'}");
-    db.begin();
-    EntityImpl saved = db.save(doc);
-    db.commit();
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertEquals(DateHelper.getDateTimeFormatInstance().format(saved.field("date")), value1);
-    assertNotNull(saved.field("other"));
+    var value1 = DateHelper.getDateTimeFormatInstance(session).format(new Date());
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassA");
+    doc.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + value1 + "\",\"other\":\"other\"}");
+    EntityImpl saved = doc;
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
+        value1);
+    assertNotNull(saved.getProperty("other"));
+    session.commit();
   }
 
   @Test
   public void testDefaultValueUpdateMandatoryReadonlyFromJson() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassA");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassA");
 
-    SchemaProperty prop = classA.createProperty(db, "date", PropertyType.DATETIME);
-    prop.setMandatory(db, true);
-    prop.setReadonly(db, true);
-    prop.setDefaultValue(db, DateHelper.getDateTimeFormatInstance().format(new Date()));
+    var prop = classA.createProperty("date", PropertyType.DATETIME);
+    prop.setMandatory(true);
+    prop.setReadonly(true);
+    prop.setDefaultValue(DateHelper.getDateTimeFormatInstance(session).format(new Date()));
 
-    db.begin();
-    EntityImpl doc = new EntityImpl();
-    doc.fromJSON("{'@class':'ClassA','other':'other'}");
-    EntityImpl saved = db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassA");
+    doc.updateFromJSON("{\"@class\":\"ClassA\",\"other\":\"other\"}");
+    EntityImpl saved = doc;
+    session.commit();
 
-    db.begin();
-    saved = db.bindToSession(saved);
-    doc = db.bindToSession(doc);
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    saved = activeTx2.load(saved);
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
 
-    assertNotNull(saved.field("date"));
-    assertTrue(saved.field("date") instanceof Date);
-    assertNotNull(saved.field("other"));
-    String val = DateHelper.getDateTimeFormatInstance().format(doc.field("date"));
-    EntityImpl doc1 = new EntityImpl();
-    doc1.fromJSON("{'@class':'ClassA','date':'" + val + "','other':'other1'}");
-    saved.merge(doc1, true, true);
+    assertNotNull(saved.getProperty("date"));
+    assertTrue(saved.getProperty("date") instanceof Date);
+    assertNotNull(saved.getProperty("other"));
+    var val = DateHelper.getDateTimeFormatInstance(session).format(doc.getProperty("date"));
+    var entity1 = (EntityImpl) session.newEntity("ClassA");
+    entity1.updateFromJSON("{\"@class\":\"ClassA\",\"date\":\"" + val + "\",\"other\":\"other1\"}");
+    saved.updateFromResult(entity1);
+    session.commit();
 
-    saved = db.save(saved);
-    db.commit();
-
-    saved = db.bindToSession(saved);
-    assertNotNull(saved.field("date"));
-    assertEquals(DateHelper.getDateTimeFormatInstance().format(saved.field("date")), val);
-    assertEquals(saved.field("other"), "other1");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    saved = activeTx.load(saved);
+    assertNotNull(saved.getProperty("date"));
+    assertEquals(DateHelper.getDateTimeFormatInstance(session).format(saved.getProperty("date")),
+        val);
+    assertEquals(saved.getProperty("other"), "other1");
+    session.commit();
   }
 }

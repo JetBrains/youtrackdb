@@ -2,11 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,17 +30,19 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
   public ExecutionStream executeSimple(CommandContext ctx) {
     List<Result> rs = new ArrayList<>();
 
-    var database = ctx.getDatabase();
-    Object result = expression == null ? null : expression.execute((Result) null, ctx);
+    var database = ctx.getDatabaseSession();
+    var result = expression == null ? null : expression.execute((Result) null, ctx);
     if (result instanceof Result) {
       rs.add((Result) result);
     } else if (result instanceof Identifiable) {
-      ResultInternal res = new ResultInternal(database, (Identifiable) result);
+      var res = new ResultInternal(database, (Identifiable) result);
       rs.add(res);
     } else if (result instanceof ResultSet) {
       if (!((ResultSet) result).hasNext()) {
         try {
-          ((ResultSet) result).reset();
+          if (result instanceof InternalResultSet internalResultSet) {
+            internalResultSet.reset();
+          }
         } catch (UnsupportedOperationException ignore) {
           // just try to reset the RS, in case it was already used during the script execution
           // already
@@ -53,7 +56,7 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
     } else if (result instanceof ExecutionStream) {
       return (ExecutionStream) result;
     } else {
-      ResultInternal res = new ResultInternal(database);
+      var res = new ResultInternal(database);
       res.setProperty("value", result);
       rs.add(res);
     }
@@ -80,7 +83,7 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLReturnStatement copy() {
-    SQLReturnStatement result = new SQLReturnStatement(-1);
+    var result = new SQLReturnStatement(-1);
     result.expression = expression == null ? null : expression.copy();
     return result;
   }
@@ -94,7 +97,7 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLReturnStatement that = (SQLReturnStatement) o;
+    var that = (SQLReturnStatement) o;
 
     return Objects.equals(expression, that.expression);
   }

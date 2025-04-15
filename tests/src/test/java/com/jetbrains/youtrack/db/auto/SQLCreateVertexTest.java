@@ -1,13 +1,12 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -18,31 +17,32 @@ import org.testng.annotations.Test;
 public class SQLCreateVertexTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLCreateVertexTest(boolean remote) {
-    super(remote);
+  public SQLCreateVertexTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   public void testCreateVertexByContent() {
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
+    session = createSessionInstance();
 
-    Schema schema = database.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("CreateVertexByContent")) {
-      SchemaClass vClass = schema.createClass("CreateVertexByContent", schema.getClass("V"));
-      vClass.createProperty(database, "message", PropertyType.STRING);
+      var vClass = schema.createClass("CreateVertexByContent", schema.getClass("V"));
+      vClass.createProperty("message", PropertyType.STRING);
     }
 
-    database.begin();
-    database.command("create vertex CreateVertexByContent content { \"message\": \"(:\"}").close();
-    database
-        .command(
+    session.begin();
+    session.execute("create vertex CreateVertexByContent content { \"message\": \"(:\"}").close();
+    session
+        .execute(
             "create vertex CreateVertexByContent content { \"message\": \"\\\"‎ה, כן?...‎\\\"\"}")
         .close();
-    database.commit();
+    session.commit();
 
-    List<Result> result =
-        database.query("select from CreateVertexByContent").stream().collect(Collectors.toList());
+    session.begin();
+    var result =
+        session.query("select from CreateVertexByContent").stream().collect(Collectors.toList());
     Assert.assertEquals(result.size(), 2);
 
     List<String> messages = new ArrayList<String>();
@@ -51,7 +51,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
 
     List<String> resultMessages = new ArrayList<String>();
 
-    for (Result document : result) {
+    for (var document : result) {
       resultMessages.add(document.getProperty("message"));
     }
 
@@ -60,13 +60,14 @@ public class SQLCreateVertexTest extends BaseDBTest {
         messages.toArray(),
         resultMessages.toArray(),
         "arrays are different: " + toString(messages) + " - " + toString(resultMessages));
+    session.commit();
   }
 
   private String toString(List<String> resultMessages) {
-    StringBuilder result = new StringBuilder();
+    var result = new StringBuilder();
     result.append("[");
-    boolean first = true;
-    for (String msg : resultMessages) {
+    var first = true;
+    for (var msg : resultMessages) {
       if (!first) {
         result.append(", ");
       }
@@ -80,14 +81,14 @@ public class SQLCreateVertexTest extends BaseDBTest {
   }
 
   public void testCreateVertexBooleanProp() {
-    database.close();
-    database = createSessionInstance();
+    session.close();
+    session = createSessionInstance();
 
-    database.begin();
-    database.command("create vertex set script = true").close();
-    database.command("create vertex").close();
-    database.command("create vertex V").close();
-    database.commit();
+    session.begin();
+    session.execute("create vertex set script = true").close();
+    session.execute("create vertex").close();
+    session.execute("create vertex V").close();
+    session.commit();
 
     // TODO complete this!
     // database.command(new CommandSQL("create vertex set")).execute();
@@ -96,10 +97,10 @@ public class SQLCreateVertexTest extends BaseDBTest {
   }
 
   public void testIsClassName() {
-    database.close();
+    session.close();
 
-    database = createSessionInstance();
-    database.createVertexClass("Like").createProperty(database, "anything", PropertyType.STRING);
-    database.createVertexClass("Is").createProperty(database, "anything", PropertyType.STRING);
+    session = createSessionInstance();
+    session.createVertexClass("Like").createProperty("anything", PropertyType.STRING);
+    session.createVertexClass("Is").createProperty("anything", PropertyType.STRING);
   }
 }

@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.cache.chm;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import javax.annotation.Nullable;
 
 public final class LRUList implements Iterable<CacheEntry> {
 
@@ -12,8 +13,8 @@ public final class LRUList implements Iterable<CacheEntry> {
   private CacheEntry tail;
 
   void remove(final CacheEntry entry) {
-    final CacheEntry next = entry.getNext();
-    final CacheEntry prev = entry.getPrev();
+    final var next = entry.getNext();
+    final var prev = entry.getPrev();
 
     if (!(next != null || prev != null || entry == head)) {
       return;
@@ -57,10 +58,10 @@ public final class LRUList implements Iterable<CacheEntry> {
       return;
     }
 
-    final CacheEntry next = entry.getNext();
-    final CacheEntry prev = entry.getPrev();
+    final var next = entry.getNext();
+    final var prev = entry.getPrev();
 
-    final boolean newEntry = entry.getContainer() == null;
+    final var newEntry = entry.getContainer() == null;
     assert entry.getContainer() == null || entry.getContainer() == this;
 
     assert prev == null || prev.getNext() == entry;
@@ -102,14 +103,15 @@ public final class LRUList implements Iterable<CacheEntry> {
     return size;
   }
 
+  @Nullable
   CacheEntry poll() {
     if (head == null) {
       return null;
     }
 
-    final CacheEntry entry = head;
+    final var entry = head;
 
-    final CacheEntry next = head.getNext();
+    final var next = head.getNext();
     assert next == null || next.getPrev() == head;
 
     head = next;
@@ -150,7 +152,7 @@ public final class LRUList implements Iterable<CacheEntry> {
         if (!hasNext()) {
           throw new NoSuchElementException();
         }
-        final CacheEntry result = next;
+        final var result = next;
         next = next.getPrev();
 
         return result;

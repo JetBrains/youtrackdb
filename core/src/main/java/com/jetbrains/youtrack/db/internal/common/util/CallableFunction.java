@@ -19,10 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.common.util;
 
+import javax.annotation.Nullable;
+
 /**
  * Generic callable interface that accepts a parameter.
  */
 @FunctionalInterface
 public interface CallableFunction<RET, PAR> {
+
+  @Nullable
   RET call(PAR iArgument);
 }

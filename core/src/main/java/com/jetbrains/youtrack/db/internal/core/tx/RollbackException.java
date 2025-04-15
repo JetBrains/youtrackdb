@@ -26,9 +26,12 @@ import com.jetbrains.youtrack.db.api.exception.TransactionException;
  * @since 3/11/14
  */
 public class RollbackException extends TransactionException {
-
   public RollbackException(RollbackException exception) {
     super(exception);
+  }
+
+  public RollbackException(String dbName, String message) {
+    super(dbName, message);
   }
 
   public RollbackException(String message) {

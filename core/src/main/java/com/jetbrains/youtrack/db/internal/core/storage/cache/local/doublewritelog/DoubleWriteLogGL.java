@@ -6,8 +6,11 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAlloca
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairIntegerInteger;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairLongLong;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -22,7 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4FastDecompressor;
@@ -67,12 +70,13 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   private static final XXHash64 XX_HASH;
 
   static {
-    final XXHashFactory factory = XXHashFactory.fastestInstance();
+    final var factory = XXHashFactory.fastestInstance();
     XX_HASH = factory.hash64();
   }
 
   private Path storagePath;
   private String storageName;
+  private TimeRate diskWriteMeter = TimeRate.NOOP;
 
   private int pageSize;
 
@@ -98,7 +102,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   private Map<RawPairIntegerInteger, RawPairLongLong> pageMap;
 
   static {
-    final LZ4Factory factory = LZ4Factory.fastestInstance();
+    final var factory = LZ4Factory.fastestInstance();
     LZ_4_COMPRESSOR = factory.fastCompressor();
     LZ_4_DECOMPRESSOR = factory.fastDecompressor();
   }
@@ -121,20 +125,23 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
       this.pageSize = pageSize;
       this.storagePath = storagePath;
       this.storageName = storageName;
+      this.diskWriteMeter = YouTrackDBEnginesManager.instance()
+          .getMetricsRegistry()
+          .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
 
       this.tailSegments = new LongArrayList();
       this.pageMap = new HashMap<>();
 
       final Optional<Path> latestPath;
-      try (final Stream<Path> stream = Files.list(storagePath)) {
+      try (final var stream = Files.list(storagePath)) {
         latestPath =
             stream
                 .filter(DoubleWriteLogGL::fileFilter)
                 .peek((path) -> tailSegments.add(extractSegmentId(path.getFileName().toString())))
                 .min(
                     (pathOne, pathTwo) -> {
-                      final long indexOne = extractSegmentId(pathOne.getFileName().toString());
-                      final long indexTwo = extractSegmentId(pathTwo.getFileName().toString());
+                      final var indexOne = extractSegmentId(pathOne.getFileName().toString());
+                      final var indexTwo = extractSegmentId(pathTwo.getFileName().toString());
                       return -Long.compare(indexOne, indexTwo);
                     });
       }
@@ -142,7 +149,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
       this.currentSegment =
           latestPath.map(path -> extractSegmentId(path.getFileName().toString()) + 1).orElse(0L);
 
-      Path path = createLogFilePath();
+      var path = createLogFilePath();
       this.currentFile = createLogFile(path);
 
       if (blockSize <= 0) {
@@ -167,9 +174,9 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   private long extractSegmentId(final String segmentName) {
-    final int len = storageName.length();
+    final var len = storageName.length();
 
-    String index = segmentName.substring(len + 1);
+    var index = segmentName.substring(len + 1);
     index = index.substring(0, index.length() - EXTENSION.length());
 
     return Long.parseLong(index);
@@ -209,14 +216,14 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         addNewSegment();
       }
 
-      int sizeToAllocate = 0;
-      for (final ByteBuffer byteBuffer : buffers) {
+      var sizeToAllocate = 0;
+      for (final var byteBuffer : buffers) {
         sizeToAllocate += LZ_4_COMPRESSOR.maxCompressedLength(byteBuffer.limit());
       }
 
       sizeToAllocate += buffers.size() * RECORD_METADATA_SIZE;
       sizeToAllocate = (sizeToAllocate + blockMask) & ~blockMask;
-      final Pointer pageContainer =
+      final var pageContainer =
           ALLOCATOR.allocate(sizeToAllocate, false, Intention.DWL_ALLOCATE_CHUNK);
 
       try {
@@ -225,25 +232,25 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         containerBuffer = pageContainer.getNativeByteBuffer();
         assert containerBuffer.position() == 0;
 
-        for (int i = 0; i < buffers.size(); i++) {
-          final ByteBuffer buffer = buffers.get(i);
+        for (var i = 0; i < buffers.size(); i++) {
+          final var buffer = buffers.get(i);
           buffer.rewind();
 
-          final int maxCompressedLength = LZ_4_COMPRESSOR.maxCompressedLength(buffer.limit());
-          final Pointer compressedPointer =
+          final var maxCompressedLength = LZ_4_COMPRESSOR.maxCompressedLength(buffer.limit());
+          final var compressedPointer =
               ALLOCATOR.allocate(
                   maxCompressedLength, false, Intention.DWL_ALLOCATE_COMPRESSED_CHUNK);
           try {
-            final ByteBuffer compressedBuffer = compressedPointer.getNativeByteBuffer();
+            final var compressedBuffer = compressedPointer.getNativeByteBuffer();
             LZ_4_COMPRESSOR.compress(buffer, compressedBuffer);
 
-            final int compressedSize = compressedBuffer.position();
+            final var compressedSize = compressedBuffer.position();
             compressedBuffer.rewind();
             compressedBuffer.limit(compressedSize);
 
             containerBuffer.put(DATA_RECORD);
 
-            final int xxHashPosition = containerBuffer.position();
+            final var xxHashPosition = containerBuffer.position();
             containerBuffer.position(xxHashPosition + XX_HASH_LEN);
             containerBuffer.putInt(fileIds.getInt(i));
             containerBuffer.putInt(pageIndexes.getInt(i));
@@ -287,6 +294,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         assert currentFile.size() == segmentPosition;
         var written = IOUtils.writeByteBuffer(containerBuffer, currentFile, segmentPosition);
         currentFile.force(true);
+        diskWriteMeter.record(written);
         segmentPosition += written;
         assert currentFile.size() == segmentPosition;
       } finally {
@@ -324,7 +332,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
           .forEach(
               (segment) -> {
                 try {
-                  final Path segmentPath = storagePath.resolve(segment);
+                  final var segmentPath = storagePath.resolve(segment);
                   Files.delete(segmentPath);
                 } catch (final IOException e) {
                   LogManager.instance()
@@ -341,6 +349,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     }
   }
 
+  @Nullable
   @Override
   public Pointer loadPage(int fileId, int pageIndex, ByteBufferPool bufferPool)
       throws IOException {
@@ -353,35 +362,35 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         return null;
       }
 
-      final RawPairLongLong segmentPosition =
+      final var segmentPosition =
           pageMap.get(new RawPairIntegerInteger(fileId, pageIndex));
       if (segmentPosition == null) {
         return null;
       }
 
-      final String segmentName = generateSegmentsName(segmentPosition.first);
-      final Path segmentPath = storagePath.resolve(segmentName);
+      final var segmentName = generateSegmentsName(segmentPosition.first);
+      final var segmentPath = storagePath.resolve(segmentName);
 
       // bellow set of precautions to prevent errors during page restore
       if (Files.exists(segmentPath)) {
-        try (final FileChannel channel = FileChannel.open(segmentPath, StandardOpenOption.READ)) {
-          final long channelSize = channel.size();
+        try (final var channel = FileChannel.open(segmentPath, StandardOpenOption.READ)) {
+          final var channelSize = channel.size();
           if (channelSize - segmentPosition.second > RECORD_METADATA_SIZE) {
-            final ByteBuffer metadataBuffer =
+            final var metadataBuffer =
                 ByteBuffer.allocate(RECORD_METADATA_SIZE).order(ByteOrder.nativeOrder());
 
             IOUtils.readByteBuffer(metadataBuffer, channel, segmentPosition.second, true);
             metadataBuffer.rewind();
 
-            final byte recordType = metadataBuffer.get();
-            final long xxHash = metadataBuffer.getLong();
+            final var recordType = metadataBuffer.get();
+            final var xxHash = metadataBuffer.getLong();
             if (recordType != DATA_RECORD) {
               throwSegmentIsBroken(segmentPath);
             }
-            final int storedFileId = metadataBuffer.getInt();
-            final int storedPageIndex = metadataBuffer.getInt();
-            final int pages = metadataBuffer.getInt();
-            final int compressedLen = metadataBuffer.getInt();
+            final var storedFileId = metadataBuffer.getInt();
+            final var storedPageIndex = metadataBuffer.getInt();
+            final var pages = metadataBuffer.getInt();
+            final var compressedLen = metadataBuffer.getInt();
 
             if (pages < 0 || storedPageIndex < 0 || storedFileId < 0 || compressedLen < 0) {
               throwSegmentIsBroken(segmentPath);
@@ -391,7 +400,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                 && pageIndex >= storedPageIndex
                 && pageIndex < storedPageIndex + pages) {
               if (channelSize - segmentPosition.second - RECORD_METADATA_SIZE >= compressedLen) {
-                final ByteBuffer buffer =
+                final var buffer =
                     ByteBuffer.allocate(compressedLen + RECORD_METADATA_SIZE)
                         .order(ByteOrder.nativeOrder());
                 IOUtils.readByteBuffer(buffer, channel, segmentPosition.second, true);
@@ -407,18 +416,18 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                   throwSegmentIsBroken(segmentPath);
                 }
 
-                final ByteBuffer pagesBuffer =
+                final var pagesBuffer =
                     ByteBuffer.allocate(pages * pageSize).order(ByteOrder.nativeOrder());
                 LZ_4_DECOMPRESSOR.decompress(
                     buffer, RECORD_METADATA_SIZE, pagesBuffer, 0, pagesBuffer.capacity());
 
-                final int pagePosition = (pageIndex - storedPageIndex) * pageSize;
+                final var pagePosition = (pageIndex - storedPageIndex) * pageSize;
 
                 pagesBuffer.position(pagePosition);
                 pagesBuffer.limit(pagePosition + pageSize);
 
-                final Pointer pointer = bufferPool.acquireDirect(false, Intention.LOAD_WAL_PAGE);
-                final ByteBuffer pageBuffer = pointer.getNativeByteBuffer();
+                final var pointer = bufferPool.acquireDirect(false, Intention.LOAD_WAL_PAGE);
+                final var pageBuffer = pointer.getNativeByteBuffer();
                 assert pageBuffer.position() == 0;
                 pageBuffer.put(pagesBuffer);
 
@@ -451,39 +460,39 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
       // sort to fetch the
       final Path[] segments;
-      try (final Stream<Path> stream = Files.list(storagePath)) {
+      try (final var stream = Files.list(storagePath)) {
         segments =
             stream
                 .filter(DoubleWriteLogGL::fileFilter)
                 .sorted(
                     (pathOne, pathTwo) -> {
-                      final long indexOne = extractSegmentId(pathOne.getFileName().toString());
-                      final long indexTwo = extractSegmentId((pathTwo.getFileName().toString()));
+                      final var indexOne = extractSegmentId(pathOne.getFileName().toString());
+                      final var indexTwo = extractSegmentId((pathTwo.getFileName().toString()));
                       return Long.compare(indexOne, indexTwo);
                     })
                 .toArray(Path[]::new);
       }
 
       segmentLoop:
-      for (final Path segment : segments) {
-        try (final FileChannel channel = FileChannel.open(segment, StandardOpenOption.READ)) {
+      for (final var segment : segments) {
+        try (final var channel = FileChannel.open(segment, StandardOpenOption.READ)) {
           long position = 0;
-          long fileSize = channel.size();
+          var fileSize = channel.size();
 
           while (fileSize - position > RECORD_METADATA_SIZE) {
-            final ByteBuffer metadataBuffer =
+            final var metadataBuffer =
                 ByteBuffer.allocate(RECORD_METADATA_SIZE).order(ByteOrder.nativeOrder());
             IOUtils.readByteBuffer(metadataBuffer, channel, position, true);
             metadataBuffer.rewind();
 
-            final byte recordType = metadataBuffer.get();
+            final var recordType = metadataBuffer.get();
             if (recordType < 0 || recordType > FULL_FILLER_RECORD) {
               printSegmentIsBroken(segment);
               continue segmentLoop;
             }
 
             if (recordType != DATA_RECORD) {
-              final int bytesToFill =
+              final var bytesToFill =
                   switch (recordType) {
                     case ONE_BYTE_FILLER_RECORD -> 1;
                     case TWO_BYTE_FILLER_RECORD -> 2;
@@ -498,18 +507,18 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
               continue;
             }
 
-            final long xxHash = metadataBuffer.getLong();
-            final int fileId = metadataBuffer.getInt();
-            final int pageIndex = metadataBuffer.getInt();
-            final int pages = metadataBuffer.getInt();
-            final int compressedLen = metadataBuffer.getInt();
+            final var xxHash = metadataBuffer.getLong();
+            final var fileId = metadataBuffer.getInt();
+            final var pageIndex = metadataBuffer.getInt();
+            final var pages = metadataBuffer.getInt();
+            final var compressedLen = metadataBuffer.getInt();
 
             if (fileId >= 0
                 && pages >= 0
                 && pageIndex >= 0
                 && compressedLen >= 0
                 && position + RECORD_METADATA_SIZE + compressedLen <= fileSize) {
-              final ByteBuffer buffer =
+              final var buffer =
                   ByteBuffer.allocate(RECORD_METADATA_SIZE + compressedLen)
                       .order(ByteOrder.nativeOrder());
               IOUtils.readByteBuffer(buffer, channel, position, true);
@@ -537,7 +546,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
               continue segmentLoop;
             }
 
-            for (int i = 0; i < pages; i++) {
+            for (var i = 0; i < pages; i++) {
               pageMap.put(
                   new RawPairIntegerInteger(fileId, pageIndex + i),
                   new RawPairLongLong(segmentId, position));
@@ -574,7 +583,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     synchronized (mutex) {
       currentFile.close();
 
-      try (final Stream<Path> stream = Files.list(storagePath)) {
+      try (final var stream = Files.list(storagePath)) {
         stream
             .filter(DoubleWriteLogGL::fileFilter)
             .forEach(
@@ -582,7 +591,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                   try {
                     Files.delete(path);
                   } catch (IOException e) {
-                    throw new StorageException(
+                    throw new StorageException(storageName,
                         "Can not delete file " + path + " in storage " + storageName);
                   }
                 });

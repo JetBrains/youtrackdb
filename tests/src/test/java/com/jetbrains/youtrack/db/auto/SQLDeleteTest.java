@@ -15,9 +15,8 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -25,47 +24,47 @@ import org.testng.annotations.Test;
 public class SQLDeleteTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public SQLDeleteTest(boolean remote) {
-    super(remote);
+  public SQLDeleteTest(@Optional Boolean remote) {
+    super(remote != null && remote);
   }
 
   @Test
   public void deleteWithWhereOperator() {
-    database.begin();
-    database.command("insert into Profile (sex, salary) values ('female', 2100)").close();
-    database.commit();
+    session.begin();
+    session.execute("insert into Profile (sex, salary) values ('female', 2100)").close();
+    session.commit();
 
-    final Long total = database.countClass("Profile");
+    final Long total = session.countClass("Profile");
 
-    ResultSet resultset =
-        database.query("select from Profile where sex = 'female' and salary = 2100");
-    long queryCount = resultset.stream().count();
+    var resultset =
+        session.query("select from Profile where sex = 'female' and salary = 2100");
+    var queryCount = resultset.stream().count();
 
-    database.begin();
-    ResultSet result =
-        database.command("delete from Profile where sex = 'female' and salary = 2100");
-    database.commit();
+    session.begin();
+    var result =
+        session.execute("delete from Profile where sex = 'female' and salary = 2100");
+    session.commit();
     long count = result.next().getProperty("count");
 
     Assert.assertEquals(count, queryCount);
 
-    Assert.assertEquals(database.countClass("Profile"), total - count);
+    Assert.assertEquals(session.countClass("Profile"), total - count);
   }
 
   @Test
   public void deleteInPool() {
-    DatabaseSessionInternal db = acquireSession();
+    var db = acquireSession();
 
     final Long total = db.countClass("Profile");
 
-    ResultSet resultset =
+    var resultset =
         db.query("select from Profile where sex = 'male' and salary > 120 and salary <= 133");
 
-    long queryCount = resultset.stream().count();
+    var queryCount = resultset.stream().count();
 
     db.begin();
-    ResultSet records =
-        db.command("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
+    var records =
+        db.execute("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
     db.commit();
 
     long count = records.next().getProperty("count");

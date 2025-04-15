@@ -33,7 +33,7 @@ public class DatabaseDocumentTxInternal {
   public static void closeAllOnShutdown() {
     DatabaseDocumentTx.embeddedLock.lock();
     try {
-      for (YouTrackDBInternal factory : DatabaseDocumentTx.embedded.values()) {
+      for (var factory : DatabaseDocumentTx.embedded.values()) {
         factory.internalClose();
       }
       DatabaseDocumentTx.embedded.clear();

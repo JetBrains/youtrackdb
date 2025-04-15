@@ -89,7 +89,7 @@ public class SelfSignedCertificate {
 
   public void setCertificateSN(long certificateSN) throws SwitchToDefaultParamsException {
     if (certificateSN <= 11) {
-      BigInteger sn = computeRandomSerialNumber();
+      var sn = computeRandomSerialNumber();
       this.certificateSN = sn;
       throw new SwitchToDefaultParamsException(
           "the value "
@@ -102,7 +102,7 @@ public class SelfSignedCertificate {
   }
 
   public static BigInteger computeRandomSerialNumber() {
-    SecureRandom sr = new SecureRandom();
+    var sr = new SecureRandom();
     return BigInteger.valueOf(sr.nextLong());
   }
 
@@ -126,7 +126,7 @@ public class SelfSignedCertificate {
   public static KeyPair computeKeyPair(String algorithm, int keySize)
       throws NoSuchAlgorithmException {
 
-    KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(algorithm);
+    var keyPairGenerator = KeyPairGenerator.getInstance(algorithm);
     keyPairGenerator.initialize(keySize, new SecureRandom());
 
     return keyPairGenerator.generateKeyPair();
@@ -149,7 +149,7 @@ public class SelfSignedCertificate {
       this.keyPair = computeKeyPair(this.algorithm, this.key_size);
     } catch (NoSuchAlgorithmException e) {
       this.keyPair = computeKeyPair(DEFAULT_CERTIFICATE_ALGORITHM, DEFAULT_CERTIFICATE_KEY_SIZE);
-      SwitchToDefaultParamsException tmpe = new SwitchToDefaultParamsException();
+      var tmpe = new SwitchToDefaultParamsException();
       tmpe.addSuppressed(e);
       throw tmpe;
     }
@@ -180,7 +180,7 @@ public class SelfSignedCertificate {
     owner = new X500Name(ownerFDN);
 
     Date from, to;
-    Calendar c = Calendar.getInstance();
+    var c = Calendar.getInstance();
     c.add(Calendar.DAY_OF_YEAR, 0);
     from = c.getTime();
     c.add(Calendar.DAY_OF_YEAR, validity);

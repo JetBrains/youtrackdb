@@ -26,14 +26,13 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerHookConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * User: kasper fock Date: 09/11/12 Time: 22:35 Registers hooks defined the in xml configuration.
@@ -70,17 +69,16 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
   }
 
   @Override
-  public void onCreate(final DatabaseSessionInternal iDatabase) {
-    onOpen(iDatabase);
+  public void onCreate(final @Nonnull DatabaseSessionInternal session) {
+    onOpen(session);
   }
 
-  public void onOpen(DatabaseSessionInternal iDatabase) {
-    if (!iDatabase.isRemote()) {
-      var db = iDatabase;
-      for (ServerHookConfiguration hook : configuredHooks) {
+  public void onOpen(@Nonnull DatabaseSessionInternal session) {
+    if (!session.isRemote()) {
+      var db = session;
+      for (var hook : configuredHooks) {
         try {
-          final RecordHook.HOOK_POSITION pos = RecordHook.HOOK_POSITION.valueOf(hook.position);
-          Class<?> klass = Class.forName(hook.clazz);
+          var klass = Class.forName(hook.clazz);
           final RecordHook h;
           Constructor constructor = null;
           try {
@@ -90,13 +88,13 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
           }
 
           if (constructor != null) {
-            h = (RecordHook) constructor.newInstance(iDatabase);
+            h = (RecordHook) constructor.newInstance(session);
           } else {
             h = (RecordHook) klass.newInstance();
           }
           if (hook.parameters != null && hook.parameters.length > 0) {
             try {
-              final Method m =
+              final var m =
                   h.getClass().getDeclaredMethod("config", ServerParameterConfiguration[].class);
               m.invoke(h, new Object[]{hook.parameters});
             } catch (Exception e) {
@@ -109,7 +107,7 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
                       hook.clazz);
             }
           }
-          db.registerHook(h, pos);
+          db.registerHook(h);
         } catch (Exception e) {
           LogManager.instance()
               .error(
@@ -124,15 +122,11 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
   }
 
   @Override
-  public void onClose(DatabaseSessionInternal iDatabase) {
+  public void onClose(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
-  public void onDrop(DatabaseSessionInternal iDatabase) {
-  }
-
-  @Override
-  public void onLocalNodeConfigurationRequest(EntityImpl iConfiguration) {
+  public void onDrop(@Nonnull DatabaseSessionInternal session) {
   }
 
   public String getName() {

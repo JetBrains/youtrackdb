@@ -4,10 +4,11 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -35,7 +36,7 @@ public class UpdateExecutionPlan extends SelectExecutionPlan {
   }
 
   public void executeInternal() throws CommandExecutionException {
-    ExecutionStream nextBlock = super.start();
+    var nextBlock = super.start();
     while (nextBlock.hasNext(ctx)) {
       result.add(nextBlock.next(ctx));
     }
@@ -43,15 +44,15 @@ public class UpdateExecutionPlan extends SelectExecutionPlan {
   }
 
   @Override
-  public Result toResult(DatabaseSession db) {
-    ResultInternal res = (ResultInternal) super.toResult(db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
+    var res = (ResultInternal) super.toResult(db);
     res.setProperty("type", "UpdateExecutionPlan");
     return res;
   }
 
   @Override
   public boolean canBeCached() {
-    for (ExecutionStepInternal step : steps) {
+    for (var step : steps) {
       if (!step.canBeCached()) {
         return false;
       }
@@ -61,7 +62,7 @@ public class UpdateExecutionPlan extends SelectExecutionPlan {
 
   @Override
   public InternalExecutionPlan copy(CommandContext ctx) {
-    UpdateExecutionPlan copy = new UpdateExecutionPlan(ctx);
+    var copy = new UpdateExecutionPlan(ctx);
     super.copyOn(copy, ctx);
     return copy;
   }

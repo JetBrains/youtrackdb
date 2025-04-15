@@ -16,16 +16,16 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.conversion;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import javax.annotation.Nullable;
 
 /**
  * Transforms a value to date. If the conversion is not possible, null is returned.
@@ -43,10 +43,11 @@ public class SQLMethodAsDate extends AbstractSQLMethod {
     return "asDate()";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -60,7 +61,7 @@ public class SQLMethodAsDate extends AbstractSQLMethod {
         cal.set(Calendar.MILLISECOND, 0);
         return cal.getTime();
       } else if (iThis instanceof Number) {
-        Date val = new Date(((Number) iThis).longValue());
+        var val = new Date(((Number) iThis).longValue());
         Calendar cal = new GregorianCalendar();
         cal.setTime(val);
         cal.set(Calendar.HOUR, 0);
@@ -70,7 +71,7 @@ public class SQLMethodAsDate extends AbstractSQLMethod {
         return cal.getTime();
       } else {
         try {
-          return DateHelper.getDateFormatInstance(DatabaseRecordThreadLocal.instance().get())
+          return DateHelper.getDateFormatInstance(iContext.getDatabaseSession())
               .parse(iThis.toString());
         } catch (ParseException e) {
           LogManager.instance().error(this, "Error during %s execution", e, NAME);

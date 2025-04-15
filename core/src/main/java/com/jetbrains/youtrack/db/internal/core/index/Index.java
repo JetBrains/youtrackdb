@@ -19,14 +19,27 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquality;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Basic interface to handle index.
@@ -40,7 +53,8 @@ public interface Index extends Comparable<Index> {
    * elements from which this index consist will be returned, otherwise single element (key type
    * obviously) will be returned.
    */
-  PropertyType[] getKeyTypes();
+  @Nullable
+  PropertyTypeInternal[] getKeyTypes();
 
   /**
    * Gets the set of records associated with the passed key.
@@ -48,8 +62,8 @@ public interface Index extends Comparable<Index> {
    * @param session
    * @param key     The key to search
    * @return The Record set if found, otherwise an empty Set
-   * @deprecated Use {@link IndexInternal#getRids(DatabaseSessionInternal, Object)} instead, but
-   * only as internal (not public) API.
+   * @deprecated Use {@link Index#getRids(DatabaseSessionInternal, Object)} instead, but only as
+   * internal (not public) API.
    */
   @Deprecated
   Object get(DatabaseSessionInternal session, Object key);
@@ -57,44 +71,34 @@ public interface Index extends Comparable<Index> {
   /**
    * Inserts a new entry in the index. The behaviour depends by the index implementation.
    *
-   * @param session
-   * @param key     Entry's key
-   * @param value   Entry's value as Identifiable instance
+   * @param transaction
+   * @param key         Entry's key
+   * @param value       Entry's value as Identifiable instance
    * @return The index instance itself to allow in chain calls
    */
-  Index put(DatabaseSessionInternal session, Object key, Identifiable value);
+  Index put(FrontendTransaction transaction, Object key, Identifiable value);
 
   /**
    * Removes an entry by its key.
    *
-   * @param session
-   * @param key     The entry's key to remove
+   * @param transaction
+   * @param key         The entry's key to remove
    * @return True if the entry has been found and removed, otherwise false
    */
-  boolean remove(DatabaseSessionInternal session, Object key);
+  boolean remove(FrontendTransaction transaction, Object key);
 
   /**
    * Removes an entry by its key and value.
    *
-   * @param session
-   * @param key     The entry's key to remove
+   * @param key The entry's key to remove
    * @return True if the entry has been found and removed, otherwise false
    */
-  boolean remove(DatabaseSessionInternal session, Object key, Identifiable rid);
-
-  /**
-   * Clears the index removing all the entries in one shot.
-   *
-   * @return The index instance itself to allow in chain calls
-   * @deprecated Manual indexes are deprecated and will be removed
-   */
-  @Deprecated
-  Index clear(DatabaseSessionInternal session);
+  boolean remove(FrontendTransaction transaction, Object key, Identifiable rid);
 
   /**
    * @return number of entries in the index.
-   * @deprecated Use {@link IndexInternal#size(DatabaseSessionInternal)} instead. This API only for
-   * internal use !.
+   * @deprecated Use {@link Index#size(DatabaseSessionInternal)} instead. This API only for internal
+   * use !.
    */
   @Deprecated
   long getSize(DatabaseSessionInternal session);
@@ -172,7 +176,7 @@ public interface Index extends Comparable<Index> {
    *
    * @return The index instance itself to allow in chain calls
    */
-  Index delete(DatabaseSessionInternal session);
+  Index delete(FrontendTransaction transaction);
 
   /**
    * Returns the index name.
@@ -219,28 +223,24 @@ public interface Index extends Comparable<Index> {
   /**
    * Populate the index with all the existent records.
    */
-  long rebuild(DatabaseSessionInternal session, ProgressListener iProgressListener);
+  long rebuild(DatabaseSessionInternal session, ProgressListener progressListener);
 
   /**
    * Returns the index configuration.
    *
    * @return An EntityImpl object containing all the index properties
    */
-  EntityImpl getConfiguration(DatabaseSessionInternal session);
+  Map<String, Object> getConfiguration(DatabaseSessionInternal session);
 
-  /**
-   * Returns the internal index used.
-   */
-  IndexInternal getInternal();
 
   IndexDefinition getDefinition();
 
   /**
-   * Returns Names of clusters that will be indexed.
+   * Returns Names of collections that will be indexed.
    *
-   * @return Names of clusters that will be indexed.
+   * @return Names of collections that will be indexed.
    */
-  Set<String> getClusters();
+  Set<String> getCollections();
 
   /**
    * Returns cursor which presents data associated with passed in keys.
@@ -250,9 +250,8 @@ public interface Index extends Comparable<Index> {
    * @param ascSortOrder Flag which determines whether data iterated by cursor should be in
    *                     ascending or descending order.
    * @return cursor which presents data associated with passed in keys.
-   * @deprecated Use
-   * {@link IndexInternal#streamEntries(DatabaseSessionInternal, Collection, boolean)} instead. This
-   * API only for internal use !
+   * @deprecated Use {@link Index#streamEntries(DatabaseSessionInternal, Collection, boolean)}
+   * instead. This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
@@ -270,8 +269,8 @@ public interface Index extends Comparable<Index> {
    *                      ascending or descending order.
    * @return Cursor which presents subset of index data between passed in keys.
    * @deprecated Use
-   * {@link IndexInternal#streamEntriesBetween(DatabaseSessionInternal, Object, boolean, Object,
-   * boolean, boolean)} instead. This API only * for internal use !
+   * {@link Index#streamEntriesBetween(DatabaseSessionInternal, Object, boolean, Object, boolean,
+   * boolean)} instead. This API only * for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesBetween(
@@ -290,8 +289,8 @@ public interface Index extends Comparable<Index> {
    * @return cursor which presents subset of data which associated with key which is greater than
    * passed in key.
    * @deprecated Use
-   * {@link IndexInternal#streamEntriesMajor(DatabaseSessionInternal, Object, boolean, boolean)}
-   * instead. This API only for internal use !
+   * {@link Index#streamEntriesMajor(DatabaseSessionInternal, Object, boolean, boolean)} instead.
+   * This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
@@ -309,16 +308,259 @@ public interface Index extends Comparable<Index> {
    * @return cursor which presents subset of data which associated with key which is less than
    * passed in key.
    * @deprecated Use
-   * {@link IndexInternal#streamEntriesMinor(DatabaseSessionInternal, Object, boolean, boolean)}
-   * instead. This API only for internal use !
+   * {@link Index#streamEntriesMinor(DatabaseSessionInternal, Object, boolean, boolean)} instead.
+   * This API only for internal use !
    */
   @Deprecated
   IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
       boolean toInclusive, boolean ascOrder);
 
-  Map<String, ?> getMetadata();
+  Map<String, Object> getMetadata();
 
   boolean supportsOrderedIterations();
 
   boolean isUnique();
+
+  String CONFIG_TYPE = "type";
+  String ALGORITHM = "algorithm";
+  String CONFIG_NAME = "name";
+  String INDEX_DEFINITION = "indexDefinition";
+  String INDEX_DEFINITION_CLASS = "indexDefinitionClass";
+  String INDEX_VERSION = "indexVersion";
+  String METADATA = "metadata";
+  String MERGE_KEYS = "mergeKeys";
+
+  Object getCollatingValue(final Object key);
+
+  /**
+   * Add given collection to the list of collections that should be automatically indexed.
+   *
+   * @param transaction
+   * @param collectionName Collection to add.
+   * @return Current index instance.
+   */
+  Index addCollection(FrontendTransaction transaction, final String collectionName);
+
+  /**
+   * Remove given collection from the list of collections that should be automatically indexed.
+   *
+   * @param transaction
+   * @param collectionName Collection to remove.
+   */
+  void removeCollection(FrontendTransaction transaction, final String collectionName);
+
+  /**
+   * Indicates whether given index can be used to calculate result of {@link QueryOperatorEquality}
+   * operators.
+   *
+   * @return {@code true} if given index can be used to calculate result of
+   * {@link QueryOperatorEquality} operators.
+   */
+  boolean canBeUsedInEqualityOperators();
+
+  boolean hasRangeQuerySupport();
+
+  IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config);
+
+  void close();
+
+  /**
+   * Acquires exclusive lock in the active atomic operation running on the current thread for this
+   * index.
+   */
+  boolean acquireAtomicExclusiveLock();
+
+  /**
+   * @return number of entries in the index.
+   */
+  long size(DatabaseSessionInternal session);
+
+  Stream<RID> getRids(DatabaseSessionInternal session, final Object key);
+
+  Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session);
+
+  Stream<RawPair<Object, RID>> descStream(DatabaseSessionInternal session);
+
+  Stream<Object> keyStream();
+
+  /**
+   * Returns stream which presents subset of index data between passed in keys.
+   *
+   * @param session
+   * @param fromKey       Lower border of index data.
+   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
+   * @param toKey         Upper border of index data.
+   * @param toInclusive   Indicates whether upper border should be inclusive or exclusive.
+   * @param ascOrder      Flag which determines whether data iterated by stream should be in
+   *                      ascending or descending order.
+   * @return Cursor which presents subset of index data between passed in keys.
+   */
+  Stream<RawPair<Object, RID>> streamEntriesBetween(
+      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      boolean toInclusive, boolean ascOrder);
+
+  /**
+   * Returns stream which presents data associated with passed in keys.
+   *
+   * @param session
+   * @param keys         Keys data of which should be returned.
+   * @param ascSortOrder Flag which determines whether data iterated by stream should be in
+   *                     ascending or descending order.
+   * @return stream which presents data associated with passed in keys.
+   */
+  Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
+      Collection<?> keys,
+      boolean ascSortOrder);
+
+  /**
+   * Returns stream which presents subset of data which associated with key which is greater than
+   * passed in key.
+   *
+   * @param session
+   * @param fromKey       Lower border of index data.
+   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
+   * @param ascOrder      Flag which determines whether data iterated by stream should be in
+   *                      ascending or descending order.
+   * @return stream which presents subset of data which associated with key which is greater than
+   * passed in key.
+   */
+  Stream<RawPair<Object, RID>> streamEntriesMajor(
+      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, boolean ascOrder);
+
+  /**
+   * Returns stream which presents subset of data which associated with key which is less than
+   * passed in key.
+   *
+   * @param session
+   * @param toKey       Upper border of index data.
+   * @param toInclusive Indicates Indicates whether upper border should be inclusive or exclusive.
+   * @param ascOrder    Flag which determines whether data iterated by stream should be in ascending
+   *                    or descending order.
+   * @return stream which presents subset of data which associated with key which is less than
+   * passed in key.
+   */
+  Stream<RawPair<Object, RID>> streamEntriesMinor(
+      DatabaseSessionInternal session, Object toKey, boolean toInclusive, boolean ascOrder);
+
+  @Nullable
+  static Identifiable securityFilterOnRead(DatabaseSessionInternal session, Index idx,
+      Identifiable item) {
+    if (idx.getDefinition() == null) {
+      return item;
+    }
+    var indexClass = idx.getDefinition().getClassName();
+    if (indexClass == null) {
+      return item;
+    }
+
+    if (session == null) {
+      return item;
+    }
+
+    var security = session.getSharedContext().getSecurity();
+    if (isReadRestrictedBySecurityPolicy(indexClass, session, security)) {
+      try {
+        var transaction = session.getActiveTransaction();
+        item = transaction.load(item);
+      } catch (RecordNotFoundException e) {
+        item = null;
+      }
+    }
+    if (item == null) {
+      return null;
+    }
+    if (idx.getDefinition().getFields().size() == 1) {
+      var indexProp = idx.getDefinition().getFields().getFirst();
+      if (isLabelSecurityDefined(session, security, indexClass, indexProp)) {
+        try {
+          var transaction = session.getActiveTransaction();
+          item = transaction.load(item);
+        } catch (RecordNotFoundException e) {
+          item = null;
+        }
+        if (item == null) {
+          return null;
+        }
+        if (!(item instanceof EntityImpl entity)) {
+          return item;
+        }
+        if (!entity.checkPropertyAccess(indexProp)) {
+          return null;
+        }
+      }
+    }
+    return item;
+  }
+
+  static boolean isLabelSecurityDefined(
+      DatabaseSessionInternal session,
+      SecurityInternal security,
+      String indexClass,
+      String propertyName) {
+    Set<String> classesToCheck = new HashSet<>();
+    classesToCheck.add(indexClass);
+    var clazz = session.getClass(indexClass);
+    if (clazz == null) {
+      return false;
+    }
+    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    var allFilteredProperties =
+        security.getAllFilteredProperties(session);
+
+    for (var className : classesToCheck) {
+      var item =
+          allFilteredProperties.stream()
+              .filter(x -> x.getClassName().equalsIgnoreCase(className))
+              .filter(x -> x.getPropertyName().equals(propertyName))
+              .findFirst();
+
+      if (item.isPresent()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static boolean isReadRestrictedBySecurityPolicy(
+      String indexClass, DatabaseSessionInternal session, SecurityInternal security) {
+    if (security.isReadRestrictedBySecurityPolicy(session, "database.class." + indexClass)) {
+      return true;
+    }
+
+    var clazz = session.getClass(indexClass);
+    if (clazz != null) {
+      var sub = clazz.getSubclasses();
+      for (var subClass : sub) {
+        if (isReadRestrictedBySecurityPolicy(subClass.getName(), session, security)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  Iterable<TransactionIndexEntry> interpretTxKeyChanges(
+      FrontendTransactionIndexChangesPerKey changes);
+
+  void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+      RID rid)
+      throws InvalidIndexEngineIdException;
+
+  boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+      RID rid)
+      throws InvalidIndexEngineIdException;
+
+  boolean doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
+      throws InvalidIndexEngineIdException;
+
+  Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key);
+
+  Index create(FrontendTransaction transaction, IndexMetadata metadata);
+
+  int getIndexId();
+
+  @Nullable
+  RID getIdentity();
 }

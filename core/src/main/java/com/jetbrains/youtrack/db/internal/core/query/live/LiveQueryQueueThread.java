@@ -66,7 +66,7 @@ public class LiveQueryQueueThread extends Thread {
       if (next == null) {
         continue;
       }
-      for (LiveQueryListener listener : subscribers.values()) {
+      for (var listener : subscribers.values()) {
         // TODO filter data
         try {
           listener.onLiveResult(next);
@@ -92,7 +92,7 @@ public class LiveQueryQueueThread extends Thread {
   }
 
   public void unsubscribe(Integer id) {
-    LiveQueryListener res = subscribers.remove(id);
+    var res = subscribers.remove(id);
     if (res != null) {
       res.onLiveResultEnd();
     }

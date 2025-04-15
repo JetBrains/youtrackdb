@@ -11,10 +11,11 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class SQLRid extends SimpleNode {
 
-  protected SQLInteger cluster;
+  protected SQLInteger collection;
   protected SQLInteger position;
 
   protected SQLExpression expression;
@@ -30,12 +31,12 @@ public class SQLRid extends SimpleNode {
 
   @Override
   public String toString(String prefix) {
-    return "#" + cluster.getValue() + ":" + position.getValue();
+    return "#" + collection.getValue() + ":" + position.getValue();
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    if (legacy || (expression == null && cluster != null && position != null)) {
-      builder.append("#" + cluster.getValue() + ":" + position.getValue());
+    if (legacy || (expression == null && collection != null && position != null)) {
+      builder.append("#" + collection.getValue() + ":" + position.getValue());
     } else {
       builder.append("{\"@rid\":");
       expression.toString(params, builder);
@@ -44,7 +45,7 @@ public class SQLRid extends SimpleNode {
   }
 
   public void toGenericStatement(StringBuilder builder) {
-    if (legacy || (expression == null && cluster != null && position != null)) {
+    if (legacy || (expression == null && collection != null && position != null)) {
       builder.append(PARAMETER_PLACEHOLDER);
     } else {
       builder.append("{\"@rid\":");
@@ -53,11 +54,12 @@ public class SQLRid extends SimpleNode {
     }
   }
 
+  @Nullable
   public RecordId toRecordId(Result target, CommandContext ctx) {
-    if (legacy || (expression == null && cluster != null && position != null)) {
-      return new RecordId(cluster.value.intValue(), position.value.longValue());
+    if (legacy || (expression == null && collection != null && position != null)) {
+      return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
-      Object result = expression.execute(target, ctx);
+      var result = expression.execute(target, ctx);
       if (result == null) {
         return null;
       }
@@ -71,11 +73,12 @@ public class SQLRid extends SimpleNode {
     }
   }
 
+  @Nullable
   public RecordId toRecordId(Identifiable target, CommandContext ctx) {
-    if (legacy || (expression == null && cluster != null && position != null)) {
-      return new RecordId(cluster.value.intValue(), position.value.longValue());
+    if (legacy || (expression == null && collection != null && position != null)) {
+      return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
-      Object result = expression.execute(target, ctx);
+      var result = expression.execute(target, ctx);
       if (result == null) {
         return null;
       }
@@ -90,8 +93,8 @@ public class SQLRid extends SimpleNode {
   }
 
   public SQLRid copy() {
-    SQLRid result = new SQLRid(-1);
-    result.cluster = cluster == null ? null : cluster.copy();
+    var result = new SQLRid(-1);
+    result.collection = collection == null ? null : collection.copy();
     result.position = position == null ? null : position.copy();
     result.expression = expression == null ? null : expression.copy();
     result.legacy = legacy;
@@ -107,9 +110,9 @@ public class SQLRid extends SimpleNode {
       return false;
     }
 
-    SQLRid oRid = (SQLRid) o;
+    var oRid = (SQLRid) o;
 
-    if (!Objects.equals(cluster, oRid.cluster)) {
+    if (!Objects.equals(collection, oRid.collection)) {
       return false;
     }
     if (!Objects.equals(position, oRid.position)) {
@@ -123,14 +126,14 @@ public class SQLRid extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = cluster != null ? cluster.hashCode() : 0;
+    var result = collection != null ? collection.hashCode() : 0;
     result = 31 * result + (position != null ? position.hashCode() : 0);
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     return result;
   }
 
-  public void setCluster(SQLInteger cluster) {
-    this.cluster = cluster;
+  public void setCollection(SQLInteger collection) {
+    this.collection = collection;
   }
 
   public void setPosition(SQLInteger position) {
@@ -141,24 +144,24 @@ public class SQLRid extends SimpleNode {
     this.legacy = b;
   }
 
-  public SQLInteger getCluster() {
+  public SQLInteger getCollection() {
     if (expression != null) {
-      RecordId rid = toRecordId((Result) null, new BasicCommandContext());
+      var rid = toRecordId((Result) null, new BasicCommandContext());
       if (rid != null) {
-        SQLInteger result = new SQLInteger(-1);
-        result.setValue(rid.getClusterId());
+        var result = new SQLInteger(-1);
+        result.setValue(rid.getCollectionId());
         return result;
       }
     }
-    return cluster;
+    return collection;
   }
 
   public SQLInteger getPosition() {
     if (expression != null) {
-      RecordId rid = toRecordId((Result) null, new BasicCommandContext());
+      var rid = toRecordId((Result) null, new BasicCommandContext());
       if (rid != null) {
-        SQLInteger result = new SQLInteger(-1);
-        result.setValue(rid.getClusterPosition());
+        var result = new SQLInteger(-1);
+        result.setValue(rid.getCollectionPosition());
         return result;
       }
     }
@@ -166,9 +169,9 @@ public class SQLRid extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
-    if (cluster != null) {
-      result.setProperty("cluster", cluster.serialize(db));
+    var result = new ResultInternal(db);
+    if (collection != null) {
+      result.setProperty("collection", collection.serialize(db));
     }
     if (position != null) {
       result.setProperty("position", position.serialize(db));
@@ -181,9 +184,9 @@ public class SQLRid extends SimpleNode {
   }
 
   public void deserialize(Result fromResult) {
-    if (fromResult.getProperty("cluster") != null) {
-      cluster = new SQLInteger(-1);
-      cluster.deserialize(fromResult.getProperty("cluster"));
+    if (fromResult.getProperty("collection") != null) {
+      collection = new SQLInteger(-1);
+      collection.deserialize(fromResult.getProperty("collection"));
     }
     if (fromResult.getProperty("position") != null) {
       position = new SQLInteger(-1);

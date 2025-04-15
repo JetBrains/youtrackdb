@@ -19,20 +19,16 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.ScriptExecutor;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.RetryQueryException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.type.EntityWrapper;
+import com.jetbrains.youtrack.db.internal.core.type.IdentityWrapper;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,17 +38,28 @@ import javax.annotation.Nonnull;
  * Stored function. It contains language and code to execute as a function. The execute() takes
  * parameters. The function is state-less, so can be used by different threads.
  */
-public class Function extends EntityWrapper {
+public class Function extends IdentityWrapper {
 
   public static final String CLASS_NAME = "OFunction";
+  public static final String NAME_PROPERTY = "name";
+  public static final String CODE_PROPERTY = "code";
+  public static final String LANGUAGE_PROPERTY = "language";
+  public static final String PARAMETERS_PROPERTY = "parameters";
+  public static final String IDEMPOTENT_PROPERTY = "idempotent";
   private CallableFunction<Object, Map<Object, Object>> callback;
+
+  private volatile String name;
+  private volatile String code;
+  private volatile String language;
+  private volatile List<String> parameters;
+  private volatile boolean idempotent;
 
   /**
    * Creates a new function.
    */
   public Function(DatabaseSessionInternal session) {
-    super(CLASS_NAME);
-    setLanguage(session, "SQL");
+    super(session, CLASS_NAME);
+    this.language = "SQL";
   }
 
   /**
@@ -60,8 +67,9 @@ public class Function extends EntityWrapper {
    *
    * @param entity Document to assign
    */
-  public Function(final EntityImpl entity) {
+  public Function(DatabaseSessionInternal db, final EntityImpl entity) {
     super(entity);
+    fromEntity(entity);
   }
 
   /**
@@ -69,51 +77,77 @@ public class Function extends EntityWrapper {
    *
    * @param iRid RID of the function to load
    */
-  public Function(final RecordId iRid) {
-    super(iRid.getRecord());
+  public Function(DatabaseSessionInternal session, final RecordId iRid) {
+    super((EntityImpl) session.getActiveTransaction().loadEntity(iRid));
+    var transaction = session.getActiveTransaction();
+    var entity = transaction.loadEntity(iRid);
+    fromEntity(entity);
   }
 
-  public String getName(DatabaseSession session) {
-    return getDocument(session).field("name");
+  private void fromEntity(Entity entity) {
+    name = entity.getProperty(NAME_PROPERTY);
+    code = entity.getProperty(CODE_PROPERTY);
+    language = entity.getProperty(LANGUAGE_PROPERTY);
+    parameters = entity.getEmbeddedList(PARAMETERS_PROPERTY);
+
+    var storedIdempotent = entity.<Boolean>getProperty(IDEMPOTENT_PROPERTY);
+    idempotent = storedIdempotent != null ? storedIdempotent : false;
   }
 
-  public Function setName(DatabaseSession session, final String iName) {
-    getDocument(session).field("name", iName);
+  @Override
+  protected void toEntity(@Nonnull DatabaseSessionInternal session, @Nonnull EntityImpl entity) {
+    entity.setProperty(NAME_PROPERTY, name);
+    entity.setProperty(CODE_PROPERTY, code);
+    entity.setProperty(LANGUAGE_PROPERTY, language);
+
+    var params = entity.<String>newEmbeddedList(PARAMETERS_PROPERTY);
+    if (parameters != null) {
+      params.addAll(parameters);
+    }
+
+    entity.setProperty(IDEMPOTENT_PROPERTY, idempotent);
+  }
+
+  public String getName() {
+    return name;
+  }
+
+  public Function setName(final String name) {
+    this.name = name;
     return this;
   }
 
-  public String getCode(DatabaseSession session) {
-    return getDocument(session).field("code");
+  public String getCode() {
+    return code;
   }
 
-  public void setCode(DatabaseSession session, final String iCode) {
-    getDocument(session).field("code", iCode);
+  public void setCode(final String code) {
+    this.code = code;
   }
 
-  public String getLanguage(DatabaseSession session) {
-    return getDocument(session).field("language");
+  public String getLanguage() {
+    return language;
   }
 
-  public void setLanguage(DatabaseSession session, final String iLanguage) {
-    getDocument(session).field("language", iLanguage);
+  public void setLanguage(final String language) {
+    this.language = language;
   }
 
-  public List<String> getParameters(DatabaseSession session) {
-    return getDocument(session).field("parameters");
+  public List<String> getParameters() {
+    return parameters;
   }
 
-  public Function setParameters(DatabaseSession session, final List<String> iParameters) {
-    getDocument(session).field("parameters", iParameters);
+  public Function setParameters(final List<String> parameters) {
+    this.parameters = parameters;
     return this;
   }
 
-  public boolean isIdempotent(DatabaseSession session) {
-    final Boolean idempotent = getDocument(session).field("idempotent");
-    return idempotent != null && idempotent;
+  public boolean isIdempotent() {
+    return idempotent;
   }
 
-  public Function setIdempotent(DatabaseSession session, final boolean iIdempotent) {
-    getDocument(session).field("idempotent", iIdempotent);
+  public Function setIdempotent(final boolean idempotent) {
+    this.idempotent = idempotent;
     return this;
   }
 
@@ -136,18 +170,18 @@ public class Function extends EntityWrapper {
     if (iContext == null) {
       iContext = new BasicCommandContext();
     }
-    var database = iContext.getDatabase();
-    final List<String> params = getParameters(database);
+    var database = iContext.getDatabaseSession();
+    final var params = parameters;
 
     // CONVERT PARAMETERS IN A MAP
     Map<Object, Object> args = null;
 
     if (iArgs.length > 0) {
-      args = new LinkedHashMap<Object, Object>();
-      for (int i = 0; i < iArgs.length; ++i) {
+      args = new LinkedHashMap<>();
+      for (var i = 0; i < iArgs.length; ++i) {
         // final Object argValue =
         // RecordSerializerStringAbstract.getTypeValue(iArgs[i].toString());
-        final Object argValue = iArgs[i];
+        final var argValue = iArgs[i];
 
         if (params != null && i < params.size()) {
           args.put(params.get(i), argValue);
@@ -162,27 +196,27 @@ public class Function extends EntityWrapper {
       return callback.call(args);
     }
 
-    ScriptExecutor executor =
+    var executor =
         database
             .getSharedContext()
             .getYouTrackDB()
             .getScriptManager()
             .getCommandManager()
-            .getScriptExecutor(getLanguage(database));
+            .getScriptExecutor(language);
 
-    return executor.executeFunction(iContext, getName(database), args);
+    return executor.executeFunction(iContext, name, args);
   }
 
   public Object executeInContext(@Nonnull CommandContext iContext,
       @Nonnull final Map<String, Object> iArgs) {
-    DatabaseSessionInternal database = iContext.getDatabase();
+    var database = iContext.getDatabaseSession();
     // CONVERT PARAMETERS IN A MAP
-    final Map<Object, Object> args = new LinkedHashMap<Object, Object>();
+    final Map<Object, Object> args = new LinkedHashMap<>();
 
     if (!iArgs.isEmpty()) {
       // PRESERVE THE ORDER FOR PARAMETERS (ARE USED AS POSITIONAL)
-      final List<String> params = getParameters(database);
-      for (String p : params) {
+      final var params = parameters;
+      for (var p : params) {
         args.put(p, iArgs.get(p));
       }
     }
@@ -192,37 +226,36 @@ public class Function extends EntityWrapper {
       return callback.call(args);
     }
 
-    ScriptExecutor executor =
+    var executor =
         database
             .getSharedContext()
             .getYouTrackDB()
             .getScriptManager()
             .getCommandManager()
-            .getScriptExecutor(getLanguage(database));
+            .getScriptExecutor(language);
 
-    return executor.executeFunction(iContext, getName(database), args);
+    return executor.executeFunction(iContext, name, args);
   }
 
   @Deprecated
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
-    final long start = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-
     Object result;
+
     while (true) {
       try {
         if (callback != null) {
           return callback.call(iArgs);
         }
 
-        ScriptExecutor executor =
+        var executor =
             session
                 .getSharedContext()
                 .getYouTrackDB()
                 .getScriptManager()
                 .getCommandManager()
-                .getScriptExecutor(getLanguage(session));
+                .getScriptExecutor(language);
 
-        result = session.computeInTx(() -> executor.execute(session, getCode(session), iArgs));
+        result = session.computeInTx(transaction -> executor.execute(session, code, iArgs));
 
         break;
 
@@ -230,30 +263,6 @@ public class Function extends EntityWrapper {
       }
     }
 
-    if (YouTrackDBEnginesManager.instance().getProfiler().isRecording()) {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .stopChrono(
-              "db." + DatabaseRecordThreadLocal.instance().get().getName() + ".function.execute",
-              "Time to execute a function",
-              start,
-              "db.*.function.execute");
-    }
-
     return result;
-  }
-
-  public RID getId(DatabaseSession session) {
-    return getDocument(session).getIdentity();
-  }
-
-  @Override
-  public String toString() {
-    var database = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (database != null) {
-      return getName(database);
-    }
-
-    return super.toString();
   }
 }

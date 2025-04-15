@@ -13,35 +13,35 @@ public class UnsafeComparatorTest {
 
   @Test
   public void testOneByteArray() {
-    final byte[] keyOne = new byte[]{1};
-    final byte[] keyTwo = new byte[]{2};
+    final var keyOne = new byte[]{1};
+    final var keyTwo = new byte[]{2};
 
     assertCompareTwoKeys(comparator, keyOne, keyTwo);
   }
 
   @Test
   public void testOneLongArray() {
-    final byte[] keyOne = new byte[]{0, 1, 0, 0, 0, 0, 0, 0};
-    final byte[] keyTwo = new byte[]{1, 0, 0, 0, 0, 0, 0, 0};
+    final var keyOne = new byte[]{0, 1, 0, 0, 0, 0, 0, 0};
+    final var keyTwo = new byte[]{1, 0, 0, 0, 0, 0, 0, 0};
 
     assertCompareTwoKeys(comparator, keyOne, keyTwo);
   }
 
   @Test
   public void testOneLongArrayAndByte() {
-    final byte[] keyOne = new byte[]{1, 1, 0, 0, 0, 0, 0, 0, 0};
-    final byte[] keyTwo = new byte[]{1, 1, 0, 0, 0, 0, 0, 0, 1};
+    final var keyOne = new byte[]{1, 1, 0, 0, 0, 0, 0, 0, 0};
+    final var keyTwo = new byte[]{1, 1, 0, 0, 0, 0, 0, 0, 1};
 
     assertCompareTwoKeys(comparator, keyOne, keyTwo);
   }
 
   @Test
   public void testOneArraySmallerThanOther() {
-    final byte[] keyOne =
+    final var keyOne =
         new byte[]{
             1, 1, 0, 0, 1, 0,
         };
-    final byte[] keyTwo = new byte[]{1, 1, 0, 0, 1, 0, 0, 0, 1};
+    final var keyTwo = new byte[]{1, 1, 0, 0, 1, 0, 0, 0, 1};
 
     assertCompareTwoKeys(comparator, keyOne, keyTwo);
   }

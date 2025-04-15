@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.all;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerCommandConfiguration;
 import java.io.IOException;
 
 public class ServerCommandFunction extends ServerCommandAbstractLogic {
@@ -36,8 +36,8 @@ public class ServerCommandFunction extends ServerCommandAbstractLogic {
   }
 
   @Override
-  public String[] init(final OHttpRequest iRequest, final HttpResponse iResponse) {
-    final String[] parts =
+  public String[] init(final HttpRequest iRequest, final HttpResponse iResponse) {
+    final var parts =
         checkSyntax(iRequest.getUrl(), 3, "Syntax error: function/<database>/<name>[/param]*");
     iRequest.getData().commandInfo = "Execute a function";
     return parts;
@@ -45,7 +45,7 @@ public class ServerCommandFunction extends ServerCommandAbstractLogic {
 
   @Override
   protected void handleResult(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final HttpResponse iResponse,
       final Object iResult,
       DatabaseSessionInternal databaseDocumentInternal)

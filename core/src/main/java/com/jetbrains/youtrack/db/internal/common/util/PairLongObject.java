@@ -46,7 +46,7 @@ public final class PairLongObject<V> implements Comparable<PairLongObject<V>> {
     if (getClass() != obj.getClass()) {
       return false;
     }
-    PairLongObject<?> other = (PairLongObject<?>) obj;
+    var other = (PairLongObject<?>) obj;
     return key == other.key;
   }
 }

@@ -16,9 +16,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
@@ -41,7 +41,7 @@ public class SQLMethodAsSet extends AbstractSQLMethod {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -65,13 +65,13 @@ public class SQLMethodAsSet extends AbstractSQLMethod {
 
     if (ioResult instanceof Iterator<?>) {
       final Set<Object> set;
-      if (ioResult instanceof Sizeable) {
-        set = new LinkedHashSet<Object>(((Sizeable) ioResult).size());
+      if (ioResult instanceof Sizeable sizeable && sizeable.isSizeable()) {
+        set = new LinkedHashSet<>(sizeable.size());
       } else {
-        set = new LinkedHashSet<Object>();
+        set = new LinkedHashSet<>();
       }
 
-      for (Iterator<Object> iter = (Iterator<Object>) ioResult; iter.hasNext(); ) {
+      for (var iter = (Iterator<Object>) ioResult; iter.hasNext(); ) {
         set.add(iter.next());
       }
       return set;

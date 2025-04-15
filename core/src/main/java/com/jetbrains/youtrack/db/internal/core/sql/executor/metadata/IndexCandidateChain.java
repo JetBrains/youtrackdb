@@ -19,8 +19,8 @@ public class IndexCandidateChain implements IndexCandidate {
 
   @Override
   public String getName() {
-    String name = "";
-    for (String index : indexes) {
+    var name = "";
+    for (var index : indexes) {
       name += index + "->";
     }
     return name;

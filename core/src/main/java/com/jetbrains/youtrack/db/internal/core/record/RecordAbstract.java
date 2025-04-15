@@ -21,25 +21,27 @@ package com.jetbrains.youtrack.db.internal.core.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrack.db.internal.core.id.ImmutableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DirtyManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerJSON;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringWriter;
 import java.util.Arrays;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -48,43 +50,47 @@ import javax.annotation.Nullable;
 public abstract class RecordAbstract implements DBRecord, RecordElement, SerializableStream,
     ChangeableIdentity {
 
-  public static final String BASE_FORMAT =
-      "rid,version,class,type,attribSameRow,keepTypes,alwaysFetchEmbedded";
-  private static final String DEFAULT_FORMAT = BASE_FORMAT + "," + "fetchPlan:*:0";
-  public static final String OLD_FORMAT_WITH_LATE_TYPES = BASE_FORMAT + "," + "fetchPlan:*:0";
+  public static final String DEFAULT_FORMAT = "rid,version,class,type,keepTypes";
 
-  protected RecordId recordId;
+  @Nonnull
+  protected final RecordId recordId;
   protected int recordVersion = 0;
 
   protected byte[] source;
   protected int size;
 
-  protected transient RecordSerializer recordFormat;
-  protected boolean dirty = true;
+  public RecordSerializer recordSerializer;
+  protected long dirty = 1;
   protected boolean contentChanged = true;
-  protected RecordElement.STATUS status = RecordElement.STATUS.LOADED;
+  protected STATUS status = STATUS.NOT_LOADED;
 
-  protected DirtyManager dirtyManager;
+  @Nullable
+  protected DatabaseSessionInternal session;
 
-  private long loadingCounter;
-  private DatabaseSessionInternal session;
+  @Nullable
+  public RecordOperation txEntry;
+  public boolean processingInCallback = false;
 
-  public RecordAbstract() {
+  public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
+    recordId = new ChangeableRecordId();
+    this.session = session;
   }
 
-  public RecordAbstract(final byte[] iSource) {
-    source = iSource;
-    size = iSource.length;
-    unsetDirty();
+  public RecordAbstract(@Nonnull DatabaseSessionInternal session, final byte[] source) {
+    this.source = source;
+    size = source.length;
+
+    recordId = new ChangeableRecordId();
+    this.session = session;
   }
 
+  public long getDirtyCounter() {
+    return dirty;
+  }
+
+  @Nonnull
   public final RecordId getIdentity() {
     return recordId;
-  }
-
-  public final RecordAbstract setIdentity(final RecordId iIdentity) {
-    recordId = iIdentity;
-    return this;
   }
 
   @Override
@@ -92,31 +98,22 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return null;
   }
 
-  @Nonnull
-  public RecordAbstract getRecord() {
-    return this;
-  }
-
-  public void clear() {
-    checkForBinding();
-
-    setDirty();
+  public boolean sourceIsParsedByProperties() {
+    return status == STATUS.LOADED && source == null;
   }
 
   /**
    * Resets the record to be reused. The record is fresh like just created.
    */
   public RecordAbstract reset() {
-    status = RecordElement.STATUS.LOADED;
+    status = STATUS.LOADED;
     recordVersion = 0;
     size = 0;
 
     source = null;
-    setDirty();
-    if (recordId != null) {
-      recordId.reset();
-    }
+    recordId.reset();
 
+    setDirty();
     return this;
   }
 
@@ -124,137 +121,137 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     if (source == null) {
-      source = recordFormat.toStream(session, this);
+      source = recordSerializer.toStream(session, this);
     }
 
     return source;
   }
 
   public RecordAbstract fromStream(final byte[] iRecordBuffer) {
-    if (dirty) {
-      throw new DatabaseException("Cannot call fromStream() on dirty records");
+    var session = getSession();
+    if (dirty > 0) {
+      throw new DatabaseException(session.getDatabaseName(),
+          "Cannot call fromStream() on dirty records");
     }
 
     contentChanged = false;
-    dirtyManager = null;
     source = iRecordBuffer;
     size = iRecordBuffer != null ? iRecordBuffer.length : 0;
-    status = RecordElement.STATUS.LOADED;
+    status = STATUS.LOADED;
 
     return this;
   }
 
-  protected RecordAbstract fromStream(final byte[] iRecordBuffer, DatabaseSessionInternal db) {
-    if (dirty) {
-      throw new DatabaseException("Cannot call fromStream() on dirty records");
-    }
 
-    contentChanged = false;
-    dirtyManager = null;
-    source = iRecordBuffer;
-    size = iRecordBuffer != null ? iRecordBuffer.length : 0;
-    status = RecordElement.STATUS.LOADED;
-
-    return this;
+  public boolean isEmbedded() {
+    return false;
   }
 
-  public RecordAbstract setDirty() {
-    if (!dirty && recordId.isPersistent()) {
-      if (session == null) {
-        throw new DatabaseException(createNotBoundToSessionMessage());
-      }
+  public void setDirty() {
+    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    checkForBinding();
 
-      var tx = session.getTransaction();
-      if (!tx.isActive()) {
-        throw new DatabaseException("Cannot modify persisted record outside of transaction");
-      }
+    if (status != STATUS.UNMARSHALLING) {
+      contentChanged = true;
+
+      incrementDirtyCounterAndRegisterInTx();
+    } else {
+      assert dirty == 0;
     }
+  }
 
-    if (!dirty && status != STATUS.UNMARSHALLING) {
-      checkForBinding();
+  public void setDirty(long counter) {
+    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    checkForBinding();
 
-      dirty = true;
-      source = null;
-    }
-
-    contentChanged = true;
-
-    return this;
+    this.dirty = counter;
   }
 
   @Override
   public void setDirtyNoChanged() {
-    if (!dirty && status != STATUS.UNMARSHALLING) {
-      checkForBinding();
+    checkForBinding();
 
-      dirty = true;
+    if (status != STATUS.UNMARSHALLING) {
       source = null;
+
+      incrementDirtyCounterAndRegisterInTx();
+    } else {
+      assert dirty == 0;
+    }
+  }
+
+  private void incrementDirtyCounterAndRegisterInTx() {
+    if (processingInCallback) {
+      throw new IllegalStateException(
+          "Cannot set dirty in callback processing. "
+              + "If called this method in beforeCallbackXXX method, "
+              + "please move this call to afterCallbackXX method.");
+    }
+
+    dirty++;
+
+    assert txEntry == null || dirty >= txEntry.recordBeforeCallBackDirtyCounter + 1;
+    assert txEntry == null || dirty >= txEntry.dirtyCounterOnClientSide + 1;
+
+    assert txEntry == null || txEntry.record == this;
+
+    //either record is not registered in transaction or callbacks were called on previous version of record
+    //or record changes are not sent to client side for remote storage
+    var tx = session.getTransactionInternal();
+    if (txEntry == null || dirty == txEntry.recordBeforeCallBackDirtyCounter + 1
+        || dirty == txEntry.dirtyCounterOnClientSide + 1) {
+      if (!isEmbedded()) {
+        tx.addRecordOperation(this, RecordOperation.UPDATED);
+        assert session.getTransactionInternal().isScheduledForCallbackProcessing(
+            recordId);
+      }
+    } else {
+      assert session.getTransactionInternal().isScheduledForCallbackProcessing(
+          recordId);
     }
   }
 
   public final boolean isDirty() {
-    return dirty;
+    return dirty != 0;
   }
 
-  public final boolean isDirtyNoLoading() {
-    return dirty;
+
+  public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
+    JSONSerializerJackson.fromString(getSession(),
+        iSource, this);
+    // nothing change
+    return (RET) this;
   }
 
-  public <RET extends DBRecord> RET fromJSON(final String iSource, final String iOptions) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      RecordSerializerJSON.INSTANCE.fromString(getSession(),
-          iSource, this, null, iOptions, false); // Add new parameter to accommodate new API,
-      // nothing change
-      return (RET) this;
-    } finally {
-      status = STATUS.LOADED;
-    }
-  }
-
-  public void fromJSON(final String iSource) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      RecordSerializerJSON.INSTANCE.fromString(getSessionIfDefined(), iSource, this, null);
-    } finally {
-      status = STATUS.LOADED;
-    }
+  public void updateFromJSON(final @Nonnull String iSource) {
+    JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
-  public final <RET extends DBRecord> RET fromJSON(final String iSource, boolean needReload) {
-    status = STATUS.UNMARSHALLING;
-    try {
-      return (RET) RecordSerializerJSON.INSTANCE.fromString(getSession(), iSource, this, null,
-          needReload);
-    } finally {
-      status = STATUS.LOADED;
-    }
+  public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
+    return (RET) JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
 
-  public final <RET extends DBRecord> RET fromJSON(final InputStream iContentResult)
+  public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
-    status = STATUS.UNMARSHALLING;
-    try {
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      IOUtils.copyStream(iContentResult, out);
-      RecordSerializerJSON.INSTANCE.fromString(getSession(), out.toString(), this, null);
-      return (RET) this;
-    } finally {
-      status = STATUS.LOADED;
-    }
+    final var out = new ByteArrayOutputStream();
+    IOUtils.copyStream(iContentResult, out);
+    JSONSerializerJackson.fromString(getSession(), out.toString(), this);
+    return (RET) this;
   }
 
-  public String toJSON() {
+  public @Nonnull String toJSON() {
     checkForBinding();
     return toJSON(DEFAULT_FORMAT);
   }
 
-  public String toJSON(final String format) {
+  @Nonnull
+  public String toJSON(final @Nonnull String format) {
     checkForBinding();
 
-    return RecordSerializerJSON.INSTANCE
-        .toString(this, new StringBuilder(1024), format == null ? "" : format)
+    return JSONSerializerJackson
+        .toString(getSession(), this, new StringWriter(1024),
+            format)
         .toString();
   }
 
@@ -270,7 +267,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public String toString() {
-    return (recordId.isValid() ? recordId : "")
+    return (recordId.isValidPosition() ? recordId : "")
         + (source != null ? Arrays.toString(source) : "[]")
         + " v"
         + recordVersion;
@@ -289,51 +286,68 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   public void unload() {
-    if (status != RecordElement.STATUS.NOT_LOADED) {
+    if (status != STATUS.NOT_LOADED) {
       source = null;
-      status = RecordElement.STATUS.NOT_LOADED;
+      status = STATUS.NOT_LOADED;
       session = null;
       unsetDirty();
+      txEntry = null;
     }
   }
 
   @Override
   public boolean isUnloaded() {
-    return status == RecordElement.STATUS.NOT_LOADED;
+    return status == STATUS.NOT_LOADED;
   }
 
   @Override
-  public boolean isNotBound(DatabaseSession session) {
-    return isUnloaded() || this.session != session;
+  public boolean isNotBound(@Nonnull DatabaseSession session) {
+    assert ((DatabaseSessionInternal) session).assertIfNotActive();
+    return this.session == null || this.session != session || this.status != STATUS.LOADED;
   }
 
   @Nonnull
   public DatabaseSessionInternal getSession() {
-    assert session != null && session.assertIfNotActive();
-
     if (session == null) {
       throw new DatabaseException(createNotBoundToSessionMessage());
     }
 
+    assert session.assertIfNotActive();
     return session;
-  }
-
-  @Nullable
-  protected DatabaseSessionInternal getSessionIfDefined() {
-    assert session == null || session.assertIfNotActive();
-    return session;
-  }
-
-  public void save() {
-    getSession().save(this);
-  }
-
-  public void save(final String iClusterName) {
-    getSession().save(this, iClusterName);
   }
 
   public void delete() {
-    getSession().delete(this);
+    checkForBinding();
+    var tx = session.getTransactionInternal();
+    if (tx.isCallBackProcessingInProgress()) {
+      throw new IllegalStateException("Cannot delete record in callback processing."
+          + " If called this method in beforeCallbackXXX method, please move this call "
+          + "to afterCallbackXX method.");
+    }
+    //preprocess any creation, deletion operations
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    dirty++;
+    session.deleteInternal(this);
+    internalReset();
+
+    source = null;
+    status = STATUS.NOT_LOADED;
+    session = null;
+    txEntry = null;
+  }
+
+  protected void internalReset() {
+
+  }
+
+  public void markDeletedInServerTx() {
+    checkForBinding();
+
+    source = null;
+    status = STATUS.NOT_LOADED;
+    session = null;
+    txEntry = null;
   }
 
   public int getSize() {
@@ -342,43 +356,47 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public int hashCode() {
-    return recordId != null ? recordId.hashCode() : 0;
+    return recordId.hashCode();
   }
 
   @Override
   public boolean equals(final Object obj) {
+    if (session == null) {
+      throw new IllegalStateException(
+          "Record : " + this + "is not bound to any session");
+    }
+
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
-      return false;
+
+    switch (obj) {
+      case RecordAbstract recordAbstract -> {
+        if (session != recordAbstract.getBoundedToSession()) {
+          throw new IllegalStateException(
+              "Records  " + this + " and " + recordAbstract
+                  + " are bound to different sessions and cannot be compared");
+        }
+        return recordId.equals(((Identifiable) obj).getIdentity())
+            && recordVersion == recordAbstract.recordVersion;
+      }
+      case Identifiable identifiable -> {
+        var transaction = session.getActiveTransaction();
+        var record = (RecordAbstract) transaction.load(identifiable);
+        return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
+      }
+      case Result result when result.isRecord() -> {
+        var resultRecord = result.asRecord();
+        return equals(resultRecord);
+      }
+      case null, default -> {
+        return false;
+      }
     }
-
-    if (obj instanceof Identifiable) {
-      return recordId.equals(((Identifiable) obj).getIdentity());
-    }
-
-    return false;
-  }
-
-  public int compare(final Identifiable iFirst, final Identifiable iSecond) {
-    if (iFirst == null || iSecond == null) {
-      return -1;
-    }
-
-    return iFirst.compareTo(iSecond);
   }
 
   public int compareTo(@Nonnull final Identifiable iOther) {
-    if (recordId == null) {
-      return iOther.getIdentity() == null ? 0 : 1;
-    }
-
     return recordId.compareTo(iOther.getIdentity());
-  }
-
-  public RecordElement.STATUS getInternalStatus() {
-    return status;
   }
 
   @Override
@@ -386,128 +404,103 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return getSession().exists(recordId);
   }
 
-  public void setInternalStatus(final RecordElement.STATUS iStatus) {
+  public void setInternalStatus(final STATUS iStatus) {
     this.status = iStatus;
   }
 
-  public RecordAbstract copyTo(final RecordAbstract cloned) {
-    checkForBinding();
 
-    if (cloned.dirty) {
-      throw new DatabaseException("Cannot copy to dirty records");
+  public RecordAbstract fill(
+      @Nonnull final RID rid, final int version, final byte[] buffer, boolean dirty) {
+    assert assertIfAlreadyLoaded(rid);
+    var session = getSession();
+
+    if (this.dirty > 0) {
+      throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
     }
 
-    cloned.source = source;
-    cloned.size = size;
-    cloned.recordId = recordId.copy();
-    cloned.recordVersion = recordVersion;
-    cloned.status = status;
-    cloned.recordFormat = recordFormat;
-    cloned.dirty = false;
-    cloned.contentChanged = false;
-    cloned.dirtyManager = null;
-    cloned.session = session;
+    recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
 
-    return cloned;
-  }
+    recordVersion = version;
+    status = STATUS.LOADED;
+    source = buffer;
+    size = buffer != null ? buffer.length : 0;
 
-  protected RecordAbstract fill(
-      final RID iRid, final int iVersion, final byte[] iBuffer, boolean iDirty) {
-    if (dirty) {
-      throw new DatabaseException("Cannot call fill() on dirty records");
-    }
-
-    recordId.setClusterId(iRid.getClusterId());
-    recordId.setClusterPosition(iRid.getClusterPosition());
-    recordVersion = iVersion;
-    status = RecordElement.STATUS.LOADED;
-    source = iBuffer;
-    size = iBuffer != null ? iBuffer.length : 0;
-    dirtyManager = null;
-
-    if (source != null && source.length > 0) {
-      dirty = iDirty;
-      contentChanged = iDirty;
-    }
-
-    if (dirty) {
-      getDirtyManager().setDirty(this);
+    if (source != null && source.length > 0 && dirty) {
+      setDirty();
     }
 
     return this;
   }
 
-  protected RecordAbstract fill(
-      final RID iRid,
-      final int iVersion,
-      final byte[] iBuffer,
-      boolean iDirty,
-      DatabaseSessionInternal db) {
-    if (dirty) {
-      throw new DatabaseException("Cannot call fill() on dirty records");
+  protected boolean assertIfAlreadyLoaded(RID rid) {
+    var session = getSession();
+
+    var tx = session.getTransactionInternal();
+    if (tx.isActive()) {
+      var txEntry = tx.getRecordEntry(rid);
+      if (txEntry != null) {
+        if (txEntry.record != this) {
+          throw new DatabaseException(
+              "Instance of record with rid : " + rid + " is already registered in session.");
+        }
+      }
     }
 
-    recordId.setClusterId(iRid.getClusterId());
-    recordId.setClusterPosition(iRid.getClusterPosition());
-    recordVersion = iVersion;
-    status = RecordElement.STATUS.LOADED;
-    source = iBuffer;
-    size = iBuffer != null ? iBuffer.length : 0;
-    dirtyManager = null;
-
-    if (source != null && source.length > 0) {
-      dirty = iDirty;
-      contentChanged = iDirty;
+    var localCache = session.getLocalCache();
+    var localRecord = localCache.findRecord(rid);
+    if (localRecord != null && localRecord != this) {
+      throw new DatabaseException(
+          "Instance of record with rid : " + rid + " is already registered in session.");
     }
 
-    if (dirty) {
-      getDirtyManager().setDirty(this);
-    }
+    return true;
+  }
+
+  public final RecordAbstract setIdentity(final int collectionId, final long collectionPosition) {
+    assert assertIfAlreadyLoaded(new RecordId(collectionId, collectionPosition));
+
+    recordId.setCollectionAndPosition(collectionId, collectionPosition);
+    return this;
+  }
+
+  public final RecordAbstract setIdentity(RID recordId) {
+    assert assertIfAlreadyLoaded(recordId);
+
+    this.recordId.setCollectionAndPosition(recordId.getCollectionId(),
+        recordId.getCollectionPosition());
 
     return this;
   }
 
-  protected final RecordAbstract setIdentity(final int iClusterId, final long iClusterPosition) {
-    if (recordId == null || recordId == ImmutableRecordId.EMPTY_RECORD_ID) {
-      recordId = new RecordId(iClusterId, iClusterPosition);
-    } else {
-      recordId.setClusterId(iClusterId);
-      recordId.setClusterPosition(iClusterPosition);
-    }
-    return this;
-  }
 
-  protected void unsetDirty() {
+  public void unsetDirty() {
+//    if (txEntry != null) {
+//      throw new IllegalStateException("txEntry is not null during unsetDirty");
+//    }
     contentChanged = false;
-    dirty = false;
-    dirtyManager = null;
+    dirty = 0;
   }
 
-  protected abstract byte getRecordType();
+  public abstract byte getRecordType();
 
-  public void setup(DatabaseSessionInternal db) {
-    if (recordId == null) {
-      recordId = new ChangeableRecordId();
-    }
-
-    this.session = db;
-  }
-
-  protected void checkForBinding() {
-    assert loadingCounter >= 0;
-    if (loadingCounter > 0 || status == RecordElement.STATUS.UNMARSHALLING) {
+  public void checkForBinding() {
+    if (status == STATUS.UNMARSHALLING) {
       return;
     }
 
-    if (status == RecordElement.STATUS.NOT_LOADED) {
-      if (!recordId.isValid()) {
+    if (status == STATUS.NOT_LOADED) {
+      if (!recordId.isValidPosition()) {
         return;
       }
 
+      throw new DatabaseException(session, createNotBoundToSessionMessage());
+    }
+
+    if (session == null) {
       throw new DatabaseException(createNotBoundToSessionMessage());
     }
 
-    assert session == null || session.assertIfNotActive();
+    assert session.assertIfNotActive();
   }
 
   private String createNotBoundToSessionMessage() {
@@ -515,63 +508,22 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         + recordId
         + " is not bound to the current session. Please bind record to the database session"
         + " by calling : "
-        + DatabaseSession.class.getSimpleName()
-        + ".bindToSession(record) before using it.";
+        + Transaction.class.getSimpleName()
+        + ".load(record) before using it.";
   }
 
-  public void incrementLoading() {
-    assert loadingCounter >= 0;
-    loadingCounter++;
-  }
-
-  public void decrementLoading() {
-    loadingCounter--;
-    assert loadingCounter >= 0;
-  }
-
-  protected boolean isContentChanged() {
+  public boolean isContentChanged() {
     return contentChanged;
   }
 
-  protected void setContentChanged(boolean contentChanged) {
+  public void setContentChanged(boolean contentChanged) {
     checkForBinding();
 
     this.contentChanged = contentChanged;
   }
 
-  protected void clearSource() {
+  public void clearSource() {
     this.source = null;
-  }
-
-  protected DirtyManager getDirtyManager() {
-    if (this.dirtyManager == null) {
-
-      this.dirtyManager = new DirtyManager();
-      if (this.recordId.isNew() && getOwner() == null) {
-        this.dirtyManager.setDirty(this);
-      }
-    }
-    return this.dirtyManager;
-  }
-
-  void setDirtyManager(DirtyManager dirtyManager) {
-    checkForBinding();
-
-    if (this.dirtyManager != null && dirtyManager != null) {
-      dirtyManager.merge(this.dirtyManager);
-    }
-    this.dirtyManager = dirtyManager;
-    if (this.recordId.isNew() && getOwner() == null && this.dirtyManager != null) {
-      this.dirtyManager.setDirty(this);
-    }
-  }
-
-  protected void track(Identifiable id) {
-    this.getDirtyManager().track(this, id);
-  }
-
-  protected void unTrack(Identifiable id) {
-    this.getDirtyManager().unTrack(this, id);
   }
 
   public void resetToNew() {
@@ -583,7 +535,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     reset();
   }
 
-  public abstract RecordAbstract copy();
 
   @Override
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
@@ -611,6 +562,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Nullable
   @Override
   public DatabaseSession getBoundedToSession() {
-    return getSessionIfDefined();
+    assert session == null || session.assertIfNotActive();
+    return session;
   }
 }

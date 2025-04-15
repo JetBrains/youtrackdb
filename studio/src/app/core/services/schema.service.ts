@@ -35,7 +35,7 @@ class SchemaService {
       "OTriggered"];
   }
 
-  createClass(db, {name, abstract, superClasses, clusters}, strict) {
+  createClass(db, {name, abstract, superClasses, collections}, strict) {
 
     strict = strict != undefined ? strict : true;
 
@@ -55,12 +55,12 @@ class SchemaService {
         superClassesSQL = ' extends ' + this.arrayPipe.transform(superClasses);
       }
     }
-    let clusterSQL = '';
-    if (clusters) {
-      clusterSQL = `CLUSTERS ${clusters}`;
+    let collectionSQL = '';
+    if (collections) {
+      collectionSQL = `COLLECTIONS ${collections}`;
     }
 
-    query = query + superClassesSQL + clusterSQL + abstractSQL;
+    query = query + superClassesSQL + collectionSQL + abstractSQL;
     return this.commandService.command({
       db,
       query
@@ -265,7 +265,7 @@ class SchemaService {
     return color;
   }
 
-  
+
 
   hash(cls) {
     return hashCode(cls);

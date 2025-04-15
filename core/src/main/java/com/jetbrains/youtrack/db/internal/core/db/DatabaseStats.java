@@ -17,7 +17,7 @@ public class DatabaseStats {
   public long maxRidbagPrefetchTimeMs;
 
   public Result toResult(@Nonnull DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
 
     result.setProperty("loadedRecords", loadedRecords);
     result.setProperty("averageLoadRecordTimeMs", averageLoadRecordTimeMs);

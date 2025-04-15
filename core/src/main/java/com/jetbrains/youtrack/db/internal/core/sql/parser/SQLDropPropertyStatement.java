@@ -7,9 +7,10 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -35,37 +36,38 @@ public class SQLDropPropertyStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
 
-    final DatabaseSessionInternal database = ctx.getDatabase();
-    final SchemaClassImpl sourceClass =
-        (SchemaClassImpl) database.getMetadata().getSchema().getClass(className.getStringValue());
+    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    final var sourceClass =
+        (SchemaClassInternal) session.getMetadata().getSchema()
+            .getClass(className.getStringValue());
     if (sourceClass == null) {
-      throw new CommandExecutionException("Source class '" + className + "' not found");
+      throw new CommandExecutionException(session, "Source class '" + className + "' not found");
     }
 
     if (sourceClass.getProperty(propertyName.getStringValue()) == null) {
       if (ifExists) {
         return ExecutionStream.empty();
       }
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Property '" + propertyName + "' not found on class " + className);
     }
-    final List<Index> indexes = relatedIndexes(propertyName.getStringValue(), database);
+    final var indexes = relatedIndexes(propertyName.getStringValue(), session);
     List<Result> rs = new ArrayList<>();
     if (!indexes.isEmpty()) {
       if (force) {
-        for (final Index index : indexes) {
-          database.getMetadata().getIndexManager().dropIndex(index.getName());
-          ResultInternal result = new ResultInternal(database);
+        for (final var index : indexes) {
+          session.getSharedContext().getIndexManager().dropIndex(session, index.getName());
+          var result = new ResultInternal(session);
           result.setProperty("operation", "cascade drop index");
           result.setProperty("indexName", index.getName());
           rs.add(result);
         }
       } else {
-        final StringBuilder indexNames = new StringBuilder();
+        final var indexNames = new StringBuilder();
 
-        boolean first = true;
-        for (final Index index :
-            sourceClass.getClassInvolvedIndexesInternal(database, propertyName.getStringValue())) {
+        var first = true;
+        for (final var index :
+            sourceClass.getClassInvolvedIndexesInternal(session, propertyName.getStringValue())) {
           if (!first) {
             indexNames.append(", ");
           } else {
@@ -74,7 +76,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
           indexNames.append(index.getName());
         }
 
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(session,
             "Property used in indexes ("
                 + indexNames
                 + "). Please drop these indexes before removing property or use FORCE parameter.");
@@ -82,9 +84,9 @@ public class SQLDropPropertyStatement extends DDLStatement {
     }
 
     // REMOVE THE PROPERTY
-    sourceClass.dropProperty(database, propertyName.getStringValue());
+    sourceClass.dropProperty(propertyName.getStringValue());
 
-    ResultInternal result = new ResultInternal(database);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "drop property");
     result.setProperty("className", className.getStringValue());
     result.setProperty("propertyname", propertyName.getStringValue());
@@ -94,10 +96,10 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
   private List<Index> relatedIndexes(final String fieldName, DatabaseSessionInternal database) {
     final List<Index> result = new ArrayList<Index>();
-    for (final Index index :
+    for (final var index :
         database
-            .getMetadata()
-            .getIndexManagerInternal()
+            .getSharedContext()
+            .getIndexManager()
             .getClassIndexes(database, className.getStringValue())) {
       if (Collections.indexOf(
           index.getDefinition().getFields(), fieldName, new CaseInsentiveComparator())
@@ -139,7 +141,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
   @Override
   public SQLDropPropertyStatement copy() {
-    SQLDropPropertyStatement result = new SQLDropPropertyStatement(-1);
+    var result = new SQLDropPropertyStatement(-1);
     result.className = className == null ? null : className.copy();
     result.propertyName = propertyName == null ? null : propertyName.copy();
     result.force = force;
@@ -156,7 +158,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
       return false;
     }
 
-    SQLDropPropertyStatement that = (SQLDropPropertyStatement) o;
+    var that = (SQLDropPropertyStatement) o;
 
     if (force != that.force) {
       return false;
@@ -172,7 +174,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = className != null ? className.hashCode() : 0;
+    var result = className != null ? className.hashCode() : 0;
     result = 31 * result + (propertyName != null ? propertyName.hashCode() : 0);
     result = 31 * result + (force ? 1 : 0);
     return result;

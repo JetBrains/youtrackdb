@@ -11,9 +11,9 @@ public class LiveQueryResult {
   public static final byte UPDATE_EVENT = 2;
   public static final byte DELETE_EVENT = 3;
 
-  private byte eventType;
-  private Result currentValue;
-  private Result oldValue;
+  private final byte eventType;
+  private final Result currentValue;
+  private final Result oldValue;
 
   public LiveQueryResult(byte eventType, Result currentValue, Result oldValue) {
     this.eventType = eventType;
@@ -25,20 +25,8 @@ public class LiveQueryResult {
     return eventType;
   }
 
-  public void setOldValue(Result oldValue) {
-    this.oldValue = oldValue;
-  }
-
   public Result getCurrentValue() {
     return currentValue;
-  }
-
-  public void setCurrentValue(Result currentValue) {
-    this.currentValue = currentValue;
-  }
-
-  public void setEventType(byte eventType) {
-    this.eventType = eventType;
   }
 
   public Result getOldValue() {

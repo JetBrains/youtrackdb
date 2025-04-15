@@ -19,7 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.HashSet;
+import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Base interface that represents a record element.
@@ -39,29 +43,87 @@ public interface RecordElement {
   /**
    * Marks the instance as dirty. The dirty status could be propagated up if the implementation
    * supports ownership concept.
-   *
-   * @return The object it self. Useful to call methods in chain.
    */
-  <RET> RET setDirty();
+  void setDirty();
 
   void setDirtyNoChanged();
 
   /**
    * @return Returns record element which contains given one.
    */
+  @Nullable
   RecordElement getOwner();
 
-  default EntityImpl getOwnerRecord() {
+  @Nullable
+  default EntityImpl getOwnerEntity() {
+    if (this instanceof EntityImpl entity) {
+      return entity;
+    }
+
     var owner = getOwner();
 
     while (true) {
       if (owner instanceof EntityImpl entity) {
         return entity;
       }
+
       if (owner == null) {
         return null;
       }
+
       owner = owner.getOwner();
     }
   }
+
+  default Set<RecordElement> getOwnersSet() {
+    var owner = getOwner();
+    if (owner == null) {
+      return Set.of();
+    }
+
+    var result = new HashSet<RecordElement>();
+    result.add(owner);
+    while (true) {
+      owner = owner.getOwner();
+      if (owner == null) {
+        break;
+      }
+      result.add(owner);
+    }
+
+    return result;
+  }
+
+  default boolean isOneOfOwners(RecordElement element) {
+    var owner = getOwner();
+    if (owner == null) {
+      return false;
+    }
+
+    while (true) {
+      if (owner == element) {
+        return true;
+      }
+      owner = owner.getOwner();
+      if (owner == null) {
+        return false;
+      }
+    }
+  }
+
+  @Nullable
+  default DatabaseSessionInternal getSession() {
+    if (this instanceof EntityImpl entity) {
+      return (DatabaseSessionInternal) entity.getBoundedToSession();
+    }
+
+    var owner = getOwnerEntity();
+    if (owner == null) {
+      return null;
+    }
+
+    return owner.getSession();
+  }
+
+  void setOwner(RecordElement owner);
 }

@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 
 /**
  * Returns a traversed element from the stack. Use it with SQL traverse only.
@@ -35,7 +35,7 @@ public class SQLFunctionTraversedEdge extends SQLFunctionTraversedElement {
 
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {

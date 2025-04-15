@@ -19,13 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import java.util.Collections;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This operator add an entry in a map. The entry is composed by a key and a value.
@@ -38,10 +37,11 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
     super(NAME, 1, -1);
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -74,9 +74,9 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
       throw new IllegalArgumentException(
           "Map function: expected a map or pairs of parameters as key, value");
     } else {
-      for (int i = 0; i < iParams.length; i += 2) {
-        final Object key = iParams[i];
-        final Object value = iParams[i + 1];
+      for (var i = 0; i < iParams.length; i += 2) {
+        final var key = iParams[i];
+        final var value = iParams[i + 1];
 
         if (value != null) {
           if (iParams.length <= 2 && context == null)
@@ -108,39 +108,12 @@ public class SQLFunctionMap extends SQLFunctionMultiValueAbstract<Map<Object, Ob
 
   @Override
   public Map<Object, Object> getResult() {
-    final Map<Object, Object> res = context;
+    final var res = context;
     context = null;
     return prepareResult(res);
   }
 
   protected Map<Object, Object> prepareResult(final Map<Object, Object> res) {
-    if (returnDistributedResult()) {
-      final Map<String, Object> entity = new HashMap<String, Object>();
-      entity.put("node", getDistributedStorageId());
-      entity.put("context", res);
-      return Collections.singletonMap("entity", entity);
-    } else {
-      return res;
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(final List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      final Map<Object, Object> result = new HashMap<Object, Object>();
-      for (Object iParameter : resultsToMerge) {
-        final Map<String, Object> container =
-            (Map<String, Object>) ((Map<Object, Object>) iParameter).get("doc");
-        result.putAll((Map<Object, Object>) container.get("context"));
-      }
-      return result;
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
+    return res;
   }
 }

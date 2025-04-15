@@ -10,7 +10,7 @@
   "servers": {
     "*": "master"
   },
-  "clusters": {
+  "collections": {
     "internal": {
     },
     "index": {

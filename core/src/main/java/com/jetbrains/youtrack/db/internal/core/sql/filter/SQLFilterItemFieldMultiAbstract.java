@@ -19,14 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,32 +47,42 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
     names = iNames;
     clazz = iClass;
 
-    for (String n : iNames) {
-      collates.add(getCollateForField(iClass, n));
+    for (var n : iNames) {
+      collates.add(getCollateForField(session, iClass, n));
     }
   }
 
   public Object getValue(
-      final Identifiable iRecord, Object iCurrentResult, CommandContext iContext) {
-    final EntityImpl entity = ((EntityImpl) iRecord);
+      final Result iRecord, Object iCurrentResult, CommandContext iContext) {
 
-    if (names.size() == 1) {
+    if (names.size() == 1 && iRecord.isEntity()) {
+      var entity = iRecord.asEntity();
       return transformValue(
-          iRecord, iContext, DocumentHelper.getIdentifiableValue(iRecord, names.get(0)));
+          iRecord, iContext,
+          EntityHelper.getIdentifiableValue(iContext.getDatabaseSession(), entity,
+              names.getFirst()));
     }
 
-    final String[] fieldNames = entity.fieldNames();
-    final Object[] values = new Object[fieldNames.length];
+    final List<String> fieldNames;
+    var propertyNames = iRecord.getPropertyNames();
+    if (propertyNames instanceof List<String> list) {
+      fieldNames = list;
+    } else {
+      fieldNames = new ArrayList<>(propertyNames);
+    }
+
+    final var values = new Object[fieldNames.size()];
 
     collates.clear();
-    for (int i = 0; i < values.length; ++i) {
-      values[i] = entity.field(fieldNames[i]);
-      collates.add(getCollateForField(clazz, fieldNames[i]));
+    var db = iContext.getDatabaseSession();
+    for (var i = 0; i < values.length; ++i) {
+      values[i] = iRecord.getProperty(fieldNames.get(i));
+      collates.add(getCollateForField(db, clazz, fieldNames.get(i)));
     }
 
     if (hasChainOperators()) {
       // TRANSFORM ALL THE VALUES
-      for (int i = 0; i < values.length; ++i) {
+      for (var i = 0; i < values.length; ++i) {
         values[i] = transformValue(iRecord, iContext, values[i]);
       }
     }

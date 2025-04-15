@@ -19,8 +19,9 @@
 package com.jetbrains.youtrack.db.internal.lucene.query;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.lucene.exception.LuceneIndexException;
 import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
@@ -80,10 +81,9 @@ public class LuceneQueryContext {
     return this;
   }
 
-  public LuceneQueryContext addHighlightFragment(
+  public void addHighlightFragment(
       final String field, final TextFragment[] fieldFragment) {
     fragments.put(field, fieldFragment);
-    return this;
   }
 
   public CommandContext getContext() {
@@ -112,7 +112,8 @@ public class LuceneQueryContext {
           searcher.getIndexReader(), luceneTxChanges.searcher().getIndexReader());
     } catch (final IOException e) {
       throw BaseException.wrapException(
-          new LuceneIndexException("unable to create reader on changes"), e);
+          new LuceneIndexException("unable to create reader on changes"), e,
+          context.getDatabaseSession());
     }
   }
 
@@ -124,8 +125,9 @@ public class LuceneQueryContext {
     return changes.map(c -> c.isUpdated(doc, key, value)).orElse(false);
   }
 
-  public boolean isDeleted(final Document doc, final Object key, final Identifiable value) {
-    return changes.map(c -> c.isDeleted(doc, key, value)).orElse(false);
+  public boolean isDeleted(Storage storage, final Document doc, final Object key,
+      final Identifiable value) {
+    return changes.map(c -> c.isDeleted(storage, doc, key, value)).orElse(false);
   }
 
   public Map<String, TextFragment[]> getFragments() {

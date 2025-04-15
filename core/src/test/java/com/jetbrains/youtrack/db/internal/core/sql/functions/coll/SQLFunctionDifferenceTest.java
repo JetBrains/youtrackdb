@@ -32,7 +32,7 @@ public class SQLFunctionDifferenceTest {
 
   @Test
   public void testExecute() {
-    final SQLFunctionDifference function = new SQLFunctionDifference();
+    final var function = new SQLFunctionDifference();
 
     List<List<Object>> incomes =
         Arrays.asList(
@@ -42,7 +42,7 @@ public class SQLFunctionDifferenceTest {
 
     Set<Object> expectedResult = new HashSet<Object>(List.<Object>of(4));
 
-    Set<Object> actualResult =
+    var actualResult =
         (Set<Object>)
             function.execute(null, null, null, incomes.toArray(), new BasicCommandContext());
 
@@ -61,7 +61,7 @@ public class SQLFunctionDifferenceTest {
 
   private void assertSetEquals(Set<Object> actualResult, Set<Object> expectedResult) {
     assertEquals(actualResult.size(), expectedResult.size());
-    for (Object o : actualResult) {
+    for (var o : actualResult) {
       assertTrue(expectedResult.contains(o));
     }
   }

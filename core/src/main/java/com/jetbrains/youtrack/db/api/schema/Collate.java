@@ -23,24 +23,31 @@ import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import java.io.Serializable;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Specify the Collating strategy when comparison in SQL statement is required.
  */
 public interface Collate extends Serializable {
 
+  @Nonnull
   static Collate caseInsensitiveCollate() {
     return new CaseInsensitiveCollate();
   }
+
+  @Nonnull
   static Collate defaultCollate() {
     return new DefaultCollate();
   }
 
+  @Nonnull
   String getName();
 
-  Object transform(Object obj);
+  @Nullable
+  Object transform(@Nullable Object obj);
 
-  default int compareForOrderBy(Object o1, Object o2) {
-    return new DefaultComparator().compare(transform(o1), transform(o2));
+  default int compareForOrderBy(@Nonnull Object o1, @Nonnull Object o2) {
+    return DefaultComparator.INSTANCE.compare(transform(o1), transform(o2));
   }
 }

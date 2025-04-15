@@ -7,16 +7,16 @@ import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerHookConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -24,6 +24,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class RemoteTransactionHookTest extends DbTestBase {
+
   private static final String SERVER_DIRECTORY = "./target/hook-transaction";
   private YouTrackDBServer server;
 
@@ -32,14 +33,14 @@ public class RemoteTransactionHookTest extends DbTestBase {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
-    ServerHookConfiguration hookConfig = new ServerHookConfiguration();
+    var hookConfig = new ServerHookConfiguration();
     hookConfig.clazz = CountCallHookServer.class.getName();
     server.getHookManager().addHook(hookConfig);
     server.activate();
 
     super.beforeTest();
 
-    db.createClass("SomeTx");
+    session.createClass("SomeTx");
   }
 
   @Override
@@ -47,11 +48,11 @@ public class RemoteTransactionHookTest extends DbTestBase {
     var builder = YouTrackDBConfig.builder();
     var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
 
-    final String testConfig =
+    final var testConfig =
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      dbType = DatabaseType.PLOCAL;
+      dbType = DatabaseType.DISK;
     } else {
       dbType = DatabaseType.MEMORY;
     }
@@ -73,22 +74,21 @@ public class RemoteTransactionHookTest extends DbTestBase {
   @Test
   @Ignore
   public void testCalledInTx() {
-    CountCallHook calls = new CountCallHook(db);
-    db.registerHook(calls);
+    var calls = new CountCallHook(session);
+    session.registerHook(calls);
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("SomeTx");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    db.save(doc);
-    db.command("insert into SomeTx set name='aa' ").close();
-    ResultSet res = db.command("update SomeTx set name='bb' where name=\"some\"");
+    session.execute("insert into SomeTx set name='aa' ").close();
+    var res = session.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    db.command("delete from SomeTx where name='aa'").close();
-    db.commit();
+    session.execute("delete from SomeTx where name='aa'").close();
+    session.commit();
 
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
   }
 
   @Test
@@ -96,52 +96,54 @@ public class RemoteTransactionHookTest extends DbTestBase {
     YouTrackDB youTrackDB = new YouTrackDBImpl("embedded:", YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
-    var database = youTrackDB.open("test", "admin", "admin");
-    CountCallHook calls = new CountCallHook(database);
-    database.registerHook(calls);
-    database.createClassIfNotExist("SomeTx");
-    database.begin();
-    EntityImpl doc = new EntityImpl("SomeTx");
+    var session = youTrackDB.open("test", "admin", "admin");
+    var calls = new CountCallHook(session);
+    session.registerHook(calls);
+    session.getSchema().getOrCreateClass("SomeTx");
+    var tx = session.begin();
+    var doc = ((EntityImpl) tx.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    database.save(doc);
-    database.command("insert into SomeTx set name='aa' ").close();
-    ResultSet res = database.command("update SomeTx set name='bb' where name=\"some\"");
+    tx.execute("insert into SomeTx set name='aa' ").close();
+    var res = tx.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    database.command("delete from SomeTx where name='aa'").close();
-    database.commit();
+    tx.execute("delete from SomeTx where name='aa'").close();
+    tx.commit();
 
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
-    assertEquals(1, calls.getBeforeUpdate());
-    assertEquals(1, calls.getAfterUpdate());
-    assertEquals(1, calls.getBeforeDelete());
-    assertEquals(1, calls.getAfterDelete());
-    database.close();
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
+
+    assertEquals(1, calls.beforeUpdate);
+    assertEquals(1, calls.afterUpdate);
+
+    assertEquals(1, calls.beforeDelete);
+    assertEquals(1, calls.afterDelete);
+    session.close();
     youTrackDB.close();
-    this.db.activateOnCurrentThread();
+    this.session.activateOnCurrentThread();
   }
 
   @Test
   @Ignore
   public void testCalledInTxServer() {
-    db.begin();
-    CountCallHookServer calls = CountCallHookServer.instance;
-    EntityImpl doc = new EntityImpl("SomeTx");
+    session.begin();
+    var calls = CountCallHookServer.instance;
+    var doc = ((EntityImpl) session.newEntity("SomeTx"));
     doc.setProperty("name", "some");
-    db.save(doc);
-    db.command("insert into SomeTx set name='aa' ").close();
-    ResultSet res = db.command("update SomeTx set name='bb' where name=\"some\"");
+    session.execute("insert into SomeTx set name='aa' ").close();
+    var res = session.execute("update SomeTx set name='bb' where name=\"some\"");
     assertEquals((Long) 1L, res.next().getProperty("count"));
     res.close();
-    db.command("delete from SomeTx where name='aa'").close();
-    db.commit();
-    assertEquals(2, calls.getBeforeCreate());
-    assertEquals(2, calls.getAfterCreate());
-    assertEquals(1, calls.getBeforeUpdate());
-    assertEquals(1, calls.getAfterUpdate());
-    assertEquals(1, calls.getBeforeDelete());
-    assertEquals(1, calls.getAfterDelete());
+    session.execute("delete from SomeTx where name='aa'").close();
+    session.commit();
+    assertEquals(2, calls.beforeCreate);
+    assertEquals(2, calls.afterCreate);
+
+    assertEquals(1, calls.beforeUpdate);
+    assertEquals(1, calls.afterUpdate);
+
+    assertEquals(1, calls.beforeDelete);
+    assertEquals(1, calls.afterDelete);
   }
 
   public static class CountCallHookServer extends CountCallHook {
@@ -154,79 +156,49 @@ public class RemoteTransactionHookTest extends DbTestBase {
     public static CountCallHookServer instance;
   }
 
-  public static class CountCallHook extends DocumentHookAbstract {
+  public static class CountCallHook extends EntityHookAbstract {
 
-    private int beforeCreate = 0;
-    private int beforeUpdate = 0;
-    private int beforeDelete = 0;
-    private int afterUpdate = 0;
-    private int afterCreate = 0;
-    private int afterDelete = 0;
+    public int beforeUpdate = 0;
+    public int afterUpdate = 0;
+
+    public int beforeCreate = 0;
+    public int afterCreate = 0;
+
+    public int beforeDelete = 0;
+    public int afterDelete = 0;
 
     public CountCallHook(DatabaseSession database) {
-      super(database);
+      super();
     }
 
     @Override
-    public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-      return DISTRIBUTED_EXECUTION_MODE.SOURCE_NODE;
-    }
-
-    @Override
-    public RESULT onRecordBeforeCreate(EntityImpl entity) {
+    public void onBeforeEntityCreate(Entity entity) {
       beforeCreate++;
-      return RESULT.RECORD_NOT_CHANGED;
     }
 
     @Override
-    public void onRecordAfterCreate(EntityImpl entity) {
+    public void onAfterEntityCreate(Entity entity) {
       afterCreate++;
     }
 
     @Override
-    public RESULT onRecordBeforeUpdate(EntityImpl entity) {
+    public void onBeforeEntityUpdate(Entity entity) {
       beforeUpdate++;
-      return RESULT.RECORD_NOT_CHANGED;
     }
 
     @Override
-    public void onRecordAfterUpdate(EntityImpl entity) {
+    public void onAfterEntityUpdate(Entity entity) {
       afterUpdate++;
     }
 
     @Override
-    public RESULT onRecordBeforeDelete(EntityImpl entity) {
+    public void onBeforeEntityDelete(Entity entity) {
       beforeDelete++;
-      return RESULT.RECORD_NOT_CHANGED;
     }
 
     @Override
-    public void onRecordAfterDelete(EntityImpl entity) {
+    public void onAfterEntityDelete(Entity entity) {
       afterDelete++;
-    }
-
-    public int getAfterCreate() {
-      return afterCreate;
-    }
-
-    public int getAfterDelete() {
-      return afterDelete;
-    }
-
-    public int getAfterUpdate() {
-      return afterUpdate;
-    }
-
-    public int getBeforeCreate() {
-      return beforeCreate;
-    }
-
-    public int getBeforeDelete() {
-      return beforeDelete;
-    }
-
-    public int getBeforeUpdate() {
-      return beforeUpdate;
     }
   }
 }

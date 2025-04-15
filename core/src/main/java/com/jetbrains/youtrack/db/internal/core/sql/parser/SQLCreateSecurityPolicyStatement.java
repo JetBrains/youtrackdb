@@ -4,8 +4,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -32,32 +30,32 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, name.getStringValue());
-    policy.setActive(ctx.getDatabase(), true);
+    var db = ctx.getDatabaseSession();
+    var security = db.getSharedContext().getSecurity();
+    var policy = security.createSecurityPolicy(db, name.getStringValue());
+    policy.setActive(true);
     if (create != null) {
-      policy.setCreateRule(ctx.getDatabase(), create.toString());
+      policy.setCreateRule(create.toString());
     }
     if (read != null) {
-      policy.setReadRule(db, read.toString());
+      policy.setReadRule(read.toString());
     }
     if (beforeUpdate != null) {
-      policy.setBeforeUpdateRule(db, beforeUpdate.toString());
+      policy.setBeforeUpdateRule(beforeUpdate.toString());
     }
     if (afterUpdate != null) {
-      policy.setAfterUpdateRule(db, afterUpdate.toString());
+      policy.setAfterUpdateRule(afterUpdate.toString());
     }
     if (delete != null) {
-      policy.setDeleteRule(db, delete.toString());
+      policy.setDeleteRule(delete.toString());
     }
     if (execute != null) {
-      policy.setExecuteRule(db, execute.toString());
+      policy.setExecuteRule(execute.toString());
     }
 
     security.saveSecurityPolicy(db, policy);
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("operation", "create security policy");
     result.setProperty("name", name.getStringValue());
     return ExecutionStream.singleton(result);
@@ -68,7 +66,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
     builder.append("CREATE SECURITY POLICY ");
     name.toString(params, builder);
 
-    boolean first = true;
+    var first = true;
     if (create != null) {
       if (first) {
         builder.append(" SET ");
@@ -144,7 +142,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
     builder.append("CREATE SECURITY POLICY ");
     name.toGenericStatement(builder);
 
-    boolean first = true;
+    var first = true;
     if (create != null) {
       if (first) {
         builder.append(" SET ");
@@ -223,7 +221,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLCreateSecurityPolicyStatement that = (SQLCreateSecurityPolicyStatement) o;
+    var that = (SQLCreateSecurityPolicyStatement) o;
     return Objects.equals(name, that.name)
         && Objects.equals(create, that.create)
         && Objects.equals(read, that.read)
@@ -240,7 +238,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLStatement copy() {
-    SQLCreateSecurityPolicyStatement result = new SQLCreateSecurityPolicyStatement(-1);
+    var result = new SQLCreateSecurityPolicyStatement(-1);
     result.name = name.copy();
     result.create = this.create == null ? null : this.create.copy();
     result.read = this.read == null ? null : this.read.copy();

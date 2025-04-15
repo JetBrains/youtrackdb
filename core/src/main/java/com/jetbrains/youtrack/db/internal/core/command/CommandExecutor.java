@@ -34,21 +34,22 @@ public interface CommandExecutor {
    * Parse the request. Once parsed the command can be executed multiple times by using the
    * execute() method.
    *
+   * @param session
    * @param iRequest Command request implementation.
    * @return
-   * @see #execute(Map, DatabaseSessionInternal) <Object, Object>...)
+   * @see #execute(DatabaseSessionInternal, Map) <Object, Object>...)
    */
-  <RET extends CommandExecutor> RET parse(CommandRequest iRequest);
+  <RET extends CommandExecutor> RET parse(DatabaseSessionInternal session, CommandRequest iRequest);
 
   /**
    * Execute the requested command parsed previously.
    *
-   * @param iArgs        Optional variable arguments to pass to the command.
-   * @param querySession
+   * @param session
+   * @param iArgs Optional variable arguments to pass to the command.
    * @return
-   * @see #parse(CommandRequest)
+   * @see #parse(DatabaseSessionInternal, CommandRequest)
    */
-  Object execute(final Map<Object, Object> iArgs, DatabaseSessionInternal querySession);
+  Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs);
 
   /**
    * Set the listener invoked while the command is executing.
@@ -74,9 +75,9 @@ public interface CommandExecutor {
   boolean isIdempotent();
 
   /**
-   * Returns the involved clusters.
+   * Returns the involved collections.
    */
-  Set<String> getInvolvedClusters();
+  Set<String> getInvolvedCollections(DatabaseSessionInternal session);
 
   /**
    * Returns the security operation type use to check about security.
@@ -86,21 +87,10 @@ public interface CommandExecutor {
    */
   int getSecurityOperationType();
 
-  boolean involveSchema();
-
   String getSyntax();
-
-  /**
-   * Returns true if the command must be executed on local node on distributed configuration.
-   */
-  boolean isLocalExecution();
 
   /**
    * Returns true if the command results can be cached.
    */
   boolean isCacheable();
-
-  long getDistributedTimeout();
-
-  Object mergeResults(Map<String, Object> results) throws Exception;
 }

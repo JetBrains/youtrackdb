@@ -16,11 +16,11 @@ import { MetricService } from "../../../../core/services";
 import { ValueAggObserbable } from "../../server/valueAggregatorObservable";
 
 @Component({
-  selector: "cluster-stats",
-  templateUrl: "./clusterstats.component.html",
+  selector: "collection-stats",
+  templateUrl: "./collectionstats.component.html",
   styles: [""]
 })
-class ClusterStatsComponent implements OnInit, OnChanges {
+class CollectionStatsComponent implements OnInit, OnChanges {
   @Input()
   private stats;
   private servers = [];
@@ -52,11 +52,11 @@ class ClusterStatsComponent implements OnInit, OnChanges {
     this.stats = changes.stats.currentValue;
 
     if (this.stats) {
-      this.servers = Object.keys(this.stats.clusterStats);
+      this.servers = Object.keys(this.stats.collectionStats);
 
       let stats: any = this.servers
         .map(s => {
-          return this.metrics.calculateGauges(this.stats.clusterStats[s]);
+          return this.metrics.calculateGauges(this.stats.collectionStats[s]);
         })
         .reduce(
           (prev, current) => {
@@ -96,7 +96,7 @@ class ClusterStatsComponent implements OnInit, OnChanges {
       this.sessions = this.servers.reduce((prev, current) => {
         return (
           prev +
-          this.stats.clusterStats[current]["gauges"]["server.network.sessions"]
+          this.stats.collectionStats[current]["gauges"]["server.network.sessions"]
             .value
         );
       }, 0);
@@ -105,7 +105,7 @@ class ClusterStatsComponent implements OnInit, OnChanges {
         this.servers.reduce((prev, current) => {
           return (
             prev +
-            this.stats.clusterStats[current]["meters"][
+            this.stats.collectionStats[current]["meters"][
               "server.network.requests"
             ].count
           );
@@ -115,7 +115,7 @@ class ClusterStatsComponent implements OnInit, OnChanges {
       this.opsEmitter.emit(
         this.servers.reduce((prev, current) => {
           return (
-            prev + this.countOps(this.stats.clusterStats[current]["meters"])
+            prev + this.countOps(this.stats.collectionStats[current]["meters"])
           );
         }, 0)
       );
@@ -137,4 +137,4 @@ class ClusterStatsComponent implements OnInit, OnChanges {
   ngOnInit(): void {}
 }
 
-export { ClusterStatsComponent };
+export { CollectionStatsComponent };

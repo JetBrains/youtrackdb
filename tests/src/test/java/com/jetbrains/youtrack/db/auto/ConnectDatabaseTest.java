@@ -71,8 +71,8 @@ public class ConnectDatabaseTest {
 
   protected boolean isInternetAvailable() {
     try {
-      final URL url = new URL("http://orientdb.com");
-      final HttpURLConnection urlConn = (HttpURLConnection) url.openConnection();
+      final var url = new URL("http://orientdb.com");
+      final var urlConn = (HttpURLConnection) url.openConnection();
       urlConn.setConnectTimeout(1000 * 10); // mTimeout is in seconds
       urlConn.connect();
       if (urlConn.getResponseCode() == HttpURLConnection.HTTP_OK) {

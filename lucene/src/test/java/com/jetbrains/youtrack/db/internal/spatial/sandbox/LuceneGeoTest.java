@@ -13,13 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.sandbox;
 
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import com.jetbrains.youtrack.db.internal.spatial.shape.MultiPolygonShapeBuilder;
 import java.io.IOException;
-import java.io.InputStream;
 import java.text.ParseException;
+import java.util.List;
 import java.util.Map;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -32,8 +33,6 @@ import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.spatial.prefix.RecursivePrefixTreeStrategy;
 import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
 import org.apache.lucene.spatial.query.SpatialArgs;
@@ -53,19 +52,19 @@ public class LuceneGeoTest extends BaseLuceneTest {
   @Test
   public void geoIntersectTest() throws IOException, ParseException {
 
-    RecursivePrefixTreeStrategy strategy =
+    var strategy =
         new RecursivePrefixTreeStrategy(
             new GeohashPrefixTree(JtsSpatialContext.GEO, 11), "location");
 
     strategy.setDistErrPct(0);
 
-    IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
-    final RAMDirectory directory = new RAMDirectory();
-    final IndexWriter writer = new IndexWriter(directory, conf);
+    var conf = new IndexWriterConfig(new StandardAnalyzer());
+    final var directory = new RAMDirectory();
+    final var writer = new IndexWriter(directory, conf);
 
-    Shape point = JtsSpatialContext.GEO.getWktShapeParser().parse("POINT (9.4714708 47.6819432)");
+    var point = JtsSpatialContext.GEO.getWktShapeParser().parse("POINT (9.4714708 47.6819432)");
 
-    Shape polygon =
+    var polygon =
         JtsSpatialContext.GEO
             .getWktShapeParser()
             .parse(
@@ -81,7 +80,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
                     + " 47.64237650648966,9.49270248413086 47.649662445325035,9.48617935180664"
                     + " 47.65151268066222,9.481201171875 47.64885294675266))");
 
-    Document doc = new Document();
+    var doc = new Document();
 
     Assert.assertNotEquals(point.relate(polygon), SpatialRelation.INTERSECTS);
     for (IndexableField f : strategy.createIndexableFields(point)) {
@@ -91,19 +90,19 @@ public class LuceneGeoTest extends BaseLuceneTest {
     writer.addDocument(doc);
     writer.commit();
 
-    SpatialArgs args = new SpatialArgs(SpatialOperation.Intersects, polygon.getBoundingBox());
-    Query filterQuery = strategy.makeQuery(args);
+    var args = new SpatialArgs(SpatialOperation.Intersects, polygon.getBoundingBox());
+    var filterQuery = strategy.makeQuery(args);
     IndexReader reader = DirectoryReader.open(directory);
 
-    IndexSearcher searcher = new IndexSearcher(reader);
+    var searcher = new IndexSearcher(reader);
 
-    BooleanQuery q =
+    var q =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    TopDocs search = searcher.search(q, 1000);
+    var search = searcher.search(q, 1000);
     Assert.assertEquals(search.totalHits, 0);
 
     reader.close();
@@ -113,15 +112,15 @@ public class LuceneGeoTest extends BaseLuceneTest {
   @Test
   public void geoSpeedTest() throws IOException, ParseException {
 
-    RecursivePrefixTreeStrategy strategy =
+    var strategy =
         new RecursivePrefixTreeStrategy(
             new GeohashPrefixTree(JtsSpatialContext.GEO, 11), "location");
 
-    IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
-    final RAMDirectory directory = new RAMDirectory();
-    final IndexWriter writer = new IndexWriter(directory, conf);
+    var conf = new IndexWriterConfig(new StandardAnalyzer());
+    final var directory = new RAMDirectory();
+    final var writer = new IndexWriter(directory, conf);
 
-    Shape multiPolygon =
+    var multiPolygon =
         JtsSpatialContext.GEO
             .getWktShapeParser()
             .parse(
@@ -152,7 +151,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
                     + " 11.048556 46.751359, 11.164828 46.941579, 12.153088 47.115393, 12.376485"
                     + " 46.767559)))");
 
-    Document doc = new Document();
+    var doc = new Document();
 
     for (IndexableField f : strategy.createIndexableFields(multiPolygon)) {
       doc.add(f);
@@ -166,21 +165,21 @@ public class LuceneGeoTest extends BaseLuceneTest {
 
   @Test
   public void geoSpeedTestInternal() throws IOException {
-    RecursivePrefixTreeStrategy strategy =
+    var strategy =
         new RecursivePrefixTreeStrategy(
             new GeohashPrefixTree(JtsSpatialContext.GEO, 11), "location");
 
-    IndexWriterConfig conf = new IndexWriterConfig(new StandardAnalyzer());
-    final RAMDirectory directory = new RAMDirectory();
-    final IndexWriter writer = new IndexWriter(directory, conf);
+    var conf = new IndexWriterConfig(new StandardAnalyzer());
+    final var directory = new RAMDirectory();
+    final var writer = new IndexWriter(directory, conf);
 
-    EntityImpl entries = loadMultiPolygon(db);
+    var entries = loadMultiPolygon(session);
 
-    MultiPolygonShapeBuilder builder = new MultiPolygonShapeBuilder();
+    var builder = new MultiPolygonShapeBuilder();
 
-    Shape multiPolygon = builder.fromDoc(entries);
+    Shape multiPolygon = builder.fromResult(entries);
 
-    Document doc = new Document();
+    var doc = new Document();
 
     for (IndexableField f : strategy.createIndexableFields(multiPolygon)) {
       doc.add(f);
@@ -192,21 +191,17 @@ public class LuceneGeoTest extends BaseLuceneTest {
     writer.close();
   }
 
-  protected static EntityImpl loadMultiPolygon(DatabaseSessionInternal session) {
-    try {
-      InputStream systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
+  protected static EmbeddedEntity loadMultiPolygon(DatabaseSessionInternal session)
+      throws IOException {
+    var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-      EntityImpl doc = new EntityImpl(session).fromJSON(systemResourceAsStream);
+    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
 
-      Map geometry = doc.field("geometry");
+    Map geometry = (Map) map.get("geometry");
+    var type = (String) geometry.get("type");
 
-      String type = (String) geometry.get("type");
-      EntityImpl location = new EntityImpl(session, "O" + type);
-      location.field("coordinates", geometry.get("coordinates"));
-      return location;
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
+    var location = session.newEmbeddedEntity("O" + type);
+    location.newEmbeddedList("coordinates", (List<Object>)geometry.get("coordinates"));
+    return location;
   }
 }

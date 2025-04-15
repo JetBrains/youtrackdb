@@ -26,11 +26,11 @@ public class SQLDropUserStatement extends SQLSimpleExecStatement {
 
     List<Object> params = new ArrayList<>();
 
-    String sb = "DELETE FROM OUser WHERE " + SQLCreateUserStatement.USER_FIELD_NAME + " = ?";
+    var sb = "DELETE FROM OUser WHERE " + SQLCreateUserStatement.USER_FIELD_NAME + " = ?";
     params.add(this.name.getStringValue());
 
     return ExecutionStream.resultIterator(
-        ctx.getDatabase().command(sb, params.toArray()).stream().iterator());
+        ctx.getDatabaseSession().execute(sb, params.toArray()).stream().iterator());
   }
 
   @Override
@@ -47,7 +47,7 @@ public class SQLDropUserStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLDropUserStatement copy() {
-    SQLDropUserStatement result = new SQLDropUserStatement(-1);
+    var result = new SQLDropUserStatement(-1);
     result.name = name == null ? null : name.copy();
     return result;
   }
@@ -61,7 +61,7 @@ public class SQLDropUserStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLDropUserStatement that = (SQLDropUserStatement) o;
+    var that = (SQLDropUserStatement) o;
 
     return Objects.equals(name, that.name);
   }

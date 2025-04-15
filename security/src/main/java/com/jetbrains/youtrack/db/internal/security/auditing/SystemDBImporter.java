@@ -13,8 +13,6 @@
  */
 package com.jetbrains.youtrack.db.internal.security.auditing;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -23,6 +21,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
+import java.util.Map;
 
 public class SystemDBImporter extends Thread {
 
@@ -38,27 +37,28 @@ public class SystemDBImporter extends Thread {
     return enabled;
   }
 
-  public SystemDBImporter(final YouTrackDBInternal context, final EntityImpl jsonConfig) {
+  public SystemDBImporter(final YouTrackDBInternal context, final Map<String, Object> jsonConfig) {
     super(YouTrackDBEnginesManager.instance().getThreadGroup(),
         "YouTrackDB Auditing Log Importer Thread");
 
     this.context = context;
 
     try {
-      if (jsonConfig.containsField("enabled")) {
-        enabled = jsonConfig.field("enabled");
+      if (jsonConfig.containsKey("enabled")) {
+        enabled = (Boolean) jsonConfig.get("enabled");
       }
 
-      if (jsonConfig.containsField("databases")) {
-        databaseList = jsonConfig.field("databases");
+      if (jsonConfig.containsKey("databases")) {
+        //noinspection unchecked
+        databaseList = (List<String>) jsonConfig.get("databases");
       }
 
-      if (jsonConfig.containsField("limit")) {
-        limit = jsonConfig.field("limit");
+      if (jsonConfig.containsKey("limit")) {
+        limit = (Integer) jsonConfig.get("limit");
       }
 
-      if (jsonConfig.containsField("sleepPeriod")) {
-        sleepPeriod = jsonConfig.field("sleepPeriod");
+      if (jsonConfig.containsKey("sleepPeriod")) {
+        sleepPeriod = (Integer) jsonConfig.get("sleepPeriod");
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "SystemDBImporter()", ex);
@@ -76,7 +76,7 @@ public class SystemDBImporter extends Thread {
   public void run() {
     try {
       if (enabled && databaseList != null) {
-        for (String dbName : databaseList) {
+        for (var dbName : databaseList) {
           if (!isRunning) {
             break;
           }
@@ -103,30 +103,29 @@ public class SystemDBImporter extends Thread {
         return;
       }
 
-      sysdb = context.getSystemDatabase().openSystemDatabase();
+      sysdb = context.getSystemDatabase().openSystemDatabaseSession();
 
       LogManager.instance()
           .info(this, "Starting import of the auditing log from database: %s", dbName);
 
-      int totalImported = 0;
+      var totalImported = 0;
 
       // We modify the query after the first iteration, using the last imported RID as a starting
       // point.
-      String sql = String.format("select from %s order by @rid limit ?", auditingClass);
+      var sql = String.format("select from %s order by @rid limit ?", auditingClass);
 
       while (isRunning) {
-        db.activateOnCurrentThread();
         // Retrieve the auditing log records from the local database.
-        ResultSet result = db.query(sql, limit);
+        var result = db.query(sql, limit);
 
-        int count = 0;
+        var count = 0;
 
         String lastRID = null;
 
         while (result.hasNext()) {
-          Result entity = result.next();
+          var entity = result.next();
           try {
-            Entity copy = new EntityImpl();
+            Entity copy = new EntityImpl(db);
 
             if (entity.hasProperty("date")) {
               copy.setProperty("date", entity.getProperty("date"), PropertyType.DATETIME);
@@ -153,7 +152,7 @@ public class SystemDBImporter extends Thread {
               if (entity.hasProperty("user")) {
                 // entity.field("user") will throw an exception if the user's RID is not found.
                 EntityImpl userDoc = entity.getProperty("user");
-                final String username = userDoc.field("name");
+                final String username = userDoc.getProperty("name");
 
                 if (username != null) {
                   copy.setProperty("user", username);
@@ -165,15 +164,11 @@ public class SystemDBImporter extends Thread {
             // Add the database name as part of the log stored in the system db.
             copy.setProperty("database", dbName);
 
-            sysdb.activateOnCurrentThread();
-            sysdb.save(copy, DefaultAuditing.getClusterName(dbName));
-
             lastRID = entity.getIdentity().toString();
 
             count++;
 
-            db.activateOnCurrentThread();
-            db.delete(entity.getIdentity().get());
+            db.delete(entity.asEntity());
           } catch (Exception ex) {
             LogManager.instance().error(this, "importDB()", ex);
           }
@@ -210,12 +205,10 @@ public class SystemDBImporter extends Thread {
       LogManager.instance().error(this, "importDB()", ex);
     } finally {
       if (sysdb != null) {
-        sysdb.activateOnCurrentThread();
         sysdb.close();
       }
 
       if (db != null) {
-        db.activateOnCurrentThread();
         db.close();
       }
     }

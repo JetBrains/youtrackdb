@@ -42,7 +42,7 @@ public abstract class OperationUnitRecord extends AbstractWALRecord {
 
   @Override
   public final int toStream(final byte[] content, final int offset) {
-    final ByteBuffer buffer = ByteBuffer.wrap(content).order(ByteOrder.nativeOrder());
+    final var buffer = ByteBuffer.wrap(content).order(ByteOrder.nativeOrder());
     buffer.position(offset);
 
     buffer.putLong(operationUnitId);
@@ -63,7 +63,7 @@ public abstract class OperationUnitRecord extends AbstractWALRecord {
 
   @Override
   public final int fromStream(final byte[] content, final int offset) {
-    final ByteBuffer buffer = ByteBuffer.wrap(content).order(ByteOrder.nativeOrder());
+    final var buffer = ByteBuffer.wrap(content).order(ByteOrder.nativeOrder());
     buffer.position(offset);
 
     operationUnitId = buffer.getLong();
@@ -91,7 +91,7 @@ public abstract class OperationUnitRecord extends AbstractWALRecord {
       return false;
     }
 
-    final OperationUnitRecord that = (OperationUnitRecord) o;
+    final var that = (OperationUnitRecord) o;
 
     return operationUnitId == that.operationUnitId;
   }

@@ -31,7 +31,7 @@ public class GeOperatorTest {
 
   @Test
   public void test() {
-    SQLGeOperator op = new SQLGeOperator(-1);
+    var op = new SQLGeOperator(-1);
     Assert.assertTrue(op.execute(1, 1));
     Assert.assertTrue(op.execute(1, 0));
     Assert.assertFalse(op.execute(0, 1));

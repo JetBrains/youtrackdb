@@ -53,7 +53,7 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
                 new PrivilegedAction<Object>() {
                   public Object run() {
                     try {
-                      Field f = Unsafe.class.getDeclaredField("theUnsafe");
+                      var f = Unsafe.class.getDeclaredField("theUnsafe");
                       f.setAccessible(true);
                       return f.get(null);
                     } catch (NoSuchFieldException e) {
@@ -66,7 +66,7 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
 
     BYTE_ARRAY_OFFSET = unsafe.arrayBaseOffset(byte[].class);
 
-    final int byteArrayScale = unsafe.arrayIndexScale(byte[].class);
+    final var byteArrayScale = unsafe.arrayIndexScale(byte[].class);
 
     if (byteArrayScale != 1) {
       throw new Error();
@@ -74,13 +74,13 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
   }
 
   public int compare(byte[] arrayOne, byte[] arrayTwo) {
-    final int WORDS = arrayOne.length / LONG_SIZE;
+    final var WORDS = arrayOne.length / LONG_SIZE;
 
-    for (int i = 0; i < WORDS * LONG_SIZE; i += LONG_SIZE) {
+    for (var i = 0; i < WORDS * LONG_SIZE; i += LONG_SIZE) {
       final long index = i + BYTE_ARRAY_OFFSET;
 
-      final long wOne = unsafe.getLong(arrayOne, index);
-      final long wTwo = unsafe.getLong(arrayTwo, index);
+      final var wOne = unsafe.getLong(arrayOne, index);
+      final var wTwo = unsafe.getLong(arrayTwo, index);
 
       if (wOne == wTwo) {
         continue;
@@ -93,8 +93,8 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
       return lessThanUnsigned(wOne, wTwo) ? -1 : 1;
     }
 
-    for (int i = WORDS * LONG_SIZE; i < arrayOne.length; i++) {
-      int diff = compareUnsignedByte(arrayOne[i], arrayTwo[i]);
+    for (var i = WORDS * LONG_SIZE; i < arrayOne.length; i++) {
+      var diff = compareUnsignedByte(arrayOne[i], arrayTwo[i]);
       if (diff != 0) {
         return diff;
       }
@@ -115,8 +115,8 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
   }
 
   private static int compareUnsignedByte(byte byteOne, byte byteTwo) {
-    final int valOne = byteOne & 0xFF;
-    final int valTwo = byteTwo & 0xFF;
+    final var valOne = byteOne & 0xFF;
+    final var valTwo = byteTwo & 0xFF;
     return valOne - valTwo;
   }
 }

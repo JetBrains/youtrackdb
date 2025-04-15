@@ -17,9 +17,9 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 
 /**
@@ -27,8 +27,7 @@ import java.util.concurrent.BlockingQueue;
  */
 public class AuditingLoggingThread extends Thread {
 
-  private final String databaseName;
-  private final BlockingQueue<EntityImpl> auditingQueue;
+  private final BlockingQueue<Map<String, ?>> auditingQueue;
   private volatile boolean running = true;
   private volatile boolean waitForAllLogs = true;
   private final YouTrackDBInternal context;
@@ -38,26 +37,25 @@ public class AuditingLoggingThread extends Thread {
 
   public AuditingLoggingThread(
       final String iDatabaseName,
-      final BlockingQueue auditingQueue,
+      final BlockingQueue<Map<String, ?>> auditingQueue,
       final YouTrackDBInternal context,
       SecuritySystem security) {
     super(
         YouTrackDBEnginesManager.instance().getThreadGroup(),
         "YouTrackDB Auditing Logging Thread - " + iDatabaseName);
 
-    this.databaseName = iDatabaseName;
     this.auditingQueue = auditingQueue;
     this.context = context;
     this.security = security;
     setDaemon(true);
 
-    // This will create a cluster in the system database for logging auditing events for
+    // This will create a collection in the system database for logging auditing events for
     // "databaseName", if it doesn't already
     // exist.
-    // server.getSystemDatabase().createCluster(DefaultAuditing.AUDITING_LOG_CLASSNAME,
-    // DefaultAuditing.getClusterName(databaseName));
+    // server.getSystemDatabase().createCollection(DefaultAuditing.AUDITING_LOG_CLASSNAME,
+    // DefaultAuditing.getCollectionName(databaseName));
 
-    className = DefaultAuditing.getClassName(databaseName);
+    className = DefaultAuditing.getClassName(iDatabaseName);
 
     context
         .getSystemDatabase()
@@ -65,9 +63,9 @@ public class AuditingLoggingThread extends Thread {
             session -> {
               Schema schema = session.getMetadata().getSchema();
               if (!schema.existsClass(className)) {
-                SchemaClass clazz = schema.getClass(DefaultAuditing.AUDITING_LOG_CLASSNAME);
-                SchemaClass cls = schema.createClass(className, clazz);
-                cls.createIndex(session, className + ".date", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+                var clazz = schema.getClass(DefaultAuditing.AUDITING_LOG_CLASSNAME);
+                var cls = schema.createClass(className, clazz);
+                cls.createIndex(className + ".date", SchemaClass.INDEX_TYPE.NOTUNIQUE,
                     "date");
               }
               return null;
@@ -83,31 +81,33 @@ public class AuditingLoggingThread extends Thread {
           break;
         }
 
-        final EntityImpl log = auditingQueue.take();
+        var logEntry = auditingQueue.take();
+        var systemDatabase = context.getSystemDatabase();
+        try (var systemSession = systemDatabase.openSystemDatabaseSession()) {
+          systemSession.executeInTx(
+              transaction -> {
+                var log = systemSession.newEntity(className);
+                log.updateFromMap(logEntry);
 
-        log.setClassName(className);
+                if (security.getSyslog() != null) {
+                  var byteOp = AuditingOperation.UNSPECIFIED.getByte();
 
-        context.getSystemDatabase().save(log);
+                  if (log.hasProperty("operation")) {
+                    byteOp = log.getProperty("operation");
+                  }
 
-        if (security.getSyslog() != null) {
-          byte byteOp = AuditingOperation.UNSPECIFIED.getByte();
+                  String username = log.getProperty("user");
+                  String message = log.getProperty("note");
+                  String dbName = log.getProperty("database");
 
-          if (log.containsField("operation")) {
-            byteOp = log.field("operation");
-          }
-
-          String username = log.field("user");
-          String message = log.field("note");
-          String dbName = log.field("database");
-
-          security
-              .getSyslog()
-              .log(AuditingOperation.getByByte(byteOp).toString(), dbName, username, message);
+                  security.getSyslog()
+                      .log(AuditingOperation.getByByte(byteOp).toString(), dbName, username,
+                          message);
+                }
+              });
         }
-
       } catch (InterruptedException e) {
         // IGNORE AND SOFTLY EXIT
-
       } catch (Exception e) {
         e.printStackTrace();
       }

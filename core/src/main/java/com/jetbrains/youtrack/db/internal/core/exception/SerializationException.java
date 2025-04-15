@@ -19,15 +19,23 @@
  */
 package com.jetbrains.youtrack.db.internal.core.exception;
 
-public class SerializationException extends CoreException {
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 
-  private static final long serialVersionUID = -3003977236233691448L;
+public class SerializationException extends CoreException {
 
   public SerializationException(SerializationException exception) {
     super(exception);
   }
 
-  public SerializationException(String string) {
-    super(string);
+  public SerializationException(String message) {
+    super(message);
+  }
+
+  public SerializationException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public SerializationException(DatabaseSession session, String message) {
+    super(session, message);
   }
 }

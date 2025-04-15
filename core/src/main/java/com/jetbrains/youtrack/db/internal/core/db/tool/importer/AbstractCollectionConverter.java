@@ -27,11 +27,11 @@ public abstract class AbstractCollectionConverter<T> implements ValuesConverter<
     }
 
     if (item instanceof Identifiable) {
-      final ValuesConverter<Identifiable> converter =
+      final var converter =
           (ValuesConverter<Identifiable>)
               ImportConvertersFactory.INSTANCE.getConverter(item, converterData);
 
-      final Identifiable newValue = converter.convert(db, (Identifiable) item);
+      final var newValue = converter.convert(db, (Identifiable) item);
 
       // this code intentionally uses == instead of equals, in such case we may distinguish rids
       // which already contained in
@@ -44,12 +44,12 @@ public abstract class AbstractCollectionConverter<T> implements ValuesConverter<
         updated = true;
       }
     } else {
-      final ValuesConverter valuesConverter =
+      final var valuesConverter =
           ImportConvertersFactory.INSTANCE.getConverter(item, converterData);
       if (valuesConverter == null) {
         result.add(item);
       } else {
-        final Object newValue = valuesConverter.convert(db, item);
+        final var newValue = valuesConverter.convert(db, item);
         if (newValue != item) {
           updated = true;
         }

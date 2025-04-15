@@ -21,13 +21,12 @@ package com.jetbrains.youtrack.db.internal.core.query.live;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.QUERY_LIVE_SUPPORT;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +75,7 @@ public class LiveQueryHook {
               QUERY_LIVE_SUPPORT.getKey());
       return -1;
     }
-    LiveQueryOps ops = getOpsReference(db);
+    var ops = getOpsReference(db);
     synchronized (ops.threadLock) {
       if (!ops.queueThread.isAlive()) {
         ops.queueThread = ops.queueThread.clone();
@@ -98,7 +97,7 @@ public class LiveQueryHook {
       return;
     }
     try {
-      LiveQueryOps ops = getOpsReference(db);
+      var ops = getOpsReference(db);
       synchronized (ops.threadLock) {
         ops.queueThread.unsubscribe(id);
       }
@@ -109,7 +108,7 @@ public class LiveQueryHook {
 
   public static void notifyForTxChanges(DatabaseSession iDatabase) {
 
-    LiveQueryOps ops = getOpsReference((DatabaseSessionInternal) iDatabase);
+    var ops = getOpsReference((DatabaseSessionInternal) iDatabase);
     if (ops.pendingOps.isEmpty()) {
       return;
     }
@@ -123,9 +122,7 @@ public class LiveQueryHook {
     }
     // TODO sync
     if (list != null) {
-      for (RecordOperation item : list) {
-        final RecordAbstract record = item.record.copy();
-        item.record = record;
+      for (var item : list) {
         ops.queueThread.enqueue(item);
       }
     }
@@ -137,7 +134,7 @@ public class LiveQueryHook {
           || Boolean.FALSE.equals(iDatabase.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
         return;
       }
-      LiveQueryOps ops = getOpsReference((DatabaseSessionInternal) iDatabase);
+      var ops = getOpsReference((DatabaseSessionInternal) iDatabase);
       synchronized (ops.pendingOps) {
         ops.pendingOps.remove(iDatabase);
       }
@@ -149,16 +146,16 @@ public class LiveQueryHook {
 
   public static void addOp(EntityImpl entity, byte iType, DatabaseSession database) {
     var db = database;
-    LiveQueryOps ops = getOpsReference((DatabaseSessionInternal) db);
+    var ops = getOpsReference((DatabaseSessionInternal) db);
     if (!ops.queueThread.hasListeners()) {
       return;
     }
     if (Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
       return;
     }
-    RecordOperation result = new RecordOperation(entity, iType);
+    var result = new RecordOperation(entity, iType);
     synchronized (ops.pendingOps) {
-      List<RecordOperation> list = ops.pendingOps.get(db);
+      var list = ops.pendingOps.get(db);
       if (list == null) {
         list = new ArrayList<RecordOperation>();
         ops.pendingOps.put(db, list);

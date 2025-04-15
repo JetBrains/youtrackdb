@@ -23,22 +23,22 @@ public class CountStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
-    ExecutionStream prevResult = prev.start(ctx);
+    var prevResult = prev.start(ctx);
     long count = 0;
     while (prevResult.hasNext(ctx)) {
       count++;
       prevResult.next(ctx);
     }
     prevResult.close(ctx);
-    ResultInternal resultRecord = new ResultInternal(ctx.getDatabase());
+    var resultRecord = new ResultInternal(ctx.getDatabaseSession());
     resultRecord.setProperty("count", count);
     return ExecutionStream.singleton(resultRecord);
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ COUNT");
     if (profilingEnabled) {

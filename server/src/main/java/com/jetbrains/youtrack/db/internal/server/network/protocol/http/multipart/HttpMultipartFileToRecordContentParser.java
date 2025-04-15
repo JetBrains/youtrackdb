@@ -15,10 +15,10 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
 import java.util.Map;
 
@@ -30,14 +30,14 @@ public class HttpMultipartFileToRecordContentParser implements
 
   @Override
   public RecordId parse(
-      final OHttpRequest iRequest,
+      final HttpRequest iRequest,
       final Map<String, String> headers,
       final HttpMultipartContentInputStream in,
-      DatabaseSession database)
+      DatabaseSessionInternal db)
       throws IOException {
-    var record = new RecordBytes();
+    var record = new RecordBytes(db);
     record.fromInputStream(in);
-    record.save();
+
     return record.getIdentity();
   }
 }

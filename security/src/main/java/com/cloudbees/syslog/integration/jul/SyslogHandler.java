@@ -42,11 +42,11 @@ public class SyslogHandler extends AbstractHandler {
 
   public SyslogHandler() {
     super();
-    LogManager manager = LogManager.getLogManager();
+    var manager = LogManager.getLogManager();
 
-    String cname = getClass().getName();
+    var cname = getClass().getName();
 
-    UdpSyslogMessageSender udpSender = new UdpSyslogMessageSender();
+    var udpSender = new UdpSyslogMessageSender();
     udpSender.setSyslogServerHostname(
         LogManagerHelper.getStringProperty(
             manager, cname + ".syslogServerHostname", SyslogMessageSender.DEFAULT_SYSLOG_HOST));
@@ -94,14 +94,14 @@ public class SyslogHandler extends AbstractHandler {
       return;
     }
 
-    String msg = getFormatter().format(record);
+    var msg = getFormatter().format(record);
 
-    Severity severity = LevelHelper.toSeverity(record.getLevel());
+    var severity = LevelHelper.toSeverity(record.getLevel());
     if (severity == null) {
       severity = this.severity;
     }
 
-    SyslogMessage message =
+    var message =
         new SyslogMessage()
             .withTimestamp(record.getMillis())
             .withSeverity(severity)

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 
 /**
  * Tagged interface for proxy storage implementation
@@ -35,5 +35,5 @@ public interface StorageProxy {
 
   int removeUser();
 
-  void rollback(TransactionInternal iTx);
+  void rollback(FrontendTransaction iTx);
 }

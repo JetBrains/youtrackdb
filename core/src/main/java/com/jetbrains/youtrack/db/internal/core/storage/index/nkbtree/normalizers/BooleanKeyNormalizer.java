@@ -7,7 +7,7 @@ public class BooleanKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final ByteBuffer bb = ByteBuffer.allocate(1);
+    final var bb = ByteBuffer.allocate(1);
     bb.put((Boolean) key ? (byte) 1 : (byte) 0);
     return bb.array();
   }

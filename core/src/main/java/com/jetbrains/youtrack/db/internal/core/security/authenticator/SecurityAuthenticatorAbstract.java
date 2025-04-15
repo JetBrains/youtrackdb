@@ -20,11 +20,12 @@
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import java.util.Map;
+import javax.annotation.Nullable;
 import javax.security.auth.Subject;
 
 /**
@@ -55,24 +56,24 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final EntityImpl jsonConfig,
+  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     this.security = security;
     if (jsonConfig != null) {
-      if (jsonConfig.containsField("name")) {
-        name = jsonConfig.field("name");
+      if (jsonConfig.containsKey("name")) {
+        name = jsonConfig.get("name").toString();
       }
 
-      if (jsonConfig.containsField("debug")) {
-        debug = jsonConfig.field("debug");
+      if (jsonConfig.containsKey("debug")) {
+        debug = (Boolean) jsonConfig.get("debug");
       }
 
-      if (jsonConfig.containsField("enabled")) {
-        enabled = jsonConfig.field("enabled");
+      if (jsonConfig.containsKey("enabled")) {
+        enabled = (Boolean) jsonConfig.get("enabled");
       }
 
-      if (jsonConfig.containsField("caseSensitive")) {
-        caseSensitive = jsonConfig.field("caseSensitive");
+      if (jsonConfig.containsKey("caseSensitive")) {
+        caseSensitive = (Boolean) jsonConfig.get("caseSensitive");
       }
     }
   }
@@ -101,6 +102,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return header;
   }
 
+  @Nullable
   public Subject getClientSubject() {
     return null;
   }
@@ -110,6 +112,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return name;
   }
 
+  @Nullable
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     return null;
   }
@@ -119,6 +122,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
     return false;
   }
 
+  @Nullable
   @Override
   public SecurityUser authenticate(
       DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {

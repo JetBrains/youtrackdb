@@ -32,7 +32,7 @@ public class FilterExecutionStream implements ExecutionStream {
     if (nextItem == null) {
       throw new IllegalStateException();
     }
-    Result result = nextItem;
+    var result = nextItem;
     nextItem = null;
     return result;
   }

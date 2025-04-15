@@ -19,13 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
+import javax.annotation.Nullable;
 
 /**
  * AND operator.
@@ -38,7 +39,7 @@ public class QueryOperatorAnd extends QueryOperator {
 
   @Override
   public Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       final Object iLeft,
@@ -59,6 +60,7 @@ public class QueryOperatorAnd extends QueryOperator {
     return IndexReuseType.INDEX_INTERSECTION;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, final Object iLeft,
       final Object iRight) {
@@ -88,6 +90,7 @@ public class QueryOperatorAnd extends QueryOperator {
     }
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, final Object iLeft, final Object iRight) {
     final RID leftRange;

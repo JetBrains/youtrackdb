@@ -18,7 +18,7 @@ public class CostMeasureExecutionStream implements ExecutionStream {
 
   @Override
   public boolean hasNext(CommandContext ctx) {
-    long begin = System.nanoTime();
+    var begin = System.nanoTime();
     ctx.startProfiling(this.step);
     try {
       return set.hasNext(ctx);
@@ -30,7 +30,7 @@ public class CostMeasureExecutionStream implements ExecutionStream {
 
   @Override
   public Result next(CommandContext ctx) {
-    long begin = System.nanoTime();
+    var begin = System.nanoTime();
     ctx.startProfiling(this.step);
     try {
       return set.next(ctx);

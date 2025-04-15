@@ -1,67 +1,68 @@
 package com.jetbrains.youtrack.db.internal.client.remote.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
+import com.jetbrains.youtrack.db.internal.common.types.ModifiableLong;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
  */
 public class SchemaRemote extends SchemaShared {
 
-  private final AtomicBoolean skipPush = new AtomicBoolean(false);
+  private final AtomicInteger updateRequests = new AtomicInteger(0);
+  private final ThreadLocal<ModifiableLong> lockNesting = ThreadLocal.withInitial(
+      ModifiableLong::new);
 
   public SchemaRemote() {
     super();
   }
 
+  private final ThreadLocal<boolean[]> ignoreReloadRequest = ThreadLocal.withInitial(
+      () -> new boolean[1]);
+
+  @Nullable
   @Override
-  public SchemaClass getOrCreateClass(
-      DatabaseSessionInternal database, String iClassName, SchemaClass... superClasses) {
+  public SchemaClassImpl getOrCreateClass(
+      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
     if (iClassName == null) {
       return null;
     }
 
-    acquireSchemaReadLock();
+    acquireSchemaReadLock(session);
     try {
-      SchemaClass cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
       if (cls != null) {
         return cls;
       }
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(session);
     }
 
-    SchemaClass cls;
+    SchemaClassImpl cls;
 
-    int[] clusterIds = null;
+    int[] collectionIds = null;
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
       cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
       if (cls != null) {
         return cls;
       }
 
-      cls = createClass(database, iClassName, clusterIds, superClasses);
+      cls = createClass(session, iClassName, collectionIds, superClasses);
 
-      addClusterClassMap(cls);
+      addCollectionClassMap(session, cls);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
 
     return cls;
@@ -71,46 +72,47 @@ public class SchemaRemote extends SchemaShared {
     return new SchemaClassRemote(this, name);
   }
 
-  public SchemaClass createClass(
-      DatabaseSessionInternal database,
+  public SchemaClassImpl createClass(
+      DatabaseSessionInternal session,
       final String className,
-      int[] clusterIds,
-      SchemaClass... superClasses) {
-    final Character wrongCharacter = SchemaShared.checkClassNameIfValid(className);
+      int[] collectionIds,
+      SchemaClassImpl... superClasses) {
+    final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
+    //noinspection ConstantValue
     if (wrongCharacter != null) {
-      throw new SchemaException(
+      throw new SchemaException(session,
           "Invalid class name found. Character '"
               + wrongCharacter
               + "' cannot be used in class name '"
               + className
               + "'");
     }
-    SchemaClass result;
+    SchemaClassImpl result;
 
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final var key = className.toLowerCase(Locale.ENGLISH);
       if (classes.containsKey(key)) {
-        throw new SchemaException("Class '" + className + "' already exists in current database");
+        throw new SchemaException(session,
+            "Class '" + className + "' already exists in current database");
       }
 
-      checkClustersAreAbsent(clusterIds);
+      checkCollectionsAreAbsent(collectionIds, session);
 
-      StringBuilder cmd = new StringBuilder("create class ");
+      var cmd = new StringBuilder("create class ");
       cmd.append('`');
       cmd.append(className);
       cmd.append('`');
 
-      List<SchemaClass> superClassesList = new ArrayList<SchemaClass>();
       if (superClasses != null && superClasses.length > 0) {
-        boolean first = true;
-        for (SchemaClass superClass : superClasses) {
+        var first = true;
+        for (var superClass : superClasses) {
           // Filtering for null
           if (superClass != null) {
             if (first) {
@@ -118,61 +120,49 @@ public class SchemaRemote extends SchemaShared {
             } else {
               cmd.append(", ");
             }
-            cmd.append('`').append(superClass.getName()).append('`');
+            cmd.append('`').append(superClass.getName(session)).append('`');
             first = false;
-            superClassesList.add(superClass);
           }
         }
       }
 
-      if (clusterIds != null) {
-        if (clusterIds.length == 1 && clusterIds[0] == -1) {
+      if (collectionIds != null) {
+        if (collectionIds.length == 1 && collectionIds[0] == -1) {
           cmd.append(" abstract");
         } else {
-          cmd.append(" cluster ");
-          for (int i = 0; i < clusterIds.length; ++i) {
+          cmd.append(" collection ");
+          for (var i = 0; i < collectionIds.length; ++i) {
             if (i > 0) {
               cmd.append(',');
             } else {
               cmd.append(' ');
             }
 
-            cmd.append(clusterIds[i]);
+            cmd.append(collectionIds[i]);
           }
         }
       }
 
-      database.command(cmd.toString()).close();
-      reload(database);
+      session.execute(cmd.toString()).close();
+      reload(session);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
-
-      // WAKE UP DB LIFECYCLE LISTENER
-      for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
-          .getDbLifecycleListeners();
-          it.hasNext(); ) {
-        it.next().onCreateClass(database, result);
-      }
-
-      for (Iterator<SessionListener> it = database.getListeners().iterator(); it.hasNext(); ) {
-        it.next().onCreateClass(database, result);
-      }
-
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
 
     return result;
   }
 
-  public SchemaClass createClass(
-      DatabaseSessionInternal database,
+  public SchemaClassImpl createClass(
+      DatabaseSessionInternal session,
       final String className,
-      int clusters,
-      SchemaClass... superClasses) {
-    final Character wrongCharacter = SchemaShared.checkClassNameIfValid(className);
+      int collections,
+      SchemaClassImpl... superClasses) {
+    final var wrongCharacter = SchemaShared.checkClassNameIfValid(className);
+    //noinspection ConstantValue
     if (wrongCharacter != null) {
-      throw new SchemaException(
+      throw new SchemaException(session,
           "Invalid class name found. Character '"
               + wrongCharacter
               + "' cannot be used in class name '"
@@ -180,29 +170,29 @@ public class SchemaRemote extends SchemaShared {
               + "'");
     }
 
-    SchemaClass result;
+    SchemaClassImpl result;
 
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final var key = className.toLowerCase(Locale.ENGLISH);
       if (classes.containsKey(key)) {
-        throw new SchemaException("Class '" + className + "' already exists in current database");
+        throw new SchemaException(session,
+            "Class '" + className + "' already exists in current database");
       }
 
-      StringBuilder cmd = new StringBuilder("create class ");
+      var cmd = new StringBuilder("create class ");
       cmd.append('`');
       cmd.append(className);
       cmd.append('`');
 
-      List<SchemaClass> superClassesList = new ArrayList<SchemaClass>();
       if (superClasses != null && superClasses.length > 0) {
-        boolean first = true;
-        for (SchemaClass superClass : superClasses) {
+        var first = true;
+        for (var superClass : superClasses) {
           // Filtering for null
           if (superClass != null) {
             if (first) {
@@ -210,67 +200,54 @@ public class SchemaRemote extends SchemaShared {
             } else {
               cmd.append(", ");
             }
-            cmd.append(superClass.getName());
+            cmd.append(superClass.getName(session));
             first = false;
-            superClassesList.add(superClass);
           }
         }
       }
 
-      if (clusters == 0) {
+      if (collections == 0) {
         cmd.append(" abstract");
       } else {
-        cmd.append(" clusters ");
-        cmd.append(clusters);
+        cmd.append(" collections ");
+        cmd.append(collections);
       }
 
-      database.command(cmd.toString()).close();
-      reload(database);
+      session.execute(cmd.toString()).close();
+      reload(session);
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
-
-      // WAKE UP DB LIFECYCLE LISTENER
-      for (Iterator<DatabaseLifecycleListener> it = YouTrackDBEnginesManager.instance()
-          .getDbLifecycleListeners();
-          it.hasNext(); ) {
-        it.next().onCreateClass(database, result);
-      }
-
-      for (Iterator<SessionListener> it = database.getListeners().iterator(); it.hasNext(); ) {
-        it.next().onCreateClass(database, result);
-      }
-
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
 
     return result;
   }
 
-  private void checkClustersAreAbsent(final int[] iClusterIds) {
-    if (iClusterIds == null) {
+  private void checkCollectionsAreAbsent(final int[] iCollectionIds, DatabaseSessionInternal session) {
+    if (iCollectionIds == null) {
       return;
     }
 
-    for (int clusterId : iClusterIds) {
-      if (clusterId < 0) {
+    for (var collectionId : iCollectionIds) {
+      if (collectionId < 0) {
         continue;
       }
 
-      if (clustersToClasses.containsKey(clusterId)) {
-        throw new SchemaException(
-            "Cluster with id "
-                + clusterId
+      if (collectionsToClasses.containsKey(collectionId)) {
+        throw new SchemaException(session,
+            "Collection with id "
+                + collectionId
                 + " already belongs to class "
-                + clustersToClasses.get(clusterId));
+                + collectionsToClasses.get(collectionId));
       }
     }
   }
 
-  public void dropClass(DatabaseSessionInternal database, final String className) {
+  public void dropClass(DatabaseSessionInternal session, final String className) {
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      if (database.getTransaction().isActive()) {
+      if (session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -278,70 +255,121 @@ public class SchemaRemote extends SchemaShared {
         throw new IllegalArgumentException("Class name is null");
       }
 
-      database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
+      session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classes.get(key);
+      var cls = classes.get(key);
 
       if (cls == null) {
-        throw new SchemaException("Class '" + className + "' was not found in current database");
+        throw new SchemaException(session,
+            "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses().isEmpty()) {
-        throw new SchemaException(
+      if (!cls.getSubclasses(session).isEmpty()) {
+        throw new SchemaException(session,
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses()
+                + cls.getSubclasses(session)
                 + ". Remove the dependencies before trying to drop it again");
       }
 
-      String cmd = "drop class `" + className + "` unsafe";
-      database.command(cmd).close();
-      reload(database);
+      var cmd = "drop class `" + className + "` unsafe";
+      session.execute(cmd).close();
+      reload(session);
 
-      var localCache = database.getLocalCache();
-      for (int clusterId : cls.getClusterIds()) {
-        localCache.freeCluster(clusterId);
+      var localCache = session.getLocalCache();
+      for (var collectionId : cls.getCollectionIds(session)) {
+        localCache.freeCollection(collectionId);
       }
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
   @Override
-  public void acquireSchemaWriteLock(DatabaseSessionInternal database) {
-    skipPush.set(true);
+  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
+    updateIfRequested(session);
+
+    lockNesting.get().increment();
   }
 
   @Override
-  public void releaseSchemaWriteLock(DatabaseSessionInternal database, final boolean iSave) {
-    skipPush.set(false);
+  public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
+    super.releaseSchemaWriteLock(session);
+    lockNesting.get().decrement();
+
+    updateIfRequested(session);
+  }
+
+  private void updateIfRequested(@Nonnull DatabaseSessionInternal database) {
+    var ignoreReloadRequest = this.ignoreReloadRequest.get();
+    //stack overflow guard
+    if (ignoreReloadRequest[0]) {
+      return;
+    }
+
+    var lockNesting = this.lockNesting.get().value;
+    if (lockNesting > 0) {
+      return;
+    }
+
+    while (true) {
+      var updateReqs = updateRequests.getAndSet(0);
+      if (updateReqs > 0) {
+        ignoreReloadRequest[0] = true;
+        try {
+          reload(database);
+        } finally {
+          ignoreReloadRequest[0] = false;
+        }
+      } else {
+        break;
+      }
+    }
   }
 
   @Override
-  public void checkEmbedded() {
-    throw new SchemaException(
+  public void releaseSchemaWriteLock(DatabaseSessionInternal session, final boolean iSave) {
+    updateIfRequested(session);
+  }
+
+  @Override
+  public void acquireSchemaReadLock(DatabaseSessionInternal session) {
+    updateIfRequested(session);
+
+    lockNesting.get().increment();
+    super.acquireSchemaReadLock(session);
+  }
+
+  @Override
+  public void releaseSchemaReadLock(DatabaseSessionInternal session) {
+    super.releaseSchemaReadLock(session);
+    lockNesting.get().decrement();
+
+    updateIfRequested(session);
+  }
+
+  @Override
+  public void checkEmbedded(DatabaseSessionInternal session) {
+    throw new SchemaException(session,
         "'Internal' schema modification methods can be used only inside of embedded database");
   }
 
-  public void update(DatabaseSessionInternal session, EntityImpl schema) {
-    if (!skipPush.get()) {
-      fromStream(session, schema);
-      this.snapshot = null;
-    }
+  public void requestUpdate() {
+    updateRequests.incrementAndGet();
   }
 
   @Override
-  public int addBlobCluster(DatabaseSessionInternal database, int clusterId) {
-    throw new SchemaException(
-        "Not supported operation use instead DatabaseSession.addBlobCluster");
+  public int addBlobCollection(DatabaseSessionInternal session, int collectionId) {
+    throw new SchemaException(session,
+        "Not supported operation use instead DatabaseSession.addBlobCollection");
   }
 
   @Override
-  public void removeBlobCluster(DatabaseSessionInternal database, String clusterName) {
-    throw new SchemaException(
-        "Not supported operation use instead DatabaseSession.dropCluster");
+  public void removeBlobCollection(DatabaseSessionInternal session, String collectionName) {
+    throw new SchemaException(session,
+        "Not supported operation use instead DatabaseSession.dropCollection");
   }
 }

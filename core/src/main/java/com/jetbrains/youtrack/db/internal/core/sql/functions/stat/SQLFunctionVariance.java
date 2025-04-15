@@ -19,14 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.stat;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Compute the variance estimation for a given field.
@@ -73,17 +71,18 @@ public class SQLFunctionVariance extends SQLFunctionAbstract {
     super(iName, iMaxParams, iMaxParams);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
     if (iParams[0] instanceof Number) {
       addValue((Number) iParams[0]);
     } else if (MultiValue.isMultiValue(iParams[0])) {
-      for (Object n : MultiValue.getMultiValueIterable(iParams[0])) {
+      for (var n : MultiValue.getMultiValueIterable(iParams[0])) {
         addValue((Number) n);
       }
     }
@@ -97,53 +96,7 @@ public class SQLFunctionVariance extends SQLFunctionAbstract {
 
   @Override
   public Object getResult() {
-    if (returnDistributedResult()) {
-      final Map<String, Object> map = new HashMap<String, Object>();
-      map.put("n", n);
-      map.put("mean", mean);
-      map.put("var", this.evaluate());
-      return map;
-    } else {
-      return this.evaluate();
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      long dN = 0;
-      double dMean = 0;
-      Double var = null;
-      for (Object iParameter : resultsToMerge) {
-        final Map<String, Object> item = (Map<String, Object>) iParameter;
-        if (dN == 0) { // first element
-          dN = (Long) item.get("n");
-          dMean = (Double) item.get("mean");
-          var = (Double) item.get("var");
-        } else {
-          long rhsN = (Long) item.get("n");
-          double rhsMean = (Double) item.get("mean");
-          double rhsVar = (Double) item.get("var");
-
-          long totalN = dN + rhsN;
-          double totalMean = ((dMean * dN) + (rhsMean * rhsN)) / totalN;
-
-          var =
-              (((dN * var) + (rhsN * rhsVar)) / totalN)
-                  + ((dN * rhsN) * Math.pow((rhsMean - dMean) / totalN, 2));
-          dN = totalN;
-          dMean = totalMean;
-        }
-      }
-      return var;
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
+    return this.evaluate();
   }
 
   @Override
@@ -154,13 +107,14 @@ public class SQLFunctionVariance extends SQLFunctionAbstract {
   private void addValue(Number value) {
     if (value != null) {
       ++n;
-      double doubleValue = value.doubleValue();
-      double nextM = mean + (doubleValue - mean) / n;
+      var doubleValue = value.doubleValue();
+      var nextM = mean + (doubleValue - mean) / n;
       m2 += (doubleValue - mean) * (doubleValue - nextM);
       mean = nextM;
     }
   }
 
+  @Nullable
   private Double evaluate() {
     return n > 1 ? m2 / n : null;
   }

@@ -7,7 +7,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testAddSingleItem() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
     Assert.assertEquals(0, array.size());
 
     Assert.assertEquals(0, array.add(1));
@@ -17,7 +17,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testAddTwoItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
     Assert.assertEquals(0, array.size());
 
     Assert.assertEquals(0, array.add(1));
@@ -32,7 +32,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testAddThreeItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
     Assert.assertEquals(0, array.size());
 
     Assert.assertEquals(0, array.add(1));
@@ -51,21 +51,21 @@ public class CASObjectArrayTest {
 
   @Test
   public void testAdd12Items() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       array.add(i + 1);
       Assert.assertEquals(i + 1, array.size());
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i + 1, array.get(i).intValue());
     }
   }
 
   @Test
   public void testSetSingleItem() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     array.set(0, 21, -1);
@@ -75,7 +75,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testSetTwoItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     Assert.assertEquals(1, array.add(2));
@@ -89,7 +89,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testSetThreeItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     Assert.assertEquals(1, array.add(2));
@@ -106,25 +106,25 @@ public class CASObjectArrayTest {
 
   @Test
   public void testSet12Items() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i, array.add(i + 1));
       Assert.assertEquals(i + 1, array.size());
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       array.set(i, 21 + i, -1);
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i + 21, array.get(i).intValue());
     }
   }
 
   @Test
   public void testCompareAndSetSingleItem() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     Assert.assertFalse(array.compareAndSet(0, 12, 21));
@@ -136,7 +136,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testCompareAndSetTwoItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     Assert.assertEquals(1, array.add(2));
@@ -155,7 +155,7 @@ public class CASObjectArrayTest {
 
   @Test
   public void testCompareAndSetThreeItems() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
     Assert.assertEquals(0, array.add(1));
     Assert.assertEquals(1, array.add(2));
@@ -180,26 +180,26 @@ public class CASObjectArrayTest {
 
   @Test
   public void testCompareAndSet12Items() {
-    final CASObjectArray<Integer> array = new CASObjectArray<>();
+    final var array = new CASObjectArray<Integer>();
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i, array.add(i + 1));
       Assert.assertEquals(i + 1, array.size());
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertFalse(array.compareAndSet(i, 22 + i, 21 + i));
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i + 1, array.get(i).intValue());
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertTrue(array.compareAndSet(i, i + 1, 21 + i));
     }
 
-    for (int i = 0; i < 12; i++) {
+    for (var i = 0; i < 12; i++) {
       Assert.assertEquals(i + 21, array.get(i).intValue());
     }
   }

@@ -20,48 +20,53 @@
 
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import javax.annotation.Nonnull;
 
 public class GlobalPropertyImpl implements GlobalProperty {
 
   private String name;
-  private PropertyType type;
+  private PropertyTypeInternal type;
   private Integer id;
 
   public GlobalPropertyImpl() {
   }
 
-  public GlobalPropertyImpl(final String name, final PropertyType type, final Integer id) {
+  public GlobalPropertyImpl(final String name, final PropertyTypeInternal type, final Integer id) {
     this.name = name;
     this.type = type;
     this.id = id;
   }
 
+  @Nonnull
   public Integer getId() {
     return id;
   }
 
+  @Nonnull
   public String getName() {
     return name;
   }
 
+  @Nonnull
   public PropertyType getType() {
-    return type;
+    return type.getPublicPropertyType();
   }
 
-  public void fromDocument(final EntityImpl entity) {
-    this.name = entity.field("name");
-    this.type = PropertyType.valueOf(entity.field("type"));
-    this.id = entity.field("id");
+  public void fromEntity(final Entity entity) {
+    this.name = entity.getString("name");
+    this.type = PropertyTypeInternal.valueOf(entity.getString("type"));
+    this.id = entity.getInt("id");
   }
 
-  public EntityImpl toDocument() {
-    final EntityImpl entity = new EntityImpl();
-    entity.field("name", name);
-    entity.field("type", type.name());
-    entity.field("id", id);
+  public Entity toEntity(DatabaseSessionInternal db) {
+    final var entity = db.newEmbeddedEntity();
+    entity.setString("name", name);
+    entity.setString("type", type.name());
+    entity.setInt("id", id);
     return entity;
   }
 }

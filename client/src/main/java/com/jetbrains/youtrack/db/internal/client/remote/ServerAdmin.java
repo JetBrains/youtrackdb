@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTxInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
@@ -53,7 +52,7 @@ public class ServerAdmin {
    */
   @Deprecated
   public ServerAdmin(String iURL) throws IOException {
-    String url = iURL;
+    var url = iURL;
     if (url.startsWith(EngineRemote.NAME)) {
       url = url.substring(EngineRemote.NAME.length() + 1);
     }
@@ -64,7 +63,7 @@ public class ServerAdmin {
 
     remote = (YouTrackDBRemote) DatabaseDocumentTxInternal.getOrCreateRemoteFactory(url);
     urls = new RemoteURLs(new String[]{}, remote.getContextConfiguration());
-    String name = urls.parseServerUrls(url, remote.getContextConfiguration());
+    var name = urls.parseServerUrls(url, remote.getContextConfiguration());
     if (name != null && name.length() != 0) {
       this.database = Optional.of(name);
     } else {
@@ -75,7 +74,7 @@ public class ServerAdmin {
   public ServerAdmin(YouTrackDBRemote remote, String url) throws IOException {
     this.remote = remote;
     urls = new RemoteURLs(new String[]{}, remote.getContextConfiguration());
-    String name = urls.parseServerUrls(url, remote.getContextConfiguration());
+    var name = urls.parseServerUrls(url, remote.getContextConfiguration());
     if (name != null && name.length() != 0) {
       this.database = Optional.of(name);
     } else {
@@ -116,7 +115,8 @@ public class ServerAdmin {
 
   private void checkConnected() {
     if (user == null || password == null) {
-      throw new StorageException("ServerAdmin not connect use connect before do an operation");
+      throw new StorageException(null,
+          "ServerAdmin not connect use connect before do an operation");
     }
   }
 
@@ -133,11 +133,9 @@ public class ServerAdmin {
 
   /**
    * Returns the server information in form of entity.
-   *
-   * @throws IOException
    */
   @Deprecated
-  public synchronized EntityImpl getServerInfo() throws IOException {
+  public synchronized Map<String, Object> getServerInfo() throws IOException {
     checkConnected();
     return remote.getServerInfo(user, password);
   }
@@ -198,11 +196,11 @@ public class ServerAdmin {
     checkConnected();
     DatabaseType storageMode;
     if (iStorageMode == null) {
-      storageMode = DatabaseType.PLOCAL;
+      storageMode = DatabaseType.DISK;
     } else {
       storageMode = DatabaseType.valueOf(iStorageMode.toUpperCase());
     }
-    YouTrackDBConfigImpl config =
+    var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build();
@@ -228,7 +226,7 @@ public class ServerAdmin {
    * Checks if a database exists in the remote server.
    *
    * @param iDatabaseName The database name
-   * @param storageType   Storage type between "plocal" or "memory".
+   * @param storageType   Storage type between "disk" or "memory".
    * @return true if exists, otherwise false
    * @throws IOException
    */
@@ -241,7 +239,7 @@ public class ServerAdmin {
   /**
    * Checks if a database exists in the remote server.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return true if exists, otherwise false
    * @throws IOException
    */
@@ -253,7 +251,7 @@ public class ServerAdmin {
   /**
    * Deprecated. Use dropDatabase() instead.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    * @see #dropDatabase(String)
@@ -267,7 +265,7 @@ public class ServerAdmin {
    * Drops a database from a remote server instance.
    *
    * @param iDatabaseName The database name
-   * @param storageType   Storage type between "plocal" or "memory".
+   * @param storageType   Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    */
@@ -281,7 +279,7 @@ public class ServerAdmin {
   /**
    * Drops a database from a remote server instance.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return The instance itself. Useful to execute method in chain
    * @throws IOException
    */
@@ -292,7 +290,7 @@ public class ServerAdmin {
   /**
    * Freezes the database by locking it in exclusive mode.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return
    * @throws IOException
    * @see #releaseDatabase(String)
@@ -306,7 +304,7 @@ public class ServerAdmin {
   /**
    * Releases a frozen database.
    *
-   * @param storageType Storage type between "plocal" or "memory".
+   * @param storageType Storage type between "disk" or "memory".
    * @return
    * @throws IOException
    * @see #freezeDatabase(String)
@@ -315,16 +313,6 @@ public class ServerAdmin {
     checkConnected();
     remote.releaseDatabase(getStorageName(), user, password);
     return this;
-  }
-
-  /**
-   * Gets the cluster status.
-   *
-   * @return the JSON containing the current cluster structure
-   */
-  public EntityImpl clusterStatus() {
-    checkConnected();
-    return remote.getClusterStatus(user, password);
   }
 
   public synchronized Map<String, String> getGlobalConfigurations() throws IOException {
@@ -355,7 +343,7 @@ public class ServerAdmin {
   }
 
   public synchronized String getURL() {
-    String url = String.join(";", this.urls.getUrls());
+    var url = String.join(";", this.urls.getUrls());
     if (database.isPresent()) {
       url += "/" + database.get();
     }

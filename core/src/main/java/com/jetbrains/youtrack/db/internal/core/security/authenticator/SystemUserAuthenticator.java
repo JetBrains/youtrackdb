@@ -24,7 +24,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import javax.annotation.Nullable;
 
 /**
  * Provides a default password authenticator.
@@ -45,13 +46,14 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
   // SecurityAuthenticator
   // Returns the actual username if successful, null otherwise.
   // This will authenticate username using the system database.
+  @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
 
     try {
       if (getSecurity() != null) {
         // dbName parameter is null because we don't need to filter any roles for this.
-        SecurityUser user = getSecurity().getSystemUser(username, null);
+        var user = getSecurity().getSystemUser(username, null);
 
         if (user != null && user.getAccountStatus(session) == SecurityUser.STATUSES.ACTIVE) {
           if (user.checkPassword(session, password)) {
@@ -77,15 +79,15 @@ public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
 
     try {
       if (getSecurity() != null) {
-        SecurityUser user = getSecurity().getSystemUser(username, null);
+        var user = getSecurity().getSystemUser(username, null);
 
         if (user != null && user.getAccountStatus(session) == SecurityUser.STATUSES.ACTIVE) {
           SecurityRole role = null;
 
-          Rule.ResourceGeneric rg = Rule.mapLegacyResourceToGenericResource(resource);
+          var rg = Rule.mapLegacyResourceToGenericResource(resource);
 
           if (rg != null) {
-            String specificResource = Rule.mapLegacyResourceToSpecificResource(resource);
+            var specificResource = Rule.mapLegacyResourceToSpecificResource(resource);
 
             if (specificResource == null || specificResource.equals("*")) {
               specificResource = null;

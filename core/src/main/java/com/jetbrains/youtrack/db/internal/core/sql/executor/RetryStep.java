@@ -40,29 +40,30 @@ public class RetryStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    for (int i = 0; i < retries; i++) {
+    for (var i = 0; i < retries; i++) {
       try {
 
         if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
-          throw new CommandInterruptedException("The command has been interrupted");
+          throw new CommandInterruptedException(ctx.getDatabaseSession(),
+              "The command has been interrupted");
         }
-        ScriptExecutionPlan plan = initPlan(body, ctx);
-        ExecutionStepInternal result = plan.executeFull();
+        var plan = initPlan(body, ctx);
+        var result = plan.executeFull();
         if (result != null) {
           return result.start(ctx);
         }
         break;
       } catch (NeedRetryException ex) {
         try {
-          var db = ctx.getDatabase();
+          var db = ctx.getDatabaseSession();
           db.rollback();
         } catch (Exception ignored) {
         }
 
         if (i == retries - 1) {
           if (elseBody != null && !elseBody.isEmpty()) {
-            ScriptExecutionPlan plan = initPlan(elseBody, ctx);
-            ExecutionStepInternal result = plan.executeFull();
+            var plan = initPlan(elseBody, ctx);
+            var result = plan.executeFull();
             if (result != null) {
               return result.start(ctx);
             }
@@ -80,10 +81,10 @@ public class RetryStep extends AbstractExecutionStep {
   }
 
   public ScriptExecutionPlan initPlan(List<SQLStatement> body, CommandContext ctx) {
-    BasicCommandContext subCtx1 = new BasicCommandContext();
+    var subCtx1 = new BasicCommandContext();
     subCtx1.setParent(ctx);
-    ScriptExecutionPlan plan = new ScriptExecutionPlan(subCtx1);
-    for (SQLStatement stm : body) {
+    var plan = new ScriptExecutionPlan(subCtx1);
+    for (var stm : body) {
       plan.chain(stm.createExecutionPlan(subCtx1, profilingEnabled), profilingEnabled);
     }
     return plan;

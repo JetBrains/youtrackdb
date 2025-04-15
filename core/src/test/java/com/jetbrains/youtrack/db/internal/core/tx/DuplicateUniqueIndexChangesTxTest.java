@@ -20,13 +20,11 @@
 package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -39,252 +37,290 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final SchemaClass class_ = db.getMetadata().getSchema().createClass("Person");
+    final var class_ = session.getMetadata().getSchema().createClass("Person");
     var indexName =
         class_
-            .createProperty(db, "name", PropertyType.STRING)
-            .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE_HASH_INDEX);
-    index = db.getIndex(indexName);
+            .createProperty("name", PropertyType.STRING)
+            .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    index = session.getIndex(indexName);
   }
 
   @Test
   public void testDuplicateNullsOnCreate() {
-    db.begin();
+    session.begin();
 
     // saved persons will have null name
-    final EntityImpl person1 = db.newInstance("Person");
-    db.save(person1);
-    final EntityImpl person2 = db.newInstance("Person");
-    db.save(person2);
-    final EntityImpl person3 = db.newInstance("Person");
-    db.save(person3);
+    final var person1 = session.newInstance("Person");
+    final var person2 = session.newInstance("Person");
+    final var person3 = session.newInstance("Person");
 
     // change names to unique
-    person1.field("name", "Name1").save();
-    person2.field("name", "Name2").save();
-    person3.field("name", "Name3").save();
+    person1.setProperty("name", "Name1");
+
+    person2.setProperty("name", "Name2");
+
+    person3.setProperty("name", "Name3");
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
+    session.begin();
     // verify index state
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   private EntityImpl fetchDocumentFromIndex(String o) {
-    try (Stream<RID> stream = index.getInternal().getRids(db, o)) {
-      return (EntityImpl) stream.findFirst().map(RID::getRecord).orElse(null);
+    try (var stream = index.getRids(session, o)) {
+      return (EntityImpl) stream.findFirst().map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).orElse(null);
     }
   }
 
   @Test
   public void testDuplicateNullsOnUpdate() {
-    db.begin();
-    EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "Name1");
-    db.save(person1);
-    EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "Name2");
-    db.save(person2);
-    EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "Name3");
-    db.save(person3);
-    db.commit();
+    session.begin();
+    var person1 = session.newInstance("Person");
+    person1.setProperty("name", "Name1");
+    var person2 = session.newInstance("Person");
+    person2.setProperty("name", "Name2");
+    var person3 = session.newInstance("Person");
+    person3.setProperty("name", "Name3");
+    session.commit();
 
     // verify index state
+    session.begin();
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
+
     Assert.assertNull(fetchDocumentFromIndex(null));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
-
-    db.begin();
-
-    person1 = db.bindToSession(person1);
-    person2 = db.bindToSession(person2);
-    person3 = db.bindToSession(person3);
 
     // saved persons will have null name
-    person1.field("name", (Object) null).save();
-    person2.field("name", (Object) null).save();
-    person3.field("name", (Object) null).save();
+    person1.setProperty("name", null);
+
+    person2.setProperty("name", null);
+
+    person3.setProperty("name", null);
 
     // change names back to unique swapped
-    person1.field("name", "Name2").save();
-    person2.field("name", "Name1").save();
-    person3.field("name", "Name3").save();
+    person1.setProperty("name", "Name2");
+
+    person2.setProperty("name", "Name1");
+
+    person3.setProperty("name", "Name3");
 
     // and again
-    person1.field("name", "Name1").save();
-    person2.field("name", "Name2").save();
+    person1.setProperty("name", "Name1");
+
+    person2.setProperty("name", "Name2");
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
     // verify index state
+    session.begin();
     Assert.assertNull(fetchDocumentFromIndex(null));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnCreate() {
-    db.begin();
+    session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "same");
-    db.save(person1);
-    final EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "same");
-    db.save(person2);
-    final EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "same");
-    db.save(person3);
+    final var person1 = session.newInstance("Person");
+    person1.setProperty("name", "same");
+    final var person2 = session.newInstance("Person");
+    person2.setProperty("name", "same");
+    final var person3 = session.newInstance("Person");
+    person3.setProperty("name", "same");
 
     // change names to unique
-    person1.field("name", "Name1").save();
-    person2.field("name", "Name2").save();
-    person3.field("name", "Name3").save();
+    person1.setProperty("name", "Name1");
+
+    person2.setProperty("name", "Name2");
+
+    person3.setProperty("name", "Name3");
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
     // verify index state
+    session.begin();
     Assert.assertNull(fetchDocumentFromIndex("same"));
-    Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    var activeTx2 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx2.<EntityImpl>load(person1), fetchDocumentFromIndex("Name1"));
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person3), fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdate() {
-    db.begin();
-    EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "Name1");
-    db.save(person1);
-    EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "Name2");
-    db.save(person2);
-    EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "Name3");
-    db.save(person3);
-    db.commit();
+    session.begin();
+    var person1 = session.newInstance("Person");
+    person1.setProperty("name", "Name1");
+    var person2 = session.newInstance("Person");
+    person2.setProperty("name", "Name2");
+    var person3 = session.newInstance("Person");
+    person3.setProperty("name", "Name3");
+    session.commit();
 
     // verify index state
+    session.begin();
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
+
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
 
-    db.begin();
-
-    person1 = db.bindToSession(person1);
-    person2 = db.bindToSession(person2);
-    person3 = db.bindToSession(person3);
-
     // saved persons will have same name
-    person1.field("name", "same").save();
-    person2.field("name", "same").save();
-    person3.field("name", "same").save();
+    person1.setProperty("name", "same");
+
+    person2.setProperty("name", "same");
+
+    person3.setProperty("name", "same");
 
     // change names back to unique in reverse order
-    person3.field("name", "Name3").save();
-    person2.field("name", "Name2").save();
-    person1.field("name", "Name1").save();
+    person3.setProperty("name", "Name3");
+
+    person2.setProperty("name", "Name2");
+
+    person1.setProperty("name", "Name1");
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
+    session.begin();
     // verify index state
+
+    var activeTx2 = session.getActiveTransaction();
+    person1 = activeTx2.load(person1);
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person3 = activeTx.load(person3);
+
     Assert.assertNull(fetchDocumentFromIndex("same"));
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnCreateDelete() {
-    db.begin();
+    session.begin();
 
     // saved persons will have same name
-    final EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "same");
-    db.save(person1);
-    final EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "same");
-    db.save(person2);
-    final EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "same");
-    db.save(person3);
-    final EntityImpl person4 = db.newInstance("Person");
-    person4.field("name", "same");
-    db.save(person4);
+    final var person1 = session.newInstance("Person");
+    person1.setProperty("name", "same");
+    final var person2 = session.newInstance("Person");
+    person2.setProperty("name", "same");
+    final var person3 = session.newInstance("Person");
+    person3.setProperty("name", "same");
+    final var person4 = session.newInstance("Person");
+    person4.setProperty("name", "same");
 
     person1.delete();
-    person2.field("name", "Name2").save();
+    person2.setProperty("name", "Name2");
+
     person3.delete();
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
     // verify index state
-    Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
-    Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    Assert.assertEquals(activeTx1.<EntityImpl>load(person2), fetchDocumentFromIndex("Name2"));
+    var activeTx = session.getActiveTransaction();
+    Assert.assertEquals(activeTx.<EntityImpl>load(person4), fetchDocumentFromIndex("same"));
+    session.commit();
   }
 
   @Test
   public void testDuplicateValuesOnUpdateDelete() {
-    db.begin();
-    EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "Name1");
-    db.save(person1);
-    EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "Name2");
-    db.save(person2);
-    EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "Name3");
-    db.save(person3);
-    EntityImpl person4 = db.newInstance("Person");
-    person4.field("name", "Name4");
-    db.save(person4);
-    db.commit();
+    session.begin();
+    var person1 = session.newInstance("Person");
+    person1.setProperty("name", "Name1");
+    var person2 = session.newInstance("Person");
+    person2.setProperty("name", "Name2");
+    var person3 = session.newInstance("Person");
+    person3.setProperty("name", "Name3");
+    var person4 = session.newInstance("Person");
+    person4.setProperty("name", "Name4");
+    session.commit();
 
     // verify index state
+    session.begin();
+
+    var activeTx5 = session.getActiveTransaction();
+    person1 = activeTx5.load(person1);
+    var activeTx4 = session.getActiveTransaction();
+    person2 = activeTx4.load(person2);
+    var activeTx3 = session.getActiveTransaction();
+    person3 = activeTx3.load(person3);
+    var activeTx2 = session.getActiveTransaction();
+    person4 = activeTx2.load(person4);
+
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
     Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
 
-    db.begin();
-
-    person1 = db.bindToSession(person1);
-    person2 = db.bindToSession(person2);
-    person3 = db.bindToSession(person3);
-    person4 = db.bindToSession(person4);
-
     person1.delete();
-    person2.field("name", "same").save();
+    person2.setProperty("name", "same");
+
     person3.delete();
-    person4.field("name", "same").save();
-    person2.field("name", "Name2").save();
+    person4.setProperty("name", "same");
+
+    person2.setProperty("name", "Name2");
 
     // should not throw RecordDuplicatedException exception
-    db.commit();
+    session.commit();
 
     // verify index state
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    person2 = activeTx1.load(person2);
+    var activeTx = session.getActiveTransaction();
+    person4 = activeTx.load(person4);
+
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person4, fetchDocumentFromIndex("same"));
 
-    db.begin();
-    person2 = db.bindToSession(person2);
-    person4 = db.bindToSession(person4);
-
     person2.delete();
     person4.delete();
-    db.commit();
+    session.commit();
 
     // verify index state
     Assert.assertNull(fetchDocumentFromIndex("Name2"));
@@ -293,59 +329,60 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateCreateThrows() {
-    db.begin();
-    EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "Name1");
-    db.save(person1);
-    EntityImpl person2 = db.newInstance("Person");
-    db.save(person2);
-    EntityImpl person3 = db.newInstance("Person");
-    db.save(person3);
-    EntityImpl person4 = db.newInstance("Person");
-    person4.field("name", "Name1");
-    db.save(person4);
+    session.begin();
+    var person1 = session.newInstance("Person");
+    person1.setProperty("name", "Name1");
+    var person2 = session.newInstance("Person");
+    var person3 = session.newInstance("Person");
+    var person4 = session.newInstance("Person");
+    person4.setProperty("name", "Name1");
     //    Assert.assertThrows(RecordDuplicatedException.class, new Assert.ThrowingRunnable() {
     //      @Override
     //      public void run() throws Throwable {
     //        db.commit();
     //      }
     //    });
-    db.commit();
+    session.commit();
   }
 
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateUpdateThrows() {
-    db.begin();
-    EntityImpl person1 = db.newInstance("Person");
-    person1.field("name", "Name1");
-    db.save(person1);
-    EntityImpl person2 = db.newInstance("Person");
-    person2.field("name", "Name2");
-    db.save(person2);
-    EntityImpl person3 = db.newInstance("Person");
-    person3.field("name", "Name3");
-    db.save(person3);
-    EntityImpl person4 = db.newInstance("Person");
-    person4.field("name", "Name4");
-    db.save(person4);
-    db.commit();
+    session.begin();
+    var person1 = session.newInstance("Person");
+    person1.setProperty("name", "Name1");
+    var person2 = session.newInstance("Person");
+    person2.setProperty("name", "Name2");
+    var person3 = session.newInstance("Person");
+    person3.setProperty("name", "Name3");
+    var person4 = session.newInstance("Person");
+    person4.setProperty("name", "Name4");
+    session.commit();
 
     // verify index state
+    session.begin();
+
+    var activeTx3 = session.getActiveTransaction();
+    person1 = activeTx3.load(person1);
+    var activeTx2 = session.getActiveTransaction();
+    person2 = activeTx2.load(person2);
+    var activeTx1 = session.getActiveTransaction();
+    person3 = activeTx1.load(person3);
+    var activeTx = session.getActiveTransaction();
+    person4 = activeTx.load(person4);
+
     Assert.assertEquals(person1, fetchDocumentFromIndex("Name1"));
     Assert.assertEquals(person2, fetchDocumentFromIndex("Name2"));
     Assert.assertEquals(person3, fetchDocumentFromIndex("Name3"));
     Assert.assertEquals(person4, fetchDocumentFromIndex("Name4"));
 
-    db.begin();
-    person1 = db.bindToSession(person1);
-    person2 = db.bindToSession(person2);
-    person3 = db.bindToSession(person3);
-    person4 = db.bindToSession(person4);
+    person1.setProperty("name", "Name1");
 
-    person1.field("name", "Name1").save();
-    person2.field("name", (Object) null).save();
-    person3.field("name", "Name1").save();
-    person4.field("name", (Object) null).save();
-    db.commit();
+    person2.setProperty("name", null);
+
+    person3.setProperty("name", "Name1");
+
+    person4.setProperty("name", null);
+
+    session.commit();
   }
 }

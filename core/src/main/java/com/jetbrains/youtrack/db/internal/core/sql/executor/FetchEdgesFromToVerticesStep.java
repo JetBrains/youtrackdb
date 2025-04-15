@@ -1,25 +1,27 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -27,7 +29,7 @@ import java.util.stream.StreamSupport;
 public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   private final SQLIdentifier targetClass;
-  private final SQLIdentifier targetCluster;
+  private final SQLIdentifier targetCollection;
   private final String fromAlias;
   private final String toAlias;
 
@@ -35,12 +37,12 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       String fromAlias,
       String toAlias,
       SQLIdentifier targetClass,
-      SQLIdentifier targetCluster,
+      SQLIdentifier targetCollection,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.targetClass = targetClass;
-    this.targetCluster = targetCluster;
+    this.targetCollection = targetCollection;
     this.fromAlias = fromAlias;
     this.toAlias = toAlias;
   }
@@ -52,11 +54,10 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     }
 
     final Iterator fromIter = loadFrom();
+    var db = ctx.getDatabaseSession();
+    final var toList = loadTo(db);
 
-    final Set<RID> toList = loadTo();
-
-    var db = ctx.getDatabase();
-    ExecutionStreamProducer res =
+    var res =
         new ExecutionStreamProducer() {
           private final Iterator iter = fromIter;
           private final Set<RID> to = toList;
@@ -82,16 +83,16 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   private ExecutionStream createResultSet(DatabaseSessionInternal db, Set<RID> toList,
       Object val) {
     return ExecutionStream.resultIterator(
-        StreamSupport.stream(this.loadNextResults(val).spliterator(), false)
-            .filter((e) -> filterResult(e, toList))
+        StreamSupport.stream(FetchEdgesFromToVerticesStep.loadNextResults(db, val).spliterator(),
+                false)
+            .filter((e) -> filterResult(db, e, toList))
             .map(
-                (edge) -> {
-                  return (Result) new ResultInternal(db, edge);
-                })
+                (edge) -> (Result) new ResultInternal(db, (EdgeInternal) edge))
             .iterator());
   }
 
-  private Set<RID> loadTo() {
+  @Nullable
+  private Set<RID> loadTo(DatabaseSessionInternal session) {
     Object toValues = null;
 
     toValues = ctx.getVariable(toAlias);
@@ -101,21 +102,25 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
       toValues = Collections.singleton(toValues).iterator();
     }
 
-    Iterator<?> toIter = (Iterator<?>) toValues;
+    var toIter = (Iterator<?>) toValues;
     if (toIter != null) {
-      final Set<RID> toList = new HashSet<RID>();
+      final Set<RID> toList = new HashSet<>();
       while (toIter.hasNext()) {
-        Object elem = toIter.next();
-        if (elem instanceof Result) {
-          elem = ((Result) elem).toEntity();
+        var elem = toIter.next();
+        if (elem instanceof Result result && result.isEntity()) {
+          elem = result.asEntity();
         }
         if (elem instanceof Identifiable && !(elem instanceof Entity)) {
-          elem = ((Identifiable) elem).getRecord();
+          var transaction = session.getActiveTransaction();
+          elem = transaction.load(((Identifiable) elem));
         }
         if (!(elem instanceof Entity)) {
-          throw new CommandExecutionException("Invalid vertex: " + elem);
+          throw new CommandExecutionException(session, "Invalid vertex: " + elem);
         }
-        ((Entity) elem).asVertex().ifPresent(x -> toList.add(x.getIdentity()));
+        var vertex = ((Entity) elem).asVertexOrNull();
+        if (vertex != null) {
+          toList.add(vertex.getIdentity());
+        }
       }
 
       return toList;
@@ -135,39 +140,44 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return (Iterator<?>) fromValues;
   }
 
-  private boolean filterResult(Edge edge, Set<RID> toList) {
+  private boolean filterResult(DatabaseSessionInternal db, Edge edge, Set<RID> toList) {
     if (toList == null || toList.contains(edge.getTo().getIdentity())) {
-      return matchesClass(edge) && matchesCluster(edge);
+      return matchesClass(db, edge) && matchesCollection(edge);
     }
     return true;
   }
 
-  private Iterable<Edge> loadNextResults(Object from) {
-    if (from instanceof Result) {
-      from = ((Result) from).toEntity();
+  private static Iterable<Edge> loadNextResults(DatabaseSessionInternal session, Object from) {
+    if (from instanceof Result result && result.isEntity()) {
+      from = result.asEntityOrNull();
     }
     if (from instanceof Identifiable && !(from instanceof Entity)) {
-      from = ((Identifiable) from).getRecord();
+      var transaction = session.getActiveTransaction();
+      from = transaction.load(((Identifiable) from));
     }
     if (from instanceof Entity && ((Entity) from).isVertex()) {
-      var vertex = ((Entity) from).toVertex();
-      assert vertex != null;
+      var vertex = ((Entity) from).asVertex();
       return vertex.getEdges(Direction.OUT);
     } else {
-      throw new CommandExecutionException("Invalid vertex: " + from);
+      throw new CommandExecutionException(session, "Invalid vertex: " + from);
     }
   }
 
-  private boolean matchesCluster(Edge edge) {
-    if (targetCluster == null) {
+  private boolean matchesCollection(Edge edge) {
+    if (targetCollection == null) {
       return true;
     }
-    int clusterId = edge.getIdentity().getClusterId();
-    String clusterName = ctx.getDatabase().getClusterNameById(clusterId);
-    return clusterName.equals(targetCluster.getStringValue());
+    if (edge.isStateful()) {
+      var statefulEdge = edge.asStatefulEdge();
+      var collectionId = statefulEdge.getIdentity().getCollectionId();
+      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+      return collectionName.equals(targetCollection.getStringValue());
+    }
+
+    return false;
   }
 
-  private boolean matchesClass(Edge edge) {
+  private boolean matchesClass(DatabaseSessionInternal db, Edge edge) {
     if (targetClass == null) {
       return true;
     }
@@ -178,15 +188,15 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ FOR EACH x in " + fromAlias + "\n";
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ FOR EACH x in " + fromAlias + "\n";
     result += spaces + "    FOR EACH y in " + toAlias + "\n";
     result += spaces + "       FETCH EDGES FROM x TO y";
     if (targetClass != null) {
       result += "\n" + spaces + "       (target class " + targetClass + ")";
     }
-    if (targetCluster != null) {
-      result += "\n" + spaces + "       (target cluster " + targetCluster + ")";
+    if (targetCollection != null) {
+      result += "\n" + spaces + "       (target collection " + targetCollection + ")";
     }
     return result;
   }
@@ -199,6 +209,6 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new FetchEdgesFromToVerticesStep(
-        fromAlias, toAlias, targetClass, targetCluster, ctx, profilingEnabled);
+        fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled);
   }
 }

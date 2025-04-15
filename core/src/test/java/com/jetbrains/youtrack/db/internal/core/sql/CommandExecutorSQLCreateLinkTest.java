@@ -19,10 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
@@ -31,25 +29,25 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
 
   @Test
   public void testBasic() {
-    var basic1 = db.getMetadata().getSchema().createClass("Basic1");
-    basic1.createProperty(db, "theLink", PropertyType.LINK);
+    var basic1 = session.getMetadata().getSchema().createClass("Basic1");
+    basic1.createProperty("theLink", PropertyType.LINK);
 
-    var basic2 = db.getMetadata().getSchema().createClass("Basic2");
-    basic2.createProperty(db, "theLink", PropertyType.LINK);
+    var basic2 = session.getMetadata().getSchema().createClass("Basic2");
+    basic2.createProperty("theLink", PropertyType.LINK);
 
-    db.begin();
-    db.command("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
-    db.command("insert into Basic1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
+    session.begin();
+    session.execute("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
+    session.execute("insert into Basic1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
 
-    db.command("insert into Basic2 set pk = 'pkb2_1'").close();
-    db.command("insert into Basic2 set pk = 'pkb2_2'").close();
+    session.execute("insert into Basic2 set pk = 'pkb2_1'").close();
+    session.execute("insert into Basic2 set pk = 'pkb2_2'").close();
 
-    db.command("CREATE LINK theLink type link FROM Basic1.fk TO Basic2.pk ").close();
-    db.commit();
+    session.execute("CREATE LINK theLink type link FROM Basic1.fk TO Basic2.pk ").close();
+    session.commit();
 
-    ResultSet result = db.query("select pk, theLink.pk as other from Basic1 order by pk");
+    var result = session.query("select pk, theLink.pk as other from Basic1 order by pk");
 
-    Object otherKey = result.next().getProperty("other");
+    var otherKey = result.next().getProperty("other");
     Assert.assertNotNull(otherKey);
 
     Assert.assertEquals(otherKey, "pkb2_1");
@@ -60,31 +58,32 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
 
   @Test
   public void testInverse() {
-    var inverse1 = db.getMetadata().getSchema().createClass("Inverse1");
-    inverse1.createProperty(db, "theLink", PropertyType.LINK);
+    var inverse1 = session.getMetadata().getSchema().createClass("Inverse1");
+    inverse1.createProperty("theLink", PropertyType.LINK);
 
-    var inverse2 = db.getMetadata().getSchema().createClass("Inverse2");
-    inverse2.createProperty(db, "theLink", PropertyType.LINKSET);
+    var inverse2 = session.getMetadata().getSchema().createClass("Inverse2");
+    inverse2.createProperty("theLink", PropertyType.LINKSET);
 
-    db.begin();
-    db.command("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
-    db.command("insert into Inverse1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
-    db.command("insert into Inverse1 set pk = 'pkb1_3', fk = 'pkb2_2'").close();
+    session.begin();
+    session.execute("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
+    session.execute("insert into Inverse1 set pk = 'pkb1_2', fk = 'pkb2_2'").close();
+    session.execute("insert into Inverse1 set pk = 'pkb1_3', fk = 'pkb2_2'").close();
 
-    db.command("insert into Inverse2 set pk = 'pkb2_1'").close();
-    db.command("insert into Inverse2 set pk = 'pkb2_2'").close();
+    session.execute("insert into Inverse2 set pk = 'pkb2_1'").close();
+    session.execute("insert into Inverse2 set pk = 'pkb2_2'").close();
 
-    db.command("CREATE LINK theLink TYPE LINKSET FROM Inverse1.fk TO Inverse2.pk INVERSE").close();
-    db.commit();
+    session.execute("CREATE LINK theLink TYPE LINKSET FROM Inverse1.fk TO Inverse2.pk INVERSE")
+        .close();
+    session.commit();
 
-    ResultSet result = db.query("select pk, theLink.pk as other from Inverse2 order by pk");
-    Result first = result.next();
-    Object otherKeys = first.getProperty("other");
+    var result = session.query("select pk, theLink.pk as other from Inverse2 order by pk");
+    var first = result.next();
+    var otherKeys = first.getProperty("other");
     Assert.assertNotNull(otherKeys);
     Assert.assertTrue(otherKeys instanceof List);
     Assert.assertEquals(((List) otherKeys).get(0), "pkb1_1");
 
-    Result second = result.next();
+    var second = result.next();
     otherKeys = second.getProperty("other");
     Assert.assertNotNull(otherKeys);
     Assert.assertTrue(otherKeys instanceof List);

@@ -14,7 +14,7 @@ public class SQLArrayConcatExpressionElement extends SQLExpression {
 
   @Override
   public SQLArrayConcatExpressionElement copy() {
-    SQLArrayConcatExpressionElement result = new SQLArrayConcatExpressionElement(-1);
+    var result = new SQLArrayConcatExpressionElement(-1);
     result.singleQuotes = singleQuotes;
     result.doubleQuotes = doubleQuotes;
     result.isNull = isNull;

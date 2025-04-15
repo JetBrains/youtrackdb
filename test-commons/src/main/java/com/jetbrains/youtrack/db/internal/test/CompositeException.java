@@ -38,7 +38,7 @@ public class CompositeException extends RuntimeException {
       super.printStackTrace();
       return;
     }
-    for (Throwable cause : causes) {
+    for (var cause : causes) {
       cause.printStackTrace();
     }
   }
@@ -48,7 +48,7 @@ public class CompositeException extends RuntimeException {
     if (causes.isEmpty()) {
       super.printStackTrace(s);
     } else {
-      for (Throwable cause : causes) {
+      for (var cause : causes) {
         cause.printStackTrace(s);
       }
     }
@@ -59,7 +59,7 @@ public class CompositeException extends RuntimeException {
     if (causes.isEmpty()) {
       super.printStackTrace(s);
     } else {
-      for (Throwable cause : causes) {
+      for (var cause : causes) {
         cause.printStackTrace(s);
       }
     }

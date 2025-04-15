@@ -2,19 +2,16 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLContainsTextCondition extends SQLBooleanExpression {
 
@@ -31,11 +28,11 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (leftValue == null || !(leftValue instanceof String)) {
       return false;
     }
-    Object rightValue = right.execute(currentRecord, ctx);
+    var rightValue = right.execute(currentRecord, ctx);
     if (rightValue == null || !(rightValue instanceof String)) {
       return false;
     }
@@ -52,11 +49,11 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (left.isFunctionAll()) {
       return evaluateAllFunction(currentRecord, ctx);
     }
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (leftValue == null || !(leftValue instanceof String)) {
       return false;
     }
-    Object rightValue = right.execute(currentRecord, ctx);
+    var rightValue = right.execute(currentRecord, ctx);
     if (rightValue == null || !(rightValue instanceof String)) {
       return false;
     }
@@ -65,13 +62,13 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    Object rightValue = right.execute(currentRecord, ctx);
+    var rightValue = right.execute(currentRecord, ctx);
     if (rightValue == null || !(rightValue instanceof String)) {
       return false;
     }
 
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(s);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(s);
       if (leftValue == null || !(leftValue instanceof String)) {
         continue;
       }
@@ -84,13 +81,13 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    Object rightValue = right.execute(currentRecord, ctx);
+    var rightValue = right.execute(currentRecord, ctx);
     if (rightValue == null || !(rightValue instanceof String)) {
       return false;
     }
 
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(s);
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(s);
       if (leftValue == null || !(leftValue instanceof String)) {
         return false;
       }
@@ -121,7 +118,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   protected int getNumberOfExternalCalculations() {
-    int total = 0;
+    var total = 0;
     if (!left.supportsBasicCalculation()) {
       total++;
     }
@@ -153,7 +150,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   public SQLContainsTextCondition copy() {
-    SQLContainsTextCondition result = new SQLContainsTextCondition(-1);
+    var result = new SQLContainsTextCondition(-1);
     result.left = left.copy();
     result.right = right.copy();
     return result;
@@ -179,7 +176,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLContainsTextCondition that = (SQLContainsTextCondition) o;
+    var that = (SQLContainsTextCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -189,15 +186,16 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
-    List<String> rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
+    var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
+    var rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
 
     List<String> result = new ArrayList<String>();
     if (leftX != null) {
@@ -234,22 +232,10 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     return right;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<MetadataPath> path = left.getPath();
-    if (path.isPresent()) {
-      if (right != null && right.isEarlyCalculated(ctx)) {
-        Object value = right.execute((Result) null, ctx);
-        return info.findFullTextIndex(path.get(), value, ctx);
-      }
-    }
-
-    return Optional.empty();
-  }
-
   @Override
   public boolean isFullTextIndexAware(String indexField) {
     if (left.isBaseIdentifier()) {
-      String fieldName = left.getDefaultAlias().getStringValue();
+      var fieldName = left.getDefaultAlias().getStringValue();
       return indexField.equals(fieldName);
     }
     return false;

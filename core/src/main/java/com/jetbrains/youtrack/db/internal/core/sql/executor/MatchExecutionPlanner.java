@@ -1,17 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PairLongObject;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
@@ -20,7 +16,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLNestedProjection;
@@ -40,8 +35,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -71,22 +68,25 @@ public class MatchExecutionPlanner {
   private List<Pattern> subPatterns;
   private Map<String, SQLWhereClause> aliasFilters;
   private Map<String, String> aliasClasses;
-  private Map<String, String> aliasClusters;
   private Map<String, SQLRid> aliasRids;
   private boolean foundOptional = false;
-  private final long threshold = 100;
+  private static final long THRESHOLD = 100;
 
   public MatchExecutionPlanner(SQLMatchStatement stm) {
     this.matchExpressions =
-        stm.getMatchExpressions().stream().map(x -> x.copy()).collect(Collectors.toList());
+        stm.getMatchExpressions().stream().map(SQLMatchExpression::copy)
+            .collect(Collectors.toList());
     this.notMatchExpressions =
-        stm.getNotMatchExpressions().stream().map(x -> x.copy()).collect(Collectors.toList());
+        stm.getNotMatchExpressions().stream().map(SQLMatchExpression::copy)
+            .collect(Collectors.toList());
     this.returnItems =
-        stm.getReturnItems().stream().map(x -> x.copy()).collect(Collectors.toList());
+        stm.getReturnItems().stream().map(SQLExpression::copy).collect(Collectors.toList());
+    //noinspection ReturnOfNull
     this.returnAliases =
         stm.getReturnAliases().stream()
             .map(x -> x == null ? null : x.copy())
             .collect(Collectors.toList());
+    //noinspection ReturnOfNull
     this.returnNestedProjections =
         stm.getReturnNestedProjections().stream()
             .map(x -> x == null ? null : x.copy())
@@ -110,16 +110,16 @@ public class MatchExecutionPlanner {
     buildPatterns(context);
     splitDisjointPatterns(context);
 
-    SelectExecutionPlan result = new SelectExecutionPlan(context);
-    Map<String, Long> estimatedRootEntries =
-        estimateRootEntries(aliasClasses, aliasClusters, aliasRids, aliasFilters, context);
-    Set<String> aliasesToPrefetch =
+    var result = new SelectExecutionPlan(context);
+    var estimatedRootEntries =
+        estimateRootEntries(aliasClasses, aliasRids, aliasFilters, context);
+    var aliasesToPrefetch =
         estimatedRootEntries.entrySet().stream()
-            .filter(x -> x.getValue() < this.threshold)
+            .filter(x -> x.getValue() < THRESHOLD)
             .filter(x -> !dependsOnExecutionContext(x.getKey()))
-            .map(x -> x.getKey())
+            .map(Entry::getKey)
             .collect(Collectors.toSet());
-    for (Map.Entry<String, Long> entry : estimatedRootEntries.entrySet()) {
+    for (var entry : estimatedRootEntries.entrySet()) {
       if (entry.getValue() == 0L && !isOptional(entry.getKey())) {
         result.chain(new EmptyStep(context, enableProfiling));
         return result;
@@ -129,18 +129,18 @@ public class MatchExecutionPlanner {
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
     if (subPatterns.size() > 1) {
-      CartesianProductStep step = new CartesianProductStep(context, enableProfiling);
-      for (Pattern subPattern : subPatterns) {
+      var step = new CartesianProductStep(context, enableProfiling);
+      for (var subPattern : subPatterns) {
         step.addSubPlan(
             createPlanForPattern(
                 subPattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling));
       }
       result.chain(step);
     } else {
-      InternalExecutionPlan plan =
+      var plan =
           createPlanForPattern(
               pattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling);
-      for (ExecutionStep step : plan.getSteps()) {
+      for (var step : plan.getSteps()) {
         result.chain((ExecutionStepInternal) step);
       }
     }
@@ -158,7 +158,7 @@ public class MatchExecutionPlanner {
         result.chain(new DistinctExecutionStep(context, enableProfiling));
       }
       if (groupBy != null) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(context.getDatabaseSession(),
             "Cannot execute GROUP BY in MATCH query with RETURN $elements, $pathElements, $patterns"
                 + " or $paths");
       }
@@ -178,10 +178,10 @@ public class MatchExecutionPlanner {
         result.chain(new LimitExecutionStep(limit, context, enableProfiling));
       }
     } else {
-      QueryPlanningInfo info = new QueryPlanningInfo();
+      var info = new QueryPlanningInfo();
       List<SQLProjectionItem> items = new ArrayList<>();
-      for (int i = 0; i < this.returnItems.size(); i++) {
-        SQLProjectionItem item =
+      for (var i = 0; i < this.returnItems.size(); i++) {
+        var item =
             new SQLProjectionItem(
                 returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
         items.add(item);
@@ -208,7 +208,7 @@ public class MatchExecutionPlanner {
   }
 
   private boolean dependsOnExecutionContext(String key) {
-    SQLWhereClause filter = aliasFilters.get(key);
+    var filter = aliasFilters.get(key);
     if (filter == null) {
       return false;
     }
@@ -219,45 +219,45 @@ public class MatchExecutionPlanner {
   }
 
   private boolean isOptional(String key) {
-    PatternNode node = this.pattern.aliasToNode.get(key);
+    var node = this.pattern.aliasToNode.get(key);
     return node != null && node.isOptionalNode();
   }
 
-  private void manageNotPatterns(
+  private static void manageNotPatterns(
       SelectExecutionPlan result,
       Pattern pattern,
       List<SQLMatchExpression> notMatchExpressions,
       CommandContext context,
       boolean enableProfiling) {
-    for (SQLMatchExpression exp : notMatchExpressions) {
+    for (var exp : notMatchExpressions) {
       if (pattern.aliasToNode.get(exp.getOrigin().getAlias()) == null) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(context.getDatabaseSession(),
             "This kind of NOT expression is not supported (yet). "
                 + "The first alias in a NOT expression has to be present in the positive pattern");
       }
 
       if (exp.getOrigin().getFilter() != null) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(context.getDatabaseSession(),
             "This kind of NOT expression is not supported (yet): "
                 + "WHERE condition on the initial alias");
         // TODO implement his
       }
 
-      SQLMatchFilter lastFilter = exp.getOrigin();
+      var lastFilter = exp.getOrigin();
       List<AbstractExecutionStep> steps = new ArrayList<>();
-      for (SQLMatchPathItem item : exp.getItems()) {
+      for (var item : exp.getItems()) {
         if (item instanceof SQLMultiMatchPathItem) {
-          throw new CommandExecutionException(
+          throw new CommandExecutionException(context.getDatabaseSession(),
               "This kind of NOT expression is not supported (yet): " + item);
         }
-        PatternEdge edge = new PatternEdge();
+        var edge = new PatternEdge();
         edge.item = item;
         edge.out = new PatternNode();
         edge.out.alias = lastFilter.getAlias();
         edge.in = new PatternNode();
         edge.in.alias = item.getFilter().getAlias();
-        EdgeTraversal traversal = new EdgeTraversal(edge, true);
-        MatchStep step = new MatchStep(context, traversal, enableProfiling);
+        var traversal = new EdgeTraversal(edge, true);
+        var step = new MatchStep(context, traversal, enableProfiling);
         steps.add(step);
         lastFilter = item.getFilter();
       }
@@ -276,10 +276,10 @@ public class MatchExecutionPlanner {
     } else if (returnPathElements) {
       result.chain(new ReturnMatchPathElementsStep(context, profilingEnabled));
     } else {
-      SQLProjection projection = new SQLProjection(-1);
+      var projection = new SQLProjection(-1);
       projection.setItems(new ArrayList<>());
-      for (int i = 0; i < returnAliases.size(); i++) {
-        SQLProjectionItem item = new SQLProjectionItem(-1);
+      for (var i = 0; i < returnAliases.size(); i++) {
+        var item = new SQLProjectionItem(-1);
         item.setExpression(returnItems.get(i));
         item.setAlias(returnAliases.get(i));
         item.setNestedProjection(returnNestedProjections.get(i));
@@ -295,15 +295,15 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries,
       Set<String> prefetchedAliases,
       boolean profilingEnabled) {
-    SelectExecutionPlan plan = new SelectExecutionPlan(context);
-    List<EdgeTraversal> sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern);
+    var plan = new SelectExecutionPlan(context);
+    var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
+        context.getDatabaseSession());
 
-    boolean first = true;
-    if (sortedEdges.size() > 0) {
-      for (EdgeTraversal edge : sortedEdges) {
+    var first = true;
+    if (!sortedEdges.isEmpty()) {
+      for (var edge : sortedEdges) {
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
-          edge.setLeftCluster(aliasClusters.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
@@ -312,17 +312,16 @@ public class MatchExecutionPlanner {
         first = false;
       }
     } else {
-      PatternNode node = pattern.getAliasToNode().values().iterator().next();
+      var node = pattern.getAliasToNode().values().iterator().next();
       if (prefetchedAliases.contains(node.alias)) {
         // from prefetch
         plan.chain(new MatchFirstStep(context, node, profilingEnabled));
       } else {
         // from actual execution plan
-        String clazz = aliasClasses.get(node.alias);
-        String cluster = aliasClusters.get(node.alias);
-        SQLRid rid = aliasRids.get(node.alias);
-        SQLWhereClause filter = aliasFilters.get(node.alias);
-        SQLSelectStatement select = createSelectStatement(clazz, cluster, rid, filter);
+        var clazz = aliasClasses.get(node.alias);
+        var rid = aliasRids.get(node.alias);
+        var filter = aliasFilters.get(node.alias);
+        var select = createSelectStatement(clazz, rid, filter);
         plan.chain(
             new MatchFirstStep(
                 context,
@@ -338,16 +337,16 @@ public class MatchExecutionPlanner {
    * sort edges in the order they will be matched
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
-      Map<String, Long> estimatedRootEntries, Pattern pattern) {
+      Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionInternal session) {
     List<EdgeTraversal> resultingSchedule = new ArrayList<>();
-    Map<String, Set<String>> remainingDependencies = getDependencies(pattern);
+    var remainingDependencies = getDependencies(pattern);
     Set<PatternNode> visitedNodes = new HashSet<>();
     Set<PatternEdge> visitedEdges = new HashSet<>();
 
     // Sort the possible root vertices in order of estimated size, since we want to start with a
     // small vertex set.
     List<PairLongObject<String>> rootWeights = new ArrayList<>();
-    for (Map.Entry<String, Long> root : estimatedRootEntries.entrySet()) {
+    for (var root : estimatedRootEntries.entrySet()) {
       rootWeights.add(new PairLongObject<>(root.getValue(), root.getKey()));
     }
     Collections.sort(rootWeights);
@@ -365,8 +364,8 @@ public class MatchExecutionPlanner {
       // 1. Find a starting vertex for the depth-first pass.
       PatternNode startingNode = null;
       List<String> startsToRemove = new ArrayList<String>();
-      for (String currentAlias : remainingStarts) {
-        PatternNode currentNode = pattern.aliasToNode.get(currentAlias);
+      for (var currentAlias : remainingStarts) {
+        var currentNode = pattern.aliasToNode.get(currentAlias);
 
         if (visitedNodes.contains(currentNode)) {
           // If a previous traversal already visited this alias, remove it from further
@@ -380,7 +379,7 @@ public class MatchExecutionPlanner {
           break;
         }
       }
-      remainingStarts.removeAll(startsToRemove);
+      startsToRemove.forEach(remainingStarts::remove);
 
       if (startingNode == null) {
         // We didn't manage to find a valid root, and yet we haven't constructed a complete
@@ -388,7 +387,7 @@ public class MatchExecutionPlanner {
         // This means there must be a cycle in our dependency graph, or all dependency-free nodes
         // are optional.
         // Therefore, the query is invalid.
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(session,
             "This query contains MATCH conditions that cannot be evaluated, "
                 + "like an undefined alias or a circular dependency on a $matched condition.");
       }
@@ -420,7 +419,7 @@ public class MatchExecutionPlanner {
    * @param resultingSchedule     the schedule being computed i.e. appended to (mutated in this
    *                              function)
    */
-  private void updateScheduleStartingAt(
+  private static void updateScheduleStartingAt(
       PatternNode startNode,
       Set<PatternNode> visitedNodes,
       Set<PatternEdge> visitedEdges,
@@ -452,24 +451,24 @@ public class MatchExecutionPlanner {
     // - for unvisited neighboring nodes with satisfied dependencies, add their edge and recurse
     // into them.
     visitedNodes.add(startNode);
-    for (Set<String> dependencies : remainingDependencies.values()) {
+    for (var dependencies : remainingDependencies.values()) {
       dependencies.remove(startNode.alias);
     }
 
     Map<PatternEdge, Boolean> edges = new LinkedHashMap<PatternEdge, Boolean>();
-    for (PatternEdge outEdge : startNode.out) {
+    for (var outEdge : startNode.out) {
       edges.put(outEdge, true);
     }
-    for (PatternEdge inEdge : startNode.in) {
+    for (var inEdge : startNode.in) {
       if (inEdge.item.isBidirectional()) {
         edges.put(inEdge, false);
       }
     }
 
-    for (Map.Entry<PatternEdge, Boolean> edgeData : edges.entrySet()) {
-      PatternEdge edge = edgeData.getKey();
+    for (var edgeData : edges.entrySet()) {
+      var edge = edgeData.getKey();
       boolean isOutbound = edgeData.getValue();
-      PatternNode neighboringNode = isOutbound ? edge.in : edge.out;
+      var neighboringNode = isOutbound ? edge.in : edge.out;
 
       if (!remainingDependencies.get(neighboringNode.alias).isEmpty()) {
         // Unsatisfied dependencies, ignore this neighboring node.
@@ -530,12 +529,12 @@ public class MatchExecutionPlanner {
     }
   }
 
-  private boolean isOptionalChain(
+  private static boolean isOptionalChain(
       PatternNode startNode, PatternEdge edge, PatternNode neighboringNode) {
     return isOptionalChain(startNode, edge, neighboringNode, new HashSet<>());
   }
 
-  private boolean isOptionalChain(
+  private static boolean isOptionalChain(
       PatternNode startNode,
       PatternEdge edge,
       PatternNode neighboringNode,
@@ -547,7 +546,7 @@ public class MatchExecutionPlanner {
     visitedEdges.add(edge);
 
     if (neighboringNode.out != null) {
-      for (PatternEdge patternEdge : neighboringNode.out) {
+      for (var patternEdge : neighboringNode.out) {
         if (!visitedEdges.contains(patternEdge)
             && !isOptionalChain(neighboringNode, patternEdge, patternEdge.in, visitedEdges)) {
           return false;
@@ -560,19 +559,17 @@ public class MatchExecutionPlanner {
 
   /**
    * Calculate the set of dependency aliases for each alias in the pattern.
-   *
-   * @param pattern
    * @return map of alias to the set of aliases it depends on
    */
   private Map<String, Set<String>> getDependencies(Pattern pattern) {
     Map<String, Set<String>> result = new HashMap<String, Set<String>>();
 
-    for (PatternNode node : pattern.aliasToNode.values()) {
+    for (var node : pattern.aliasToNode.values()) {
       Set<String> currentDependencies = new HashSet<String>();
 
-      SQLWhereClause filter = aliasFilters.get(node.alias);
+      var filter = aliasFilters.get(node.alias);
       if (filter != null && filter.getBaseExpression() != null) {
-        List<String> involvedAliases = filter.getBaseExpression().getMatchPatternInvolvedAliases();
+        var involvedAliases = filter.getBaseExpression().getMatchPatternInvolvedAliases();
         if (involvedAliases != null) {
           currentDependencies.addAll(involvedAliases);
         }
@@ -599,23 +596,20 @@ public class MatchExecutionPlanner {
       boolean first,
       boolean profilingEnabled) {
     if (first) {
-      PatternNode patternNode = edge.out ? edge.edge.out : edge.edge.in;
-      String clazz = this.aliasClasses.get(patternNode.alias);
-      String cluster = this.aliasClusters.get(patternNode.alias);
-      SQLRid rid = this.aliasRids.get(patternNode.alias);
-      SQLWhereClause where = aliasFilters.get(patternNode.alias);
-      SQLSelectStatement select = new SQLSelectStatement(-1);
+      var patternNode = edge.out ? edge.edge.out : edge.edge.in;
+      var clazz = this.aliasClasses.get(patternNode.alias);
+      var rid = this.aliasRids.get(patternNode.alias);
+      var where = aliasFilters.get(patternNode.alias);
+      var select = new SQLSelectStatement(-1);
       select.setTarget(new SQLFromClause(-1));
       select.getTarget().setItem(new SQLFromItem(-1));
       if (clazz != null) {
         select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
-      } else if (cluster != null) {
-        select.getTarget().getItem().setCluster(new SQLCluster(cluster));
       } else if (rid != null) {
         select.getTarget().getItem().setRids(Collections.singletonList(rid));
       }
       select.setWhereClause(where == null ? null : where.copy());
-      BasicCommandContext subContxt = new BasicCommandContext();
+      var subContxt = new BasicCommandContext();
       subContxt.setParentWithoutOverridingChild(context);
       plan.chain(
           new MatchFirstStep(
@@ -637,15 +631,14 @@ public class MatchExecutionPlanner {
       Set<String> aliasesToPrefetch,
       CommandContext context,
       boolean profilingEnabled) {
-    for (String alias : aliasesToPrefetch) {
-      String targetClass = aliasClasses.get(alias);
-      String targetCluster = aliasClusters.get(alias);
-      SQLRid targetRid = aliasRids.get(alias);
-      SQLWhereClause filter = aliasFilters.get(alias);
-      SQLSelectStatement prefetchStm =
-          createSelectStatement(targetClass, targetCluster, targetRid, filter);
+    for (var alias : aliasesToPrefetch) {
+      var targetClass = aliasClasses.get(alias);
+      var targetRid = aliasRids.get(alias);
+      var filter = aliasFilters.get(alias);
+      var prefetchStm =
+          createSelectStatement(targetClass, targetRid, filter);
 
-      MatchPrefetchStep step =
+      var step =
           new MatchPrefetchStep(
               context,
               prefetchStm.createExecutionPlan(context, profilingEnabled),
@@ -655,18 +648,16 @@ public class MatchExecutionPlanner {
     }
   }
 
-  private SQLSelectStatement createSelectStatement(
-      String targetClass, String targetCluster, SQLRid targetRid, SQLWhereClause filter) {
-    SQLSelectStatement prefetchStm = new SQLSelectStatement(-1);
+  private static SQLSelectStatement createSelectStatement(
+      String targetClass, SQLRid targetRid, SQLWhereClause filter) {
+    var prefetchStm = new SQLSelectStatement(-1);
     prefetchStm.setWhereClause(filter);
-    SQLFromClause from = new SQLFromClause(-1);
-    SQLFromItem fromItem = new SQLFromItem(-1);
+    var from = new SQLFromClause(-1);
+    var fromItem = new SQLFromItem(-1);
     if (targetRid != null) {
       fromItem.setRids(Collections.singletonList(targetRid));
     } else if (targetClass != null) {
       fromItem.setIdentifier(new SQLIdentifier(targetClass));
-    } else if (targetCluster != null) {
-      fromItem.setCluster(new SQLCluster(targetCluster));
     }
     from.setItem(fromItem);
     prefetchStm.setTarget(from);
@@ -684,85 +675,84 @@ public class MatchExecutionPlanner {
     assignDefaultAliases(allPatterns);
 
     pattern = new Pattern();
-    for (SQLMatchExpression expr : this.matchExpressions) {
+    for (var expr : this.matchExpressions) {
       pattern.addExpression(expr);
     }
 
     Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
     Map<String, String> aliasClasses = new LinkedHashMap<>();
-    Map<String, String> aliasClusters = new LinkedHashMap<>();
+    Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
-    for (SQLMatchExpression expr : this.matchExpressions) {
-      addAliases(expr, aliasFilters, aliasClasses, aliasClusters, aliasRids, ctx);
+    for (var expr : this.matchExpressions) {
+      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids, ctx);
     }
 
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
-    this.aliasClusters = aliasClusters;
     this.aliasRids = aliasRids;
 
     rebindFilters(aliasFilters);
   }
 
   private void rebindFilters(Map<String, SQLWhereClause> aliasFilters) {
-    for (SQLMatchExpression expression : matchExpressions) {
-      SQLWhereClause newFilter = aliasFilters.get(expression.getOrigin().getAlias());
+    for (var expression : matchExpressions) {
+      var newFilter = aliasFilters.get(expression.getOrigin().getAlias());
       expression.getOrigin().setFilter(newFilter);
 
-      for (SQLMatchPathItem item : expression.getItems()) {
+      for (var item : expression.getItems()) {
         newFilter = aliasFilters.get(item.getFilter().getAlias());
         item.getFilter().setFilter(newFilter);
       }
     }
   }
 
-  private void addAliases(
+  private static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
-      Map<String, String> aliasClusters,
+      Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
-    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasClusters, aliasRids, context);
-    for (SQLMatchPathItem item : expr.getItems()) {
+    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+    for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasClusters, aliasRids, context);
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
       }
     }
   }
 
-  private void addAliases(
+  private static void addAliases(
       SQLMatchFilter matchFilter,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
-      Map<String, String> aliasClusters,
+      Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
-    String alias = matchFilter.getAlias();
-    SQLWhereClause filter = matchFilter.getFilter();
+    var alias = matchFilter.getAlias();
+    var filter = matchFilter.getFilter();
     if (alias != null) {
       if (filter != null && filter.getBaseExpression() != null) {
-        SQLWhereClause previousFilter = aliasFilters.get(alias);
+        var previousFilter = aliasFilters.get(alias);
         if (previousFilter == null) {
           previousFilter = new SQLWhereClause(-1);
           previousFilter.setBaseExpression(new SQLAndBlock(-1));
           aliasFilters.put(alias, previousFilter);
         }
-        SQLAndBlock filterBlock = (SQLAndBlock) previousFilter.getBaseExpression();
-        if (filter != null && filter.getBaseExpression() != null) {
+        var filterBlock = (SQLAndBlock) previousFilter.getBaseExpression();
+        if (filter.getBaseExpression() != null) {
           filterBlock.getSubBlocks().add(filter.getBaseExpression());
         }
       }
 
-      String clazz = matchFilter.getClassName(context);
+      var clazz = matchFilter.getClassName(context);
       if (clazz != null) {
-        String previousClass = aliasClasses.get(alias);
+        var previousClass = aliasClasses.get(alias);
         if (previousClass == null) {
           aliasClasses.put(alias, clazz);
         } else {
-          String lower = getLowerSubclass(context.getDatabase(), clazz, previousClass);
+          var lower = getLowerSubclass(context.getDatabaseSession(), clazz, previousClass);
           if (lower == null) {
-            throw new CommandExecutionException(
+            throw new CommandExecutionException(context.getDatabaseSession(),
                 "classes defined for alias "
                     + alias
                     + " ("
@@ -775,29 +765,29 @@ public class MatchExecutionPlanner {
         }
       }
 
-      String clusterName = matchFilter.getClusterName(context);
-      if (clusterName != null) {
-        String previousCluster = aliasClusters.get(alias);
-        if (previousCluster == null) {
-          aliasClusters.put(alias, clusterName);
-        } else if (!previousCluster.equalsIgnoreCase(clusterName)) {
-          throw new CommandExecutionException(
+      var collectionName = matchFilter.getCollectionName(context);
+      if (collectionName != null) {
+        var previousCollection = aliasCollections.get(alias);
+        if (previousCollection == null) {
+          aliasCollections.put(alias, collectionName);
+        } else if (!previousCollection.equalsIgnoreCase(collectionName)) {
+          throw new CommandExecutionException(context.getDatabaseSession(),
               "Invalid expression for alias "
                   + alias
-                  + " cannot be of both clusters "
-                  + previousCluster
+                  + " cannot be of both collections "
+                  + previousCollection
                   + " and "
-                  + clusterName);
+                  + collectionName);
         }
       }
 
-      SQLRid rid = matchFilter.getRid(context);
+      var rid = matchFilter.getRid(context);
       if (rid != null) {
-        SQLRid previousRid = aliasRids.get(alias);
+        var previousRid = aliasRids.get(alias);
         if (previousRid == null) {
           aliasRids.put(alias, rid);
         } else if (!previousRid.equals(rid)) {
-          throw new CommandExecutionException(
+          throw new CommandExecutionException(context.getDatabaseSession(),
               "Invalid expression for alias "
                   + alias
                   + " cannot be of both RIDs "
@@ -809,11 +799,12 @@ public class MatchExecutionPlanner {
     }
   }
 
-  private String getLowerSubclass(
+  @Nullable
+  private static String getLowerSubclass(
       DatabaseSessionInternal db, String className1, String className2) {
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass class1 = schema.getClass(className1);
-    SchemaClass class2 = schema.getClass(className2);
+    var class1 = schema.getClass(className1);
+    var class2 = schema.getClass(className2);
     if (class1.isSubClassOf(class2)) {
       return class1.getName();
     }
@@ -825,17 +816,15 @@ public class MatchExecutionPlanner {
 
   /**
    * assigns default aliases to pattern nodes that do not have an explicit alias
-   *
-   * @param matchExpressions
    */
-  private void assignDefaultAliases(List<SQLMatchExpression> matchExpressions) {
-    int counter = 0;
-    for (SQLMatchExpression expression : matchExpressions) {
+  private static void assignDefaultAliases(List<SQLMatchExpression> matchExpressions) {
+    var counter = 0;
+    for (var expression : matchExpressions) {
       if (expression.getOrigin().getAlias() == null) {
         expression.getOrigin().setAlias(DEFAULT_ALIAS_PREFIX + (counter++));
       }
 
-      for (SQLMatchPathItem item : expression.getItems()) {
+      for (var item : expression.getItems()) {
         if (item.getFilter() == null) {
           item.setFilter(new SQLMatchFilter(-1));
         }
@@ -846,73 +835,48 @@ public class MatchExecutionPlanner {
     }
   }
 
-  private Map<String, Long> estimateRootEntries(
+  private static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
-      Map<String, String> aliasClusters,
       Map<String, SQLRid> aliasRids,
       Map<String, SQLWhereClause> aliasFilters,
       CommandContext ctx) {
     Set<String> allAliases = new LinkedHashSet<String>();
     allAliases.addAll(aliasClasses.keySet());
     allAliases.addAll(aliasFilters.keySet());
-    allAliases.addAll(aliasClusters.keySet());
     allAliases.addAll(aliasRids.keySet());
 
-    var db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     var schema = db.getMetadata().getImmutableSchemaSnapshot();
 
     Map<String, Long> result = new LinkedHashMap<String, Long>();
-    for (String alias : allAliases) {
-      SQLRid rid = aliasRids.get(alias);
+    for (var alias : allAliases) {
+      var rid = aliasRids.get(alias);
       if (rid != null) {
         result.put(alias, 1L);
         continue;
       }
 
-      String className = aliasClasses.get(alias);
-      String clusterName = aliasClusters.get(alias);
+      var className = aliasClasses.get(alias);
 
-      if (className == null && clusterName == null) {
+      if (className == null) {
         continue;
       }
 
-      if (className != null) {
-        if (!schema.existsClass(className)) {
-          throw new CommandExecutionException("class not defined: " + className);
-        }
-        var oClass = schema.getClassInternal(className);
-        long upperBound;
-        SQLWhereClause filter = aliasFilters.get(alias);
-        if (filter != null) {
-          upperBound = filter.estimate(oClass, this.threshold, ctx);
-        } else {
-          upperBound = oClass.count(db);
-        }
-        result.put(alias, upperBound);
-      } else {
-        if (!db.existsCluster(clusterName)) {
-          throw new CommandExecutionException("cluster not defined: " + clusterName);
-        }
-        int clusterId = db.getClusterIdByName(clusterName);
-        var oClass = (SchemaClassInternal) db.getMetadata().getSchema()
-            .getClassByClusterId(clusterId);
-        if (oClass != null) {
-          long upperBound;
-          SQLWhereClause filter = aliasFilters.get(alias);
-          if (filter != null) {
-            upperBound =
-                Math.min(
-                    db.countClusterElements(clusterName),
-                    filter.estimate(oClass, this.threshold, ctx));
-          } else {
-            upperBound = db.countClusterElements(clusterName);
-          }
-          result.put(alias, upperBound);
-        } else {
-          result.put(alias, db.countClusterElements(clusterName));
-        }
+      if (!schema.existsClass(className)) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "class not defined: " + className);
       }
+      var oClass = schema.getClassInternal(className);
+      long upperBound;
+      var filter = aliasFilters.get(alias);
+      if (filter != null) {
+        upperBound = filter.estimate(oClass, THRESHOLD, ctx);
+      } else {
+        upperBound = oClass.count(ctx.getDatabaseSession());
+      }
+      result.put(alias, upperBound);
     }
+
     return result;
   }
 }

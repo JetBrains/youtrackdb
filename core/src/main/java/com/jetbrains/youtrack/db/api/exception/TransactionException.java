@@ -19,14 +19,20 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class TransactionException extends CoreException implements HighLevelException {
-
-  private static final long serialVersionUID = 2347493191705052402L;
-
   public TransactionException(TransactionException exception) {
     super(exception);
+  }
+
+  public TransactionException(DatabaseSession session, String message) {
+    super(session, message);
+  }
+
+  public TransactionException(String dbName, String message) {
+    super(dbName, message);
   }
 
   public TransactionException(String message) {

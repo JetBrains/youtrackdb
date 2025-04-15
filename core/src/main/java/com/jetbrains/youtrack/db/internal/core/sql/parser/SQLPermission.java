@@ -29,7 +29,7 @@ public class SQLPermission extends SimpleNode {
 
   @Override
   public SQLPermission copy() {
-    SQLPermission result = new SQLPermission(-1);
+    var result = new SQLPermission(-1);
     result.permission = permission;
     return result;
   }
@@ -43,7 +43,7 @@ public class SQLPermission extends SimpleNode {
       return false;
     }
 
-    SQLPermission that = (SQLPermission) o;
+    var that = (SQLPermission) o;
 
     return Objects.equals(permission, that.permission);
   }

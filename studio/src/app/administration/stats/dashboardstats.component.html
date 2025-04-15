@@ -3,7 +3,7 @@
 </div>
 <div *ngIf="ee" class="row">
     <div [ngClass]="serversClass" *ngFor="let server of servers">
-        <server-metrics [name]="server" [stats]="clusterStats[server]">
+        <server-metrics [name]="server" [stats]="collectionStats[server]">
         </server-metrics>
     </div>
 </div>

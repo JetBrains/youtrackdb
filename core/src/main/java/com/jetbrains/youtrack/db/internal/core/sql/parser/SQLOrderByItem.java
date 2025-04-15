@@ -1,18 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.text.Collator;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -96,36 +95,40 @@ public class SQLOrderByItem {
       throw new UnsupportedOperationException("ORDER BY " + rid + " is not supported yet");
     }
 
-    int result = 0;
+    var result = 0;
     if (recordAttr != null) {
       aVal = a.getProperty(recordAttr);
       bVal = b.getProperty(recordAttr);
     } else if (alias != null) {
       if (isEdge) {
-        Vertex aElement = (Vertex) a.asEntity();
-        Iterator<Vertex> aIter =
+        var aElement = (Vertex) a.asEntityOrNull();
+        var aIter =
             aElement != null ? aElement.getVertices(Direction.OUT, alias).iterator() : null;
         aVal = (aIter != null && aIter.hasNext()) ? aIter.next() : null;
 
-        Vertex bElement = (Vertex) b.asEntity();
-        Iterator<Vertex> bIter =
+        var bElement = (Vertex) b.asEntityOrNull();
+        var bIter =
             bElement != null ? bElement.getVertices(Direction.OUT, alias).iterator() : null;
         bVal = (bIter != null && bIter.hasNext()) ? bIter.next() : null;
       } else {
-        aVal = a.getProperty(alias);
-        bVal = b.getProperty(alias);
+        if (a.hasProperty(alias)) {
+          aVal = a.getProperty(alias);
+        }
+        if (b.hasProperty(alias)) {
+          bVal = b.getProperty(alias);
+        }
       }
     }
     if (aVal == null && bVal == null) {
-      aVal = a.getMetadata(alias);
-      bVal = b.getMetadata(alias);
+      aVal = ((ResultInternal) a).getMetadata(alias);
+      bVal = ((ResultInternal) b).getMetadata(alias);
     }
     if (modifier != null) {
       aVal = modifier.execute(a, aVal, ctx);
       bVal = modifier.execute(b, bVal, ctx);
     }
     if (collate != null && collateStrategy == null) {
-      Object collateVal = collate.execute(new ResultInternal(ctx.getDatabase()), ctx);
+      var collateVal = collate.execute(new ResultInternal(ctx.getDatabaseSession()), ctx);
       if (collateVal == null) {
         collateVal = collate.toString();
         if (collateVal.equals("null")) {
@@ -143,7 +146,8 @@ public class SQLOrderByItem {
               SQLEngine.getCollate(String.valueOf(collateVal).toLowerCase(Locale.ENGLISH));
         }
         if (collateStrategy == null) {
-          throw new CommandExecutionException("Invalid collate for ORDER BY: " + collateVal);
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Invalid collate for ORDER BY: " + collateVal);
         }
       }
     }
@@ -161,10 +165,10 @@ public class SQLOrderByItem {
         result = 1;
       } else if (aVal instanceof String && bVal instanceof String) {
 
-        DatabaseSessionInternal internal = ctx.getDatabase();
+        var internal = ctx.getDatabaseSession();
         if (stringCollator == null) {
-          String language = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE);
-          String country = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY);
+          var language = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE);
+          var country = (String) internal.get(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY);
           Locale locale;
           if (language != null) {
             if (country != null) {
@@ -195,7 +199,7 @@ public class SQLOrderByItem {
   }
 
   public SQLOrderByItem copy() {
-    SQLOrderByItem result = new SQLOrderByItem();
+    var result = new SQLOrderByItem();
     result.alias = alias;
     result.modifier = modifier == null ? null : modifier.copy();
     result.recordAttr = recordAttr;
@@ -231,7 +235,7 @@ public class SQLOrderByItem {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("alias", alias);
     if (modifier != null) {
       result.setProperty("modifier", modifier.serialize(db));
@@ -274,7 +278,7 @@ public class SQLOrderByItem {
       return false;
     }
 
-    SQLOrderByItem that = (SQLOrderByItem) o;
+    var that = (SQLOrderByItem) o;
 
     if (!Objects.equals(alias, that.alias)) {
       return false;
@@ -296,7 +300,7 @@ public class SQLOrderByItem {
 
   @Override
   public int hashCode() {
-    int result = alias != null ? alias.hashCode() : 0;
+    var result = alias != null ? alias.hashCode() : 0;
     result = 31 * result + (modifier != null ? modifier.hashCode() : 0);
     result = 31 * result + (recordAttr != null ? recordAttr.hashCode() : 0);
     result = 31 * result + (rid != null ? rid.hashCode() : 0);

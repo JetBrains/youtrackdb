@@ -57,7 +57,7 @@ public class DefaultComparator implements Comparator<Object> {
       return ((Comparable<Object>) objectOne).compareTo(objectTwo);
     }
 
-    final Comparator<?> comparator =
+    final var comparator =
         ComparatorFactory.INSTANCE.getComparator(objectOne.getClass());
 
     if (comparator != null) {

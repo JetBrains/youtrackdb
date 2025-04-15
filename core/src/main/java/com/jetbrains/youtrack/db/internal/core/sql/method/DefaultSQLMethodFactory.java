@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.conversion.SQLMetho
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLMethodExclude;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLMethodInclude;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.text.SQLMethodAppend;
-import com.jetbrains.youtrack.db.internal.core.sql.functions.text.SQLMethodFromJSON;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.text.SQLMethodHash;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.text.SQLMethodLength;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.text.SQLMethodReplace;
@@ -92,7 +91,6 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
     register(SQLMethodExclude.NAME, new SQLMethodExclude());
     register(SQLMethodField.NAME, new SQLMethodField());
     register(SQLMethodFormat.NAME, new SQLMethodFormat());
-    register(SQLMethodFromJSON.NAME, new SQLMethodFromJSON());
     register(SQLMethodFunctionDelegate.NAME, SQLMethodFunctionDelegate.class);
     register(SQLMethodHash.NAME, new SQLMethodHash());
     register(SQLMethodInclude.NAME, new SQLMethodInclude());
@@ -142,7 +140,7 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
 
   @Override
   public SQLMethod createMethod(final String name) throws CommandExecutionException {
-    final Object m = methods.get(name);
+    final var m = methods.get(name);
     final SQLMethod method;
 
     if (m instanceof Class<?>) {
@@ -150,7 +148,7 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
         method = (SQLMethod) ((Class<?>) m).newInstance();
       } catch (Exception e) {
         throw BaseException.wrapException(
-            new CommandExecutionException("Cannot create SQL method: " + m), e);
+            new CommandExecutionException("Cannot create SQL method: " + m), e, (String) null);
       }
     } else {
       method = (SQLMethod) m;

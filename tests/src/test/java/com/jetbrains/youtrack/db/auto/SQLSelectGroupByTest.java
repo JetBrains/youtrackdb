@@ -15,9 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -28,6 +26,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectGroupByTest extends BaseDBTest {
+
   @Parameters(value = "remote")
   public SQLSelectGroupByTest(@Optional Boolean remote) {
     super(remote != null && remote);
@@ -42,19 +41,19 @@ public class SQLSelectGroupByTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void queryGroupByBasic() {
-    List<EntityImpl> result = executeQuery("select location from Account group by location");
+    var result = executeQuery("select location from Account group by location");
 
     Assert.assertTrue(result.size() > 1);
     Set<Object> set = new HashSet<Object>();
-    for (EntityImpl d : result) {
-      set.add(d.field("location"));
+    for (var d : result) {
+      set.add(d.getProperty("location"));
     }
     Assert.assertEquals(result.size(), set.size());
   }
 
   @Test
   public void queryGroupByLimit() {
-    List<EntityImpl> result =
+    var result =
         executeQuery("select location from Account group by location limit 2");
 
     Assert.assertEquals(result.size(), 2);
@@ -62,7 +61,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
 
   @Test
   public void queryGroupByCount() {
-    List<EntityImpl> result =
+    var result =
         executeQuery("select count(*) from Account group by location");
 
     Assert.assertTrue(result.size() > 1);
@@ -71,54 +70,54 @@ public class SQLSelectGroupByTest extends BaseDBTest {
   @Test
   @Ignore
   public void queryGroupByAndOrderBy() {
-    List<EntityImpl> result =
+    var result =
         executeQuery("select location from Account group by location order by location");
 
     Assert.assertTrue(result.size() > 1);
     String last = null;
-    for (EntityImpl d : result) {
+    for (var d : result) {
       if (last != null) {
-        Assert.assertTrue(last.compareTo(d.field("location")) < 0);
+        Assert.assertTrue(last.compareTo(d.getProperty("location")) < 0);
       }
-      last = d.field("location");
+      last = d.getProperty("location");
     }
 
     result = executeQuery("select location from Account group by location order by location desc");
 
     Assert.assertTrue(result.size() > 1);
     last = null;
-    for (EntityImpl d : result) {
-      Object current = d.field("location");
+    for (var d : result) {
+      var current = d.getProperty("location");
       if (current != null) {
         if (last != null) {
           Assert.assertTrue(last.compareTo((String) current) > 0);
         }
       }
-      last = d.field("location");
+      last = d.getProperty("location");
     }
   }
 
   @Test
   public void queryGroupByAndWithNulls() {
     // INSERT WITH NO LOCATION (AS NULL)
-    database.command("create class GroupByTest extends V").close();
+    session.execute("create class GroupByTest extends V").close();
     try {
-      database.begin();
-      database.command("insert into GroupByTest set testNull = true").close();
-      database.command("insert into GroupByTest set location = 'Rome'").close();
-      database.command("insert into GroupByTest set location = 'Austin'").close();
-      database.command("insert into GroupByTest set location = 'Austin'").close();
-      database.commit();
+      session.begin();
+      session.execute("insert into GroupByTest set testNull = true").close();
+      session.execute("insert into GroupByTest set location = 'Rome'").close();
+      session.execute("insert into GroupByTest set location = 'Austin'").close();
+      session.execute("insert into GroupByTest set location = 'Austin'").close();
+      session.commit();
 
-      final List<EntityImpl> result =
+      final var result =
           executeQuery(
               "select location, count(*) from GroupByTest group by location");
 
       Assert.assertEquals(result.size(), 3);
 
-      boolean foundNullGroup = false;
-      for (EntityImpl d : result) {
-        if (d.field("location") == null) {
+      var foundNullGroup = false;
+      for (var d : result) {
+        if (d.getProperty("location") == null) {
           Assert.assertFalse(foundNullGroup);
           foundNullGroup = true;
         }
@@ -126,39 +125,39 @@ public class SQLSelectGroupByTest extends BaseDBTest {
 
       Assert.assertTrue(foundNullGroup);
     } finally {
-      database.begin();
-      database.command("delete vertex GroupByTest").close();
-      database.commit();
+      session.begin();
+      session.execute("delete vertex GroupByTest").close();
+      session.commit();
 
-      database.command("drop class GroupByTest UNSAFE").close();
+      session.execute("drop class GroupByTest UNSAFE").close();
     }
   }
 
   @Test
   public void queryGroupByNoNulls() {
-    database.command("create class GroupByTest extends V").close();
+    session.execute("create class GroupByTest extends V").close();
     try {
-      database.begin();
-      database.command("insert into GroupByTest set location = 'Rome'").close();
-      database.command("insert into GroupByTest set location = 'Austin'").close();
-      database.command("insert into GroupByTest set location = 'Austin'").close();
-      database.commit();
+      session.begin();
+      session.execute("insert into GroupByTest set location = 'Rome'").close();
+      session.execute("insert into GroupByTest set location = 'Austin'").close();
+      session.execute("insert into GroupByTest set location = 'Austin'").close();
+      session.commit();
 
-      final List<EntityImpl> result = executeQuery(
+      final var result = executeQuery(
           "select location, count(*) from GroupByTest group by location");
 
       Assert.assertEquals(result.size(), 2);
 
-      for (EntityImpl d : result) {
-        Assert.assertNotNull(d.field("location"), "Found null in resultset with groupby");
+      for (var d : result) {
+        Assert.assertNotNull(d.getProperty("location"), "Found null in resultset with groupby");
       }
 
     } finally {
-      database.begin();
-      database.command("delete vertex GroupByTest").close();
-      database.commit();
+      session.begin();
+      session.execute("delete vertex GroupByTest").close();
+      session.commit();
 
-      database.command("drop class GroupByTest UNSAFE").close();
+      session.execute("drop class GroupByTest UNSAFE").close();
     }
   }
 }

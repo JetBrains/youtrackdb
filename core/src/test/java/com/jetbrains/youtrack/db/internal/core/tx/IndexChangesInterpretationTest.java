@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
@@ -142,10 +141,10 @@ public class IndexChangesInterpretationTest {
     }
 
     return entry.getOperation() == OPERATION.PUT
-        ? "p" + entry.getValue().getIdentity().getClusterPosition()
+        ? "p" + entry.getValue().getIdentity().getCollectionPosition()
         : entry.getValue() == null
             ? "d"
-            : "r" + entry.getValue().getIdentity().getClusterPosition();
+            : "r" + entry.getValue().getIdentity().getCollectionPosition();
   }
 
   private static boolean entryEquals(TransactionIndexEntry a, TransactionIndexEntry b) {
@@ -172,7 +171,7 @@ public class IndexChangesInterpretationTest {
     final List<OutputCollection> expectedDictionary = new ArrayList<OutputCollection>();
     final List<OutputCollection> expectedNonUnique = new ArrayList<OutputCollection>();
 
-    for (String[] vector : TEST_VECTORS) {
+    for (var vector : TEST_VECTORS) {
       changes = parseInput(vector[0]);
       parseOutput(vector[1], expectedUnique);
       parseOutput(vector[2], expectedDictionary);
@@ -197,12 +196,12 @@ public class IndexChangesInterpretationTest {
   }
 
   private FrontendTransactionIndexChangesPerKey parseInput(String text) {
-    FrontendTransactionIndexChangesPerKey result = new FrontendTransactionIndexChangesPerKey("key");
-    final Matcher matcher = INPUT_GRAMMAR.matcher(text);
+    var result = new FrontendTransactionIndexChangesPerKey("key");
+    final var matcher = INPUT_GRAMMAR.matcher(text);
     while (matcher.find()) {
       // TODO this is a hack! The logic should go through FrontendTransactionIndexChangesPerKey.add(),
       // not create the entries manually
-      TransactionIndexEntry change = parseChange(matcher.group(1));
+      var change = parseChange(matcher.group(1));
       result
           .getEntriesInternal()
           .add(result.createEntryInternal(change.getValue(), change.getOperation()));
@@ -212,7 +211,7 @@ public class IndexChangesInterpretationTest {
 
   private void parseOutputItems(String text, Collection<TransactionIndexEntry> result) {
     result.clear();
-    final Matcher matcher = OUTPUT_ITEMS_GRAMMAR.matcher(text);
+    final var matcher = OUTPUT_ITEMS_GRAMMAR.matcher(text);
     while (matcher.find()) {
       result.add(parseChange(matcher.group(1)));
     }
@@ -220,16 +219,16 @@ public class IndexChangesInterpretationTest {
 
   private void parseOutput(String text, Collection<OutputCollection> result) {
     result.clear();
-    final Matcher matcher = OUTPUT_GRAMMAR.matcher(text);
+    final var matcher = OUTPUT_GRAMMAR.matcher(text);
 
     OutputCollection lastCollection = null;
     while (matcher.find()) {
-      final String match = matcher.group(1);
+      final var match = matcher.group(1);
 
       if (match.charAt(0) == '{') {
         if (Character.isDigit(match.charAt(1))) { // required matches specifier
-          final int spaceIndex = match.indexOf(' ');
-          final int requiredMatches = Integer.parseInt(match.substring(1, spaceIndex));
+          final var spaceIndex = match.indexOf(' ');
+          final var requiredMatches = Integer.parseInt(match.substring(1, spaceIndex));
           lastCollection = new OutputSet(requiredMatches);
           result.add(lastCollection);
           parseOutputItems(match.substring(spaceIndex + 1, match.length() - 1), lastCollection);
@@ -251,7 +250,7 @@ public class IndexChangesInterpretationTest {
   }
 
   private TransactionIndexEntry parseChange(String text) {
-    FrontendTransactionIndexChangesPerKey changes = new FrontendTransactionIndexChangesPerKey(null);
+    var changes = new FrontendTransactionIndexChangesPerKey(null);
 
     switch (text.charAt(0)) {
       case 'p':
@@ -278,10 +277,10 @@ public class IndexChangesInterpretationTest {
       Iterable<TransactionIndexEntry> actual,
       String type,
       Iterable<TransactionIndexEntry> input) {
-    final Iterator<TransactionIndexEntry> actualIterator = actual.iterator();
+    final var actualIterator = actual.iterator();
 
-    boolean match = true;
-    for (OutputCollection collection : expected) {
+    var match = true;
+    for (var collection : expected) {
       if (!collection.matches(actualIterator)) {
         match = false;
         break;
@@ -305,8 +304,8 @@ public class IndexChangesInterpretationTest {
   }
 
   private String sequenceToString(Iterable<TransactionIndexEntry> sequence) {
-    final StringBuilder builder = new StringBuilder();
-    for (TransactionIndexEntry entry : sequence) {
+    final var builder = new StringBuilder();
+    for (var entry : sequence) {
       builder.append(entryToString(entry)).append(' ');
     }
     if (builder.length() > 0) {
@@ -316,8 +315,8 @@ public class IndexChangesInterpretationTest {
   }
 
   private String outputToString(Iterable<OutputCollection> output) {
-    final StringBuilder builder = new StringBuilder();
-    for (OutputCollection collection : output) {
+    final var builder = new StringBuilder();
+    for (var collection : output) {
       builder.append(collection.toString()).append(' ');
     }
     if (builder.length() > 0) {
@@ -336,11 +335,11 @@ public class IndexChangesInterpretationTest {
 
     @Override
     public boolean matches(Iterator<TransactionIndexEntry> actualIterator) {
-      for (TransactionIndexEntry expected : this) {
+      for (var expected : this) {
         if (!actualIterator.hasNext()) {
           return false;
         }
-        final TransactionIndexEntry actual = actualIterator.next();
+        final var actual = actualIterator.next();
         if (!entryEquals(expected, actual)) {
           return false;
         }
@@ -351,8 +350,8 @@ public class IndexChangesInterpretationTest {
 
     @Override
     public String toString() {
-      final StringBuilder builder = new StringBuilder();
-      for (TransactionIndexEntry entry : this) {
+      final var builder = new StringBuilder();
+      for (var entry : this) {
         builder.append(entryToString(entry)).append(' ');
       }
       if (builder.length() > 0) {
@@ -377,19 +376,19 @@ public class IndexChangesInterpretationTest {
 
     @Override
     public boolean matches(Iterator<TransactionIndexEntry> actualIterator) {
-      final int requiredMatches = this.requiredMatches == -1 ? this.size() : this.requiredMatches;
-      final ArrayList<TransactionIndexEntry> unmatched =
+      final var requiredMatches = this.requiredMatches == -1 ? this.size() : this.requiredMatches;
+      final var unmatched =
           new ArrayList<TransactionIndexEntry>(this);
-      for (int i = 0; i < requiredMatches; ++i) {
+      for (var i = 0; i < requiredMatches; ++i) {
         if (!actualIterator.hasNext()) {
           return false;
         }
-        final TransactionIndexEntry actual = actualIterator.next();
-        final int expectedIndex = unmatched.indexOf(actual);
+        final var actual = actualIterator.next();
+        final var expectedIndex = unmatched.indexOf(actual);
         if (expectedIndex == -1) {
           return false;
         }
-        final TransactionIndexEntry expected = unmatched.get(expectedIndex);
+        final var expected = unmatched.get(expectedIndex);
         if (!entryEquals(expected, actual)) {
           return false;
         }
@@ -401,12 +400,12 @@ public class IndexChangesInterpretationTest {
 
     @Override
     public String toString() {
-      final StringBuilder builder = new StringBuilder();
+      final var builder = new StringBuilder();
       builder.append('{');
       if (requiredMatches != -1) {
         builder.append(requiredMatches).append(' ');
       }
-      for (TransactionIndexEntry entry : this) {
+      for (var entry : this) {
         builder.append(entryToString(entry)).append(' ');
       }
       if (builder.length() > 1) {

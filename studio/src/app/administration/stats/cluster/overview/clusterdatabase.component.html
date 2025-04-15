@@ -155,7 +155,7 @@
     <div class="col-md-12">
       <div class="panel panel-default list-group">
         <div class="panel-heading">
-          <b> Clusters Distribution
+          <b> Collections Distribution
             <a href="javascript:void(0)" tabindex="1" data-trigger="focus" data-placement="right" data-container="body"
               bs-popover>
               <i class="fa fa-question-circle"></i>
@@ -173,12 +173,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let key of databaseConfig.clusters | keys">
+            <tr *ngFor="let key of databaseConfig.collections | keys">
               <td>
                 {{key}}
               </td>
               <td>
-                {{databaseConfig.clusters[key].owner}}
+                {{databaseConfig.collections[key].owner}}
               </td>
               <td *ngFor="let s of singleDBServers">
                 <div class="col-md-4">

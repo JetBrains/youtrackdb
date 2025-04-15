@@ -20,9 +20,10 @@
 
 package com.jetbrains.youtrack.db.internal.core.sql;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,7 +52,7 @@ public abstract class RecordsReturnHandler implements ReturnHandler {
   }
 
   protected void storeResult(final EntityImpl result) {
-    final EntityImpl processedResult = preprocess(result);
+    final var processedResult = preprocess(result);
 
     results.add(evaluateExpression(processedResult));
   }
@@ -63,17 +64,20 @@ public abstract class RecordsReturnHandler implements ReturnHandler {
       return record;
     } else {
       final Object itemResult;
-      final EntityImpl wrappingDoc;
       context.setVariable("current", record);
 
+      var session = context.getDatabaseSession();
+      var transaction = session.getActiveTransaction();
       itemResult =
-          SQLHelper.getValue(returnExpression, ((Identifiable) record).getRecord(), context);
+          SQLHelper.getValue(returnExpression,
+              transaction.load(record), context);
       if (itemResult instanceof Identifiable) {
         return itemResult;
       }
 
-      // WRAP WITH ODOCUMENT TO BE TRANSFERRED THROUGH BINARY DRIVER
-      return new EntityImpl("value", itemResult);
+      var result = new ResultInternal(session);
+      result.setProperty("value", itemResult);
+      return result;
     }
   }
 }

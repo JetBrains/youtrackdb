@@ -17,6 +17,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
 
@@ -33,9 +34,10 @@ public class ShapeBuilderLegacyImpl implements ShapeBuilderLegacy<Shape> {
     builders.add(new RectangleLegacyBuilder());
   }
 
+  @Nullable
   @Override
   public Shape makeShape(DatabaseSessionInternal session, CompositeKey key, SpatialContext ctx) {
-    for (ShapeBuilderLegacy f : builders) {
+    for (var f : builders) {
       if (f.canHandle(key)) {
         return f.makeShape(session, key, ctx);
       }

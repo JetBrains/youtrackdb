@@ -11,6 +11,8 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import com.jetbrains.youtrack.db.internal.core.sql.parser.DDLStatement;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -58,29 +60,29 @@ public class DDLExecutionPlan implements InternalExecutionPlan {
   public ExecutionStream executeInternal(BasicCommandContext ctx)
       throws CommandExecutionException {
     if (executed) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Trying to execute a result-set twice. Please use reset()");
     }
     executed = true;
-    ExecutionStream result = statement.executeDDL(this.ctx);
+    var result = statement.executeDDL(this.ctx);
     return result;
   }
 
   @Override
-  public List<ExecutionStep> getSteps() {
+  public @Nonnull List<ExecutionStep> getSteps() {
     return Collections.emptyList();
   }
 
   @Override
-  public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ DDL\n" + "  " + statement.toString();
+  public @Nonnull String prettyPrint(int depth, int indent) {
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ DDL\n" + "  " + statement.toString();
     return result;
   }
 
   @Override
-  public Result toResult(DatabaseSession db) {
-    ResultInternal result = new ResultInternal((DatabaseSessionInternal) db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
+    var result = new ResultInternal((DatabaseSessionInternal) db);
     result.setProperty("type", "DDLExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("stmText", statement.toString());

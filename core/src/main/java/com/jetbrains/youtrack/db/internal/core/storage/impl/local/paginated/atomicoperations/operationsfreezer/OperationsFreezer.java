@@ -28,7 +28,7 @@ public final class OperationsFreezer {
       ThreadLocal.withInitial(ModifiableInteger::new);
 
   public void startOperation() {
-    final ModifiableInteger operationDepth = this.operationDepth.get();
+    final var operationDepth = this.operationDepth.get();
     if (operationDepth.value == 0) {
       operationsCount.increment();
 
@@ -39,7 +39,7 @@ public final class OperationsFreezer {
 
         throwFreezeExceptionIfNeeded();
 
-        final Thread thread = Thread.currentThread();
+        final var thread = Thread.currentThread();
 
         operationsWaitingList.addThreadInWaitingList(thread);
 
@@ -57,7 +57,7 @@ public final class OperationsFreezer {
   }
 
   public void endOperation() {
-    final ModifiableInteger operationDepth = this.operationDepth.get();
+    final var operationDepth = this.operationDepth.get();
     if (operationDepth.value <= 0) {
       throw new IllegalStateException("Invalid operation depth " + operationDepth.value);
     } else {
@@ -71,7 +71,7 @@ public final class OperationsFreezer {
 
   public long freezeOperations(
       final Class<? extends BaseException> exceptionClass, final String message) {
-    final long id = freezeIdGen.incrementAndGet();
+    final var id = freezeIdGen.incrementAndGet();
 
     freezeRequests.incrementAndGet();
 
@@ -91,19 +91,19 @@ public final class OperationsFreezer {
       freezeParametersIdMap.remove(id);
     }
 
-    final Long2ObjectOpenHashMap<FreezeParameters> freezeParametersMap =
-        new Long2ObjectOpenHashMap<>(freezeParametersIdMap);
+    final var freezeParametersMap =
+        new Long2ObjectOpenHashMap<FreezeParameters>(freezeParametersIdMap);
     final long requests = freezeRequests.decrementAndGet();
 
     if (requests == 0) {
       var idsIterator = freezeParametersMap.keySet().iterator();
 
       while (idsIterator.hasNext()) {
-        final long freezeId = idsIterator.nextLong();
+        final var freezeId = idsIterator.nextLong();
         freezeParametersIdMap.remove(freezeId);
       }
 
-      WaitingListNode node = operationsWaitingList.cutWaitingList();
+      var node = operationsWaitingList.cutWaitingList();
 
       while (node != null) {
         LockSupport.unpark(node.item);
@@ -113,12 +113,12 @@ public final class OperationsFreezer {
   }
 
   private void throwFreezeExceptionIfNeeded() {
-    for (FreezeParameters freezeParameters : freezeParametersIdMap.values()) {
+    for (var freezeParameters : freezeParametersIdMap.values()) {
       assert freezeParameters.exceptionClass != null;
 
       if (freezeParameters.message != null) {
         try {
-          final Constructor<? extends BaseException> mConstructor =
+          final var mConstructor =
               freezeParameters.exceptionClass.getConstructor(String.class);
           throw mConstructor.newInstance(freezeParameters.message);
         } catch (InstantiationException

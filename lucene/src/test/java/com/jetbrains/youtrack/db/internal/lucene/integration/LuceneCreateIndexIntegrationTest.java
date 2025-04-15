@@ -1,11 +1,8 @@
 package com.jetbrains.youtrack.db.internal.lucene.integration;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -28,49 +25,49 @@ public class LuceneCreateIndexIntegrationTest {
         YouTrackDBConfig.defaultConfig());
 
     remote.execute(
-        "create database LuceneCreateIndexIntegrationTest plocal users(admin identified by 'admin'"
+        "create database LuceneCreateIndexIntegrationTest disk users(admin identified by 'admin'"
             + " role admin) ");
-    final DatabaseSession session =
+    final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin", "admin");
 
-    session.command("create class Person");
-    session.command("create property Person.name STRING");
-    session.command("create property Person.surname STRING");
+    session.runScript("sql", "create class Person");
+    session.runScript("sql", "create property Person.name STRING");
+    session.runScript("sql", "create property Person.surname STRING");
 
-    final Entity doc = session.newEntity("Person");
-    doc.setProperty("name", "Jon");
-    doc.setProperty("surname", "Snow");
-    session.begin();
-    session.save(doc);
-    session.commit();
+    session.executeInTx(transaction -> {
+      final var doc = transaction.newEntity("Person");
+      doc.setProperty("name", "Jon");
+      doc.setProperty("surname", "Snow");
+    });
+
     session.close();
   }
 
   @Test
   public void testCreateIndexJavaAPI() {
-    final DatabaseSessionInternal session =
+    final var session =
         (DatabaseSessionInternal) remote.open("LuceneCreateIndexIntegrationTest", "admin",
             "admin");
-    SchemaClass person = session.getMetadata().getSchema().getClass("Person");
+    var person = session.getMetadata().getSchema().getClass("Person");
 
     if (person == null) {
       person = session.getMetadata().getSchema().createClass("Person");
     }
     if (!person.existsProperty("name")) {
-      person.createProperty(session, "name", PropertyType.STRING);
+      person.createProperty("name", PropertyType.STRING);
     }
     if (!person.existsProperty("surname")) {
-      person.createProperty(session, "surname", PropertyType.STRING);
+      person.createProperty("surname", PropertyType.STRING);
     }
 
-    person.createIndex(session,
+    person.createIndex(
         "Person.firstName_lastName",
         "FULLTEXT",
         null,
         null,
         "LUCENE", new String[]{"name", "surname"});
     Assert.assertTrue(
-        session.getMetadata().getSchema().getClass("Person")
+        session.getMetadata().getSchema().getClassInternal("Person")
             .areIndexed(session, "name", "surname"));
   }
 

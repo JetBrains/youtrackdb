@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -70,11 +71,12 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
         return false;
       }
 
+      @Nullable
       @Override
       public T next() {
         try {
 
-          T result = queue.take();
+          var result = queue.take();
           return result;
         } catch (InterruptedException e) {
           setCompleted();
@@ -116,14 +118,14 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   public boolean addAll(final Collection<? extends T> c) {
-    for (T t : c) {
+    for (var t : c) {
       add(t);
     }
     return true;
   }
 
   public boolean addAll(final int index, final Collection<? extends T> c) {
-    for (T t : c) {
+    for (var t : c) {
       add(t);
     }
     return true;
@@ -187,6 +189,7 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     return wrapped.getLimit();
   }
 
+  @Nullable
   public LegacyResultSet<T> setLimit(final int limit) {
     wrapped.setLimit(limit);
     return null;
@@ -231,7 +234,7 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   public LiveLegacyResultSet<T> copy() {
-    LiveLegacyResultSet<T> newValue = new LiveLegacyResultSet<T>();
+    var newValue = new LiveLegacyResultSet<T>();
     return newValue;
   }
 }

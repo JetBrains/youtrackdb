@@ -18,8 +18,6 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,31 +30,31 @@ public class LuceneSingleFieldEmbeddedTest extends BaseLuceneTest {
   @Test
   public void loadAndTest() {
 
-    ResultSet docs = db.query("select * from Song where [title] LUCENE \"(title:mountain)\"");
+    var docs = session.query("select * from Song where [title] LUCENE \"(title:mountain)\"");
 
     Assert.assertEquals(docs.stream().count(), 4);
 
-    docs = db.query("select * from Song where [author] LUCENE \"(author:Fabbio)\"");
+    docs = session.query("select * from Song where [author] LUCENE \"(author:Fabbio)\"");
 
     Assert.assertEquals(docs.stream().count(), 87);
 
     // not WORK BECAUSE IT USES only the first index
     // String query = "select * from Song where [title] LUCENE \"(title:mountain)\"  and [author]
     // LUCENE \"(author:Fabbio)\""
-    String query =
+    var query =
         "select * from Song where [title] LUCENE \"(title:mountain)\"  and author = 'Fabbio'";
-    docs = db.query(query);
+    docs = session.query(query);
 
     Assert.assertEquals(docs.stream().count(), 1);
   }
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream)).close();
+    session.runScript("sql", getScriptFromStream(stream)).close();
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
-    db.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE").close();
   }
 }

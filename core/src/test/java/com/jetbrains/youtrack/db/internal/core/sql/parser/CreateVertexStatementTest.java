@@ -17,7 +17,7 @@ public class CreateVertexStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -37,7 +37,6 @@ public class CreateVertexStatementTest {
   public void testSimpleCreate() {
     checkRightSyntax("create vertex");
     checkRightSyntax("create vertex V");
-    checkRightSyntax("create vertex x cluster t");
     checkWrongSyntax("create vertex V foo");
     checkRightSyntax("create vertex Foo (a) values (1)");
     checkRightSyntax("create vertex Foo (a) values ('1')");
@@ -72,15 +71,8 @@ public class CreateVertexStatementTest {
     checkRightSyntax("create vertex Foo SET a = { }");
   }
 
-  @Test
-  public void testInsertIntoCluster() {
-    checkRightSyntax(
-        "create vertex cluster:default (equaledges, name, list) values ('yes', 'square', ['bottom',"
-            + " 'top','left','right'] )");
-  }
-
   private void printTree(String s) {
-    YouTrackDBSql osql = getParserFor(s);
+    var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
 
@@ -91,7 +83,7 @@ public class CreateVertexStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Synchronous command result manager.
@@ -46,7 +47,7 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
   }
 
   @Override
-  public boolean result(DatabaseSessionInternal querySession, final Object iRecord) {
+  public boolean result(@Nonnull DatabaseSessionInternal session, final Object iRecord) {
     if (iRecord instanceof DBRecord) {
       alreadySent.add((DBRecord) iRecord);
       fetchedRecordsToSend.remove(iRecord);
@@ -55,12 +56,11 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
     if (wrappedResultListener != null)
     // NOTIFY THE WRAPPED LISTENER
     {
-      wrappedResultListener.result(querySession, iRecord);
+      wrappedResultListener.result(session, iRecord);
     }
 
-    fetchRecord(
-        iRecord,
-        new RemoteFetchListener() {
+    fetchRecord(session,
+        iRecord, new RemoteFetchListener() {
           @Override
           protected void sendRecord(RecordAbstract iLinked) {
             if (!alreadySent.contains(iLinked)) {
@@ -80,9 +80,9 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
   }
 
   @Override
-  public void linkdedBySimpleValue(EntityImpl entity) {
+  public void linkdedBySimpleValue(DatabaseSessionInternal db, EntityImpl entity) {
 
-    RemoteFetchListener listener =
+    var listener =
         new RemoteFetchListener() {
           @Override
           protected void sendRecord(RecordAbstract iLinked) {
@@ -93,20 +93,21 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
 
           @Override
           public void parseLinked(
-              EntityImpl iRootRecord,
+              DatabaseSessionInternal db, EntityImpl iRootRecord,
               Identifiable iLinked,
               Object iUserObject,
               String iFieldName,
               FetchContext iContext)
               throws FetchException {
             if (!(iLinked instanceof RecordId)) {
-              sendRecord(iLinked.getRecord());
+              var transaction = db.getActiveTransaction();
+              sendRecord(transaction.load(iLinked));
             }
           }
 
           @Override
           public void parseLinkedCollectionValue(
-              EntityImpl iRootRecord,
+              DatabaseSessionInternal db, EntityImpl iRootRecord,
               Identifiable iLinked,
               Object iUserObject,
               String iFieldName,
@@ -114,11 +115,12 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
               throws FetchException {
 
             if (!(iLinked instanceof RecordId)) {
-              sendRecord(iLinked.getRecord());
+              var transaction = db.getActiveTransaction();
+              sendRecord(transaction.load(iLinked));
             }
           }
         };
     final FetchContext context = new RemoteFetchContext();
-    FetchHelper.fetch(entity, entity, FetchHelper.buildFetchPlan(""), listener, context, "");
+    FetchHelper.fetch(db, entity, entity, FetchHelper.buildFetchPlan(""), listener, context, "");
   }
 }

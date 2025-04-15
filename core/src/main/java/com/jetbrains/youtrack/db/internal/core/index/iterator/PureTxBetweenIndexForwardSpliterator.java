@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChange
 import java.util.Comparator;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair<Object, RID>> {
 
@@ -40,11 +41,11 @@ public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair
       toKey = this.oIndexTxAwareOneValue.enhanceToCompositeKeyBetweenAsc(toKey, toInclusive);
     }
 
-    final Object[] keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);
+    final var keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);
     if (keys.length == 0) {
       nextKey = null;
     } else {
-      Object firstKey = keys[0];
+      var firstKey = keys[0];
       lastKey = keys[1];
 
       nextKey = firstKey;
@@ -77,6 +78,7 @@ public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair
     return true;
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<Object, RID>> trySplit() {
     return null;

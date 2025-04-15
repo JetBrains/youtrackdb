@@ -24,83 +24,56 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.internal.client.remote.LiveQueryClientListener;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteQueryResult;
+import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.metadata.schema.SchemaRemote;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.HookReplacedRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaProxy;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceAction;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
+import javax.annotation.Nonnull;
 
-/**
- *
- */
-public class DatabaseSessionRemote extends DatabaseSessionAbstract {
+
+public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerRemote> {
 
   protected StorageRemoteSession sessionMetadata;
   private YouTrackDBConfigImpl config;
   private StorageRemote storage;
-  private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
 
-  public DatabaseSessionRemote(final StorageRemote storage, SharedContext sharedContext) {
+  public DatabaseSessionRemote(final StorageRemote storage,
+      SharedContext<IndexManagerRemote> sharedContext) {
     activateOnCurrentThread();
 
     try {
@@ -112,44 +85,16 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       this.sharedContext = sharedContext;
       this.componentsFactory = storage.getComponentsFactory();
 
-      unmodifiableHooks = Collections.unmodifiableMap(hooks);
-
-      localCache = new LocalRecordCache();
-
-      try {
-        var cfg = storage.getConfiguration();
-        if (cfg != null) {
-          var ctx = cfg.getContextConfiguration();
-          if (ctx != null) {
-            nonTxReadMode =
-                FrontendTransactionNoTx.NonTxReadMode.valueOf(
-                    ctx.getValueAsString(GlobalConfiguration.NON_TX_READS_WARNING_MODE));
-          } else {
-            nonTxReadMode = NonTxReadMode.WARN;
-          }
-        } else {
-          nonTxReadMode = NonTxReadMode.WARN;
-        }
-      } catch (Exception e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid value for %s, using %s",
-                e,
-                GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey(),
-                NonTxReadMode.WARN);
-        nonTxReadMode = NonTxReadMode.WARN;
-      }
-
       init();
 
       databaseOwner = this;
     } catch (Exception t) {
-      DatabaseRecordThreadLocal.instance().remove();
-
-      throw BaseException.wrapException(new DatabaseException("Error on opening database "), t);
+      activeSession.remove();
+      throw BaseException.wrapException(
+          new DatabaseException(getDatabaseName(), "Error on opening database "), t, this);
     }
   }
+
 
   public DatabaseSession open(final String iUserName, final String iUserPassword) {
     throw new UnsupportedOperationException("Use YouTrackDB");
@@ -182,33 +127,36 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
   @Override
   public void set(ATTRIBUTES iAttribute, Object iValue) {
-    String query = "alter database " + iAttribute.name() + " ? ";
+    assert assertIfNotActive();
+    var query = "alter database " + iAttribute.name() + " ? ";
     // Bypass the database command for avoid transaction management
-    RemoteQueryResult result = storage.command(this, query, new Object[]{iValue});
+    var result = storage.command(this, query, new Object[]{iValue});
     result.getResult().close();
     storage.reload(this);
   }
 
   @Override
   public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
-    String query = "alter database " + attribute.name() + " ? ";
+    assert assertIfNotActive();
+    var query = "alter database " + attribute.name() + " ? ";
     // Bypass the database command for avoid transaction management
-    RemoteQueryResult result = storage.command(this, query, new Object[]{value});
+    var result = storage.command(this, query, new Object[]{value});
     result.getResult().close();
     storage.reload(this);
   }
 
   @Override
   public DatabaseSession setCustom(String name, Object iValue) {
+    assert assertIfNotActive();
     if ("clear".equals(name) && iValue == null) {
-      String query = "alter database CUSTOM 'clear'";
+      var query = "alter database CUSTOM 'clear'";
       // Bypass the database command for avoid transaction management
-      RemoteQueryResult result = storage.command(this, query, new Object[]{});
+      var result = storage.command(this, query, new Object[]{});
       result.getResult().close();
     } else {
-      String query = "alter database CUSTOM  " + name + " = ?";
+      var query = "alter database CUSTOM  " + name + " = ?";
       // Bypass the database command for avoid transaction management
-      RemoteQueryResult result = storage.command(this, query, new Object[]{iValue});
+      var result = storage.command(this, query, new Object[]{iValue});
       result.getResult().close();
       storage.reload(this);
     }
@@ -216,13 +164,16 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public DatabaseSessionInternal copy() {
-    DatabaseSessionRemote database = new DatabaseSessionRemote(storage, this.sharedContext);
+    assertIfNotActive();
+    var database = new DatabaseSessionRemote(storage, this.sharedContext);
     database.storage = storage.copy(this, database);
+
     database.storage.addUser();
     database.status = STATUS.OPEN;
     database.applyAttributes(config);
     database.initAtFirstOpen();
     database.user = this.user;
+
     this.activateOnCurrentThread();
     return database;
   }
@@ -243,29 +194,26 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       status = STATUS.OPEN;
 
       initAtFirstOpen();
-      this.user =
-          new ImmutableUser(this,
-              -1,
-              new SecurityUserIml(this, user, password)); // .addRole(new Role("passthrough", null,
-      // Role.ALLOW_MODES.ALLOW_ALL_BUT)));
+      this.user = new ImmutableUser(this, user, password, SecurityUserImpl.DATABASE_USER, null);
 
       // WAKE UP LISTENERS
       callOnOpenListeners();
 
     } catch (BaseException e) {
       close();
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
       throw e;
     } catch (Exception e) {
       close();
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
       throw BaseException.wrapException(
-          new DatabaseException("Cannot open database url=" + getURL()), e);
+          new DatabaseException(getDatabaseName(), "Cannot open database url=" + getURL()), e,
+          this);
     }
   }
 
   private void applyAttributes(YouTrackDBConfigImpl config) {
-    for (Entry<ATTRIBUTES, Object> attrs : config.getAttributes().entrySet()) {
+    for (var attrs : config.getAttributes().entrySet()) {
       this.set(attrs.getKey(), attrs.getValue());
     }
   }
@@ -275,9 +223,9 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       return;
     }
 
-    RecordSerializerFactory serializerFactory = RecordSerializerFactory.instance();
+    var serializerFactory = RecordSerializerFactory.instance();
     serializer = serializerFactory.getFormat(RecordSerializerNetworkV37Client.NAME);
-    localCache.startup();
+    localCache.startup(this);
     componentsFactory = storage.getComponentsFactory();
     user = null;
 
@@ -294,7 +242,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   private void applyListeners(YouTrackDBConfigImpl config) {
-    for (SessionListener listener : config.getListeners()) {
+    for (var listener : config.getListeners()) {
       registerListener(listener);
     }
   }
@@ -304,7 +252,13 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public void setSessionMetadata(StorageRemoteSession sessionMetadata) {
+    assert assertIfNotActive();
     this.sessionMetadata = sessionMetadata;
+  }
+
+  @Override
+  public RecordSerializerNetwork getSerializer() {
+    return (RecordSerializerNetwork) super.getSerializer();
   }
 
   @Override
@@ -313,6 +267,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   }
 
   public StorageRemote getStorageRemote() {
+    assert assertIfNotActive();
     return storage;
   }
 
@@ -321,157 +276,188 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     return storage;
   }
 
-  @Override
-  public void replaceStorage(Storage iNewStorage) {
-    throw new UnsupportedOperationException("unsupported replace of storage for remote database");
-  }
-
   private void checkAndSendTransaction() {
+    if (this.currentTx != null && this.currentTx.isActive()) {
+      var optimistic = (FrontendClientServerTransaction) this.currentTx;
+      optimistic.preProcessRecordsAndExecuteCallCallbacks();
 
-    if (this.currentTx.isActive() && ((TransactionOptimistic) this.currentTx).isChanged()) {
-      var optimistic = (TransactionOptimistic) this.currentTx;
+      var operationsToSend = optimistic.getOperationsToSendOnClient();
+      var dirtyCountersToSend = optimistic.getReceivedDirtyCounters();
 
-      if (((TransactionOptimistic) this.getTransaction()).isStartedOnServer()) {
+      if (!operationsToSend.isEmpty() || !dirtyCountersToSend.isEmpty()) {
         storage.sendTransactionState(optimistic);
-      } else {
-        storage.beginTransaction(optimistic);
       }
-
-      optimistic.resetChangesTracking();
-      optimistic.setSentToServer(true);
     }
   }
 
   @Override
   public ResultSet query(String query, Object... args) {
     checkOpenness();
-    checkAndSendTransaction();
+    assert assertIfNotActive();
+    beginReadOnly();
 
-    RemoteQueryResult result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+
+      var result = storage.query(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
-  public ResultSet query(String query, Map args) {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
+  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
+    return query(query, true, args);
   }
 
   @Override
-  public ResultSet indexQuery(String indexName, String query, Object... args) {
+  public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
+    assert assertIfNotActive();
+    beginReadOnly();
 
-    if (getTransaction().isActive()) {
-      FrontendTransactionIndexChanges changes = getTransaction().getIndexChanges(indexName);
-      Set<String> changedIndexes =
-          ((TransactionOptimisticClient) getTransaction()).getIndexChanged();
-      if (changedIndexes.contains(indexName) || changes != null) {
+    try {
+      if (syncTx) {
         checkAndSendTransaction();
       }
-    }
 
-    RemoteQueryResult result = storage.command(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
-    }
+      var result = storage.query(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
 
-    return result.getResult();
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
+    }
   }
 
   @Override
-  public ResultSet command(String query, Object... args) {
+  public ResultSet execute(String query, Object... args) {
     checkOpenness();
-    checkAndSendTransaction();
+    assert assertIfNotActive();
 
-    RemoteQueryResult result = storage.command(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+
+      var result = storage.command(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
-  public ResultSet command(String query, Map args) {
+  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
+    assert assertIfNotActive();
+
     checkAndSendTransaction();
+    try {
+      var result = storage.command(this, query, args);
 
-    RemoteQueryResult result = storage.command(this, query, args);
+      if (result.isReloadMetadata()) {
+        reload();
+      }
 
-    if (result.isReloadMetadata()) {
-      reload();
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
+    }
+  }
+
+  @Override
+  public int begin(FrontendTransactionImpl transaction) {
+    var result = super.begin(transaction);
+
+    if (result == 1) {
+      storage.beginTransaction((FrontendClientServerTransaction) transaction);
     }
 
-    return result.getResult();
+    return result;
   }
 
   @Override
-  protected TransactionOptimistic newTxInstance() {
-    return new TransactionOptimisticClient(this);
+  protected FrontendTransactionImpl newTxInstance(long txId) {
+    assert assertIfNotActive();
+    return new FrontendClientServerTransaction(this, txId);
+  }
+
+
+  @Override
+  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
+    assert assertIfNotActive();
+    return new FrontendClientServerTransaction(this, txId, true);
   }
 
   @Override
-  public ResultSet execute(String language, String script, Object... args)
+  public ResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    checkAndSendTransaction();
-    RemoteQueryResult result = storage.execute(this, language, script, args);
+    assert assertIfNotActive();
 
-    if (result.isReloadMetadata()) {
-      reload();
+    try {
+      checkAndSendTransaction();
+      var result = storage.execute(this, language, script, args);
+
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args)
+  public ResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
-    checkAndSendTransaction();
+    assert assertIfNotActive();
 
-    RemoteQueryResult result = storage.execute(this, language, script, args);
+    try {
+      checkAndSendTransaction();
 
-    if (result.isReloadMetadata()) {
-      reload();
+      var result = storage.execute(this, language, script, args);
+
+      if (result.isReloadMetadata()) {
+        reload();
+      }
+
+      return result.getResult();
+    } catch (Exception e) {
+      rollback(true);
+      throw e;
     }
-
-    return result.getResult();
   }
 
   public void closeQuery(String queryId) {
+    assert assertIfNotActive();
     storage.closeQuery(this, queryId);
     queryClosed(queryId);
   }
 
   public void fetchNextPage(RemoteResultSet rs) {
     checkOpenness();
+    assert assertIfNotActive();
     checkAndSendTransaction();
     storage.fetchNextPage(this, rs);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
   }
 
   @Override
@@ -479,146 +465,111 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
     throw new UnsupportedOperationException();
   }
 
-  public static void updateSchema(StorageRemote storage,
-      EntityImpl schema) {
+  public static void updateSchema(StorageRemote storage) {
     //    storage.get
-    SharedContext shared = storage.getSharedContext();
+    var shared = storage.getSharedContext();
     if (shared != null) {
-      ((SchemaRemote) shared.getSchema()).update(null, schema);
-    }
-  }
-
-  public static void updateIndexManager(StorageRemote storage, EntityImpl indexManager) {
-    SharedContext shared = storage.getSharedContext();
-    if (shared != null) {
-      ((IndexManagerRemote) shared.getIndexManager()).update(indexManager);
+      ((SchemaRemote) shared.getSchema()).requestUpdate();
     }
   }
 
   public static void updateFunction(StorageRemote storage) {
-    SharedContext shared = storage.getSharedContext();
+    var shared = storage.getSharedContext();
     if (shared != null) {
       (shared.getFunctionLibrary()).update();
     }
   }
 
   public static void updateSequences(StorageRemote storage) {
-    SharedContext shared = storage.getSharedContext();
+    var shared = storage.getSharedContext();
     if (shared != null) {
       (shared.getSequenceLibrary()).update();
     }
   }
 
+  public static void updateIndexManager(StorageRemote storage) {
+    var shared = storage.getSharedContext();
+    if (shared != null) {
+      ((IndexManagerRemote) shared.getIndexManager()).requestUpdate();
+    }
+  }
+
   @Override
-  public int addBlobCluster(final String iClusterName, final Object... iParameters) {
+  public int addBlobCollection(final String iCollectionName, final Object... iParameters) {
     int id;
-    try (ResultSet resultSet = command("create blob cluster :1", iClusterName)) {
+    assert assertIfNotActive();
+    try (var resultSet = execute("create blob collection :1", iCollectionName)) {
       assert resultSet.hasNext();
-      Result result = resultSet.next();
+      var result = resultSet.next();
       assert result.getProperty("value") != null;
       id = result.getProperty("value");
       return id;
     }
   }
 
-  @Override
-  public Identifiable beforeCreateOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
-    RecordHook.RESULT res = callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
-    if (res == RecordHook.RESULT.RECORD_CHANGED) {
-      if (id instanceof EntityImpl) {
-        ((EntityImpl) id).validate();
-      }
-      return id;
-    } else {
-      if (res == RecordHook.RESULT.RECORD_REPLACED) {
-        DBRecord replaced = HookReplacedRecordThreadLocal.INSTANCE.get();
-        if (replaced instanceof EntityImpl) {
-          ((EntityImpl) replaced).validate();
-        }
-        return replaced;
-      }
-    }
-    return null;
+  public void beforeUpdateOperations(final RecordAbstract recordAbstract,
+      java.lang.String collectionName) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
   }
 
   @Override
-  public Identifiable beforeUpdateOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
-    RecordHook.RESULT res = callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
-    if (res == RecordHook.RESULT.RECORD_CHANGED) {
-      if (id instanceof EntityImpl) {
-        ((EntityImpl) id).validate();
-      }
-      return id;
-    } else {
-      if (res == RecordHook.RESULT.RECORD_REPLACED) {
-        DBRecord replaced = HookReplacedRecordThreadLocal.INSTANCE.get();
-        if (replaced instanceof EntityImpl) {
-          ((EntityImpl) replaced).validate();
-        }
-        return replaced;
-      }
-    }
-    return null;
+  public void afterUpdateOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
+
+  }
+
+  public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
   }
 
   @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
-    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
+  public void afterCreateOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
   }
 
-  public void afterUpdateOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnUpdate(this, entity);
-      }
-    }
-  }
+  public void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName) {
+    assert assertIfNotActive();
 
-  public void afterCreateOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnCreate(this, entity);
-      }
-    }
-  }
-
-  public void afterDeleteOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_DELETE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnDelete(this, entity);
-      }
-    }
+    callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
   }
 
   @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
-    return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
+  public void afterDeleteOperations(RecordAbstract recordAbstract) {
+    assert assertIfNotActive();
+
+    callbackHooks(TYPE.AFTER_DELETE, recordAbstract);
   }
 
   @Override
-  public void afterReadOperations(Identifiable identifiable) {
-    callbackHooks(RecordHook.TYPE.AFTER_READ, identifiable);
+  public boolean beforeReadOperations(RecordAbstract identifiable) {
+    assert assertIfNotActive();
+    return false;
   }
 
   @Override
-  public boolean executeExists(RID rid) {
+  public void afterReadOperations(RecordAbstract identifiable) {
+    assert assertIfNotActive();
+    callbackHooks(RecordHook.TYPE.READ, identifiable);
+  }
+
+  @Override
+  public boolean executeExists(@Nonnull RID rid) {
     checkOpenness();
-    checkIfActive();
+    assert assertIfNotActive();
 
     try {
-      DBRecord record = getTransaction().getRecord(rid);
-      if (record == FrontendTransactionAbstract.DELETED_RECORD) {
+      if (getTransactionInternal().isDeletedInTx(rid)) {
         return false;
       }
+      DBRecord record = getTransactionInternal().getRecord(rid);
       if (record != null) {
         return true;
       }
@@ -634,88 +585,53 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       return storage.recordExists(this, rid);
     } catch (Exception t) {
       throw BaseException.wrapException(
-          new DatabaseException(
+          new DatabaseException(getDatabaseName(),
               "Error on retrieving record "
                   + rid
-                  + " (cluster: "
-                  + getStorage().getPhysicalClusterNameById(rid.getClusterId())
+                  + " (collection: "
+                  + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
                   + ")"),
-          t);
+          t, this);
     }
   }
 
-  public String getClusterName(final DBRecord record) {
-    // DON'T ASSIGN CLUSTER WITH REMOTE: SERVER KNOWS THE RIGHT CLUSTER BASED ON LOCALITY
-    return null;
+  public String getCollectionName(final @Nonnull DBRecord record) {
+    throw new UnsupportedOperationException();
   }
 
-  @Override
-  public <T> T sendSequenceAction(SequenceAction action)
-      throws ExecutionException, InterruptedException {
-    throw new UnsupportedOperationException(
-        "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
-  }
-
-  public void delete(final DBRecord record) {
+  public void delete(final @Nonnull DBRecord record) {
     checkOpenness();
-    if (record == null) {
-      throw new DatabaseException("Cannot delete null entity");
-    }
-    if (record instanceof Vertex) {
-      VertexInternal.deleteLinks((Vertex) record);
-    } else {
-      if (record instanceof Edge) {
-        EdgeEntityImpl.deleteLinks((Edge) record);
-      }
-    }
+    assert assertIfNotActive();
 
-    try {
-      currentTx.deleteRecord((RecordAbstract) record);
-    } catch (BaseException e) {
-      throw e;
-    } catch (Exception e) {
-      if (record instanceof EntityImpl) {
-        throw BaseException.wrapException(
-            new DatabaseException(
-                "Error on deleting record "
-                    + record.getIdentity()
-                    + " of class '"
-                    + ((EntityImpl) record).getClassName()
-                    + "'"),
-            e);
-      } else {
-        throw BaseException.wrapException(
-            new DatabaseException("Error on deleting record " + record.getIdentity()), e);
-      }
-    }
+    record.delete();
   }
 
   @Override
-  public int addCluster(final String iClusterName, final Object... iParameters) {
-    checkIfActive();
-    return storage.addCluster(this, iClusterName, iParameters);
+  public int addCollection(final String iCollectionName, final Object... iParameters) {
+    assert assertIfNotActive();
+    return storage.addCollection(this, iCollectionName, iParameters);
   }
 
   @Override
-  public int addCluster(final String iClusterName, final int iRequestedId) {
-    checkIfActive();
-    return storage.addCluster(this, iClusterName, iRequestedId);
+  public int addCollection(final String iCollectionName, final int iRequestedId) {
+    assert assertIfNotActive();
+    return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
   public RecordConflictStrategy getConflictStrategy() {
-    checkIfActive();
+    assert assertIfNotActive();
     return getStorageInfo().getRecordConflictStrategy();
   }
 
-  public DatabaseSessionAbstract setConflictStrategy(final String iStrategyName) {
-    checkIfActive();
+  public DatabaseSessionRemote setConflictStrategy(final String iStrategyName) {
+    assert assertIfNotActive();
     storage.setConflictStrategy(
         YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
     return this;
   }
 
-  public DatabaseSessionAbstract setConflictStrategy(final RecordConflictStrategy iResolver) {
-    checkIfActive();
+  public DatabaseSessionRemote setConflictStrategy(final RecordConflictStrategy iResolver) {
+    assert assertIfNotActive();
     storage.setConflictStrategy(iResolver);
     return this;
   }
@@ -724,116 +640,121 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int iClusterId, boolean countTombstones) {
-    checkIfActive();
-    return storage.count(this, iClusterId, countTombstones);
+  public long countCollectionElements(int iCollectionId, boolean countTombstones) {
+    assert assertIfNotActive();
+    return storage.count(this, iCollectionId, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
-    checkIfActive();
-    return storage.count(this, iClusterIds, countTombstones);
+  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
+    assert assertIfNotActive();
+    return storage.count(this, iCollectionIds, countTombstones);
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public long countClusterElements(final String iClusterName) {
-    checkIfActive();
+  public long countCollectionElements(final String iCollectionName) {
+    assert assertIfNotActive();
 
-    final int clusterId = getClusterIdByName(iClusterName);
-    if (clusterId < 0) {
-      throw new IllegalArgumentException("Cluster '" + iClusterName + "' was not found");
+    final var collectionId = getCollectionIdByName(iCollectionName);
+    if (collectionId < 0) {
+      throw new IllegalArgumentException("Collection '" + iCollectionName + "' was not found");
     }
-    return storage.count(this, clusterId);
+    return storage.count(this, collectionId);
   }
 
   @Override
-  public long getClusterRecordSizeByName(final String clusterName) {
-    checkIfActive();
+  public long getCollectionRecordSizeByName(final String collectionName) {
+    assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeByName(clusterName);
+      return storage.getCollectionRecordsSizeByName(collectionName);
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new DatabaseException(
-              "Error on reading records size for cluster '" + clusterName + "'"),
-          e);
+          new DatabaseException(getDatabaseName(),
+              "Error on reading records size for collection '" + collectionName + "'"),
+          e, this);
     }
   }
 
   @Override
-  public boolean dropCluster(final String iClusterName) {
-    checkIfActive();
-    final int clusterId = getClusterIdByName(iClusterName);
-    SchemaProxy schema = metadata.getSchema();
-    SchemaClass clazz = schema.getClassByClusterId(clusterId);
+  public boolean dropCollection(final String iCollectionName) {
+    assert assertIfNotActive();
+    final var collectionId = getCollectionIdByName(iCollectionName);
+    var schema = metadata.getSchema();
+    var clazz = schema.getClassByCollectionId(collectionId);
+
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(iClusterName);
+
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(iCollectionName);
     }
-    getLocalCache().freeCluster(clusterId);
-    checkForClusterPermissions(iClusterName);
-    return storage.dropCluster(this, iClusterName);
+    getLocalCache().freeCollection(collectionId);
+    return storage.dropCollection(this, iCollectionName);
   }
 
   @Override
-  public boolean dropCluster(final int clusterId) {
-    checkIfActive();
+  public boolean dropCollection(final int collectionId) {
+    assert assertIfNotActive();
 
-    SchemaProxy schema = metadata.getSchema();
-    final SchemaClass clazz = schema.getClassByClusterId(clusterId);
+    var schema = metadata.getSchema();
+    final var clazz = schema.getClassByCollectionId(collectionId);
     if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
-    }
-    getLocalCache().freeCluster(clusterId);
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(getClusterNameById(clusterId));
+      throw new DatabaseException(this,
+          "Cannot drop collection '" + getCollectionNameById(collectionId)
+              + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
-    checkForClusterPermissions(getClusterNameById(clusterId));
+    getLocalCache().freeCollection(collectionId);
+    if (schema.getBlobCollections().contains(collectionId)) {
+      schema.removeBlobCollection(getCollectionNameById(collectionId));
+    }
 
-    final String clusterName = getClusterNameById(clusterId);
-    if (clusterName == null) {
+    final var collectionName = getCollectionNameById(collectionId);
+    if (collectionName == null) {
       return false;
     }
 
-    final RecordIteratorCluster<DBRecord> iteratorCluster = browseCluster(clusterName);
-    if (iteratorCluster == null) {
+    final var iteratorCollection = browseCollection(collectionName);
+    if (iteratorCollection == null) {
       return false;
     }
 
-    executeInTxBatches((Iterator<DBRecord>) iteratorCluster,
+    executeInTxBatches(iteratorCollection,
         (session, record) -> record.delete());
 
-    return storage.dropCluster(this, clusterId);
+    return storage.dropCollection(this, collectionId);
   }
 
-  public boolean dropClusterInternal(int clusterId) {
-    return storage.dropCluster(this, clusterId);
+  public boolean dropCollectionInternal(int collectionId) {
+    assert assertIfNotActive();
+    return storage.dropCollection(this, collectionId);
   }
 
   @Override
-  public long getClusterRecordSizeById(final int clusterId) {
-    checkIfActive();
+  public long getCollectionRecordSizeById(final int collectionId) {
+    assert assertIfNotActive();
     try {
-      return storage.getClusterRecordsSizeById(clusterId);
+      return storage.getCollectionRecordsSizeById(collectionId);
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new DatabaseException(
-              "Error on reading records size for cluster with id '" + clusterId + "'"),
-          e);
+          new DatabaseException(getDatabaseName(),
+              "Error on reading records size for collection with id '" + collectionId + "'"),
+          e, this);
     }
   }
 
   @Override
   public long getSize() {
-    checkIfActive();
+    assert assertIfNotActive();
     return storage.getSize(this);
   }
 
@@ -873,7 +794,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   @Override
   public String incrementalBackup(final Path path) throws UnsupportedOperationException {
     checkOpenness();
-    checkIfActive();
+    assert assertIfNotActive();
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
     return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
@@ -881,7 +802,7 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
   @Override
   public RecordMetadata getRecordMetadata(final RID rid) {
-    checkIfActive();
+    assert assertIfNotActive();
     return storage.getRecordMetadata(this, rid);
   }
 
@@ -924,23 +845,26 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
   /**
    * {@inheritDoc}
    */
-  public SBTreeCollectionManager getSbTreeCollectionManager() {
-    return storage.getSBtreeCollectionManager();
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
+    assert assertIfNotActive();
+    return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
   @Override
   public void reload() {
-    checkIfActive();
+    assert assertIfNotActive();
 
     if (this.isClosed()) {
-      throw new DatabaseException("Cannot reload a closed db");
+      throw new DatabaseException(getDatabaseName(), "Cannot reload a closed db");
     }
+
     metadata.reload();
     storage.reload(this);
   }
 
   @Override
-  public void internalCommit(TransactionOptimistic transaction) {
+  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
+    assert assertIfNotActive();
     this.storage.commit(transaction);
   }
 
@@ -954,8 +878,6 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       return;
     }
 
-    checkIfActive();
-
     try {
       closeActiveQueries();
       localCache.shutdown();
@@ -966,7 +888,9 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       }
 
       try {
-        rollback(true);
+        if (currentTx != null && currentTx.isActive()) {
+          rollback(true);
+        }
       } catch (Exception e) {
         LogManager.instance().error(this, "Exception during rollback of active transaction", e);
       }
@@ -984,83 +908,68 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
 
     } finally {
       // ALWAYS RESET TL
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
     }
   }
 
   @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    return storage.getClusterDataRange(this, currentClusterId);
-  }
-
-  @Override
-  public void setDefaultClusterId(int addCluster) {
-    storage.setDefaultClusterId(addCluster);
-  }
-
-  @Override
-  public long getLastClusterPosition(int clusterId) {
+  public String getCollectionRecordConflictStrategy(int collectionId) {
     throw new UnsupportedOperationException();
   }
 
-  @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public TransactionOptimisticClient getActiveTx() {
-    if (currentTx.isActive()) {
-      return (TransactionOptimisticClient) currentTx;
+  public FrontendClientServerTransaction getActiveTx() {
+    assert assertIfNotActive();
+    if (currentTx != null && currentTx.isActive()) {
+      return (FrontendClientServerTransaction) currentTx;
     } else {
-      throw new DatabaseException("No active transaction found");
+      throw new DatabaseException(getDatabaseName(), "No active transaction found");
     }
   }
 
   @Override
-  public int[] getClustersIds(Set<String> filterClusters) {
-    checkIfActive();
-    return filterClusters.stream().map((c) -> getClusterIdByName(c)).mapToInt(i -> i).toArray();
+  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
+    assert assertIfNotActive();
+    return filterCollections.stream().map(this::getCollectionIdByName).mapToInt(i -> i).toArray();
   }
 
   /**
    * {@inheritDoc}
    */
   @Override
-  public void truncateCluster(String clusterName) {
-    command("truncate cluster " + clusterName).close();
+  public void truncateCollection(String collectionName) {
+    assert assertIfNotActive();
+    execute("truncate collection " + collectionName).close();
   }
 
   @Override
   public void truncateClass(String name) {
-    command("truncate class " + name).close();
+    assert assertIfNotActive();
+    execute("truncate class " + name).close();
   }
 
   @Override
-  public long truncateClusterInternal(String name) {
+  public long truncateCollectionInternal(String name) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public long truncateClass(String name, boolean polimorfic) {
+    assert assertIfNotActive();
+
     long count = 0;
     if (polimorfic) {
-      try (ResultSet result = command("truncate class " + name + " polymorphic ")) {
+      try (var result = execute("truncate class " + name + " polymorphic ")) {
         while (result.hasNext()) {
           count += result.next().<Long>getProperty("count");
         }
       }
     } else {
-      try (ResultSet result = command("truncate class " + name)) {
+      try (var result = execute("truncate class " + name)) {
         while (result.hasNext()) {
           count += result.next().<Long>getProperty("count");
         }
       }
     }
     return count;
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    return nonTxReadMode;
   }
 }

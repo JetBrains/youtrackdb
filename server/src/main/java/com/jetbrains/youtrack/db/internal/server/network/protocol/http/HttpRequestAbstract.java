@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart.HttpMultipartBaseInputStream;
@@ -29,11 +29,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Maintains information about current HTTP request.
  */
-public abstract class HttpRequestAbstract implements OHttpRequest {
+public abstract class HttpRequestAbstract implements HttpRequest {
 
   private final ContextConfiguration configuration;
   private final InputStream in;
@@ -56,6 +57,7 @@ public abstract class HttpRequestAbstract implements OHttpRequest {
     configuration = iConfiguration;
   }
 
+  @Nullable
   @Override
   public String getUser() {
     return authorization != null ? authorization.substring(0, authorization.indexOf(':')) : null;
@@ -66,6 +68,7 @@ public abstract class HttpRequestAbstract implements OHttpRequest {
     return in;
   }
 
+  @Nullable
   @Override
   public String getParameter(final String iName) {
     return parameters != null ? parameters.get(iName) : null;
@@ -77,24 +80,25 @@ public abstract class HttpRequestAbstract implements OHttpRequest {
       setHeaders(new HashMap<String, String>());
     }
 
-    final int pos = h.indexOf(':');
+    final var pos = h.indexOf(':');
     if (pos > -1) {
       getHeaders()
           .put(h.substring(0, pos).trim().toLowerCase(Locale.ENGLISH), h.substring(pos + 1).trim());
     }
   }
 
+  @Nullable
   @Override
   public Map<String, String> getUrlEncodedContent() {
     if (content == null || content.length() < 1) {
       return null;
     }
-    HashMap<String, String> retMap = new HashMap<String, String>();
+    var retMap = new HashMap<String, String>();
     String key;
     String value;
-    String[] pairs = content.split("\\&");
-    for (int i = 0; i < pairs.length; i++) {
-      String[] fields = pairs[i].split("=");
+    var pairs = content.split("\\&");
+    for (var i = 0; i < pairs.length; i++) {
+      var fields = pairs[i].split("=");
       if (fields.length == 2) {
         key = URLDecoder.decode(fields[0], StandardCharsets.UTF_8);
         value = URLDecoder.decode(fields[1], StandardCharsets.UTF_8);

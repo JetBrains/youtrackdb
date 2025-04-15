@@ -1,21 +1,22 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.local.v1;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
-import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Random;
 import java.util.TreeSet;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
@@ -23,28 +24,36 @@ import org.junit.Test;
  */
 public class SBTreeLeafBucketV1Test {
 
+  private static BinarySerializerFactory serializerFactory;
+
+  @BeforeClass
+  public static void beforeClass() {
+    serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+  }
+
   @Test
   public void testInitialization() {
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     cachePointer.incrementReferrer();
 
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, Identifiable>(cacheEntry);
     treeBucket.init(true);
-    Assert.assertEquals(treeBucket.size(), 0);
+    Assert.assertEquals(0, treeBucket.size());
     Assert.assertTrue(treeBucket.isLeaf());
 
     treeBucket = new SBTreeBucketV1<>(cacheEntry);
     treeBucket.init(true);
-    Assert.assertEquals(treeBucket.size(), 0);
+    Assert.assertEquals(0, treeBucket.size());
     Assert.assertTrue(treeBucket.isLeaf());
-    Assert.assertEquals(treeBucket.getLeftSibling(), -1);
-    Assert.assertEquals(treeBucket.getRightSibling(), -1);
+    Assert.assertEquals(-1, treeBucket.getLeftSibling());
+    Assert.assertEquals(-1, treeBucket.getRightSibling());
 
     cacheEntry.releaseExclusiveLock();
     cachePointer.decrementReferrer();
@@ -52,35 +61,36 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testSearch() {
-    long seed = System.currentTimeMillis();
+    var seed = System.currentTimeMillis();
     System.out.println("testSearch seed : " + seed);
 
-    TreeSet<Long> keys = new TreeSet<>();
-    Random random = new Random(seed);
+    var keys = new TreeSet<Long>();
+    var random = new Random(seed);
 
     while (keys.size() < 2 * SBTreeBucketV1.MAX_PAGE_SIZE_BYTES / LongSerializer.LONG_SIZE) {
       keys.add(random.nextLong());
     }
 
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
     cachePointer.incrementReferrer();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, Identifiable>(cacheEntry);
     treeBucket.init(true);
 
-    int index = 0;
+    var index = 0;
     Map<Long, Integer> keyIndexMap = new HashMap<>();
-    for (Long key : keys) {
+    for (var key : keys) {
       if (!treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
       keyIndexMap.put(key, index);
@@ -89,8 +99,9 @@ public class SBTreeLeafBucketV1Test {
 
     Assert.assertEquals(treeBucket.size(), keyIndexMap.size());
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      int bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE);
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      var bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE,
+          serializerFactory);
       Assert.assertEquals(bucketIndex, (int) keyIndexEntry.getValue());
     }
 
@@ -100,36 +111,37 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testUpdateValue() {
-    long seed = System.currentTimeMillis();
+    var seed = System.currentTimeMillis();
     System.out.println("testUpdateValue seed : " + seed);
 
-    TreeSet<Long> keys = new TreeSet<>();
-    Random random = new Random(seed);
+    var keys = new TreeSet<Long>();
+    var random = new Random(seed);
 
     while (keys.size() < 2 * SBTreeBucketV1.MAX_PAGE_SIZE_BYTES / LongSerializer.LONG_SIZE) {
       keys.add(random.nextLong());
     }
 
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
     cachePointer.incrementReferrer();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, RID>(cacheEntry);
     treeBucket.init(true);
 
     Map<Long, Integer> keyIndexMap = new HashMap<>();
-    int index = 0;
-    for (Long key : keys) {
+    var index = 0;
+    for (var key : keys) {
       if (index >= 1
           || !treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
       keyIndexMap.put(key, index);
@@ -138,17 +150,19 @@ public class SBTreeLeafBucketV1Test {
 
     Assert.assertEquals(keyIndexMap.size(), treeBucket.size());
 
-    for (int i = 0; i < treeBucket.size(); i++) {
-      final byte[] rawValue = new byte[LinkSerializer.RID_SIZE];
+    for (var i = 0; i < treeBucket.size(); i++) {
+      final var rawValue = new byte[LinkSerializer.RID_SIZE];
 
-      LinkSerializer.INSTANCE.serializeNativeObject(new RecordId(i + 5, i + 5), rawValue, 0);
+      LinkSerializer.INSTANCE.serializeNativeObject(new RecordId(i + 5, i + 5), serializerFactory,
+          rawValue, 0);
       treeBucket.updateValue(i, rawValue, LongSerializer.LONG_SIZE);
     }
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      SBTreeBucketV1.SBTreeEntry<Long, Identifiable> entry =
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      var entry =
           treeBucket.getEntry(
-              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE);
+              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE,
+              serializerFactory);
 
       Assert.assertEquals(
           entry,
@@ -162,7 +176,7 @@ public class SBTreeLeafBucketV1Test {
                   new RecordId(keyIndexEntry.getValue() + 5, keyIndexEntry.getValue() + 5))));
       Assert.assertEquals(
           keyIndexEntry.getKey(),
-          treeBucket.getKey(keyIndexEntry.getValue(), LongSerializer.INSTANCE));
+          treeBucket.getKey(keyIndexEntry.getValue(), LongSerializer.INSTANCE, serializerFactory));
     }
 
     cacheEntry.releaseExclusiveLock();
@@ -171,70 +185,73 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testShrink() {
-    long seed = System.currentTimeMillis();
+    var seed = System.currentTimeMillis();
     System.out.println("testShrink seed : " + seed);
 
-    TreeSet<Long> keys = new TreeSet<>();
-    Random random = new Random(seed);
+    var keys = new TreeSet<Long>();
+    var random = new Random(seed);
 
     while (keys.size() < 2 * SBTreeBucketV1.MAX_PAGE_SIZE_BYTES / LongSerializer.LONG_SIZE) {
       keys.add(random.nextLong());
     }
 
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     cachePointer.incrementReferrer();
 
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, RID>(cacheEntry);
     treeBucket.init(true);
 
-    int index = 0;
-    for (Long key : keys) {
+    var index = 0;
+    for (var key : keys) {
       if (!treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
 
       index++;
     }
 
-    int originalSize = treeBucket.size();
+    var originalSize = treeBucket.size();
 
     treeBucket.shrink(
-        treeBucket.size() / 2, LongSerializer.INSTANCE, LinkSerializer.INSTANCE);
+        treeBucket.size() / 2, LongSerializer.INSTANCE, LinkSerializer.INSTANCE, serializerFactory);
     Assert.assertEquals(treeBucket.size(), index / 2);
 
     index = 0;
     final Map<Long, Integer> keyIndexMap = new HashMap<>();
 
-    Iterator<Long> keysIterator = keys.iterator();
+    var keysIterator = keys.iterator();
     while (keysIterator.hasNext() && index < treeBucket.size()) {
-      Long key = keysIterator.next();
+      var key = keysIterator.next();
       keyIndexMap.put(key, index);
       index++;
     }
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      int bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE);
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      var bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE,
+          serializerFactory);
       Assert.assertEquals(bucketIndex, (int) keyIndexEntry.getValue());
     }
 
-    int keysToAdd = originalSize - treeBucket.size();
-    int addedKeys = 0;
+    var keysToAdd = originalSize - treeBucket.size();
+    var addedKeys = 0;
     while (keysIterator.hasNext() && index < originalSize) {
-      Long key = keysIterator.next();
+      var key = keysIterator.next();
 
       if (!treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
 
@@ -243,11 +260,11 @@ public class SBTreeLeafBucketV1Test {
       addedKeys++;
     }
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      SBTreeBucketV1.SBTreeEntry<Long, Identifiable> entry =
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      var entry =
           treeBucket.getEntry(
-              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE);
-
+              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE,
+              serializerFactory);
       Assert.assertEquals(
           entry,
           new SBTreeBucketV1.SBTreeEntry<>(
@@ -267,47 +284,49 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testRemove() {
-    long seed = System.currentTimeMillis();
+    var seed = System.currentTimeMillis();
     System.out.println("testRemove seed : " + seed);
 
-    TreeSet<Long> keys = new TreeSet<>();
-    Random random = new Random(seed);
+    var keys = new TreeSet<Long>();
+    var random = new Random(seed);
 
     while (keys.size() < 2 * SBTreeBucketV1.MAX_PAGE_SIZE_BYTES / LongSerializer.LONG_SIZE) {
       keys.add(random.nextLong());
     }
 
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     cachePointer.incrementReferrer();
 
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, RID>(cacheEntry);
     treeBucket.init(true);
 
-    int index = 0;
-    for (Long key : keys) {
+    var index = 0;
+    for (var key : keys) {
       if (!treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
 
       index++;
     }
 
-    int originalSize = treeBucket.size();
+    var originalSize = treeBucket.size();
 
-    int itemsToDelete = originalSize / 2;
-    for (int i = 0; i < itemsToDelete; i++) {
-      final byte[] rawKey = treeBucket.getRawKey(i, false, LongSerializer.INSTANCE);
-      final byte[] rawValue =
-          treeBucket.getRawValue(i, LongSerializer.INSTANCE, LinkSerializer.INSTANCE);
+    var itemsToDelete = originalSize / 2;
+    for (var i = 0; i < itemsToDelete; i++) {
+      final var rawKey = treeBucket.getRawKey(i, false, LongSerializer.INSTANCE, serializerFactory);
+      final var rawValue =
+          treeBucket.getRawValue(i, LongSerializer.INSTANCE, LinkSerializer.INSTANCE,
+              serializerFactory);
 
       treeBucket.removeLeafEntry(treeBucket.size() - 1, rawKey, rawValue);
     }
@@ -315,29 +334,31 @@ public class SBTreeLeafBucketV1Test {
     Assert.assertEquals(treeBucket.size(), originalSize - itemsToDelete);
 
     final Map<Long, Integer> keyIndexMap = new HashMap<>();
-    Iterator<Long> keysIterator = keys.iterator();
+    var keysIterator = keys.iterator();
 
     index = 0;
     while (keysIterator.hasNext() && index < treeBucket.size()) {
-      Long key = keysIterator.next();
+      var key = keysIterator.next();
       keyIndexMap.put(key, index);
       index++;
     }
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      int bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE);
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      var bucketIndex = treeBucket.find(keyIndexEntry.getKey(), LongSerializer.INSTANCE,
+          serializerFactory);
       Assert.assertEquals(bucketIndex, (int) keyIndexEntry.getValue());
     }
 
-    int keysToAdd = originalSize - treeBucket.size();
-    int addedKeys = 0;
+    var keysToAdd = originalSize - treeBucket.size();
+    var addedKeys = 0;
     while (keysIterator.hasNext() && index < originalSize) {
-      Long key = keysIterator.next();
+      var key = keysIterator.next();
 
       if (!treeBucket.addLeafEntry(
           index,
-          LongSerializer.INSTANCE.serializeNativeAsWhole(key),
-          LinkSerializer.INSTANCE.serializeNativeAsWhole(new RecordId(index, index)))) {
+          LongSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key),
+          LinkSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+              new RecordId(index, index)))) {
         break;
       }
 
@@ -346,10 +367,11 @@ public class SBTreeLeafBucketV1Test {
       addedKeys++;
     }
 
-    for (Map.Entry<Long, Integer> keyIndexEntry : keyIndexMap.entrySet()) {
-      final SBTreeBucketV1.SBTreeEntry<Long, Identifiable> entry =
+    for (var keyIndexEntry : keyIndexMap.entrySet()) {
+      final var entry =
           treeBucket.getEntry(
-              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE);
+              keyIndexEntry.getValue(), LongSerializer.INSTANCE, LinkSerializer.INSTANCE,
+              serializerFactory);
       Assert.assertEquals(
           entry,
           new SBTreeBucketV1.SBTreeEntry<>(
@@ -369,18 +391,18 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testSetLeftSibling() throws Exception {
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     cachePointer.incrementReferrer();
 
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, Identifiable>(cacheEntry);
     treeBucket.setLeftSibling(123);
-    Assert.assertEquals(treeBucket.getLeftSibling(), 123);
+    Assert.assertEquals(123, treeBucket.getLeftSibling());
 
     cacheEntry.releaseExclusiveLock();
     cachePointer.decrementReferrer();
@@ -388,18 +410,18 @@ public class SBTreeLeafBucketV1Test {
 
   @Test
   public void testSetRightSibling() {
-    ByteBufferPool bufferPool = ByteBufferPool.instance(null);
-    Pointer pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
 
-    CachePointer cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
     cachePointer.incrementReferrer();
 
     CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
     cacheEntry.acquireExclusiveLock();
 
-    SBTreeBucketV1<Long, Identifiable> treeBucket = new SBTreeBucketV1<>(cacheEntry);
+    var treeBucket = new SBTreeBucketV1<Long, Identifiable>(cacheEntry);
     treeBucket.setRightSibling(123);
-    Assert.assertEquals(treeBucket.getRightSibling(), 123);
+    Assert.assertEquals(123, treeBucket.getRightSibling());
 
     cacheEntry.releaseExclusiveLock();
     cachePointer.decrementReferrer();

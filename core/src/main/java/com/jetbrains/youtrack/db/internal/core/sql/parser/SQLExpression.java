@@ -2,17 +2,16 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
 import java.util.List;
@@ -20,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLExpression extends SimpleNode {
 
@@ -54,6 +54,7 @@ public class SQLExpression extends SimpleNode {
     mathExpression = new SQLBaseExpression(attr, modifier);
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (isNull) {
       return null;
@@ -79,7 +80,7 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.cluster.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {
@@ -95,6 +96,7 @@ public class SQLExpression extends SimpleNode {
     return value;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (isNull) {
       return null;
@@ -120,7 +122,7 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.cluster.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {
@@ -221,14 +223,13 @@ public class SQLExpression extends SimpleNode {
               builder); // only for translated input params, will disappear with new executor
     } else if (value instanceof String) {
       if (Boolean.TRUE.equals(singleQuotes)) {
-        builder.append("'" + value + "'");
+        builder.append("'").append(value).append("'");
       } else {
-        builder.append("\"" + value + "\"");
+        builder.append("\"").append(value).append("\"");
       }
 
     } else {
-      builder.append(
-          "" + value); // only for translated input params, will disappear with new executor
+      builder.append(value); // only for translated input params, will disappear with new executor
     }
   }
 
@@ -256,8 +257,8 @@ public class SQLExpression extends SimpleNode {
   }
 
   public static String encode(String s) {
-    StringBuilder builder = new StringBuilder(s.length());
-    for (char c : s.toCharArray()) {
+    var builder = new StringBuilder(s.length());
+    for (var c : s.toCharArray()) {
       if (c == '\n') {
         builder.append("\\n");
         continue;
@@ -293,8 +294,8 @@ public class SQLExpression extends SimpleNode {
 
   public static String encodeSingle(String s) {
 
-    StringBuilder builder = new StringBuilder(s.length());
-    for (char c : s.toCharArray()) {
+    var builder = new StringBuilder(s.length());
+    for (var c : s.toCharArray()) {
       if (c == '\n') {
         builder.append("\\n");
         continue;
@@ -320,6 +321,7 @@ public class SQLExpression extends SimpleNode {
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
@@ -335,8 +337,6 @@ public class SQLExpression extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -355,8 +355,6 @@ public class SQLExpression extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -427,11 +425,11 @@ public class SQLExpression extends SimpleNode {
 
   public SQLExpression splitForAggregation(
       AggregateProjectionSplit aggregateSplit, CommandContext ctx) {
-    DatabaseSessionInternal database = ctx.getDatabase();
+    var database = ctx.getDatabaseSession();
     if (isAggregate(database)) {
-      SQLExpression result = new SQLExpression(-1);
+      var result = new SQLExpression(-1);
       if (mathExpression != null) {
-        SimpleNode splitResult = mathExpression.splitForAggregation(aggregateSplit, ctx);
+        var splitResult = mathExpression.splitForAggregation(aggregateSplit, ctx);
         if (splitResult instanceof SQLMathExpression) {
           result.mathExpression = (SQLMathExpression) splitResult;
         } else if (splitResult instanceof SQLExpression) {
@@ -442,7 +440,7 @@ public class SQLExpression extends SimpleNode {
         }
       }
       if (arrayConcatExpression != null) {
-        SimpleNode splitResult = arrayConcatExpression.splitForAggregation(database,
+        var splitResult = arrayConcatExpression.splitForAggregation(database,
             aggregateSplit);
         if (splitResult instanceof SQLArrayConcatExpression) {
           result.arrayConcatExpression = (SQLArrayConcatExpression) splitResult;
@@ -466,15 +464,15 @@ public class SQLExpression extends SimpleNode {
     if (mathExpression != null) {
       return mathExpression.getAggregationContext(ctx);
     } else if (arrayConcatExpression != null) {
-      return arrayConcatExpression.getAggregationContext(ctx);
+      throw new UnsupportedOperationException();
     } else {
-      throw new CommandExecutionException("Cannot aggregate on " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot aggregate on " + this);
     }
   }
 
   public SQLExpression copy() {
 
-    SQLExpression result = new SQLExpression(-1);
+    var result = new SQLExpression(-1);
     result.singleQuotes = singleQuotes;
     result.doubleQuotes = doubleQuotes;
     result.isNull = isNull;
@@ -497,7 +495,7 @@ public class SQLExpression extends SimpleNode {
       return false;
     }
 
-    SQLExpression that = (SQLExpression) o;
+    var that = (SQLExpression) o;
 
     if (isNull != that.isNull) {
       return false;
@@ -525,7 +523,7 @@ public class SQLExpression extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = singleQuotes != null ? singleQuotes.hashCode() : 0;
+    var result = singleQuotes != null ? singleQuotes.hashCode() : 0;
     result = 31 * result + (doubleQuotes != null ? doubleQuotes.hashCode() : 0);
     result = 31 * result + (isNull ? 1 : 0);
     result = 31 * result + (rid != null ? rid.hashCode() : 0);
@@ -593,6 +591,7 @@ public class SQLExpression extends SimpleNode {
    * @return a list of pattern aliases involved in this condition. Null it does not involve the
    * pattern
    */
+  @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     if (mathExpression != null) {
       return mathExpression.getMatchPatternInvolvedAliases();
@@ -607,7 +606,7 @@ public class SQLExpression extends SimpleNode {
     if (mathExpression != null) {
       mathExpression.applyRemove(result, ctx);
     } else {
-      throw new CommandExecutionException("Cannot apply REMOVE " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot apply REMOVE " + this);
     }
   }
 
@@ -627,7 +626,7 @@ public class SQLExpression extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("singleQuotes", singleQuotes);
     result.setProperty("doubleQuotes", doubleQuotes);
     result.setProperty("isNull", isNull);
@@ -680,14 +679,15 @@ public class SQLExpression extends SimpleNode {
     }
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (mathExpression != null) {
-      return mathExpression.isDefinedFor(currentRecord);
+      return mathExpression.isDefinedFor(db, currentRecord);
     } else {
       return true;
     }
   }
 
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (mathExpression != null) {
       return mathExpression.getCollate(currentRecord, ctx);

@@ -73,14 +73,14 @@ public class ParseException extends Exception {
    */
   private static String initialise(
       Token currentToken, int[][] expectedTokenSequences, String[] tokenImage) {
-    String eol = System.getProperty("line.separator", "\n");
-    StringBuffer expected = new StringBuffer();
-    int maxSize = 0;
-    for (int i = 0; i < expectedTokenSequences.length; i++) {
+    var eol = System.getProperty("line.separator", "\n");
+    var expected = new StringBuffer();
+    var maxSize = 0;
+    for (var i = 0; i < expectedTokenSequences.length; i++) {
       if (maxSize < expectedTokenSequences[i].length) {
         maxSize = expectedTokenSequences[i].length;
       }
-      for (int j = 0; j < expectedTokenSequences[i].length; j++) {
+      for (var j = 0; j < expectedTokenSequences[i].length; j++) {
         expected.append(tokenImage[expectedTokenSequences[i][j]]).append(' ');
       }
       if (expectedTokenSequences[i][expectedTokenSequences[i].length - 1] != 0) {
@@ -88,9 +88,9 @@ public class ParseException extends Exception {
       }
       expected.append(eol).append("    ");
     }
-    String retval = "Encountered \"";
-    Token tok = currentToken.next;
-    for (int i = 0; i < maxSize; i++) {
+    var retval = "Encountered \"";
+    var tok = currentToken.next;
+    for (var i = 0; i < maxSize; i++) {
       if (i != 0) {
         retval += " ";
       }
@@ -126,9 +126,9 @@ public class ParseException extends Exception {
    * as part of an ASCII string literal.
    */
   static String add_escapes(String str) {
-    StringBuffer retval = new StringBuffer();
+    var retval = new StringBuffer();
     char ch;
-    for (int i = 0; i < str.length(); i++) {
+    for (var i = 0; i < str.length(); i++) {
       switch (str.charAt(i)) {
         case 0:
           continue;
@@ -158,7 +158,7 @@ public class ParseException extends Exception {
           continue;
         default:
           if ((ch = str.charAt(i)) < 0x20 || ch > 0x7e) {
-            String s = "0000" + Integer.toString(ch, 16);
+            var s = "0000" + Integer.toString(ch, 16);
             retval.append("\\u" + s.substring(s.length() - 4));
           } else {
             retval.append(ch);

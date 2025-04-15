@@ -21,7 +21,7 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 
 /**
  * Represents a binary field.
@@ -29,12 +29,12 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 public class BinaryField {
 
   public final String name;
-  public final PropertyType type;
+  public final PropertyTypeInternal type;
   public final BytesContainer bytes;
   public final Collate collate;
 
   public BinaryField(
-      final String iName, final PropertyType iType, final BytesContainer iBytes,
+      final String iName, final PropertyTypeInternal iType, final BytesContainer iBytes,
       final Collate iCollate) {
     name = iName;
     type = iType;

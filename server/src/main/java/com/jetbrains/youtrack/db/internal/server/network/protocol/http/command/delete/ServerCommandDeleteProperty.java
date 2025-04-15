@@ -19,11 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.delete;
 
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandDeleteProperty extends ServerCommandAuthenticatedDbAbstract {
@@ -31,23 +29,23 @@ public class ServerCommandDeleteProperty extends ServerCommandAuthenticatedDbAbs
   private static final String[] NAMES = {"DELETE|property/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(
             iRequest.getUrl(), 4, "Syntax error: property/<database>/<class-name>/<property-name>");
 
     iRequest.getData().commandInfo = "Delete property";
     iRequest.getData().commandDetail = urlParts[2] + "." + urlParts[3];
 
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
 
       if (db.getMetadata().getSchema().getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
 
-      final SchemaClass cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+      final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-      cls.dropProperty(db, urlParts[3]);
+      cls.dropProperty(urlParts[3]);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

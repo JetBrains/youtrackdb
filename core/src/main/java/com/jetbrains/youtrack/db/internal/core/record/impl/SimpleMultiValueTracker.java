@@ -34,9 +34,8 @@ import java.lang.ref.WeakReference;
  * @param <V> Item value.
  */
 public final class SimpleMultiValueTracker<K, V> {
-
   private final WeakReference<RecordElement> element;
-  private MultiValueChangeTimeLine<Object, Object> timeLine;
+  private MultiValueChangeTimeLine<K, V> timeLine;
   private boolean enabled;
   private MultiValueChangeTimeLine<K, V> transactionTimeLine;
 
@@ -46,32 +45,32 @@ public final class SimpleMultiValueTracker<K, V> {
 
   public void addNoDirty(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(ChangeType.ADD, key, value, null),
+        new MultiValueChangeEvent<>(ChangeType.ADD, key, value, null),
         false);
   }
 
   public void removeNoDirty(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, key, null, value),
         false);
   }
 
   public void add(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(ChangeType.ADD, key, value), true);
+        new MultiValueChangeEvent<>(ChangeType.ADD, key, value), true);
   }
 
   public void updated(K key, V newValue, V oldValue) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.UPDATE, key, newValue, oldValue),
         true);
   }
 
   public void remove(K key, V value) {
     onAfterRecordChanged(
-        new MultiValueChangeEvent<K, V>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, key, null, value),
         true);
   }
@@ -81,27 +80,27 @@ public final class SimpleMultiValueTracker<K, V> {
       return;
     }
 
-    final RecordElement entity = this.element.get();
+    final var entity = this.element.get();
     if (entity == null) {
       // entity not alive anymore, do nothing.
       return;
     }
+
+    if (timeLine == null) {
+      timeLine = new MultiValueChangeTimeLine<>();
+    }
+    timeLine.addCollectionChangeEvent(event);
+
+    if (transactionTimeLine == null) {
+      transactionTimeLine = new MultiValueChangeTimeLine<>();
+    }
+    transactionTimeLine.addCollectionChangeEvent(event);
 
     if (changeOwner) {
       entity.setDirty();
     } else {
       entity.setDirtyNoChanged();
     }
-
-    if (timeLine == null) {
-      timeLine = new MultiValueChangeTimeLine<>();
-    }
-    timeLine.addCollectionChangeEvent((MultiValueChangeEvent<Object, Object>) event);
-
-    if (transactionTimeLine == null) {
-      transactionTimeLine = new MultiValueChangeTimeLine<K, V>();
-    }
-    transactionTimeLine.addCollectionChangeEvent(event);
   }
 
   public void enable() {
@@ -127,12 +126,21 @@ public final class SimpleMultiValueTracker<K, V> {
     this.enabled = tracker.enabled;
   }
 
-  public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
+  public MultiValueChangeTimeLine<K, V> getTimeLine() {
     return timeLine;
   }
 
   public MultiValueChangeTimeLine<K, V> getTransactionTimeLine() {
     return transactionTimeLine;
+  }
+
+  public boolean isChanged() {
+    return timeLine != null && !timeLine.getMultiValueChangeEvents().isEmpty();
+  }
+
+  public boolean isTxChanged() {
+    return transactionTimeLine != null && !transactionTimeLine.getMultiValueChangeEvents()
+        .isEmpty();
   }
 
   public void transactionClear() {

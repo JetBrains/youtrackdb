@@ -1,15 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.StorageRecoverEventListener;
 import java.util.Objects;
 import org.junit.Assert;
@@ -57,28 +57,25 @@ public class GraphRecoveringTest {
     }
   }
 
-  private void init(DatabaseSession session) {
-    session.createVertexClass("V1");
-    session.createVertexClass("V2");
-    session.createEdgeClass("E1");
-    session.createEdgeClass("E2");
+  private static void init(DatabaseSession session) {
+    session.getSchema().createVertexClass("V1");
+    session.getSchema().createVertexClass("V2");
+    session.getSchema().createEdgeClass("E1");
+    session.getSchema().createEdgeClass("E2");
 
-    session.begin();
-    var v0 = session.newVertex();
+    var tx = session.begin();
+    var v0 = tx.newVertex();
     v0.setProperty("key", 0);
-    var v1 = session.newVertex("V1");
+    var v1 = tx.newVertex("V1");
     v1.setProperty("key", 1);
-    var v2 = session.newVertex("V2");
+    var v2 = tx.newVertex("V2");
     v2.setProperty("key", 2);
 
-    v0.addRegularEdge(v1);
+    v0.addStateFulEdge(v1);
     v1.addEdge(v2, "E1");
     v2.addEdge(v0, "E2");
 
-    v0.save();
-    v1.save();
-    v2.save();
-    session.commit();
+    tx.commit();
   }
 
   @Test
@@ -91,16 +88,16 @@ public class GraphRecoveringTest {
       try (var session = youTrackDB.open("testRecoverPerfectGraphNonLW", "admin", "admin")) {
         init(session);
 
-        final TestListener eventListener = new TestListener();
+        final var eventListener = new TestListener();
 
         new GraphRepair().setEventListener(eventListener).repair(session, null, null);
 
-        Assert.assertEquals(eventListener.scannedEdges, 3);
-        Assert.assertEquals(eventListener.removedEdges, 0);
-        Assert.assertEquals(eventListener.scannedVertices, 3);
-        Assert.assertEquals(eventListener.scannedLinks, 6);
-        Assert.assertEquals(eventListener.removedLinks, 0);
-        Assert.assertEquals(eventListener.repairedVertices, 0);
+        Assert.assertEquals(3, eventListener.scannedEdges);
+        Assert.assertEquals(0, eventListener.removedEdges);
+        Assert.assertEquals(3, eventListener.scannedVertices);
+        Assert.assertEquals(6, eventListener.scannedLinks);
+        Assert.assertEquals(0, eventListener.removedLinks);
+        Assert.assertEquals(0, eventListener.repairedVertices);
       }
     }
   }
@@ -115,29 +112,28 @@ public class GraphRecoveringTest {
       try (var session = youTrackDB.open("testRecoverBrokenGraphAllEdges", "admin", "admin")) {
         init(session);
 
-        session.begin();
+        var tx = session.begin();
         for (var e :
-            session.query("select from E").stream()
-                .map(Result::toEntity)
-                .map(Entity::toEdge)
+            tx.query("select from E").stream()
+                .map(Result::asStatefulEdge)
                 .toList()) {
-          e.<EntityImpl>getRecord().removeField("out");
-          e.save();
+          var transaction = session.getActiveTransaction();
+          transaction.<EntityImpl>load(e).removePropertyInternal("out");
         }
-        session.commit();
+        tx.commit();
 
-        final TestListener eventListener = new TestListener();
+        final var eventListener = new TestListener();
 
         new GraphRepair().setEventListener(eventListener).repair(session, null, null);
 
-        Assert.assertEquals(eventListener.scannedEdges, 3);
-        Assert.assertEquals(eventListener.removedEdges, 3);
-        Assert.assertEquals(eventListener.scannedVertices, 3);
+        Assert.assertEquals(3, eventListener.scannedEdges);
+        Assert.assertEquals(3, eventListener.removedEdges);
+        Assert.assertEquals(3, eventListener.scannedVertices);
         // This is 3 because 3 referred by the edge are cleaned by the edge delete
-        Assert.assertEquals(eventListener.scannedLinks, 3);
+        Assert.assertEquals(3, eventListener.scannedLinks);
         // This is 3 because 3 referred by the edge are cleaned by the edge delete
-        Assert.assertEquals(eventListener.removedLinks, 3);
-        Assert.assertEquals(eventListener.repairedVertices, 3);
+        Assert.assertEquals(3, eventListener.removedLinks);
+        Assert.assertEquals(3, eventListener.repairedVertices);
       }
     }
   }
@@ -153,35 +149,37 @@ public class GraphRecoveringTest {
           youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW", "admin", "admin")) {
         init(session);
 
-        session.begin();
+        var tx = session.begin();
         for (var v :
-            session.query("select from V").stream()
-                .map(Result::toEntity)
+            tx.query("select from V").stream()
+                .map(Result::asEntityOrNull)
                 .filter(Objects::nonNull)
-                .map(Entity::toVertex)
+                .map(Entity::asVertex)
                 .toList()) {
-          for (String f : v.<EntityImpl>getRecord().fieldNames()) {
+          var transaction1 = session.getActiveTransaction();
+          for (var f : transaction1.<EntityImpl>load(v).getPropertyNamesInternal(false,
+              true)) {
             if (f.startsWith(Vertex.DIRECTION_OUT_PREFIX)) {
-              v.<EntityImpl>getRecord().removeField(f);
-              v.save();
+              var transaction = session.getActiveTransaction();
+              transaction.<EntityImpl>load(v).removePropertyInternal(f);
             }
           }
         }
-        session.commit();
+        tx.commit();
 
-        final TestListener eventListener = new TestListener();
+        final var eventListener = new TestListener();
 
         new GraphRepair().setEventListener(eventListener).repair(session, null, null);
 
-        Assert.assertEquals(eventListener.scannedEdges, 3);
-        Assert.assertEquals(eventListener.removedEdges, 3);
-        Assert.assertEquals(eventListener.scannedVertices, 3);
+        Assert.assertEquals(3, eventListener.scannedEdges);
+        Assert.assertEquals(3, eventListener.removedEdges);
+        Assert.assertEquals(3, eventListener.scannedVertices);
         // This is 0 because the delete edge does the cleanup
-        Assert.assertEquals(eventListener.scannedLinks, 0);
+        Assert.assertEquals(0, eventListener.scannedLinks);
         // This is 0 because the delete edge does the cleanup
-        Assert.assertEquals(eventListener.removedLinks, 0);
+        Assert.assertEquals(0, eventListener.removedLinks);
         // This is 0 because the delete edge does the cleanup
-        Assert.assertEquals(eventListener.repairedVertices, 0);
+        Assert.assertEquals(0, eventListener.repairedVertices);
       }
     }
   }

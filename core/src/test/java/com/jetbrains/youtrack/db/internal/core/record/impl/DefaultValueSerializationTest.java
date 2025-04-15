@@ -2,10 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -14,19 +12,22 @@ public class DefaultValueSerializationTest extends DbTestBase {
   @Test
   public void testKeepValueSerialization() {
     // create example schema
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass classA = schema.createClass("ClassC");
+    Schema schema = session.getMetadata().getSchema();
+    var classA = schema.createClass("ClassC");
 
-    SchemaProperty prop = classA.createProperty(db, "name", PropertyType.STRING);
-    prop.setDefaultValue(db, "uuid()");
+    var prop = classA.createProperty("name", PropertyType.STRING);
+    prop.setDefaultValue("uuid()");
 
-    EntityImpl doc = new EntityImpl("ClassC");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity("ClassC");
 
-    byte[] val = doc.toStream();
-    EntityImpl doc1 = new EntityImpl();
-    RecordInternal.unsetDirty(doc1);
+    var val = doc.toStream();
+    var doc1 = (EntityImpl) session.newEntity();
+    final var rec = (RecordAbstract) doc1;
+    rec.unsetDirty();
     doc1.fromStream(val);
-    doc1.deserializeFields();
-    Assert.assertEquals(doc.field("name").toString(), doc1.field("name").toString());
+    doc1.deserializeProperties();
+    Assert.assertEquals(doc.getProperty("name").toString(), doc1.getProperty("name").toString());
+    session.rollback();
   }
 }

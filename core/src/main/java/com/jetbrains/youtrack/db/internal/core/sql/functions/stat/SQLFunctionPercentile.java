@@ -19,15 +19,16 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.stat;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Computes the percentile for a field. Nulls are ignored in the calculation.
@@ -47,16 +48,17 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
     super(iName, iMaxParams, iMaxParams);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
 
     if (quantiles.isEmpty()) { // set quantiles once
-      for (int i = 1; i < iParams.length; ++i) {
+      for (var i = 1; i < iParams.length; ++i) {
         this.quantiles.add(Double.parseDouble(iParams[i].toString()));
       }
     }
@@ -64,7 +66,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
     if (iParams[0] instanceof Number) {
       addValue((Number) iParams[0]);
     } else if (MultiValue.isMultiValue(iParams[0])) {
-      for (Object n : MultiValue.getMultiValueIterable(iParams[0])) {
+      for (var n : MultiValue.getMultiValueIterable(iParams[0])) {
         addValue((Number) n);
       }
     }
@@ -78,29 +80,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
 
   @Override
   public Object getResult() {
-    if (returnDistributedResult()) {
-      return values;
-    } else {
-      return this.evaluate(this.values);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      List<Number> dValues = new ArrayList<Number>();
-      for (Object iParameter : resultsToMerge) {
-        dValues.addAll((List<Number>) iParameter);
-      }
-      return this.evaluate(dValues);
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
+    return this.evaluate(this.values);
   }
 
   @Override
@@ -114,13 +94,14 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
     }
   }
 
+  @Nullable
   private Object evaluate(List<Number> iValues) {
     if (iValues.isEmpty()) { // result set is empty
       return null;
     }
     if (quantiles.size() > 1) {
       List<Number> results = new ArrayList<Number>();
-      for (Double q : this.quantiles) {
+      for (var q : this.quantiles) {
         results.add(this.evaluate(iValues, q));
       }
       return results;
@@ -142,7 +123,7 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
         });
 
     double n = iValues.size();
-    double pos = iQuantile * (n + 1);
+    var pos = iQuantile * (n + 1);
 
     if (pos < 1) {
       return iValues.get(0);
@@ -151,12 +132,12 @@ public class SQLFunctionPercentile extends SQLFunctionAbstract {
       return iValues.get((int) n - 1);
     }
 
-    double fpos = Math.floor(pos);
-    int intPos = (int) fpos;
-    double dif = pos - fpos;
+    var fpos = Math.floor(pos);
+    var intPos = (int) fpos;
+    var dif = pos - fpos;
 
-    double lower = iValues.get(intPos - 1).doubleValue();
-    double upper = iValues.get(intPos).doubleValue();
+    var lower = iValues.get(intPos - 1).doubleValue();
+    var upper = iValues.get(intPos).doubleValue();
     return lower + dif * (upper - lower);
   }
 }

@@ -3,11 +3,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassEmbedded;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    ResultInternal result = new ResultInternal(ctx.getDatabase());
+    var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("operation", "create property");
     result.setProperty("className", className.getStringValue());
     result.setProperty("propertyName", propertyName.getStringValue());
@@ -54,49 +55,56 @@ public class SQLCreatePropertyStatement extends DDLStatement {
   }
 
   private void executeInternal(CommandContext ctx, ResultInternal result) {
-    var db = ctx.getDatabase();
-    SchemaClassEmbedded clazz =
-        (SchemaClassEmbedded) db.getMetadata().getSchema().getClass(className.getStringValue());
+    var session = ctx.getDatabaseSession();
+    var clazz = (SchemaClassInternal) session.getMetadata().getSchema()
+        .getClass(className.getStringValue());
     if (clazz == null) {
-      throw new CommandExecutionException("Class not found: " + className.getStringValue());
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Class not found: " + className.getStringValue());
     }
     if (clazz.getProperty(propertyName.getStringValue()) != null) {
       if (ifNotExists) {
         return;
       }
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Property "
               + className.getStringValue()
               + "."
               + propertyName.getStringValue()
               + " already exists");
     }
-    PropertyType type = PropertyType.valueOf(
+    var type = PropertyTypeInternal.valueOf(
         propertyType.getStringValue().toUpperCase(Locale.ENGLISH));
     if (type == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Invalid property type: " + propertyType.getStringValue());
     }
     SchemaClass linkedClass = null;
-    PropertyType linkedType = null;
+    PropertyTypeInternal linkedType = null;
     if (this.linkedType != null) {
-      String linked = this.linkedType.getStringValue();
+      var linked = this.linkedType.getStringValue();
       // FIRST SEARCH BETWEEN CLASSES
-      linkedClass = db.getMetadata().getSchema().getClass(linked);
+      linkedClass = session.getMetadata().getSchema().getClass(linked);
       if (linkedClass == null)
       // NOT FOUND: SEARCH BETWEEN TYPES
       {
-        linkedType = PropertyType.valueOf(linked.toUpperCase(Locale.ENGLISH));
+        linkedType = PropertyTypeInternal.valueOf(linked.toUpperCase(Locale.ENGLISH));
       }
     }
     // CREATE IT LOCALLY
-    SchemaPropertyImpl internalProp =
-        (SchemaPropertyImpl)
-            clazz.addProperty(ctx.getDatabase(), propertyName.getStringValue(), type, linkedType,
-                linkedClass,
-                unsafe);
-    for (SQLCreatePropertyAttributeStatement attr : attributes) {
-      Object val = attr.setOnProperty(internalProp, ctx);
+
+    SchemaProperty internalProp;
+    if (linkedType != null) {
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedType, unsafe);
+    } else if (linkedClass != null) {
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass, unsafe);
+    } else {
+      internalProp = clazz.createProperty(propertyName.getStringValue(),
+          type.getPublicPropertyType());
+    }
+
+    for (var attr : attributes) {
+      var val = attr.setOnProperty((SchemaPropertyInternal) internalProp, ctx);
       result.setProperty(attr.settingName.getStringValue(), val);
     }
   }
@@ -119,8 +127,8 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
     if (!attributes.isEmpty()) {
       builder.append(" (");
-      for (int i = 0; i < attributes.size(); i++) {
-        SQLCreatePropertyAttributeStatement att = attributes.get(i);
+      for (var i = 0; i < attributes.size(); i++) {
+        var att = attributes.get(i);
         att.toString(params, builder);
 
         if (i < attributes.size() - 1) {
@@ -153,8 +161,8 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
     if (!attributes.isEmpty()) {
       builder.append(" (");
-      for (int i = 0; i < attributes.size(); i++) {
-        SQLCreatePropertyAttributeStatement att = attributes.get(i);
+      for (var i = 0; i < attributes.size(); i++) {
+        var att = attributes.get(i);
         att.toGenericStatement(builder);
 
         if (i < attributes.size() - 1) {
@@ -171,7 +179,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
   @Override
   public SQLCreatePropertyStatement copy() {
-    SQLCreatePropertyStatement result = new SQLCreatePropertyStatement(-1);
+    var result = new SQLCreatePropertyStatement(-1);
     result.className = className == null ? null : className.copy();
     result.propertyName = propertyName == null ? null : propertyName.copy();
     result.propertyType = propertyType == null ? null : propertyType.copy();
@@ -194,7 +202,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
       return false;
     }
 
-    SQLCreatePropertyStatement that = (SQLCreatePropertyStatement) o;
+    var that = (SQLCreatePropertyStatement) o;
 
     if (unsafe != that.unsafe) {
       return false;
@@ -219,7 +227,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = className != null ? className.hashCode() : 0;
+    var result = className != null ? className.hashCode() : 0;
     result = 31 * result + (propertyName != null ? propertyName.hashCode() : 0);
     result = 31 * result + (propertyType != null ? propertyType.hashCode() : 0);
     result = 31 * result + (linkedType != null ? linkedType.hashCode() : 0);

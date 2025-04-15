@@ -1,12 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.exception;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+
 public class InternalErrorException extends CoreException {
 
   public InternalErrorException(InternalErrorException exception) {
     super(exception);
   }
 
-  public InternalErrorException(String string) {
-    super(string);
+  public InternalErrorException(DatabaseSessionInternal db, String string) {
+    super(db, string);
   }
 }

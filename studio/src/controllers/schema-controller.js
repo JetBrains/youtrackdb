@@ -20,12 +20,12 @@ schemaModule.controller("SchemaController", ['$scope', '$routeParams', '$locatio
   $scope.currentPage = 1;
   $scope.links = {
     linkClasses: Database.getOWikiFor("Schema.html#class"),
-    linkClusterSelection: Database.getOWikiFor("Cluster-Selection.html"),
-    linkClusters: Database.getOWikiFor("Tutorial-Clusters.html"),
+    linkCollectionSelection: Database.getOWikiFor("Collection-Selection.html"),
+    linkCollections: Database.getOWikiFor("Tutorial-Collections.html"),
     linkInheritance: Database.getOWikiFor("Inheritance.html")
   }
   $scope.popover = {title: "Rename Class"};
-  $scope.clusterStrategies = ['round-robin', "default", "balanced", ",local"];
+  $scope.collectionStrategies = ['round-robin', "default", "balanced", ",local"];
   $scope.database = Database;
   $scope.database.refreshMetadata($routeParams.database);
   $scope.database = Database;
@@ -95,7 +95,7 @@ schemaModule.controller("SchemaController", ['$scope', '$routeParams', '$locatio
       }
     })
   })
-  $scope.headers = ['name', 'superClass', 'alias', 'abstract', 'clusters', 'defaultCluster', 'clusterSelection', 'records'];
+  $scope.headers = ['name', 'superClass', 'alias', 'abstract', 'collections', 'defaultCollection', 'collectionSelection', 'records'];
   $scope.refreshPage = function () {
     $scope.database.refreshMetadata($routeParams.database);
     $route.reload();
@@ -254,13 +254,13 @@ schemaModule.controller("SchemaController", ['$scope', '$routeParams', '$locatio
       Spinner.stopSpinner();
     });
   }
-  $scope.setClusterStrategy = function (clazz) {
+  $scope.setCollectionStrategy = function (clazz) {
     ClassAlterApi.changeProperty($routeParams.database, {
       clazz: clazz.name,
-      name: "clusterSelection",
-      value: clazz.clusterSelection
+      name: "collectionSelection",
+      value: clazz.collectionSelection
     }).then(function (data) {
-      var noti = S("Cluster selection strategy for the class {{name}} has been changed to {{clusterSelection}}").template(clazz).s;
+      var noti = S("Collection selection strategy for the class {{name}} has been changed to {{collectionSelection}}").template(clazz).s;
       Notification.push({content: noti});
     }).catch(function (e) {
       Notification.push({content: e, error: true});
@@ -816,9 +816,9 @@ schemaModule.controller("NewClassController", ['$scope', '$routeParams', '$locat
     'tags': $scope.listClasses
   };
   $scope.links = {
-    linkClusters: Database.getOWikiFor("Tutorial-Clusters.html")
+    linkCollections: Database.getOWikiFor("Tutorial-Collections.html")
   }
-  $translate("class.clusters", $scope.links).then(function (data) {
+  $translate("class.collections", $scope.links).then(function (data) {
     $scope.hint = data;
   });
 

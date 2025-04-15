@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Set;
 
 /**
@@ -29,7 +30,7 @@ public interface FunctionLibrary {
 
   Set<String> getFunctionNames();
 
-  Function getFunction(String iName);
+  Function getFunction(DatabaseSessionInternal db, String iName);
 
   Function createFunction(String iName);
 

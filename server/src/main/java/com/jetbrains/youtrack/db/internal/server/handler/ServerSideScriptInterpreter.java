@@ -26,8 +26,8 @@ import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorScr
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
@@ -48,7 +48,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
   public void config(final YouTrackDBServer iServer, ServerParameterConfiguration[] iParams) {
 
     this.server = iServer;
-    for (ServerParameterConfiguration param : iParams) {
+    for (var param : iParams) {
       if (param.name.equalsIgnoreCase("enabled")) {
         if (Boolean.parseBoolean(param.value))
         // ENABLE IT
@@ -85,7 +85,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
             CommandScript.class,
             CommandExecutorScript.class,
             iArgument -> {
-              final String language =
+              final var language =
                   ((CommandScript) iArgument).getLanguage().toLowerCase(Locale.ENGLISH);
 
               checkLanguage(language);

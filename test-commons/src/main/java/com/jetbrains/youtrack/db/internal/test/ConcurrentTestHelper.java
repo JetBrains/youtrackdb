@@ -27,12 +27,12 @@ public class ConcurrentTestHelper<T> {
   }
 
   public static <T> Collection<T> test(int threadCount, TestFactory<T> factory) {
-    final List<Callable<T>> callables = prepareWorkers(threadCount, factory);
+    final var callables = prepareWorkers(threadCount, factory);
     return go(callables);
   }
 
   protected static <T> Collection<T> go(List<Callable<T>> workers) {
-    final ConcurrentTestHelper<T> helper = new ConcurrentTestHelper<T>(workers.size());
+    final var helper = new ConcurrentTestHelper<T>(workers.size());
 
     helper.submit(workers);
 
@@ -41,7 +41,7 @@ public class ConcurrentTestHelper<T> {
 
   protected static <T> List<Callable<T>> prepareWorkers(int threadCount, TestFactory<T> factory) {
     final List<Callable<T>> callables = new ArrayList<Callable<T>>(threadCount);
-    for (int i = 0; i < threadCount; i++) {
+    for (var i = 0; i < threadCount; i++) {
       callables.add(factory.createWorker());
     }
     return callables;
@@ -58,7 +58,7 @@ public class ConcurrentTestHelper<T> {
 
       List<T> results = new ArrayList<T>(futures.size());
       List<Exception> exceptions = new ArrayList<Exception>();
-      for (Future<T> future : futures) {
+      for (var future : futures) {
         try {
           results.add(future.get());
         } catch (ExecutionException e) {
@@ -79,7 +79,7 @@ public class ConcurrentTestHelper<T> {
   }
 
   private void submit(List<Callable<T>> callables) {
-    for (Callable<T> callable : callables) {
+    for (var callable : callables) {
       futures.add(executor.submit(callable));
     }
   }

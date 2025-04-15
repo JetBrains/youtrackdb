@@ -2,10 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -26,34 +25,33 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    final DatabaseSessionInternal database = ctx.getDatabase();
-    ResultInternal result = new ResultInternal(database);
+    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var result = new ResultInternal(session);
     result.setProperty("operation", "rebuild index");
 
     if (all) {
       long totalIndexed = 0;
-      for (Index idx : database.getMetadata().getIndexManagerInternal().getIndexes(database)) {
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
         if (idx.isAutomatic()) {
-          totalIndexed += idx.rebuild(database);
+          totalIndexed += idx.rebuild(session);
         }
       }
-
       result.setProperty("totalIndexed", totalIndexed);
     } else {
-      final Index idx =
-          database.getMetadata().getIndexManagerInternal().getIndex(database, name.getValue());
+      final var idx =
+          session.getSharedContext().getIndexManager().getIndex(session, name.getValue());
       if (idx == null) {
-        throw new CommandExecutionException("Index '" + name + "' not found");
+        throw new CommandExecutionException(session, "Index '" + name + "' not found");
       }
 
       if (!idx.isAutomatic()) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(session,
             "Cannot rebuild index '"
                 + name
                 + "' because it's manual and there aren't indications of what to index");
       }
 
-      long val = idx.rebuild(database);
+      var val = idx.rebuild(session);
       result.setProperty("totalIndexed", val);
     }
     return ExecutionStream.singleton(result);
@@ -81,7 +79,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLRebuildIndexStatement copy() {
-    SQLRebuildIndexStatement result = new SQLRebuildIndexStatement(-1);
+    var result = new SQLRebuildIndexStatement(-1);
     result.all = all;
     result.name = name == null ? null : name.copy();
     return result;
@@ -96,7 +94,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLRebuildIndexStatement that = (SQLRebuildIndexStatement) o;
+    var that = (SQLRebuildIndexStatement) o;
 
     if (all != that.all) {
       return false;
@@ -106,7 +104,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = (all ? 1 : 0);
+    var result = (all ? 1 : 0);
     result = 31 * result + (name != null ? name.hashCode() : 0);
     return result;
   }

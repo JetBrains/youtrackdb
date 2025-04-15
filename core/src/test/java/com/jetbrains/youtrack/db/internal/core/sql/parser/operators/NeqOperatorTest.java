@@ -32,7 +32,7 @@ public class NeqOperatorTest {
 
   @Test
   public void test() {
-    SQLNeqOperator op = new SQLNeqOperator(-1);
+    var op = new SQLNeqOperator(-1);
     Assert.assertTrue(op.execute(null, 1));
     Assert.assertTrue(op.execute(1, null));
     Assert.assertTrue(op.execute(null, null));
