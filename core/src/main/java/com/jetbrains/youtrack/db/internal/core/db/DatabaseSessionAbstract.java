@@ -970,28 +970,28 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
       final RawBuffer recordBuffer;
       if (!rid.isValidPosition()) {
-        recordBuffer = null;
-      } else {
-        try {
-          var readRecordResult =
-              getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
-          recordBuffer = readRecordResult.buffer();
+        throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
+      }
 
-          previousRid = readRecordResult.previousRecordId();
-          nextRid = readRecordResult.nextRecordId();
-        } catch (RecordNotFoundException e) {
-          if (throwExceptionIfRecordNotFound) {
-            throw e;
-          } else {
-            if (fetchNextRid) {
-              nextRid = fetchNextRid(rid);
-            }
-            if (fetchPreviousRid) {
-              previousRid = fetchPreviousRid(rid);
-            }
+      try {
+        var readRecordResult =
+            getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
+        recordBuffer = readRecordResult.buffer();
 
-            return new LoadRecordResult(null, previousRid, nextRid);
+        previousRid = readRecordResult.previousRecordId();
+        nextRid = readRecordResult.nextRecordId();
+      } catch (RecordNotFoundException e) {
+        if (throwExceptionIfRecordNotFound) {
+          throw e;
+        } else {
+          if (fetchNextRid) {
+            nextRid = fetchNextRid(rid);
           }
+          if (fetchPreviousRid) {
+            previousRid = fetchPreviousRid(rid);
+          }
+
+          return new LoadRecordResult(null, previousRid, nextRid);
         }
       }
 
