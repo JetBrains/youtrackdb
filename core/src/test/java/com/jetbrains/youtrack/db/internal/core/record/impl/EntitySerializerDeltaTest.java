@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializerDelta;
 import java.math.BigDecimal;
@@ -55,7 +55,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.removeProperty(removeField);
     // test serialization/deserialization
     var delta = EntitySerializerDelta.instance();
-    var bytes = delta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -103,7 +103,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     // test serialization/deserialization
     var activeTx = session.getActiveTransaction();
     originalDoc = activeTx.load(originalDoc);
@@ -140,7 +140,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
 
@@ -178,7 +178,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -219,7 +219,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -264,7 +264,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -307,7 +307,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -359,7 +359,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -405,7 +405,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -454,7 +454,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -492,7 +492,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -531,7 +531,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -570,7 +570,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -604,7 +604,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -639,7 +639,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -682,7 +682,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, rootDoc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, rootDoc);
     session.rollback();
 
     session.begin();
@@ -726,7 +726,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     testDoc.removeProperty(variableField);
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -763,7 +763,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -805,7 +805,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
 
     session.begin();
@@ -848,7 +848,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     session.rollback();
 
     session.begin();
@@ -896,7 +896,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     containedMap.put("first", "changed");
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -919,7 +919,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var first = (EntityImpl) session.newEntity(claz);
     var second = (EntityImpl) session.newEntity(claz);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     doc.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
@@ -937,7 +937,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx2 = session.getActiveTransaction();
     third = activeTx2.load(third);
 
-    ridBag = new RidBag(session);
+    ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
@@ -948,12 +948,12 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     var activeTx = session.getActiveTransaction();
     originalDoc = activeTx.load(originalDoc);
     serializerDelta.deserializeDelta(session, bytes, originalDoc);
 
-    RidBag mergedRidbag = originalDoc.getProperty(fieldName);
+    LinkBag mergedRidbag = originalDoc.getProperty(fieldName);
     assertEquals(ridBag, mergedRidbag);
     session.rollback();
   }
@@ -981,7 +981,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx4 = session.getActiveTransaction();
     third = activeTx4.load(third);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
@@ -997,14 +997,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx1 = session.getActiveTransaction();
     entity = activeTx1.load(entity);
 
-    ridBag = new RidBag(session);
+    ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     entity.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     var linkList = ridBag.stream().toList();
     session.rollback();
 
@@ -1012,7 +1012,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
-    RidBag mergedRidbag = entity.getProperty(fieldName);
+    LinkBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
@@ -1028,7 +1028,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var first = (EntityImpl) session.newEntity(claz);
     var second = (EntityImpl) session.newEntity(claz);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     entity.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
@@ -1052,7 +1052,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     var linkList = ridBag.stream().toList();
     session.rollback();
 
@@ -1060,7 +1060,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
-    RidBag mergedRidbag = entity.getProperty(fieldName);
+    LinkBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
@@ -1077,7 +1077,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var second = (EntityImpl) session.newEntity(claz);
     var third = (EntityImpl) session.newEntity(claz);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
@@ -1092,7 +1092,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, entity);
+    var bytes = EntitySerializerDelta.serializeDelta(session, entity);
     var linkList = ridBag.stream().toList();
     session.rollback();
 
@@ -1100,7 +1100,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     entity = activeTx.load(entity);
     serializerDelta.deserializeDelta(session, bytes, entity);
-    RidBag mergedRidbag = entity.getProperty(fieldName);
+    LinkBag mergedRidbag = entity.getProperty(fieldName);
     assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
@@ -1116,7 +1116,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var second = (EntityImpl) session.newEntity(claz);
     var third = (EntityImpl) session.newEntity(claz);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(second.getIdentity());
     ridBag.add(third.getIdentity());
@@ -1127,14 +1127,14 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx1 = session.getActiveTransaction();
     doc = activeTx1.load(doc);
 
-    ridBag = new RidBag(session);
+    ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
     ridBag.add(third.getIdentity());
     doc.setProperty(fieldName, ridBag, PropertyType.LINKBAG);
 
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     var linkList = ridBag.stream().toList();
     session.rollback();
 
@@ -1142,7 +1142,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
     serializerDelta.deserializeDelta(session, bytes, doc);
-    RidBag mergedRidbag = doc.getProperty(fieldName);
+    LinkBag mergedRidbag = doc.getProperty(fieldName);
     assertEquals(linkList, mergedRidbag.stream().toList());
     session.rollback();
   }
@@ -1177,7 +1177,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
 
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1227,7 +1227,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     doc.<Map<String, Identifiable>>getProperty("linkMap").remove("two");
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
     var activeTx2 = session.getActiveTransaction();
@@ -1292,7 +1292,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
         .put("other", "value");
     // test serialization/deserialization
     var serializerDelta = EntitySerializerDelta.instance();
-    var bytes = serializerDelta.serializeDelta(session, doc);
+    var bytes = EntitySerializerDelta.serializeDelta(session, doc);
     session.rollback();
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1333,7 +1333,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("dateTime", new Date());
     document.setProperty("bigNumber",
         new BigDecimal("43989872423376487952454365232141525434.32146432321442534"));
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     bag.add(new RecordId(1, 1));
     bag.add(new RecordId(2, 2));
     // document.field("ridBag", bag);
@@ -1356,7 +1356,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("recordId", new RecordId(10, 10));
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1462,7 +1462,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("listMixed", listMixed);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1551,7 +1551,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("listMixed", listMixed);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
 
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
@@ -1588,7 +1588,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("linkList", linkList, PropertyType.LINKLIST);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1613,7 +1613,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("embed", embedded, PropertyType.EMBEDDED);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1678,7 +1678,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setProperty("bytesMap", mapWithNulls);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1707,7 +1707,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.setEmbeddedList("complexList", list);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1733,7 +1733,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     coll.add(map2);
     document.setProperty("list", coll);
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
@@ -1755,7 +1755,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     map.put("embedded", embeddedInMap);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     session.rollback();
 
     session.begin();
@@ -1783,7 +1783,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     map.put("link", new RecordId(0, 0));
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1801,7 +1801,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var document = (EntityImpl) session.newEntity("TestClass");
     document.setProperty("test", "test");
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1846,7 +1846,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.newEmbeddedSet("embeddedSet").addAll(embeddedSet);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, (EntityImpl) entity);
+    var res = EntitySerializerDelta.serialize(session, (EntityImpl) entity);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1884,7 +1884,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.properties("a", 1, "b", 2, "c", 3);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1909,7 +1909,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     document.removeProperty("oldAge");
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, document);
+    var res = EntitySerializerDelta.serialize(session, document);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 
@@ -1936,7 +1936,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     lista.add(mappa);
 
     var serializerDelta = EntitySerializerDelta.instance();
-    var res = serializerDelta.serialize(session, entity);
+    var res = EntitySerializerDelta.serialize(session, entity);
     var extr = (EntityImpl) session.newEntity();
     serializerDelta.deserialize(session, res, extr);
 

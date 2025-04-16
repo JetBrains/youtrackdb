@@ -76,7 +76,7 @@ import javax.annotation.Nonnull;
  *
  * @since 1.7rc1
  */
-public class RidBag
+public class LinkBag
     implements
     Iterable<RID>,
     Sizeable,
@@ -91,23 +91,23 @@ public class RidBag
   @Nonnull
   private final DatabaseSessionInternal session;
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, final RidBag ridBag) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag linkBag) {
     initThresholds(session);
     init();
-    for (var identifiable : ridBag) {
+    for (var identifiable : linkBag) {
       add(identifiable);
     }
     this.session = session;
   }
 
-  public RidBag(@Nonnull DatabaseSessionInternal session) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
     initThresholds(session);
     init();
   }
 
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
     this.session = session;
     initThresholds(session);
     this.delegate = delegate;
@@ -255,7 +255,7 @@ public class RidBag
   public Object returnOriginalState(
       FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    return new RidBag(transaction.getDatabaseSession(),
+    return new LinkBag(transaction.getDatabaseSession(),
         (LinkBagDelegate) delegate.returnOriginalState(transaction, multiValueChangeEvents));
   }
 
@@ -302,7 +302,7 @@ public class RidBag
 
   @Override
   public boolean equals(Object other) {
-    if (!(other instanceof RidBag otherRidbag)) {
+    if (!(other instanceof LinkBag otherRidbag)) {
       return false;
     }
 

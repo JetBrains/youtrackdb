@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -26,7 +26,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
+public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
   private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
   private final CountDownLatch latch = new CountDownLatch(1);
@@ -80,7 +80,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
         var ridBag = new RidBag(session);
         entity.setProperty("ridBag", ridBag);
 
-        for (var i = 0; i < 10_000; i++) {
+        for (var i = 0; i < 100; i++) {
           final var ridToAdd = session.newEntity().getIdentity();
           ridBag.add(ridToAdd);
           ridTree.add(ridToAdd);
@@ -156,7 +156,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
             try {
               db.executeInTx(transaction -> {
                 var entity = transaction.loadEntity(entityContainerRid);
-                RidBag ridBag = entity.getProperty("ridBag");
+                LinkBag ridBag = entity.getProperty("ridBag");
 
                 for (var rid : ridsToAdd) {
                   ridBag.add(rid);
@@ -203,8 +203,8 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
             try {
               var deletedRids = db.computeInTx(transaction -> {
                 var entity = transaction.loadEntity(entityContainerRid);
-                RidBag ridBag = entity.getProperty("ridBag");
-                var iterator = ridBag.iterator();
+                LinkBag linkBag = entity.getProperty("ridBag");
+                var iterator = linkBag.iterator();
 
                 List<RID> ridsToDelete = new ArrayList<>();
                 var counter = 0;

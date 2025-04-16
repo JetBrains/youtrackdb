@@ -131,6 +131,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
+  @SuppressWarnings("JavaExistingMethodCanBeUsed")
   @Nullable
   public static Character checkPropertyNameIfValid(String iName) {
     if (iName == null) {
@@ -184,14 +185,18 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public ImmutableSchema makeSnapshot(DatabaseSessionInternal session) {
+    var snapshot = this.snapshot;
+
     if (snapshot == null) {
       acquireSchemaReadLock(session);
       try {
         snapshotLock.lock();
         try {
-          if (snapshot == null) {
-            snapshot = new ImmutableSchema(this, session);
+          if (this.snapshot == null) {
+            this.snapshot = new ImmutableSchema(this, session);
           }
+
+          return this.snapshot;
         } finally {
           snapshotLock.unlock();
         }
@@ -199,11 +204,21 @@ public abstract class SchemaShared implements CloseableInStorage {
         releaseSchemaReadLock(session);
       }
     }
+
     return snapshot;
   }
 
   public void forceSnapshot() {
-    snapshot = null;
+    if (snapshot == null) {
+      return;
+    }
+
+    snapshotLock.lock();
+    try {
+      snapshot = null;
+    } finally {
+      snapshotLock.unlock();
+    }
   }
 
   public CollectionSelectionFactory getCollectionSelectionFactory() {

@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
 
-public interface BTreeCollectionManager {
+public interface LinkCollectionsBTreeManager {
   LinkBagPointer createBTree(
       int collectionId, AtomicOperation atomicOperation,
       DatabaseSessionInternal session) throws IOException;

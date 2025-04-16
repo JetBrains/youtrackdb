@@ -117,7 +117,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     var added = new boolean[1];
     if (rid.isPersistent()) {
       var counter = localChanges.getChange(rid);
-
       if (counter == null) {
         var absoluteValue = getAbsoluteValue(rid);
 
@@ -722,9 +721,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     public EnhancedIterator() {
       spliterator = new MergingSpliterator();
-      spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      });
+      spliterator.tryAdvance(rid -> nextRid = rid);
     }
 
     @Override
@@ -759,11 +756,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     @Override
     public RID next() {
       assert assertIfNotActive();
-
       currentRid = nextRid;
-      if (!spliterator.tryAdvance(rid -> {
-        nextRid = rid;
-      })) {
+      if (!spliterator.tryAdvance(rid -> nextRid = rid)) {
         nextRid = null;
       }
 

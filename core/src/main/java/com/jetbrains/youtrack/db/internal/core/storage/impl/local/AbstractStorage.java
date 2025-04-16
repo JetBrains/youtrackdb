@@ -65,7 +65,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDeleter;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDeleter;
 import com.jetbrains.youtrack.db.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
@@ -131,8 +131,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
@@ -229,7 +229,7 @@ public abstract class AbstractStorage
         ThreadPoolExecutors.newSingleThreadScheduledPool("Fuzzy Checkpoint", storageThreadGroup);
   }
 
-  protected volatile BTreeCollectionManagerShared sbTreeCollectionManager;
+  protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
@@ -299,7 +299,7 @@ public abstract class AbstractStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
-    sbTreeCollectionManager = new BTreeCollectionManagerShared(this);
+    linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
     dropDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
         .databaseMetric(CoreMetrics.DATABASE_DROP_DURATION, this.name);
@@ -572,7 +572,7 @@ public abstract class AbstractStorage
 
           componentsFactory = new CurrentStorageComponentsFactory(configuration);
 
-          sbTreeCollectionManager.load();
+          linkCollectionsBTreeManager.load();
 
           atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
           openIndexes();
@@ -771,13 +771,13 @@ public abstract class AbstractStorage
       if (collection != null) {
         final var collectionId = collection.getId();
 
-        if (!BTreeCollectionManagerShared.isComponentPresent(operation, collectionId)) {
+        if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
           LogManager.instance()
               .info(
                   this,
                   "Collection with id %d does not have associated rid bag, fixing ...",
                   collectionId);
-          sbTreeCollectionManager.createComponent(operation, collectionId);
+          linkCollectionsBTreeManager.createComponent(operation, collectionId);
         }
       }
     }
@@ -880,11 +880,11 @@ public abstract class AbstractStorage
 
           componentsFactory = new CurrentStorageComponentsFactory(configuration);
 
-          sbTreeCollectionManager.load();
+          linkCollectionsBTreeManager.load();
 
           status = STATUS.OPEN;
 
-          sbTreeCollectionManager = new BTreeCollectionManagerShared(this);
+          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
 
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
@@ -1038,7 +1038,7 @@ public abstract class AbstractStorage
 
       stateLock.readLock().lock();
       try {
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
 
           checkOpennessAndMigration();
@@ -1186,7 +1186,8 @@ public abstract class AbstractStorage
 
               ((CollectionBasedStorageConfiguration) configuration)
                   .dropCollection(atomicOperation, collectionId);
-              sbTreeCollectionManager.deleteComponentByCollectionId(atomicOperation, collectionId);
+              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                  collectionId);
 
               return true;
             });
@@ -1378,8 +1379,8 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final BTreeCollectionManager getSBtreeCollectionManager() {
-    return sbTreeCollectionManager;
+  public final LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
+    return linkCollectionsBTreeManager;
   }
 
   public ReadCache getReadCache() {
@@ -3230,7 +3231,7 @@ public abstract class AbstractStorage
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
           checkOpennessAndMigration();
 
@@ -3425,10 +3426,10 @@ public abstract class AbstractStorage
 
         if (throwException) {
           atomicOperationsManager.freezeAtomicOperations(
-              ModificationOperationProhibitedException.class,
-              "Modification requests are prohibited");
+              () -> new ModificationOperationProhibitedException(name,
+                  "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeAtomicOperations(null, null);
+          atomicOperationsManager.freezeAtomicOperations(null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -3870,12 +3871,12 @@ public abstract class AbstractStorage
     }
   }
 
-  public void deleteTreeRidBag(final BTreeBasedLinkBag ridBag) {
+  public void deleteTreeLinkBag(final BTreeBasedLinkBag ridBag) {
     try {
       checkOpennessAndMigration();
 
       assert transaction.get() != null;
-      deleteTreeRidBag(ridBag, atomicOperationsManager.getCurrentOperation());
+      deleteTreeLinkBag(ridBag, atomicOperationsManager.getCurrentOperation());
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3885,13 +3886,13 @@ public abstract class AbstractStorage
     }
   }
 
-  private void deleteTreeRidBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
+  private void deleteTreeLinkBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
     final var collectionPointer = ridBag.getCollectionPointer();
     checkOpennessAndMigration();
 
     try {
       makeStorageDirty();
-      sbTreeCollectionManager.delete(atomicOperation, collectionPointer, name);
+      linkCollectionsBTreeManager.delete(atomicOperation, collectionPointer, name);
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during deletion of rid bag", e);
       throw BaseException.wrapException(
@@ -4453,7 +4454,7 @@ public abstract class AbstractStorage
       ((CollectionBasedStorageConfiguration) configuration)
           .updateCollection(atomicOperation, collection.generateCollectionConfig());
 
-      sbTreeCollectionManager.createComponent(atomicOperation, createdCollectionId);
+      linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
     }
 
     return createdCollectionId;
@@ -4575,7 +4576,7 @@ public abstract class AbstractStorage
               ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
             });
 
-        sbTreeCollectionManager.close();
+        linkCollectionsBTreeManager.close();
 
         // we close all files inside cache system so we only clear collection metadata
         collections.clear();
@@ -4637,7 +4638,7 @@ public abstract class AbstractStorage
           }
         }
 
-        sbTreeCollectionManager.close();
+        linkCollectionsBTreeManager.close();
 
         // we close all files inside cache system so we only clear collection metadata
         collections.clear();
@@ -4838,7 +4839,7 @@ public abstract class AbstractStorage
       }
       case RecordOperation.DELETED: {
         if (rec instanceof EntityImpl entity) {
-          RidBagDeleter.deleteAllRidBags(entity);
+          LinkBagDeleter.deleteAllRidBags(entity);
         }
         doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(),
             collection);
@@ -5227,7 +5228,7 @@ public abstract class AbstractStorage
 
     for (final var collectionId : collections.keySet()) {
       atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
-          atomicOperation, BTreeCollectionManagerShared.generateLockName(collectionId));
+          atomicOperation, LinkCollectionsBTreeManagerShared.generateLockName(collectionId));
     }
   }
 

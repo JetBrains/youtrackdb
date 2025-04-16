@@ -235,7 +235,7 @@ public class IndexDefinitionFactory {
       }
       indexDefinition = new PropertyListIndexDefinition(className, fieldName, indexType);
     } else if (type.equals(PropertyTypeInternal.LINKBAG)) {
-      indexDefinition = new PropertyRidBagIndexDefinition(className, fieldName);
+      indexDefinition = new PropertyLinkBagIndexDefinition(className, fieldName);
     } else {
       indexDefinition = new PropertyIndexDefinition(className, fieldName, type);
     }

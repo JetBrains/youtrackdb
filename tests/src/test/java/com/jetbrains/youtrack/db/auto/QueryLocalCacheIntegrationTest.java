@@ -17,7 +17,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -80,11 +80,11 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
     doc5.setProperty("surname", "test");
 
     var doc6 = ((EntityImpl) session.newEntity("OutInFetchClass"));
-    var out = new RidBag(session);
+    var out = new LinkBag(session);
     out.add(doc2.getIdentity());
     out.add(doc3.getIdentity());
     doc6.setProperty("out_friend", out);
-    var in = new RidBag(session);
+    var in = new LinkBag(session);
     in.add(doc4.getIdentity());
     in.add(doc5.getIdentity());
     doc6.setProperty("in_friend", in);

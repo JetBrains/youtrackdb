@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -99,14 +99,14 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
 
           // OUTGOING
           final var outField = outV.getPropertyInternal("out_" + entity.getSchemaClassName());
-          if (outField instanceof RidBag) {
-            final var it = ((RidBag) outField).iterator();
+          if (outField instanceof LinkBag) {
+            final var it = ((LinkBag) outField).iterator();
             while (it.hasNext()) {
               var v = it.next();
               if (edgeIdentity.equals(v)) {
                 // REPLACE EDGE RID WITH IN-VERTEX RID
                 it.remove();
-                ((RidBag) outField).add(inV.getIdentity());
+                ((LinkBag) outField).add(inV.getIdentity());
                 break;
               }
             }
@@ -114,14 +114,14 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
 
           // INCOMING
           final var inField = inV.getPropertyInternal("in_" + entity.getSchemaClassName());
-          if (outField instanceof RidBag) {
-            final var it = ((RidBag) inField).iterator();
+          if (outField instanceof LinkBag) {
+            final var it = ((LinkBag) inField).iterator();
             while (it.hasNext()) {
               var v = it.next();
               if (edgeIdentity.equals(v)) {
                 // REPLACE EDGE RID WITH IN-VERTEX RID
                 it.remove();
-                ((RidBag) inField).add(outV.getIdentity());
+                ((LinkBag) inField).add(outV.getIdentity());
                 break;
               }
             }

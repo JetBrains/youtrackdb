@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
 import java.util.ArrayList;
@@ -345,7 +345,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     var v1 = tx.newEntity("SomeTx");
     var v2 = tx.newEntity("SomeTx");
 
-    var ridbag = new RidBag(session);
+    var ridbag = new LinkBag(session);
     ridbag.add(v2.getIdentity());
     v1.setProperty("rids", ridbag);
 

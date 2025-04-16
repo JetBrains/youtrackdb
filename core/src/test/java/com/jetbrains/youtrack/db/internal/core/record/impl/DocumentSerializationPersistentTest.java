@@ -4,7 +4,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,7 +37,7 @@ public class DocumentSerializationPersistentTest extends BaseMemoryInternalDatab
   public void testRidBagInEmbeddedDocument() {
     session.executeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity();
-      var rids = new RidBag(session);
+      var rids = new LinkBag(session);
       rids.add(new RecordId(2, 3));
       rids.add(new RecordId(2, 4));
       rids.add(new RecordId(2, 5));

@@ -72,7 +72,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
@@ -116,7 +116,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   /**
    * Internal. Gets an instance of sb-tree collection manager for current database.
    */
-  BTreeCollectionManager getBTreeCollectionManager();
+  LinkCollectionsBTreeManager getBTreeCollectionManager();
 
   /**
    * @return the factory of binary serializers.
@@ -269,7 +269,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean isCollectionEdge(int collection);
 
-  void deleteInternal(@Nonnull DBRecord record);
+  void deleteInternal(@Nonnull RecordAbstract record);
 
   void internalClose(boolean recycle);
 

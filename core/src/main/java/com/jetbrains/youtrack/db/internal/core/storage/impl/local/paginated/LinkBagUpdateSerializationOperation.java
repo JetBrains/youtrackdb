@@ -42,7 +42,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
   private final Stream<RawPair<RID, Change>> changedValues;
 
   private final LinkBagPointer collectionPointer;
-  private final BTreeCollectionManager collectionManager;
+  private final LinkCollectionsBTreeManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(

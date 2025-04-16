@@ -63,7 +63,7 @@ import com.jetbrains.youtrack.db.internal.core.shutdown.ShutdownHandler;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
@@ -247,7 +247,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public BTreeCollectionManager getBTreeCollectionManager() {
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     return internal.getBTreeCollectionManager();
   }
 
@@ -1450,7 +1450,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void deleteInternal(@Nonnull DBRecord record) {
+  public void deleteInternal(@Nonnull RecordAbstract record) {
     checkOpenness();
     internal.deleteInternal(record);
   }

@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -28,16 +28,16 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public abstract class RidBagTest extends BaseDBTest {
+public abstract class LinkBagTest extends BaseDBTest {
 
   @Parameters(value = "remote")
-  public RidBagTest(@Optional Boolean remote) {
+  public LinkBagTest(@Optional Boolean remote) {
     super(remote != null && remote);
   }
 
   public void testAdd() {
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.add(new RecordId("#77:1"));
     assertTrue(bag.contains(new RecordId("#77:1")));
@@ -55,7 +55,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
   public void testAdd2() {
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.add(new RecordId("#77:2"));
     bag.add(new RecordId("#77:2"));
@@ -82,7 +82,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.begin();
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.add(id2);
     bag.add(id2);
@@ -186,7 +186,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.add(id2);
     bag.add(id2);
@@ -274,7 +274,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.add(id2);
     bag.add(id2);
@@ -327,7 +327,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     doc = ((EntityImpl) session.newEntity());
-    var otherBag = new RidBag(session);
+    var otherBag = new LinkBag(session);
     for (var id : bag) {
       otherBag.add(id);
     }
@@ -366,7 +366,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     session.commit();
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
 
     bag.add(id2);
@@ -438,7 +438,7 @@ public abstract class RidBagTest extends BaseDBTest {
     assertEmbedded(bag.isEmbedded());
     doc = ((EntityImpl) session.newEntity());
 
-    final var otherBag = new RidBag(session);
+    final var otherBag = new LinkBag(session);
     for (var id : bag) {
       otherBag.add(id);
     }
@@ -467,7 +467,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
   public void testEmptyIterator() {
     session.begin();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
     assertEquals(bag.size(), 0);
 
@@ -493,7 +493,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     List<RID> rids = new ArrayList<>();
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
 
     bag.add(id2);
@@ -598,7 +598,7 @@ public abstract class RidBagTest extends BaseDBTest {
   public void testContentChange() {
     session.begin();
     var entity = ((EntityImpl) session.newEntity());
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     entity.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -639,7 +639,7 @@ public abstract class RidBagTest extends BaseDBTest {
     expected.add(new RecordId("#77:15"));
     expected.add(new RecordId("#77:16"));
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
@@ -671,7 +671,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     List<RID> rids = new ArrayList<>();
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
 
     bag.add(id2);
@@ -739,7 +739,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     doc = ((EntityImpl) session.newEntity());
-    final var otherBag = new RidBag(session);
+    final var otherBag = new LinkBag(session);
     for (var id : bag) {
       otherBag.add(id);
     }
@@ -768,10 +768,10 @@ public abstract class RidBagTest extends BaseDBTest {
   public void testCycle() {
     session.begin();
     var docOne = ((EntityImpl) session.newEntity());
-    var ridBagOne = new RidBag(session);
+    var ridBagOne = new LinkBag(session);
 
     var docTwo = ((EntityImpl) session.newEntity());
-    var ridBagTwo = new RidBag(session);
+    var ridBagTwo = new LinkBag(session);
 
     docOne.setProperty("ridBag", ridBagOne);
     docTwo.setProperty("ridBag", ridBagTwo);
@@ -821,7 +821,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     List<Identifiable> rids = new ArrayList<>();
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
 
     bag.add(id2);
@@ -955,7 +955,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     doc = ((EntityImpl) session.newEntity());
 
-    final var otherBag = new RidBag(session);
+    final var otherBag = new LinkBag(session);
     for (var id : bag) {
       otherBag.add(id);
     }
@@ -992,7 +992,7 @@ public abstract class RidBagTest extends BaseDBTest {
     expected.add(new RecordId("#77:15"));
     expected.add(new RecordId("#77:16"));
 
-    final var bag = new RidBag(session);
+    final var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
@@ -1053,7 +1053,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
     var doc = ((EntityImpl) session.newEntity());
 
-    final var bag = new RidBag(session);
+    final var bag = new LinkBag(session);
     bag.addAll(expected);
 
     doc.setProperty("ridbag", bag);
@@ -1070,7 +1070,7 @@ public abstract class RidBagTest extends BaseDBTest {
     doc = session.load(id);
     doc.setLazyLoad(false);
 
-    final RidBag loaded = doc.getProperty("ridbag");
+    final LinkBag loaded = doc.getProperty("ridbag");
     assertEmbedded(loaded.isEmbedded());
 
     assertEquals(loaded.size(), expected.size());
@@ -1093,7 +1093,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     docA = session.load(docA.getIdentity());
     docB = session.load(docB.getIdentity());
 
@@ -1120,7 +1120,7 @@ public abstract class RidBagTest extends BaseDBTest {
   public void testMassiveChanges() {
     session.begin();
     var document = ((EntityImpl) session.newEntity());
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
 
     final var seed = System.nanoTime();
@@ -1156,7 +1156,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
   public void testSimultaneousIterationAndRemove() {
     session.begin();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
     document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
@@ -1236,7 +1236,7 @@ public abstract class RidBagTest extends BaseDBTest {
 
   public void testAddMixedValues() {
     session.begin();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
     document.setProperty("ridBag", ridBag);
     assertEmbedded(ridBag.isEmbedded());
@@ -1342,7 +1342,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     session.begin();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
     document.setProperty("ridBag", ridBag);
 
@@ -1468,7 +1468,7 @@ public abstract class RidBagTest extends BaseDBTest {
     }
 
     session.begin();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
     document.setProperty("ridBag", ridBag);
 
@@ -1579,7 +1579,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     List<Identifiable> docsToAdd = new ArrayList<>();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
     document.setProperty("ridBag", ridBag);
 
@@ -1665,7 +1665,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    var teamMates = new RidBag(session);
+    var teamMates = new LinkBag(session);
 
     teamMates.add(bob.getIdentity());
     teamMates.add(fred.getIdentity());
@@ -1681,7 +1681,7 @@ public abstract class RidBagTest extends BaseDBTest {
   @Test
   public void testRemoveNotExistentElementAndAddIt() {
     session.begin();
-    var teamMates = new RidBag(session);
+    var teamMates = new LinkBag(session);
 
     final var bob = ((EntityImpl) session.newEntity());
 
@@ -1700,7 +1700,7 @@ public abstract class RidBagTest extends BaseDBTest {
   public void testAddNewItemsAndRemoveThem() {
     session.begin();
     final List<RID> rids = new ArrayList<>();
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     var size = 0;
     for (var i = 0; i < 10; i++) {
       var docToAdd = ((EntityImpl) session.newEntity());
@@ -1800,7 +1800,7 @@ public abstract class RidBagTest extends BaseDBTest {
     session.begin();
     final var externalDoc = ((EntityImpl) session.newEntity());
 
-    final var highLevelRidBag = new RidBag(session);
+    final var highLevelRidBag = new LinkBag(session);
 
     for (var i = 0; i < 10; i++) {
       var doc = ((EntityImpl) session.newEntity());
@@ -1839,7 +1839,7 @@ public abstract class RidBagTest extends BaseDBTest {
   protected abstract void assertEmbedded(boolean isEmbedded);
 
   private void massiveInsertionIteration(Random rnd, List<Identifiable> rids,
-      RidBag bag) {
+      LinkBag bag) {
     var bagIterator = bag.iterator();
 
     while (bagIterator.hasNext()) {

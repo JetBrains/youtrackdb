@@ -3,13 +3,10 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -77,7 +74,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     final var document = session.newEntity("RidBagIndexTestClass");
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -112,7 +109,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     try {
       final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-      final var ridBag = new RidBag(session);
+      final var ridBag = new LinkBag(session);
       ridBag.add(docOne.getIdentity());
       ridBag.add(docTwo.getIdentity());
 
@@ -152,7 +149,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBagOne = new RidBag(session);
+    final var ridBagOne = new LinkBag(session);
     ridBagOne.add(docOne.getIdentity());
     ridBagOne.add(docTwo.getIdentity());
 
@@ -161,7 +158,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    final var ridBagTwo = new RidBag(session);
+    final var ridBagTwo = new LinkBag(session);
     ridBagTwo.add(docOne.getIdentity());
     ridBagTwo.add(docThree.getIdentity());
 
@@ -202,7 +199,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBagOne = new RidBag(session);
+    final var ridBagOne = new LinkBag(session);
     ridBagOne.add(docOne.getIdentity());
     ridBagOne.add(docTwo.getIdentity());
 
@@ -215,7 +212,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
       var activeTx = session.getActiveTransaction();
       document = activeTx.load(document);
-      final var ridBagTwo = new RidBag(session);
+      final var ridBagTwo = new LinkBag(session);
       ridBagTwo.add(docOne.getIdentity());
       ridBagTwo.add(docThree.getIdentity());
 
@@ -254,7 +251,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     final var docThree = ((EntityImpl) session.newEntity());
 
-    final var ridBagOne = new RidBag(session);
+    final var ridBagOne = new LinkBag(session);
     ridBagOne.add(docOne.getIdentity());
     ridBagOne.add(docTwo.getIdentity());
 
@@ -266,7 +263,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.begin();
     var activeTx = session.getActiveTransaction();
     document = activeTx.load(document);
-    final var ridBagTwo = new RidBag(session);
+    final var ridBagTwo = new LinkBag(session);
     ridBagTwo.add(docOne.getIdentity());
     ridBagTwo.add(docThree.getIdentity());
 
@@ -302,7 +299,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
     document.setProperty("ridBag", ridBag);
@@ -348,7 +345,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -361,7 +358,7 @@ public class LinkBagIndexTest extends BaseDBTest {
       var activeTx = session.getActiveTransaction();
       docThree = activeTx.load(docThree);
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<RidBag>getProperty("ridBag").add(docThree.getIdentity());
+      loadedDocument.<LinkBag>getProperty("ridBag").add(docThree.getIdentity());
 
       session.commit();
     } catch (Exception e) {
@@ -398,7 +395,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var docThree = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -410,7 +407,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var activeTx = session.getActiveTransaction();
     docThree = activeTx.load(docThree);
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<RidBag>getProperty("ridBag").add(docThree.getIdentity());
+    loadedDocument.<LinkBag>getProperty("ridBag").add(docThree.getIdentity());
 
     session.rollback();
 
@@ -440,7 +437,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
     document.setProperty("ridBag", ridBag);
@@ -450,7 +447,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     try {
       session.begin();
       EntityImpl loadedDocument = session.load(document.getIdentity());
-      loadedDocument.<RidBag>getProperty("ridBag").remove(docTwo.getIdentity());
+      loadedDocument.<LinkBag>getProperty("ridBag").remove(docTwo.getIdentity());
 
       session.commit();
     } catch (Exception e) {
@@ -483,7 +480,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
     document.setProperty("ridBag", ridBag);
@@ -492,7 +489,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.begin();
     EntityImpl loadedDocument = session.load(document.getIdentity());
-    loadedDocument.<RidBag>getProperty("ridBag").remove(docTwo.getIdentity());
+    loadedDocument.<LinkBag>getProperty("ridBag").remove(docTwo.getIdentity());
 
     session.rollback();
 
@@ -522,7 +519,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -563,7 +560,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -586,7 +583,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -617,7 +614,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docTwo = ((EntityImpl) session.newEntity());
 
     final var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(docOne.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -657,14 +654,14 @@ public class LinkBagIndexTest extends BaseDBTest {
     final var docThree = ((EntityImpl) session.newEntity());
 
     var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    final var ridBagOne = new RidBag(session);
+    final var ridBagOne = new LinkBag(session);
     ridBagOne.add(docOne.getIdentity());
     ridBagOne.add(docTwo.getIdentity());
 
     document.setProperty("ridBag", ridBagOne);
 
     document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(docThree.getIdentity());
     ridBag.add(docTwo.getIdentity());
 
@@ -678,7 +675,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var res = result.next();
 
     var resultSet = new HashSet<>();
-    for (Identifiable identifiable : res.<RidBag>getProperty("ridBag")) {
+    for (Identifiable identifiable : res.<LinkBag>getProperty("ridBag")) {
       resultSet.add(identifiable);
     }
     result.close();

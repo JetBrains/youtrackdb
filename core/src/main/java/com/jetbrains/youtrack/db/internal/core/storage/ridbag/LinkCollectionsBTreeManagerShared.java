@@ -22,31 +22,24 @@ package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBShutdownListener;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBStartupListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTreeImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
-import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.annotation.Nullable;
 
 /**
  *
  */
-public final class BTreeCollectionManagerShared implements BTreeCollectionManager  {
+public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsBTreeManager {
 
   public static final String FILE_EXTENSION = ".grb";
   public static final String FILE_NAME_PREFIX = "global_collection_";
@@ -57,7 +50,7 @@ public final class BTreeCollectionManagerShared implements BTreeCollectionManage
 
   private final AtomicLong ridBagIdCounter = new AtomicLong();
 
-  public BTreeCollectionManagerShared(AbstractStorage storage) {
+  public LinkCollectionsBTreeManagerShared(AbstractStorage storage) {
     this.storage = storage;
   }
 
