@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import static com.jetbrains.youtrack.db.api.schema.SchemaClass.EDGE_CLASS_NAME;
 import static com.jetbrains.youtrack.db.api.schema.SchemaClass.VERTEX_CLASS_NAME;
 
+import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
@@ -29,12 +30,14 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
@@ -53,6 +56,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,7 +65,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
-import org.apache.commons.collections4.map.LinkedMap;
 
 /**
  * Schema Class implementation.
@@ -77,15 +80,16 @@ public abstract class SchemaClassImpl {
   protected String name;
   protected String description;
   protected int[] collectionIds;
-  protected final LinkedMap<String, LazySchemaClass> superClasses = new LinkedMap<>();
+  protected final LinkedHashMap<String, LazySchemaClass> superClasses = new LinkedHashMap<>();
   protected int[] polymorphicCollectionIds;
-  protected List<SchemaClassImpl> subclasses;
+  protected Map<String, LazySchemaClass> subclasses = new HashMap<>();
   protected float overSize = 0f;
   protected boolean strictMode = false; // @SINCE v1.0rc8
   protected boolean abstractClass = false; // @SINCE v1.2.0
   protected Map<String, String> customFields;
   protected final CollectionSelectionStrategy collectionSelection = new RoundRobinCollectionSelectionStrategy();
   protected volatile int hashCode;
+  protected volatile RecordId identity;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
       final int[] iCollectionIds) {
@@ -596,7 +600,7 @@ public abstract class SchemaClassImpl {
       boolean loadInheritanceTree) {
     acquireSchemaWriteLock(session);
     try {
-      var identity = entity.getIdentity();
+      identity = entity.getIdentity();
       subclasses.clear();
       superClasses.clear();
 
@@ -704,7 +708,7 @@ public abstract class SchemaClassImpl {
               "Super class '"
                   + superClassName
                   + "' was declared in class '"
-                  + this.getName()
+                  + this.getName(session)
                   + "' but was not found in schema. Remove the dependency or create the class"
                   + " to continue.");
         }
@@ -720,7 +724,8 @@ public abstract class SchemaClassImpl {
             SchemaShared.normalizeClassName(storedSubclassName));
         subclasses.put(storedSubclassName, subclass);
         subclass.loadWithoutInheritanceIfNeeded(session);
-        addPolymorphicClusterIdsWithInheritance(session, (SchemaClassImpl) subclass.getDelegate());
+        addPolymorphicCollectionIdsWithInheritance(session,
+            (SchemaClassImpl) subclass.getDelegate());
       }
     }
   }
@@ -730,14 +735,14 @@ public abstract class SchemaClassImpl {
   public Entity toStream(DatabaseSessionInternal session) {
     acquireSchemaWriteLock(session);
     try {
-      final var entity = session.newEmbeddedEntity();
+      final Entity entity;
       // null identity means entity is new
-      if (identity != null && identity.isValid()) {
+      if (identity != null && identity.isValidPosition()) {
         entity = session.load(identity);
       } else {
-        entity = new EntityImpl(session);
+        entity = session.newEmbeddedEntity();
         // I don't like the solution, there should be a better way to make only one copy of identity present in the system
-        identity = entity.getIdentity();
+        identity = (RecordId) entity.getIdentity();
       }
       entity.setProperty("name", name);
       entity.setProperty("description", description);
@@ -769,9 +774,7 @@ public abstract class SchemaClassImpl {
 
       if (!subclasses.isEmpty()) {
         List<String> subClassesNames = session.newEmbeddedList(subclasses.size());
-        for (var subclass : subclasses) {
-          subClassesNames.add(subclass.getName(session));
-        }
+        subClassesNames.addAll(subclasses.keySet());
         entity.setProperty("subClasses", subClassesNames, PropertyType.EMBEDDEDSET);
       } else {
         entity.setProperty("subClasses", null, PropertyType.EMBEDDEDSET);
@@ -834,8 +837,8 @@ public abstract class SchemaClassImpl {
 
       List<SchemaClassImpl> result = new ArrayList<>(subclasses.size());
       for (LazySchemaClass lazySchemaClass : subclasses.values()) {
-        lazySchemaClass.loadIfNeeded((DatabaseSessionInternal) session);
-        result.add(lazySchemaClass.getDelegate());
+        lazySchemaClass.loadIfNeeded(session);
+        result.add((SchemaClassImpl) lazySchemaClass.getDelegate());
       }
       return result;
     } finally {
@@ -850,8 +853,8 @@ public abstract class SchemaClassImpl {
 
       for (LazySchemaClass c : subclasses.values()) {
         c.loadIfNeeded(session);
-        set.add(c.getDelegate());
-        set.addAll(c.getDelegate().getAllSubclasses(session));
+        set.add((SchemaClassImpl) c.getDelegate());
+        set.addAll((Collection<? extends SchemaClassImpl>) c.getDelegate().getAllSubclasses());
       }
       return set;
     } finally {
@@ -966,7 +969,7 @@ public abstract class SchemaClassImpl {
       }
       for (LazySchemaClass superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        if (superClass.getDelegate().isSubClassOf(session, iClassName)) {
+        if (superClass.getDelegate().isSubClassOf(iClassName)) {
           return true;
         }
       }
@@ -993,7 +996,7 @@ public abstract class SchemaClassImpl {
       }
       for (LazySchemaClass superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        if (superClass.getDelegate().isSubClassOf(session, clazz)) {
+        if (superClass.getDelegate().isSubClassOf((SchemaClass) clazz)) {
           return true;
         }
       }
@@ -1643,23 +1646,34 @@ public abstract class SchemaClassImpl {
    * Adds a base class to the current one. It adds also the base class collection ids to the
    * polymorphic collection ids array.
    *
-   * @param iBaseClass The base class to add.
+   * @param subClass The subclass to add.
    */
+  public void addSubClass(DatabaseSessionInternal session,
+      final SchemaClassImpl subClass) {
+    addBaseClass(session, subClass);
+  }
+
+  /**
+   * Base class is used wrong here, please use addSubClassMethod instead
+   *
+   * @param session
+   * @param subClass
+   */
+  @Deprecated
   public void addBaseClass(DatabaseSessionInternal session,
       final SchemaClassImpl subClass) {
     checkRecursion(session, subClass);
 
-    String subClassName = subClass.getName();
+    String subClassName = subClass.getName(session);
     if (subclasses.containsKey(subClassName)) {
-      return this;
+      return;
     }
 
     LazySchemaClass lazyClass = owner.getLazyClass(subClassName);
     subclasses.put(subClassName, lazyClass);
-    owner.markClassDirty(this);
-    owner.markClassDirty(subClass);
+    owner.markClassDirty(session, this);
+    owner.markClassDirty(session, subClass);
     addPolymorphicCollectionIds(session, subClass);
-    return this;
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
@@ -1667,7 +1681,8 @@ public abstract class SchemaClassImpl {
     final var subClassProperties = subClass.properties(session);
     for (var property : subClassProperties) {
       var thisProperty = getProperty(session, property.getName(session));
-      if (thisProperty != null && !thisProperty.getType(session).equals(property.getType())) {
+      if (thisProperty != null && !thisProperty.getType(session)
+          .equals(property.getType(session))) {
         throw new SchemaException(session.getDatabaseName(),
             "Cannot add base class '"
                 + subClass.getName(session)
@@ -1691,7 +1706,7 @@ public abstract class SchemaClassImpl {
       }
       SchemaClassImpl impl;
       impl = superClass;
-      impl.propertiesMap(session, properties);
+      properties.putAll(impl.propertiesMap(session));
       for (var entry : properties.entrySet()) {
         if (comulative.containsKey(entry.getKey())) {
           final var property = entry.getKey();

@@ -650,7 +650,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public EntityImpl toStream() {
+  public EntityImpl toStream(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       EntityImpl entity = new EntityImpl();
