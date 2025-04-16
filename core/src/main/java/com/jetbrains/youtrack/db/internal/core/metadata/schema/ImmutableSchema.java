@@ -237,7 +237,7 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public Map<String, LazySchemaClass> getClassesRefs(DatabaseSession db) {
+  public Map<String, LazySchemaClass> getClassesRefs() {
     return new HashMap<>(classesRefs);
   }
 

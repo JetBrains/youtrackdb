@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.api.schema;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +29,7 @@ import javax.annotation.Nonnull;
  * Contains the description of a persistent class property.
  */
 public interface SchemaProperty {
+
   enum ATTRIBUTES {
     LINKEDTYPE,
     LINKEDCLASS,

@@ -1721,11 +1721,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLinkCollection(
-      DatabaseSessionInternal db, ImmutableSchema schema,
+      DatabaseSessionInternal session, ImmutableSchema schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
-    if (property.getLinkedClass() != null) {
+    if (property.getLinkedClass(session) != null) {
       if (value.getTimeLine() != null) {
         var event =
             value.getTimeLine().getMultiValueChangeEvents();
@@ -1733,12 +1733,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
           if (object.getChangeType() == ChangeType.ADD
               || object.getChangeType() == ChangeType.UPDATE
               && object.getValue() != null) {
-            validateLink(schema, db, property, object.getValue(), true);
+            validateLink(schema, session, property, object.getValue(), true);
           }
         }
       } else {
         for (var object : values) {
-          validateLink(schema, db, property, object, true);
+          validateLink(schema, session, property, object, true);
         }
       }
     }
@@ -1750,7 +1750,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       try {
         if (PropertyTypeInternal.convertFromPublicType(p.getLinkedType())
             .convert(value, PropertyTypeInternal.convertFromPublicType(p.getLinkedType()),
-                p.getLinkedClass(), session)
+                p.getLinkedClass(session), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
@@ -1802,7 +1802,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
               + " but the value is not a record or a record-id");
     }
 
-    final var schemaClass = p.getLinkedClass();
+    final var schemaClass = p.getLinkedClass(session);
     if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       var identifiable = (Identifiable) propertyValue;
@@ -1865,7 +1865,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
 
         if (embedded instanceof EntityImpl entity) {
-          final var embeddedClass = p.getLinkedClass();
+          final var embeddedClass = p.getLinkedClass(session);
           if (entity.isVertex()) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
@@ -1893,7 +1893,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
         }
 
-        final var embeddedClass = p.getLinkedClass();
+        final var embeddedClass = p.getLinkedClass(session);
         if (embeddedClass != null) {
           if (!(embedded instanceof EntityImpl entity)) {
             throw new ValidationException(session.getDatabaseName(),
@@ -4005,7 +4005,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     value = type.convert(value, linkedType,
-        property != null ? property.getLinkedClass() : null, session);
+        property != null ? property.getLinkedClass(session) : null, session);
 
     return (RET) value;
   }

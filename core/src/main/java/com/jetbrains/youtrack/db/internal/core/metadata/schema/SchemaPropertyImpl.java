@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -241,8 +240,8 @@ public abstract class SchemaPropertyImpl {
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
    */
-  public SchemaClass getLinkedClass(DatabaseSession session) {
-    acquireSchemaReadLock();
+  public SchemaClassImpl getLinkedClass(DatabaseSessionInternal session) {
+    acquireSchemaReadLock(session);
     try {
       return linkedClass;
     } finally {
@@ -398,25 +397,25 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public Object get(DatabaseSession session, final ATTRIBUTES attribute) {
+  public Object get(DatabaseSessionInternal session, final ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass(db);
-      case LINKEDTYPE -> getLinkedType(db);
-      case MIN -> getMin(db);
-      case MANDATORY -> isMandatory(db);
-      case READONLY -> isReadonly(db);
-      case MAX -> getMax(db);
-      case DEFAULT -> getDefaultValue(db);
-      case NAME -> getName(db);
-      case NOTNULL -> isNotNull(db);
-      case REGEXP -> getRegexp(db);
-      case TYPE -> getType(db);
-      case COLLATE -> getCollate(db);
-      case DESCRIPTION -> getDescription(db);
+      case LINKEDCLASS -> getLinkedClass(session);
+      case LINKEDTYPE -> getLinkedType(session);
+      case MIN -> getMin(session);
+      case MANDATORY -> isMandatory(session);
+      case READONLY -> isReadonly(session);
+      case MAX -> getMax(session);
+      case DEFAULT -> getDefaultValue(session);
+      case NAME -> getName(session);
+      case NOTNULL -> isNotNull(session);
+      case REGEXP -> getRegexp(session);
+      case TYPE -> getType(session);
+      case COLLATE -> getCollate(session);
+      case DESCRIPTION -> getDescription(session);
       default -> throw new IllegalArgumentException("Cannot find attribute '" + attribute + "'");
     };
   }
@@ -563,8 +562,8 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public void fromStream(DatabaseSessionInternal db, EntityImpl entity) {
-    acquireSchemaWriteLock(db);
+  public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
+    acquireSchemaWriteLock(session);
     try {
       String name = entity.field("name");
       PropertyType type = null;
@@ -602,7 +601,7 @@ public abstract class SchemaPropertyImpl {
         LazySchemaClass lazyClass = owner.owner.getLazyClass(linkedClassName);
         // we need to load class without inheritance to have a proper link on it
         // later inheritance info will be loaded if needed
-        lazyClass.loadWithoutInheritanceIfNeeded(db);
+        lazyClass.loadWithoutInheritanceIfNeeded(session);
         linkedClass = lazyClass.getDelegate();
       }
       linkedType =
@@ -623,7 +622,7 @@ public abstract class SchemaPropertyImpl {
       }
       description = entity.containsField("description") ? entity.field("description") : null;
     } finally {
-      releaseSchemaWriteLock(db);
+      releaseSchemaWriteLock(session);
     }
   }
 
@@ -686,12 +685,12 @@ public abstract class SchemaPropertyImpl {
       entity.field("description", description);
       return entity;
     } finally {
-      releaseSchemaReadLock();
+      releaseSchemaReadLock(se);
     }
   }
 
-  public void acquireSchemaReadLock(DatabaseSessionInternal db) {
-    owner.acquireSchemaReadLock(db);
+  public void acquireSchemaReadLock(DatabaseSessionInternal session) {
+    owner.acquireSchemaReadLock(session);
   }
 
   public void releaseSchemaReadLock(DatabaseSessionInternal session) {
@@ -715,27 +714,30 @@ public abstract class SchemaPropertyImpl {
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {
     if (iDateAsString != null) {
-      if (globalRef.getType() == PropertyType.DATE) {
-        try {
-          DateHelper.getDateFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(session.getDatabaseName(),
-                  "Invalid date format while formatting date '" + iDateAsString + "'"),
-              e, session.getDatabaseName());
+      acquireSchemaReadLock(session);
+      try {
+        if (globalRef.getType() == PropertyType.DATE) {
+          try {
+            DateHelper.getDateFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(session.getDatabaseName(),
+                    "Invalid date format while formatting date '" + iDateAsString + "'"),
+                e, session.getDatabaseName());
+          }
+        } else if (globalRef.getType() == PropertyType.DATETIME) {
+          try {
+            DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
+          } catch (ParseException e) {
+            throw BaseException.wrapException(
+                new SchemaException(session.getDatabaseName(),
+                    "Invalid datetime format while formatting date '" + iDateAsString + "'"),
+                e, session.getDatabaseName());
+          }
         }
-      } else if (globalRef.getType() == PropertyType.DATETIME) {
-        try {
-          DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
-        } catch (ParseException e) {
-          throw BaseException.wrapException(
-              new SchemaException(session.getDatabaseName(),
-                  "Invalid datetime format while formatting date '" + iDateAsString + "'"),
-              e, session.getDatabaseName());
-        }
+      } finally {
+        releaseSchemaReadLock(session);
       }
-    } finally {
-      releaseSchemaReadLock();
     }
   }
 
