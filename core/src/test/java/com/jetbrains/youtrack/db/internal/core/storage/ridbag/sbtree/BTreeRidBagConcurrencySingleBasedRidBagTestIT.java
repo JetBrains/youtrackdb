@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -26,6 +27,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
+
   private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
   private final CountDownLatch latch = new CountDownLatch(1);
 
@@ -91,11 +93,11 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
 
       try (var pool = youTrackDB.cachedPool(
           BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName(), "admin", "admin")) {
-//        for (var i = 0; i < 1; i++) {
-//          futures.add(threadExecutor.submit(new RidAdder(i, pool)));
-//        }
+        for (var i = 0; i < 5; i++) {
+          futures.add(threadExecutor.submit(new RidAdder(i, pool)));
+        }
 
-        for (var i = 0; i < 1; i++) {
+        for (var i = 0; i < 5; i++) {
           futures.add(threadExecutor.submit(new RidDeleter(i, pool)));
         }
 
@@ -160,7 +162,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
                   ridBag.add(rid);
                 }
               });
-            } catch (ConcurrentModificationException e) {
+            } catch (ConcurrentModificationException | LinksConsistencyException e) {
               continue;
             }
 
@@ -226,8 +228,7 @@ public class BTreeRidBagConcurrencySingleBasedRidBagTestIT {
               deletedRids.forEach(ridTree::remove);
               deletedRecords += deletedRids.size();
               break;
-            } catch (ConcurrentModificationException e) {
-              System.out.println();
+            } catch (ConcurrentModificationException | LinksConsistencyException e) {
               //retry
             }
           }
