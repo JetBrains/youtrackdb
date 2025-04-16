@@ -505,13 +505,14 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public void deleteInternal(@Nonnull DBRecord record) {
+  public void deleteInternal(@Nonnull RecordAbstract record) {
     checkOpenness();
     assert assertIfNotActive();
 
     if (record instanceof EntityImpl entity) {
       ensureEdgeConsistencyOnDeletion(entity);
     }
+    record.dirty++;
 
     try {
       checkTxActive();

@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.api.exception;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 /**
@@ -36,7 +35,7 @@ public class ModificationOperationProhibitedException extends CoreException
     super(exception);
   }
 
-  public ModificationOperationProhibitedException(DatabaseSessionInternal db, String message) {
-    super(db, message);
+  public ModificationOperationProhibitedException(String dbName, String message) {
+    super(dbName, message);
   }
 }

@@ -12,6 +12,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Supplier;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public final class OperationsFreezer {
 
@@ -69,14 +72,13 @@ public final class OperationsFreezer {
     }
   }
 
-  public long freezeOperations(
-      final Class<? extends BaseException> exceptionClass, final String message) {
+  public long freezeOperations(@Nullable Supplier<? extends BaseException> throwException) {
     final var id = freezeIdGen.incrementAndGet();
 
     freezeRequests.incrementAndGet();
 
-    if (exceptionClass != null) {
-      freezeParametersIdMap.put(id, new FreezeParameters(message, exceptionClass));
+    if (throwException != null) {
+      freezeParametersIdMap.put(id, new FreezeParameters(throwException));
     }
 
     while (operationsCount.sum() > 0) {
@@ -92,7 +94,7 @@ public final class OperationsFreezer {
     }
 
     final var freezeParametersMap =
-        new Long2ObjectOpenHashMap<FreezeParameters>(freezeParametersIdMap);
+        new Long2ObjectOpenHashMap<>(freezeParametersIdMap);
     final long requests = freezeRequests.decrementAndGet();
 
     if (requests == 0) {
@@ -114,56 +116,11 @@ public final class OperationsFreezer {
 
   private void throwFreezeExceptionIfNeeded() {
     for (var freezeParameters : freezeParametersIdMap.values()) {
-      assert freezeParameters.exceptionClass != null;
-
-      if (freezeParameters.message != null) {
-        try {
-          final var mConstructor =
-              freezeParameters.exceptionClass.getConstructor(String.class);
-          throw mConstructor.newInstance(freezeParameters.message);
-        } catch (InstantiationException
-                 | IllegalAccessException
-                 | NoSuchMethodException
-                 | SecurityException
-                 | InvocationTargetException ie) {
-          LogManager.instance()
-              .error(
-                  this,
-                  "Can not create instance of exception "
-                      + freezeParameters.exceptionClass
-                      + " with message will try empty constructor instead",
-                  ie);
-          throwFreezeExceptionWithoutMessage(freezeParameters);
-        }
-      } else {
-        throwFreezeExceptionWithoutMessage(freezeParameters);
-      }
+      throw freezeParameters.throwException.get();
     }
   }
 
-  private void throwFreezeExceptionWithoutMessage(FreezeParameters freezeParameters) {
-    try {
-      //noinspection deprecation
-      throw freezeParameters.exceptionClass.newInstance();
-    } catch (InstantiationException | IllegalAccessException ie) {
-      LogManager.instance()
-          .error(
-              this,
-              "Can not create instance of exception "
-                  + freezeParameters.exceptionClass
-                  + " will park thread instead of throwing of exception",
-              ie);
-    }
-  }
+  private record FreezeParameters(@Nonnull Supplier<? extends BaseException> throwException) {
 
-  private static final class FreezeParameters {
-
-    private final String message;
-    private final Class<? extends BaseException> exceptionClass;
-
-    private FreezeParameters(String message, Class<? extends BaseException> exceptionClass) {
-      this.message = message;
-      this.exceptionClass = exceptionClass;
-    }
   }
 }

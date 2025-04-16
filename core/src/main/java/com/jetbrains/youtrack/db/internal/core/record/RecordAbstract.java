@@ -60,7 +60,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected int size;
 
   public RecordSerializer recordSerializer;
-  protected long dirty = 1;
+  public long dirty = 1;
   protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
 
@@ -327,7 +327,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     //preprocess any creation, deletion operations
     tx.preProcessRecordsAndExecuteCallCallbacks();
 
-    dirty++;
     session.deleteInternal(this);
     internalReset();
 
