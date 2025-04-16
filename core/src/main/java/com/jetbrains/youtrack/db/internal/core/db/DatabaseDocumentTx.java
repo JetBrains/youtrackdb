@@ -1450,7 +1450,7 @@ public class DatabaseDocumentTx implements DatabaseSessionInternal {
   }
 
   @Override
-  public void deleteInternal(@Nonnull DBRecord record) {
+  public void deleteInternal(@Nonnull RecordAbstract record) {
     checkOpenness();
     internal.deleteInternal(record);
   }
