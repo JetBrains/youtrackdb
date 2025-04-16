@@ -269,7 +269,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean isCollectionEdge(int collection);
 
-  void deleteInternal(@Nonnull DBRecord record);
+  void deleteInternal(@Nonnull RecordAbstract record);
 
   void internalClose(boolean recycle);
 
