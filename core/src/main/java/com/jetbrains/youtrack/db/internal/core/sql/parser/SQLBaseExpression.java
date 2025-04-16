@@ -4,12 +4,14 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -109,40 +111,79 @@ public class SQLBaseExpression extends SQLMathExpression {
     }
   }
 
+  // whether this expression is of type "entityField.type()"
+  // these expressions are handled differently - using EntityImpl#getPropertyTypeInternal
+  // instead of the standard way of doing it with SQLMethodType.
+  private boolean isEntityPropertyType() {
+    return this.identifier != null &&
+        this.identifier.levelZero == null &&
+        this.identifier.isBaseIdentifier() &&
+        this.modifier != null &&
+        this.modifier.methodCall != null &&
+        this.modifier.methodCall.methodName != null &&
+        "type".equals(this.modifier.methodCall.methodName.value) &&
+        this.modifier.methodCall.params.isEmpty();
+  }
+
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
-    Object result = null;
-    if (number != null) {
-      result = number.getValue();
-    } else if (identifier != null) {
-      result = identifier.execute(iCurrentRecord, ctx);
-    } else if (string != null && string.length() > 1) {
-      result = StringSerializerHelper.decode(string.substring(1, string.length() - 1));
-    } else if (inputParam != null) {
-      result = inputParam.getValue(ctx.getInputParameters());
+    final SQLModifier nextModifier;
+    final Object result;
+
+    if (iCurrentRecord instanceof DBRecord rec && rec.isEntity() && isEntityPropertyType()) {
+      final var pType = ((EntityImpl) rec.asEntity())
+          .getPropertyTypeInternal(this.identifier.suffix.identifier.value);
+      result = pType == null ? null : pType.toString();
+      nextModifier = this.modifier.next;
+    } else {
+      if (number != null) {
+        result = number.getValue();
+      } else if (identifier != null) {
+        result = identifier.execute(iCurrentRecord, ctx);
+      } else if (string != null && string.length() > 1) {
+        result = StringSerializerHelper.decode(string.substring(1, string.length() - 1));
+      } else if (inputParam != null) {
+        result = inputParam.getValue(ctx.getInputParameters());
+      } else {
+        result = null;
+      }
+
+      nextModifier = this.modifier;
     }
 
-    if (modifier != null) {
-      result = modifier.execute(iCurrentRecord, result, ctx);
-    }
-
-    return result;
+    return nextModifier == null
+        ? result
+        : nextModifier.execute(iCurrentRecord, result, ctx);
   }
 
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
-    Object result = null;
-    if (number != null) {
-      result = number.getValue();
-    } else if (identifier != null) {
-      result = identifier.execute(iCurrentRecord, ctx);
-    } else if (string != null && string.length() > 1) {
-      result = StringSerializerHelper.decode(string.substring(1, string.length() - 1));
-    } else if (inputParam != null) {
-      result = inputParam.getValue(ctx.getInputParameters());
+    final SQLModifier nextModifier;
+    final Object result;
+
+    if (iCurrentRecord != null && iCurrentRecord.isEntity() && isEntityPropertyType()) {
+      final var pType = ((EntityImpl) iCurrentRecord.asEntity())
+          .getPropertyTypeInternal(this.identifier.suffix.identifier.value);
+      result = pType == null ? null : pType.toString();
+      nextModifier = this.modifier.next;
+    } else {
+
+      if (number != null) {
+        result = number.getValue();
+      } else if (identifier != null) {
+        result = identifier.execute(iCurrentRecord, ctx);
+      } else if (string != null && string.length() > 1) {
+        result = StringSerializerHelper.decode(string.substring(1, string.length() - 1));
+      } else if (inputParam != null) {
+        result = inputParam.getValue(ctx.getInputParameters());
+      } else {
+        result = null;
+      }
+
+      nextModifier = this.modifier;
     }
-    if (modifier != null) {
-      result = modifier.execute(iCurrentRecord, result, ctx);
-    }
-    return result;
+
+    return nextModifier == null
+        ? result
+        : nextModifier.execute(iCurrentRecord, result, ctx);
   }
 
   @Override
@@ -285,6 +326,12 @@ public class SQLBaseExpression extends SQLMathExpression {
 
     if (modifier == null) {
       return identifier.getCollate(currentRecord, ctx);
+    }
+
+    if (isEntityPropertyType()) {
+      // otherwise we'll get exception when working with graph in_/out_ fields,
+      // when trying to access them.
+      return null;
     }
 
     // at the moment we support collate only for chains of nested links: link1.link2.link3
