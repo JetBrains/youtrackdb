@@ -1045,7 +1045,7 @@ public abstract class AbstractStorage
 
       stateLock.readLock().lock();
       try {
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
 
           checkOpennessAndMigration();
@@ -1147,7 +1147,8 @@ public abstract class AbstractStorage
 
       } catch (final IOException e) {
         throw BaseException.wrapException(
-            new StorageException(name, "Error in creation of new collection '" + collectionName + "'"), e,
+            new StorageException(name,
+                "Error in creation of new collection '" + collectionName + "'"), e,
             name);
       } finally {
         stateLock.writeLock().unlock();
@@ -2070,7 +2071,8 @@ public abstract class AbstractStorage
                 }
                 positions.put(recordOperation, physicalPosition);
 
-                rid.setCollectionAndPosition(collection.getId(), physicalPosition.collectionPosition);
+                rid.setCollectionAndPosition(collection.getId(),
+                    physicalPosition.collectionPosition);
                 assert transaction.assertIdentityChangedAfterCommit(oldRID, rid);
               }
             }
@@ -3281,7 +3283,7 @@ public abstract class AbstractStorage
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
           checkOpennessAndMigration();
 
@@ -3340,7 +3342,8 @@ public abstract class AbstractStorage
           return null;
         }
 
-        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName() : null;
+        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
+            : null;
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3475,10 +3478,10 @@ public abstract class AbstractStorage
 
         if (throwException) {
           atomicOperationsManager.freezeAtomicOperations(
-              ModificationOperationProhibitedException.class,
-              "Modification requests are prohibited");
+              () -> new ModificationOperationProhibitedException(name,
+                  "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeAtomicOperations(null, null);
+          atomicOperationsManager.freezeAtomicOperations(null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -4213,7 +4216,8 @@ public abstract class AbstractStorage
     collection.meters().create().record();
     PhysicalPosition ppos;
     try {
-      ppos = collection.createRecord(content, recordVersion, recordType, allocated, atomicOperation);
+      ppos = collection.createRecord(content, recordVersion, recordType, allocated,
+          atomicOperation);
       rid.setCollectionPosition(ppos.collectionPosition);
 
       final var context = RecordSerializationContext.getContext();
@@ -4379,14 +4383,16 @@ public abstract class AbstractStorage
       RecordId nextRid = null;
 
       if (fetchNextRid) {
-        var positions = collection.higherPositions(new PhysicalPosition(rid.getCollectionPosition()), 1);
+        var positions = collection.higherPositions(
+            new PhysicalPosition(rid.getCollectionPosition()), 1);
         if (positions != null && positions.length > 0) {
           nextRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
         }
       }
 
       if (fetchPreviousRid) {
-        var positions = collection.lowerPositions(new PhysicalPosition(rid.getCollectionPosition()), 1);
+        var positions = collection.lowerPositions(new PhysicalPosition(rid.getCollectionPosition()),
+            1);
         if (positions != null && positions.length > 0) {
           prevRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
         }
@@ -4453,7 +4459,8 @@ public abstract class AbstractStorage
    * Register the collection internally.
    *
    * @param collection SQLCollection implementation
-   * @return The id (physical position into the array) of the new collection just created. First is 0.
+   * @return The id (physical position into the array) of the new collection just created. First is
+   * 0.
    */
   private int registerCollection(final StorageCollection collection) {
     final int id;
@@ -4530,7 +4537,8 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean setCollectionAttribute(final int id, final ATTRIBUTES attribute, final Object value) {
+  public boolean setCollectionAttribute(final int id, final ATTRIBUTES attribute,
+      final Object value) {
     checkBackupRunning();
     stateLock.writeLock().lock();
     try {
@@ -4551,7 +4559,8 @@ public abstract class AbstractStorage
 
       return atomicOperationsManager.calculateInsideAtomicOperation(
           null,
-          atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value, collection));
+          atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
+              collection));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -4587,11 +4596,13 @@ public abstract class AbstractStorage
     }
 
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, ((PaginatedCollection) collection).generateCollectionConfig());
+        .updateCollection(atomicOperation,
+            ((PaginatedCollection) collection).generateCollectionConfig());
     return true;
   }
 
-  private boolean dropCollectionInternal(final AtomicOperation atomicOperation, final int collectionId)
+  private boolean dropCollectionInternal(final AtomicOperation atomicOperation,
+      final int collectionId)
       throws IOException {
     final var collection = collections.get(collectionId);
 
@@ -5275,7 +5286,8 @@ public abstract class AbstractStorage
     final var ridsPerCollection = new Int2ObjectOpenHashMap<List<RecordId>>(8);
     for (final var rid : rids) {
       final var group =
-          ridsPerCollection.computeIfAbsent(rid.getCollectionId(), k -> new ArrayList<>(rids.size()));
+          ridsPerCollection.computeIfAbsent(rid.getCollectionId(),
+              k -> new ArrayList<>(rids.size()));
       group.add(rid);
     }
     return ridsPerCollection;
