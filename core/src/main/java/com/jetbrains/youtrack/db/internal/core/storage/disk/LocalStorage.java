@@ -468,7 +468,7 @@ public class LocalStorage extends AbstractStorage {
     java.io.File[] nonActiveSegments;
 
     LogSequenceNumber lastLSN;
-    final var freezeId = getAtomicOperationsManager().freezeAtomicOperations(null, null);
+    final var freezeId = getAtomicOperationsManager().freezeAtomicOperations(null);
     try {
       lastLSN = writeAheadLog.end();
       writeAheadLog.flush();
@@ -1301,7 +1301,9 @@ public class LocalStorage extends AbstractStorage {
       if (!isWriteAllowedDuringIncrementalBackup()) {
         freezeId =
             atomicOperationsManager.freezeAtomicOperations(
-                ModificationOperationProhibitedException.class, "Incremental backup in progress");
+                () -> new ModificationOperationProhibitedException(
+                    name, "Incremental backup in progress")
+            );
       } else {
         freezeId = -1;
       }
@@ -1330,7 +1332,7 @@ public class LocalStorage extends AbstractStorage {
           }
 
           final var newSegmentFreezeId =
-              atomicOperationsManager.freezeAtomicOperations(null, null);
+              atomicOperationsManager.freezeAtomicOperations(null);
           try {
             final var startLsn = writeAheadLog.end();
 

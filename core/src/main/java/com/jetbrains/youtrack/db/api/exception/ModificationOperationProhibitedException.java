@@ -35,7 +35,7 @@ public class ModificationOperationProhibitedException extends CoreException
     super(exception);
   }
 
-  public ModificationOperationProhibitedException(String message) {
-    super(message);
+  public ModificationOperationProhibitedException(String dbName, String message) {
+    super(dbName, message);
   }
 }
