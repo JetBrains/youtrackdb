@@ -59,7 +59,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.RecordInfo;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.Tuple;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -793,7 +792,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   protected static int writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
       EntityLinkSetImpl linkSet) {
     var positionOffset = bytes.offset;
-    linkSet.checkAndConvert();
+    linkSet.checkAndConvert(session.getTransactionInternal());
+
     byte configByte = 0;
 
     if (linkSet.isEmbedded()) {
@@ -846,7 +846,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       BTreeBasedLinkBag btreeLinkBag) {
     var pointer = btreeLinkBag.getCollectionPointer();
 
-    final var context = RecordSerializationContext.peekContext();
+    var currentTx = session.getActiveTransaction();
+    final var context = currentTx.getRecordSerializationContext();
+
     if (pointer == null) {
       final var collectionId = btreeLinkBag.getOwnerEntity().getIdentity().getCollectionId();
       assert collectionId > -1;
@@ -871,7 +873,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     VarIntSerializer.write(bytes, pointer.fileId());
     VarIntSerializer.write(bytes, pointer.linkBagId());
 
-    btreeLinkBag.handleContextSBTree(context, pointer);
+    btreeLinkBag.handleContextBTree(context, pointer);
   }
 
   private static void writeEmbeddedLinkBagDelegate(BytesContainer bytes, AbstractLinkBag delegate) {

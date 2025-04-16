@@ -26,9 +26,9 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.LinkBagUpdateSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RidBagDeleteSerializationOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.LinkBagUpdateSerializationOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
@@ -92,7 +92,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     return reverted;
   }
 
-  public void handleContextSBTree(
+  public void handleContextBTree(
       RecordSerializationContext context, LinkBagPointer pointer) {
     assert assertIfNotActive();
     this.collectionPointer = pointer;
@@ -102,9 +102,9 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
 
 
   @Override
-  public void requestDelete() {
-    final var context = RecordSerializationContext.getContext();
-    if (context != null && collectionPointer != null) {
+  public void requestDelete(FrontendTransaction transaction) {
+    if (collectionPointer != null) {
+      final var context = transaction.getRecordSerializationContext();
       context.push(new RidBagDeleteSerializationOperation(this));
     }
   }
@@ -188,17 +188,4 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     return btreeRecordsSpliterator;
   }
 
-  @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
-    Spliterator<ObjectIntPair<RID>> btreeRecordsSpliterator = null;
-
-    var tree = loadTree();
-    if (tree != null) {
-      btreeRecordsSpliterator = tree.spliteratorEntriesBetween(after,
-          false,
-          new RecordId(Integer.MAX_VALUE, Integer.MAX_VALUE), true, true);
-    }
-
-    return btreeRecordsSpliterator;
-  }
 }

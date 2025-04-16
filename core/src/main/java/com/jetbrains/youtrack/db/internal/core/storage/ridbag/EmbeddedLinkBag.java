@@ -79,7 +79,7 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
 
   @Override
-  public void requestDelete() {
+  public void requestDelete(FrontendTransaction transaction) {
   }
 
 
@@ -94,11 +94,6 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
 
   @Override
   protected Spliterator<ObjectIntPair<RID>> btreeSpliterator() {
-    return null;
-  }
-
-  @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
     return null;
   }
 

@@ -2009,7 +2009,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       if (linkBag == null) {
         if (diff < 0) {
           throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
-              + " from opposite entity " + oppositeEntity + " because it does not exist");
+              + " from opposite entity " + oppositeEntity
+              + " because required property does not exist");
         }
         linkBag = new RidBag(this);
         oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);

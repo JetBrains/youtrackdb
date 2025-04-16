@@ -119,10 +119,13 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       var counter = localChanges.getChange(rid);
 
       if (counter == null) {
-        added[0] = true;
-        localChanges.putChange(rid, new DiffChange(1));
+        var absoluteValue = getAbsoluteValue(rid);
+
+        var absoluteChange = new AbsoluteChange(absoluteValue);
+        added[0] = absoluteChange.increment(counterMaxValue);
+        localChanges.putChange(rid, absoluteChange);
       } else {
-        assert counter.getValue() >= 0 || counter.getType() == AbsoluteChange.TYPE;
+        assert counter.getValue() >= 0;
         added[0] = counter.increment(counterMaxValue);
       }
 
@@ -173,6 +176,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     if (newRidsRemoved) {
       assert size >= 1;
       size--;
+
       removeEvent(rid);
       return true;
     }
@@ -187,14 +191,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       return false;
     }
 
-    if (change.getType() == DiffChange.TYPE && change.getValue() <= 0) {
-      return removeAndUpdateAbsoluteValue(rid);
-    }
-
-    assert change.getType() == AbsoluteChange.TYPE
-        || change.getType() == DiffChange.TYPE && change.getValue() > 0;
     if (change.decrement()) {
-      assert change.getType() == DiffChange.TYPE && size > 0 || size >= change.getValue();
+      assert size >= change.getValue();
       size--;
 
       removeEvent(rid);
@@ -210,6 +208,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     if (absoluteValue > 0) {
       localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1));
       localChangesModificationsCount++;
+
       assert size >= absoluteValue;
 
       size--;
@@ -234,14 +233,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     var change = localChanges.getChange(rid);
 
-    if (change != null) {
-      if (change.getType() == DiffChange.TYPE && change.getValue() < 0) {
-        var absoluteValue = getAbsoluteValue(rid);
-        var absoluteChange = new AbsoluteChange(absoluteValue);
-        localChanges.putChange(rid, absoluteChange);
-        change = absoluteChange;
-      }
-    } else {
+    if (change == null) {
       change = new AbsoluteChange(getAbsoluteValue(rid));
     }
 
@@ -470,22 +462,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     return StreamSupport.stream(spliterator(), false);
   }
 
-  public void clearChanges() {
-    assert assertIfNotActive();
-    localChanges.clear();
-    for (var rid : newEntries.keySet()) {
-      if (rid instanceof ChangeableIdentity changeableIdentity) {
-        changeableIdentity.removeIdentityChangeListener(this);
-      }
-    }
-    localChangesModificationsCount++;
-  }
-
   @Nullable
   protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator();
-
-  @Nullable
-  protected abstract Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after);
 
   @Override
   public Spliterator<RID> spliterator() {
@@ -493,7 +471,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   private final class MergingSpliterator implements Spliterator<RID> {
-
     @Nullable
     private Spliterator<Map.Entry<RID, int[]>> newEntriesSpliterator;
     @Nullable
@@ -693,14 +670,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       if (!localChangesSpliterator.tryAdvance(ridChangeRawPair -> {
         localRid = ridChangeRawPair.first();
         var change = ridChangeRawPair.second();
-
-        if (change.getType() == DiffChange.TYPE) {
-          var absoluteValue = getAbsoluteValue(localRid);
-          change = new AbsoluteChange(absoluteValue);
-
-          //it is safe to do here because spliterator will not change order of elements or skip them
-          localChanges.putChange(localRid, change);
-        }
 
         assert change instanceof AbsoluteChange;
         localCounter = change.getValue();
