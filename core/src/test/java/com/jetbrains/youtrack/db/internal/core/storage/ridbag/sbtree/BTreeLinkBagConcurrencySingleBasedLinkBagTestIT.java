@@ -27,7 +27,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
-
   private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
   private final CountDownLatch latch = new CountDownLatch(1);
 
@@ -52,14 +51,14 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(20);
 
     youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(
-        BTreeRidBagConcurrencySingleBasedRidBagTestIT.class));
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class));
 
-    if (youTrackDB.exists(BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName())) {
-      youTrackDB.drop(BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName());
+    if (youTrackDB.exists(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName())) {
+      youTrackDB.drop(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName());
     }
 
     youTrackDB.create(
-        BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName(),
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(),
         DatabaseType.DISK, "admin", "admin", "admin");
   }
 
@@ -74,15 +73,15 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   @Test
   public void testConcurrency() throws Exception {
     try (var session = (DatabaseSessionEmbedded) youTrackDB.open(
-        BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName(), "admin", "admin")) {
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(), "admin", "admin")) {
       session.executeInTx(transaction -> {
         var entity = session.newEntity();
-        var ridBag = new RidBag(session);
-        entity.setProperty("ridBag", ridBag);
+        var linkBag = new LinkBag(session);
+        entity.setProperty("linkBag", linkBag);
 
         for (var i = 0; i < 100; i++) {
           final var ridToAdd = session.newEntity().getIdentity();
-          ridBag.add(ridToAdd);
+          linkBag.add(ridToAdd);
           ridTree.add(ridToAdd);
         }
 
@@ -92,7 +91,8 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
       List<Future<Void>> futures = new ArrayList<>();
 
       try (var pool = youTrackDB.cachedPool(
-          BTreeRidBagConcurrencySingleBasedRidBagTestIT.class.getSimpleName(), "admin", "admin")) {
+          BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(), "admin",
+          "admin")) {
         for (var i = 0; i < 5; i++) {
           futures.add(threadExecutor.submit(new RidAdder(i, pool)));
         }
@@ -113,15 +113,15 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
       session.executeInTx(transaction -> {
         var entity = session.loadEntity(entityContainerRid);
-        RidBag ridBag = entity.getProperty("ridBag");
+        LinkBag linkBag = entity.getProperty("linkBag");
 
-        for (Identifiable identifiable : ridBag) {
+        for (Identifiable identifiable : linkBag) {
           Assert.assertTrue(ridTree.remove(identifiable.getIdentity()));
         }
 
         Assert.assertTrue(ridTree.isEmpty());
 
-        System.out.println("Result size is " + ridBag.size());
+        System.out.println("Result size is " + linkBag.size());
       });
     }
   }
@@ -156,10 +156,10 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
             try {
               db.executeInTx(transaction -> {
                 var entity = transaction.loadEntity(entityContainerRid);
-                LinkBag ridBag = entity.getProperty("ridBag");
+                LinkBag linkBag = entity.getProperty("linkBag");
 
                 for (var rid : ridsToAdd) {
-                  ridBag.add(rid);
+                  linkBag.add(rid);
                 }
               });
             } catch (ConcurrentModificationException | LinksConsistencyException e) {
@@ -203,7 +203,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
             try {
               var deletedRids = db.computeInTx(transaction -> {
                 var entity = transaction.loadEntity(entityContainerRid);
-                LinkBag linkBag = entity.getProperty("ridBag");
+                LinkBag linkBag = entity.getProperty("linkBag");
                 var iterator = linkBag.iterator();
 
                 List<RID> ridsToDelete = new ArrayList<>();

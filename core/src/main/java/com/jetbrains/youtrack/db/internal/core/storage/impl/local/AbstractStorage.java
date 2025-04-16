@@ -4839,7 +4839,7 @@ public abstract class AbstractStorage
       }
       case RecordOperation.DELETED: {
         if (rec instanceof EntityImpl entity) {
-          LinkBagDeleter.deleteAllRidBags(entity);
+          LinkBagDeleter.deleteAllRidBags(entity, frontendTransaction);
         }
         doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(),
             collection);
