@@ -40,7 +40,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * @since 12/3/13
@@ -223,9 +225,8 @@ public class AtomicOperationsManager {
     }
   }
 
-  public long freezeAtomicOperations(Class<? extends BaseException> exceptionClass,
-      String message) {
-    return atomicOperationsFreezer.freezeOperations(exceptionClass, message);
+  public long freezeAtomicOperations(@Nullable Supplier<? extends BaseException> throwException) {
+    return atomicOperationsFreezer.freezeOperations(throwException);
   }
 
   public void releaseAtomicOperations(long id) {
