@@ -18,10 +18,10 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -36,8 +36,8 @@ public class ServerCommandGetSupportedLanguages extends ServerCommandAuthenticat
 
     iRequest.getData().commandInfo = "Returns the supported languages";
 
-    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      var result = new EntityImpl(null);
+    try (var session = getProfiledDatabaseSessionInstance(iRequest)) {
+      var result = new HashMap<String, Object>();
       Set<String> languages = new HashSet<>();
 
       var scriptManager =
@@ -49,8 +49,8 @@ public class ServerCommandGetSupportedLanguages extends ServerCommandAuthenticat
         }
       }
 
-      result.setProperty("languages", languages);
-      iResponse.writeRecord(result);
+      result.put("languages", languages);
+      iResponse.writeResult(result, session);
     }
     return false;
   }

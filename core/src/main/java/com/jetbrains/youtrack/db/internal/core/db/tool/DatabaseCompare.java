@@ -872,6 +872,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       StorageConfiguration configuration2,
       String storageType1,
       String storageType2) {
+    if (rid1.getCollectionId() == 0) {
+      return true;
+    }
     if (rid1.equals(new RecordId(configuration1.getIndexMgrRecordId()))
         || rid2.equals(new RecordId(configuration2.getIndexMgrRecordId()))) {
       return true;

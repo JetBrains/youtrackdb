@@ -343,10 +343,7 @@ public class SQLModifier extends SimpleNode {
       // do nothing
     } else if (suffix != null) {
 
-      if (level == 0) {
-        value = convertLinkedType(value, schemaProperty, session);
-      }
-
+      value = convertLinkedType(value, level == 0 ? schemaProperty : null, session);
       suffix.setValue(target, value, ctx);
     } else if (arrayRange != null) {
       value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
@@ -357,10 +354,7 @@ public class SQLModifier extends SimpleNode {
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
 
-      if (level == 0) {
-        value = convertLinkedType(value, schemaProperty, session);
-      }
-
+      value = convertLinkedType(value, level == 0 ? schemaProperty : null, session);
       arraySingleValues.setValue(currentRecord, target, value, ctx);
     } else if (rightBinaryCondition != null) {
       throw new UnsupportedOperationException(
@@ -372,27 +366,25 @@ public class SQLModifier extends SimpleNode {
   private static Object convertLinkedType(
       Object value,
       @Nullable SchemaProperty schemaProperty,
-      DatabaseSessionInternal session) {
-    if (value != null) {
-      PropertyTypeInternal targetType = null;
-
-      if (schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value)) {
-        targetType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
-      }
-
-      if (targetType == null) {
-        targetType = PropertyTypeInternal.getTypeByValue(value);
-      }
-
-      if (targetType != null) {
-        value = targetType.convert(value, session);
-      }
-//      else if (value instanceof MultiCollectionIterator<?> it) {
-//        value = it.isInMapMode() ?
-//            it.flushToMap(session.newEmbeddedMap()) :
-//            it.flushToCollection(session.newEmbeddedList());
-//      }
+      DatabaseSessionInternal session
+  ) {
+    if (value == null) {
+      return null;
     }
+    PropertyTypeInternal targetType = null;
+
+    if (schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value)) {
+      targetType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+    }
+
+    if (targetType == null) {
+      targetType = PropertyTypeInternal.getTypeByValue(value);
+    }
+
+    if (targetType != null) {
+      value = targetType.convert(value, session);
+    }
+
     return value;
   }
 

@@ -22,8 +22,9 @@ package com.jetbrains.youtrack.db.internal.core.security.symmetrickey;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.CredentialInterceptor;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import java.util.Map;
 
 /**
  * Provides a symmetric key credential interceptor.
@@ -70,10 +71,10 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     var keystoreFile = GlobalConfiguration.CLIENT_CI_KEYSTORE_FILE.getValueAsString();
     var keystorePassword = GlobalConfiguration.CLIENT_CI_KEYSTORE_PASSWORD.getValueAsString();
 
-    EntityImpl jsonDoc = null;
+    Map<String, Object> metadata = null;
 
     try {
-      jsonDoc = new EntityImpl(null).updateFromJSON(password, "noMap");
+      metadata = JSONSerializerJackson.mapFromJson(password);
     } catch (Exception ex) {
       throw BaseException.wrapException(
           new SecurityException((String) null,
@@ -82,11 +83,11 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     }
 
     // Override algorithm and transform, if they exist in the JSON document.
-    if (jsonDoc.hasProperty("algorithm")) {
-      algorithm = jsonDoc.getProperty("algorithm");
+    if (metadata.containsKey("algorithm")) {
+      algorithm = metadata.get("algorithm").toString();
     }
-    if (jsonDoc.hasProperty("transform")) {
-      transform = jsonDoc.getProperty("transform");
+    if (metadata.containsKey("transform")) {
+      transform = metadata.get("transform").toString();
     }
 
     // Just in case the default configuration gets changed, check it.
@@ -105,21 +106,22 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     SymmetricKey key = null;
 
     // "key" has priority over "keyFile" and "keyStore".
-    if (jsonDoc.hasProperty("key")) {
-      final String base64Key = jsonDoc.getProperty("key");
+    if (metadata.containsKey("key")) {
+      final var base64Key = metadata.get("key").toString();
 
       key = SymmetricKey.fromString(algorithm, base64Key);
       key.setDefaultCipherTransform(transform);
     } else // "keyFile" has priority over "keyStore".
-      if (jsonDoc.hasProperty("keyFile")) {
-        key = SymmetricKey.fromFile(algorithm, jsonDoc.getProperty("keyFile"));
+      if (metadata.containsKey("keyFile")) {
+        key = SymmetricKey.fromFile(algorithm, metadata.get("keyFile").toString());
         key.setDefaultCipherTransform(transform);
       } else {
-        if (jsonDoc.hasProperty("keyStore")) {
-          EntityImpl ksDoc = jsonDoc.getProperty("keyStore");
+        if (metadata.containsKey("keyStore")) {
+          @SuppressWarnings("unchecked")
+          var ksMap = (Map<String, Object>) metadata.get("keyStore");
 
-          if (ksDoc.hasProperty("file")) {
-            keystoreFile = ksDoc.getProperty("file");
+          if (ksMap.containsKey("file")) {
+            keystoreFile = ksMap.get("file").toString();
           }
 
           if (keystoreFile == null || keystoreFile.isEmpty()) {
@@ -128,11 +130,11 @@ public class SymmetricKeyCI implements CredentialInterceptor {
           }
 
           // Specific to Keystore, but override if present in the JSON document.
-          if (ksDoc.hasProperty("password")) {
-            keystorePassword = ksDoc.getProperty("password");
+          if (ksMap.containsKey("password")) {
+            keystorePassword = ksMap.get("password").toString();
           }
 
-          String keyAlias = ksDoc.getProperty("keyAlias");
+          var keyAlias = (String) ksMap.get("keyAlias");
 
           if (keyAlias == null || keyAlias.isEmpty()) {
             throw new SecurityException((String) null,
@@ -140,7 +142,7 @@ public class SymmetricKeyCI implements CredentialInterceptor {
           }
 
           // keyPassword may be null.
-          String keyPassword = ksDoc.getProperty("keyPassword");
+          var keyPassword = (String) ksMap.get("keyPassword");
 
           // keystorePassword may be null.
           key = SymmetricKey.fromKeystore(keystoreFile, keystorePassword, keyAlias, keyPassword);

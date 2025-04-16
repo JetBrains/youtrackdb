@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
@@ -141,18 +141,18 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
 
     final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-    final var propertiesDoc = new EntityImpl(null);
-    propertiesDoc.updateFromJSON(iRequest.getContent());
+    final var properties = JSONSerializerJackson.mapFromJson(iRequest.getContent());
 
-    for (var propertyName : propertiesDoc.propertyNames()) {
-      final Map<String, String> entity = propertiesDoc.getProperty(propertyName);
-      final var propertyType = PropertyType.valueOf(entity.get(PROPERTY_TYPE_JSON_FIELD));
+    for (var entry : properties.entrySet()) {
+      var propertyName = entry.getKey();
+      final var map = (Map<String, String>) entry.getValue();
+      final var propertyType = PropertyType.valueOf(map.get(PROPERTY_TYPE_JSON_FIELD));
       switch (propertyType) {
         case LINKLIST:
         case LINKMAP:
         case LINKSET: {
-          final var linkType = entity.get(LINKED_TYPE_JSON_FIELD);
-          final var linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
+          final var linkType = map.get(LINKED_TYPE_JSON_FIELD);
+          final var linkClass = map.get(LINKED_CLASS_JSON_FIELD);
           if (linkType != null) {
             final var prop =
                 cls.createProperty(propertyName, propertyType, PropertyType.valueOf(linkType));
@@ -171,7 +171,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           break;
         }
         case LINK: {
-          final var linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
+          final var linkClass = map.get(LINKED_CLASS_JSON_FIELD);
           if (linkClass != null) {
             final var prop =
                 cls.createProperty(

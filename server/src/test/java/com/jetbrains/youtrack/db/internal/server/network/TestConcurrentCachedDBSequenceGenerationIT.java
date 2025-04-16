@@ -69,9 +69,13 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
               try (var db = pool.acquire()) {
                 for (var j = 0; j < RECORDS; j++) {
                   var tx = db.begin();
-                  var vert = tx.newVertex("TestSequence");
-                  assertNotNull(vert.getProperty("id"));
+                  var entity =
+                      tx.execute("create vertex TestSequence").findFirst().asEntity();
                   tx.commit();
+                  db.executeInTx(transaction -> {
+                    var loadEntity = transaction.loadEntity(entity);
+                    assertNotNull(loadEntity.getLong("id"));
+                  });
                 }
               } catch (Exception e) {
                 failures.incrementAndGet();

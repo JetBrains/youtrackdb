@@ -262,7 +262,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
     session.begin();
-    final var vertexes = session.query("SELECT FROM V").entityStream().toList();
+    final var vertexes = session.query("SELECT FROM GraphVehicle_CF").entityStream().toList();
 
     final var insAndOuts = vertexes.stream().collect(Collectors.toMap(
         r -> r.<RecordId>getProperty("@rid"),
@@ -275,7 +275,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         }
     ));
 
-    final var query = "SELECT @rid, " + fDef.name + "(inE(), outE()) AS edges FROM V";
+    final var query = "SELECT @rid, " + fDef.name + "(inE(), outE()) AS edges FROM GraphVehicle_CF";
     var edgesAggregated = session.query(query).stream().toList();
 
     for (var d : edgesAggregated) {

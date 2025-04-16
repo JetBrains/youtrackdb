@@ -645,18 +645,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
-  /**
-   * sets a property value
-   *
-   * @param propertyName  The property name
-   * @param propertyValue The property value
-   */
-  public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    validatePropertyUpdate(propertyName, propertyValue);
-
-    setPropertyInternal(propertyName, propertyValue);
-  }
-
   private void validatePropertyUpdate(String propertyName, Object propertyValue) {
     validatePropertyName(propertyName, false);
     validatePropertyValue(propertyName, propertyValue);
@@ -999,19 +987,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (LinkMap) setProperty(name, value, PropertyType.LINKMAP);
   }
 
-  public void setPropertyInternal(String name, Object value) {
-    checkForBinding();
-
-    if (value instanceof EntityImpl entity) {
-      if (entity.isEmbedded()) {
-        setPropertyInternal(name, value, PropertyTypeInternal.EMBEDDED);
-        return;
-      }
-    }
-
-    setPropertyInternal(name, value, null);
-  }
-
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
@@ -1130,7 +1105,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * Sets
+   * Sets a property value
+   *
+   * @param propertyName  The property name
+   * @param propertyValue The property value
+   */
+  public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
+    setPropertyInternal(propertyName, propertyValue, null, null, true);
+  }
+
+  /**
+   * Sets a property value
    *
    * @param propertyName  The property name
    * @param propertyValue The property value
@@ -1138,20 +1123,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public Object setProperty(@Nonnull String propertyName, Object propertyValue,
       @Nonnull PropertyType type) {
-    validatePropertyUpdate(propertyName, propertyValue);
-
-    return setPropertyInternal(propertyName, propertyValue,
-        PropertyTypeInternal.convertFromPublicType(type));
+    return setPropertyInternal(
+        propertyName, propertyValue,
+        PropertyTypeInternal.convertFromPublicType(type), null,
+        true);
   }
 
 
   public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue,
       @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
-    validatePropertyUpdate(propertyName, propertyValue);
 
-    setPropertyInternal(propertyName, propertyValue,
+    setPropertyInternal(
+        propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(propertyType),
-        PropertyTypeInternal.convertFromPublicType(linkedType));
+        PropertyTypeInternal.convertFromPublicType(linkedType),
+        true);
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1163,16 +1149,24 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
-  public Object setPropertyInternal(String name, Object value,
-      @Nullable PropertyTypeInternal type) {
-    return setPropertyInternal(name, value, type, null);
+  public void setPropertyInternal(String name, Object value) {
+    setPropertyInternal(name, value, null);
   }
 
 
-  public Object setPropertyInternal(String name, Object value, PropertyTypeInternal type,
-      PropertyTypeInternal linkedType) {
-    checkForBinding();
+  public void setPropertyInternal(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type
+  ) {
+    setPropertyInternal(name, value, type, null, false);
+  }
+
+  public Object setPropertyInternal(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type,
+      @Nullable PropertyTypeInternal linkedType,
+      boolean validate
+  ) {
 
     if (name == null) {
       throw new IllegalArgumentException("Field is null");
@@ -1180,6 +1174,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     if (name.isEmpty()) {
       throw new IllegalArgumentException("Field name is empty");
+    }
+
+    if (validate) {
+      validatePropertyUpdate(name, value);
+    }
+
+    checkForBinding();
+
+    if (type == null && value instanceof EntityImpl entity && entity.isEmbedded()) {
+      type = PropertyTypeInternal.EMBEDDED;
     }
 
     if (value instanceof RecordAbstract recordAbstract) {
@@ -1201,7 +1205,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
             throw new DatabaseException(getSession().getDatabaseName(),
                 "Attribute " + EntityHelper.ATTRIBUTE_RID + " is read-only");
           }
-
         }
         case EntityHelper.ATTRIBUTE_VERSION -> {
           if (status == STATUS.UNMARSHALLING) {
@@ -1313,18 +1316,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   public void setDeserializedPropertyInternal(String name, Object value,
       PropertyTypeInternal propertyType) {
-    if (value instanceof RecordAbstract recordAbstract) {
-      recordAbstract.checkForBinding();
-
-      if (recordAbstract.getSession() != session) {
-        throw new DatabaseException(getSession().getDatabaseName(),
-            "Entity instance is bound to another session instance");
-      }
+    if (this.properties == null) {
+      this.properties = new HashMap<>();
     }
-    checkForProperties();
 
     var entry = new EntityEntry();
-
     propertiesCount++;
     properties.put(name, entry);
 
@@ -2015,10 +2011,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
         map.put(EntityHelper.ATTRIBUTE_CLASS, className);
       }
 
-      if (isDirty()) {
-        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion() + 1);
-      } else {
-        map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion());
+      if (!isEmbedded()) {
+        if (isDirty()) {
+          map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion() + 1);
+        } else {
+          map.put(EntityHelper.ATTRIBUTE_VERSION, getVersion());
+        }
       }
     }
 
@@ -2416,7 +2414,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String key) {
     Entity embedded;
     if (value instanceof Map<?, ?> mapValue) {
-      embedded = new EntityImpl(session);
+      embedded = session.newEmbeddedEntity();
       embedded.updateFromMap((Map<String, ?>) mapValue);
     } else {
       throw new IllegalArgumentException(
@@ -3884,7 +3882,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
+  protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
     if (propertyValue == null) {
       return null;
     }
@@ -3914,11 +3912,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return "Data containers have to be created using appropriate getOrCreateXxx methods";
     }
 
+    if (propertyValue instanceof RecordAbstract recordAbstract) {
+      recordAbstract.checkForBinding();
+
+      if (recordAbstract.getSession() != session) {
+        throw new DatabaseException(getSession().getDatabaseName(),
+            "Entity instance is bound to another session instance");
+      }
+    }
+
     if (propertyValue instanceof Identifiable) {
       return null;
     }
 
-    return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass();
+    return "Invalid value for property. " + propertyName + " : " + propertyValue.getClass() + " : "
+        + propertyValue;
   }
 
   private void removeAllCollectionChangeListeners() {
@@ -4010,6 +4018,36 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (isVertex() || isStatefulEdge()) {
       throw new DatabaseException(session.getDatabaseName(),
           "Vertices or Edges cannot be stored as embedded");
+    }
+  }
+
+  public void clearSystemProps() {
+    checkForBinding();
+    checkForProperties();
+
+    for (var prop : getPropertyNamesInternal(true, false)) {
+      if (isSystemProperty(prop)) {
+        removePropertyInternal(prop);
+      }
+    }
+  }
+
+  public void markAllLinksAsChanged() {
+    checkForBinding();
+    checkForProperties();
+
+    var dirty = false;
+    for (var rawEntry : getRawEntries()) {
+      final var value = rawEntry.getValue();
+
+      if (value.type.isLink()) {
+        value.markCreated();
+        value.markChanged();
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      setDirty();
     }
   }
 }

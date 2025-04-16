@@ -87,7 +87,7 @@ public abstract class IndexAbstract implements Index {
   protected IndexMetadata im;
 
   @Nullable
-  private RID identity;
+  protected RID identity;
 
   public IndexAbstract(@Nullable RID identity,
       @Nonnull FrontendTransaction transaction, @Nonnull final Storage storage) {
@@ -424,7 +424,7 @@ public abstract class IndexAbstract implements Index {
     try {
       try {
         if (indexId >= 0) {
-          clearAllEntries(session);
+          session.executeInTxInternal(this::doDelete);
         }
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
@@ -590,7 +590,7 @@ public abstract class IndexAbstract implements Index {
     entity.delete();
   }
 
-  protected void clearAllEntries(DatabaseSessionInternal session) {
+  private void clearAllEntries(DatabaseSessionInternal session) {
     FrontendTransaction transaction = null;
     if (session.isTxActive()) {
       transaction = session.getTransactionInternal();
