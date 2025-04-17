@@ -393,36 +393,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
   }
 
   @Override
-  protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes) {
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
-    SchemaClassImpl cls;
-    for (var superClass : classes) {
-      cls = superClass;
-
-      if (newSuperClasses.contains(cls)) {
-        throw new SchemaException(session, "Duplicated superclass '" + cls.getName(session) + "'");
-      }
-
-      newSuperClasses.add(cls);
-    }
-
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
-    toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
-    toRemoveList.removeAll(newSuperClasses);
-
-    for (var toRemove : toRemoveList) {
-      toRemove.removeBaseClassInternal(session, this);
-    }
-    for (var addTo : toAddList) {
-      addTo.addBaseClass(session, this);
-    }
-    superClasses.clear();
-    superClasses.addAll(newSuperClasses);
-  }
-
-  @Override
   protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
   }
 }

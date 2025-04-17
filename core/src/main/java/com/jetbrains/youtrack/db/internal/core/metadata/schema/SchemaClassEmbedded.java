@@ -140,16 +140,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
 
-        var superClassName = superClass.getName(session);
-        if (superClassName.equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
-            superClassName.equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
-          throw new SchemaException(session.getDatabaseName(),
-              "Cannot add the class '"
-                  + superClassName
-                  + "' as superclass of the class '"
-                  + this.getName(session)
-                  + "'. Addition of graph classes is not allowed");
-        }
+      var superClassName = superClass.getName(session);
+      if (superClassName.equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClassName.equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot add the class '"
+                + superClassName
+                + "' as superclass of the class '"
+                + this.getName(session)
+                + "'. Addition of graph classes is not allowed");
+      }
 
       // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
       final var user = session.getCurrentUser();
@@ -158,20 +158,19 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
             Role.PERMISSION_UPDATE);
       }
 
-        if (superClasses.containsKey(superClassName)) {
-          throw new SchemaException(session.getDatabaseName(),
-              "Class: '"
-                  + this.getName(session)
-                  + "' already has the class '"
-                  + superClassName
-                  + "' as superclass");
-        }
-
-        superClass.addBaseClass(session, this);
-        superClasses.put(superClassName, owner.getLazyClass(superClassName));
-
-        owner.markClassDirty(session, this);
+      if (superClasses.containsKey(superClassName)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Class: '"
+                + this.getName(session)
+                + "' already has the class '"
+                + superClassName
+                + "' as superclass");
       }
+
+      superClass.addBaseClass(session, this);
+      superClasses.put(superClassName, owner.getLazyClass(superClassName));
+
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
