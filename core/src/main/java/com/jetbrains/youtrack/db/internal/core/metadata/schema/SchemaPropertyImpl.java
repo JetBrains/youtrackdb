@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -40,7 +41,6 @@ import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -565,37 +565,69 @@ public abstract class SchemaPropertyImpl {
   public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
     acquireSchemaWriteLock(session);
     try {
-      String name = entity.field("name");
-      PropertyType type = null;
-      if (entity.field("type") != null) {
-        type = PropertyType.getById(((Integer) entity.field("type")).byteValue());
+      String name = entity.getProperty("name");
+      PropertyTypeInternal type = null;
+      if (entity.getProperty("type") != null) {
+        type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
       }
-      Integer globalId = entity.field("globalId");
+      Integer globalId = entity.getProperty("globalId");
       if (globalId != null) {
-        globalRef = owner.owner.getGlobalPropertyById(globalId);
+        globalRef = owner.owner.getGlobalPropertyById(session, globalId);
       } else {
         if (type == null) {
-          type = PropertyType.ANY;
+          throw new UnsupportedOperationException("Type is not defined for property " + name);
         }
         globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
       }
 
-      mandatory = entity.containsField("mandatory") ? (Boolean) entity.field("mandatory") : false;
-      readonly = entity.containsField("readonly") ? (Boolean) entity.field("readonly") : false;
-      notNull = entity.containsField("notNull") ? (Boolean) entity.field("notNull") : false;
-      defaultValue = entity.containsField("defaultValue") ? entity.field("defaultValue") : null;
-      if (entity.containsField("collate")) {
-        collate = SQLEngine.getCollate(entity.field("collate"));
+      if (entity.hasProperty("mandatory")) {
+        mandatory = entity.getProperty("mandatory");
+      } else {
+        mandatory = false;
+      }
+      if (entity.hasProperty("readonly")) {
+        readonly = entity.getProperty("readonly");
+      } else {
+        readonly = false;
+      }
+      if (entity.hasProperty("notNull")) {
+        notNull = entity.getProperty("notNull");
+      } else {
+        notNull = false;
+      }
+      if (entity.hasProperty("defaultValue")) {
+        defaultValue = entity.getProperty("defaultValue");
+      } else {
+        defaultValue = null;
+      }
+      if (entity.hasProperty("collate")) {
+        collate = SQLEngine.getCollate(entity.getProperty("collate"));
       }
 
-      min = entity.containsField("min") ? entity.field("min") : null;
-      max = entity.containsField("max") ? entity.field("max") : null;
-      regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
-      String linkedClassName =
-          entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
+      if (entity.hasProperty("min")) {
+        min = entity.getProperty("min");
+      } else {
+        min = null;
+      }
+      if (entity.hasProperty("max")) {
+        max = entity.getProperty("max");
+      } else {
+        max = null;
+      }
+      if (entity.hasProperty("regexp")) {
+        regexp = entity.getProperty("regexp");
+      } else {
+        regexp = null;
+      }
+      final String linkedClassName;
+      if (entity.hasProperty("linkedClass")) {
+        linkedClassName = entity.getProperty("linkedClass");
+      } else {
+        linkedClassName = null;
+      }
       // maybe I will find a better solution, but we need it to unfold recursion
       // class loads properties -> property loads same class which is not loaded yet
-      if (linkedClassName != null && linkedClassName.equalsIgnoreCase(owner.getName())) {
+      if (linkedClassName != null && linkedClassName.equalsIgnoreCase(owner.getName(session))) {
         linkedClass = owner;
       } else {
         LazySchemaClass lazyClass = owner.owner.getLazyClass(linkedClassName);
@@ -604,23 +636,23 @@ public abstract class SchemaPropertyImpl {
         lazyClass.loadWithoutInheritanceIfNeeded(session);
         linkedClass = lazyClass.getDelegate();
       }
-      linkedType =
-          entity.field("linkedType") != null
-              ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())
-              : null;
-      if (entity.containsField("customFields")) {
-        Map<? extends String, ? extends String> storedCustomFields = entity.field("customFields",
-            PropertyType.EMBEDDEDMAP);
-        // todo simplify this ifs
-        if (storedCustomFields != null) {
-          customFields = new HashMap<>(storedCustomFields);
-        } else {
-          customFields = null;
-        }
+      if (entity.getProperty("linkedType") != null) {
+        linkedType =
+            PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
+      } else {
+        linkedType = null;
+      }
+
+      if (entity.hasProperty("customFields")) {
+        customFields = entity.getProperty("customFields");
       } else {
         customFields = null;
       }
-      description = entity.containsField("description") ? entity.field("description") : null;
+      if (entity.hasProperty("description")) {
+        description = entity.getProperty("description");
+      } else {
+        description = null;
+      }
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -650,42 +682,56 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public EntityImpl toStream(DatabaseSessionInternal session) {
-    acquireSchemaReadLock();
+  public Entity toStream(DatabaseSessionInternal session) {
+    acquireSchemaReadLock(session);
     try {
-      EntityImpl entity = new EntityImpl();
-      entity.field("name", getName());
-      entity.field("type", getType().getId());
-      entity.field("globalId", globalRef.getId());
-      entity.field("mandatory", mandatory);
-      entity.field("readonly", readonly);
-      entity.field("notNull", notNull);
-      entity.field("defaultValue", defaultValue);
+      Entity entity = session.newEmbeddedEntity();
+      entity.setProperty("name", getName(session));
+      entity.setProperty("type",
+          PropertyTypeInternal.convertFromPublicType(getType(session)).getId());
+      entity.setProperty("globalId", globalRef.getId());
+      entity.setProperty("mandatory", mandatory);
+      entity.setProperty("readonly", readonly);
+      entity.setProperty("notNull", notNull);
+      entity.setProperty("defaultValue", defaultValue);
 
-      entity.field("min", min);
-      entity.field("max", max);
+      entity.setProperty("min", min);
+      entity.setProperty("max", max);
       if (regexp != null) {
-        entity.field("regexp", regexp);
-      } else {
-        entity.removeField("regexp");
+        entity.setProperty("regexp", regexp);
       }
-      if (linkedType != null) {
-        entity.field("linkedType", linkedType.getId());
-      }
-      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : null,
-          PropertyType.STRING);
 
-      entity.field(
-          "customFields",
-          customFields != null && customFields.size() > 0 ? customFields : null,
-          PropertyType.EMBEDDEDMAP);
-      if (collate != null) {
-        entity.field("collate", collate.getName());
+      if (linkedType != null) {
+        entity.setProperty("linkedType", linkedType.getId());
       }
-      entity.field("description", description);
+      if (linkedClass != null) {
+        entity.setProperty("linkedClass", linkedClass.getName(session));
+      }
+
+      if (customFields != null && customFields.isEmpty()) {
+        var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
+        storedCustomFields.clear();
+        storedCustomFields.putAll(customFields);
+      } else {
+        entity.removeProperty("customFields");
+      }
+
+      if (customFields != null && customFields.isEmpty()) {
+        var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
+        storedCustomFields.clear();
+        storedCustomFields.putAll(customFields);
+      } else {
+        entity.removeProperty("customFields");
+      }
+
+      if (collate != null) {
+        entity.setProperty("collate", collate.getName());
+      }
+
+      entity.setProperty("description", description);
       return entity;
     } finally {
-      releaseSchemaReadLock(se);
+      releaseSchemaReadLock(session);
     }
   }
 

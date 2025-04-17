@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
@@ -399,8 +398,7 @@ public abstract class SchemaClassImpl {
     for (var superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
       var delegate = superClass.getDelegate();
-      result.putAll(
-          (Map<? extends String, ? extends SchemaPropertyImpl>) delegate.getPropertiesMap());
+      result.putAll(delegate.propertiesMapInternal(session));
     }
     return result;
   }
@@ -423,8 +421,7 @@ public abstract class SchemaClassImpl {
     );
     for (LazySchemaClass superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
-      resultProperties.addAll(
-          (Collection<? extends SchemaPropertyImpl>) (superClass.getDelegate()).getProperties());
+      resultProperties.addAll(superClass.getDelegate().properties(session));
     }
     return resultProperties;
   }
@@ -576,7 +573,7 @@ public abstract class SchemaClassImpl {
       }
       for (var superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        result = superClass.getDelegate().existsProperty(propertyName);
+        result = superClass.getDelegate().existsProperty(session, propertyName);
         if (result) {
           return true;
         }
@@ -853,8 +850,8 @@ public abstract class SchemaClassImpl {
 
       for (LazySchemaClass c : subclasses.values()) {
         c.loadIfNeeded(session);
-        set.add((SchemaClassImpl) c.getDelegate());
-        set.addAll((Collection<? extends SchemaClassImpl>) c.getDelegate().getAllSubclasses());
+        set.add(c.getDelegate());
+        set.addAll(c.getDelegate().getAllSubclasses(session));
       }
       return set;
     } finally {
@@ -876,9 +873,8 @@ public abstract class SchemaClassImpl {
     Set<SchemaClassImpl> ret = new HashSet<>(superClasses.size());
     for (LazySchemaClass superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
-      ret.add((SchemaClassImpl) superClass.getDelegate());
-      ret.addAll(
-          (Collection<? extends SchemaClassImpl>) superClass.getDelegate().getAllSuperClasses());
+      ret.add(superClass.getDelegate());
+      ret.addAll(superClass.getDelegate().getAllSuperClasses(session));
     }
     return ret;
   }
@@ -969,7 +965,7 @@ public abstract class SchemaClassImpl {
       }
       for (LazySchemaClass superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        if (superClass.getDelegate().isSubClassOf(iClassName)) {
+        if (superClass.getDelegate().isSubClassOf(session, iClassName)) {
           return true;
         }
       }
@@ -996,7 +992,7 @@ public abstract class SchemaClassImpl {
       }
       for (LazySchemaClass superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        if (superClass.getDelegate().isSubClassOf((SchemaClass) clazz)) {
+        if (superClass.getDelegate().isSubClassOf(session, clazz)) {
           return true;
         }
       }

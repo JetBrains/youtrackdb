@@ -58,7 +58,7 @@ public class LazySchemaClass {
     }
     // todo fix later.
     // when I do it this way it builds schemaSnapshot while loading schema which leads to use of non initialized classes
-    session.executeInTx(() -> {
+    session.executeInTx(tx -> {
 //      // todo figure out why loaded = true first works fine and loaded = true last gives stack overflow
 //      // my first assumption is class relyes on itself, so when we do from streamStream we already need some places
 //      // where we want to use this class, but it seems like class could be partially initialized which could lead to
@@ -90,7 +90,7 @@ public class LazySchemaClass {
     if (delegate == null) {
       delegate = delegateTemplate;
     }
-    session.executeInTx(() -> {
+    session.executeInTx(tx -> {
       EntityImpl classEntity = session.load(recordId);
       delegate.fromStream(session, classEntity, false);
       classLoaded = true;
@@ -106,7 +106,7 @@ public class LazySchemaClass {
     this.inheritanceLoaded = false;
   }
 
-  public SchemaClassInternal getDelegate() {
+  public SchemaClassImpl getDelegate() {
     return delegate;
   }
 
@@ -120,6 +120,6 @@ public class LazySchemaClass {
 
   public String getName(DatabaseSessionInternal session) {
     loadWithoutInheritanceIfNeeded(session);
-    return delegate.getName();
+    return delegate.getName(session);
   }
 }
