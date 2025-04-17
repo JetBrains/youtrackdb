@@ -106,7 +106,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
