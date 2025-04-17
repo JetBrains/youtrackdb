@@ -105,6 +105,9 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
       iterator = MultiValue.getMultiValueIterator(value);
     }
 
+    // using linked hash set because we want
+    // 1) to remove duplicates when there is a single argument to the function
+    // 2) to preserve order of the input collection
     final Set<Object> result = new LinkedHashSet<>();
     while (iterator.hasNext()) {
       result.add(iterator.next());
