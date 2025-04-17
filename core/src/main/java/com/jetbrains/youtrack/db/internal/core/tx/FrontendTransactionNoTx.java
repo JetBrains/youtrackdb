@@ -42,6 +42,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.Collection;
 import java.util.Collections;
@@ -456,6 +457,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public boolean isScheduledForCallbackProcessing(RecordId rid) {
     return false;
+  }
+
+  @Override
+  public @Nonnull RecordSerializationContext getRecordSerializationContext() {
+    throw new UnsupportedOperationException("Operation is not supported in no tx mode");
   }
 
   @Override

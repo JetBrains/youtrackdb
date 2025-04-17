@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.DiffChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
@@ -66,50 +65,24 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
         assert rid.isPersistent();
 
         var change = entry.second();
-        int newCounter;
+        var newCounter = change.getValue();
 
-        if (change.getType() == DiffChange.TYPE) {
-          var storedCounter = tree.get(rid);
-          newCounter = entry.second().applyTo(storedCounter, Integer.MAX_VALUE);
+        if (newCounter > maxCounterValue) {
+          throw new DatabaseException(paginatedStorage.getName(),
+              "Link collection can not contain more than : " + maxCounterValue +
+                  " entries of of the same RID. Current value: " + newCounter + " for rid : "
+                  + rid);
+        }
+        if (newCounter < 0) {
+          throw new DatabaseException(
+              "More entries were removed from link collection than it contains. For rid : "
+                  + rid + " collection contains : " + newCounter + " entries");
+        }
 
-          if (newCounter > maxCounterValue) {
-            throw new DatabaseException(paginatedStorage.getName(),
-                "Link collection can not contain more than : " + maxCounterValue +
-                    " entries of of the same RID. Current value: " + newCounter + " for rid : "
-                    + rid);
-          }
-
-          if (storedCounter != null && newCounter < 0) {
-            throw new DatabaseException(
-                "More entries were removed from link collection than it contains. For rid : "
-                    + rid + " collection contains : " + storedCounter + " entries, but " + (
-                    newCounter - storedCounter) +
-                    " entries were removed.");
-          }
-
-          if (storedCounter != null && newCounter == 0) {
-            tree.remove(atomicOperation, entry.first());
-          } else if (newCounter > 0 && (storedCounter == null || newCounter != storedCounter)) {
-            tree.put(atomicOperation, entry.first(), newCounter);
-          }
+        if (newCounter == 0) {
+          tree.remove(atomicOperation, entry.first());
         } else {
-          newCounter = change.getValue();
-          if (newCounter > maxCounterValue) {
-            throw new DatabaseException(paginatedStorage.getName(),
-                "Link collection can not contain more than : " + maxCounterValue +
-                    " entries of of the same RID. Current value: " + newCounter + " for rid : "
-                    + rid);
-          }
-          if (newCounter < 0) {
-            throw new DatabaseException(
-                "More entries were removed from link collection than it contains. For rid : "
-                    + rid + " collection contains : " + newCounter + " entries");
-          }
-          if (newCounter == 0) {
-            tree.remove(atomicOperation, entry.first());
-          } else {
-            tree.put(atomicOperation, entry.first(), newCounter);
-          }
+          tree.put(atomicOperation, entry.first(), newCounter);
         }
       } catch (IOException e) {
         throw BaseException.wrapException(

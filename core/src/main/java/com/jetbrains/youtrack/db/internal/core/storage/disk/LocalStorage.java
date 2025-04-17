@@ -1998,8 +1998,9 @@ public class LocalStorage extends AbstractStorage {
   }
 
   @Override
-  public List<RecordOperation> commit(FrontendTransactionImpl clientTx, boolean allocated) {
-    var operations = super.commit(clientTx, allocated);
+  public List<RecordOperation> commit(FrontendTransactionImpl frontendTransaction,
+      boolean allocated) {
+    var operations = super.commit(frontendTransaction, allocated);
     listeners.forEach((l) -> l.onCommit(operations));
     return operations;
   }

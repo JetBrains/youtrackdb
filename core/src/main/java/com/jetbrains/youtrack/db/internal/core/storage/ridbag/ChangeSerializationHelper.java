@@ -1,12 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,11 +16,11 @@ public class ChangeSerializationHelper {
   public static final ChangeSerializationHelper INSTANCE = new ChangeSerializationHelper();
 
   public static Change createChangeInstance(byte type, int value) {
-    return switch (type) {
-      case AbsoluteChange.TYPE -> new AbsoluteChange(value);
-      case DiffChange.TYPE -> new DiffChange(value);
-      default -> throw new IllegalArgumentException("Change type is incorrect");
-    };
+    if (type == AbsoluteChange.TYPE) {
+      return new AbsoluteChange(value);
+    }
+
+    throw new IllegalArgumentException("Unknown change type: " + type);
   }
 
   public static Change deserializeChange(final byte[] stream, final int offset) {
