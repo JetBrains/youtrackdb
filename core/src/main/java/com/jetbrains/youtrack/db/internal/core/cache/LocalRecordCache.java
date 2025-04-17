@@ -82,10 +82,12 @@ public class LocalRecordCache extends AbstractRecordCache {
    *
    * @param rid unique identifier of record
    */
+  @Override
   public void deleteRecord(final RID rid) {
     super.deleteRecord(rid);
   }
 
+  @Override
   public void shutdown() {
     super.shutdown();
   }

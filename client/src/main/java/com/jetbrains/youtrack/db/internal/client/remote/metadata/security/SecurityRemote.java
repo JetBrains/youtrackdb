@@ -5,10 +5,8 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
@@ -115,6 +113,7 @@ public class SecurityRemote implements SecurityInternal {
     });
   }
 
+  @Override
   @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
@@ -130,6 +129,7 @@ public class SecurityRemote implements SecurityInternal {
     return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     var sessionInternal = (DatabaseSessionInternal) session;
@@ -143,6 +143,7 @@ public class SecurityRemote implements SecurityInternal {
     return null;
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
@@ -164,6 +165,7 @@ public class SecurityRemote implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from OUser")) {
@@ -173,6 +175,7 @@ public class SecurityRemote implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {

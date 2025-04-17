@@ -50,6 +50,7 @@ public class PushDistributedConfigurationRequest
     }
   }
 
+  @Override
   public BinaryPushResponse execute(DatabaseSessionInternal session, RemotePushHandler remote) {
     return remote.executeUpdateDistributedConfig(this);
   }

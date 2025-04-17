@@ -33,17 +33,20 @@ public class NullSerializer implements BinarySerializer<Object> {
   public static final byte ID = 11;
   public static final NullSerializer INSTANCE = new NullSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final Object object,
       Object... hints) {
     return 0;
   }
 
+  @Override
   public void serialize(
       final Object object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, Object... hints) {
     // nothing to serialize
   }
 
+  @Override
   @Nullable
   public Object deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
@@ -51,35 +54,42 @@ public class NullSerializer implements BinarySerializer<Object> {
     return null;
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return 0;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return 0;
   }
 
+  @Override
   public void serializeNativeObject(
       Object object, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
       Object... hints) {
   }
 
+  @Override
   @Nullable
   public Object deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return null;
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return 0;
   }

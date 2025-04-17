@@ -66,6 +66,7 @@ public class ServerPluginManager implements Service {
     server = iServer;
   }
 
+  @Override
   public void startup() {
     var hotReload = false;
     var dynamic = true;

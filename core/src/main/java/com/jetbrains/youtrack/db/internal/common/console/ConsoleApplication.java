@@ -30,7 +30,6 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.HttpURLConnection;
@@ -40,10 +39,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.ServiceLoader;
 import java.util.TreeMap;
 import java.util.logging.Level;
@@ -710,6 +707,7 @@ public class ConsoleApplication {
     methods =
         new TreeMap<Method, Object>(
             new Comparator<Method>() {
+              @Override
               public int compare(Method o1, Method o2) {
                 final var ann1 = o1.getAnnotation(ConsoleCommand.class);
                 final var ann2 = o2.getAnnotation(ConsoleCommand.class);

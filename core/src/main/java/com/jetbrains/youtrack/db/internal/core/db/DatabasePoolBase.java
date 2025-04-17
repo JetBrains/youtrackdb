@@ -77,12 +77,14 @@ public abstract class DatabasePoolBase extends Thread {
               new DatabasePoolAbstract(
                   this, iMinSize, iMaxSize, idleTimeout, timeBetweenEvictionRunsMillis) {
 
+                @Override
                 public void onShutdown() {
                   if (owner instanceof DatabasePoolBase) {
                     ((DatabasePoolBase) owner).close();
                   }
                 }
 
+                @Override
                 public DatabaseSession createNewResource(
                     final String iDatabaseName, final Object... iAdditionalArgs) {
                   if (iAdditionalArgs.length < 2) {
@@ -92,6 +94,7 @@ public abstract class DatabasePoolBase extends Thread {
                   return createResource(owner, iDatabaseName, iAdditionalArgs);
                 }
 
+                @Override
                 public boolean reuseResource(
                     final String iKey,
                     final Object[] iAdditionalArgs,

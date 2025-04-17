@@ -24,7 +24,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface Edge extends Element {
+public interface Edge extends Element, Relation<Vertex> {
   /**
    * The name of the class of the edge record
    */
@@ -54,6 +54,7 @@ public interface Edge extends Element {
    *
    * @return the vertex that this edge originates from
    */
+  @Override
   @Nullable
   Vertex getFrom();
 
@@ -70,6 +71,7 @@ public interface Edge extends Element {
    *
    * @return the vertex that this edge connects to
    */
+  @Override
   @Nullable
   Vertex getTo();
 
@@ -86,6 +88,7 @@ public interface Edge extends Element {
    *
    * @return true if the edge is lightweight, false otherwise.
    */
+  @Override
   boolean isLightweight();
 
   /**
@@ -138,6 +141,7 @@ public interface Edge extends Element {
    * @param labels the labels to check
    * @return true if the labels match, false otherwise
    */
+  @Override
   boolean isLabeled(@Nonnull String[] labels);
 
   /**
@@ -173,9 +177,11 @@ public interface Edge extends Element {
    */
   void delete();
 
+  @Override
   @Nonnull
   Map<String, Object> toMap();
 
+  @Override
   @Nonnull
   String toJSON();
 }

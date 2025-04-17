@@ -33,11 +33,13 @@ public class DatabaseSessionRemotePooled extends DatabaseSessionRemote {
     return (DatabaseSessionInternal) pool.acquire();
   }
 
+  @Override
   public void reuse() {
     activateOnCurrentThread();
     setStatus(DatabaseSession.STATUS.OPEN);
   }
 
+  @Override
   public void realClose() {
       activateOnCurrentThread();
       super.close();

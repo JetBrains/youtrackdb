@@ -32,36 +32,43 @@ public class StreamSerializerRID implements BinarySerializer<Identifiable> {
   public static final StreamSerializerRID INSTANCE = new StreamSerializerRID();
   public static final byte ID = 16;
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Identifiable object,
       Object... hints) {
     return LinkSerializer.INSTANCE.getObjectSize(serializerFactory, object.getIdentity());
   }
 
+  @Override
   public void serialize(Identifiable object, BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition, Object... hints) {
     LinkSerializer.INSTANCE.serialize(object.getIdentity(), serializerFactory, stream,
         startPosition);
   }
 
+  @Override
   public RID deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LinkSerializer.INSTANCE.deserialize(serializerFactory, stream, startPosition);
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LinkSerializer.INSTANCE.getObjectSize(serializerFactory, stream, startPosition);
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LinkSerializer.INSTANCE.getObjectSizeNative(serializerFactory, stream, startPosition);
   }
 
+  @Override
   public void serializeNativeObject(
       Identifiable object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -69,16 +76,19 @@ public class StreamSerializerRID implements BinarySerializer<Identifiable> {
         startPosition);
   }
 
+  @Override
   public Identifiable deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
     return LinkSerializer.INSTANCE.deserializeNativeObject(serializerFactory, stream,
         startPosition);
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return LinkSerializer.RID_SIZE;
   }

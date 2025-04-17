@@ -480,10 +480,12 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
     }
   }
 
+  @Override
   public void onCreateClass(DatabaseSession db, SchemaClass iClass) {
     logClass((DatabaseSessionInternal) db, AuditingOperation.CREATEDCLASS, iClass);
   }
 
+  @Override
   public void onDropClass(DatabaseSession db, SchemaClass iClass) {
     logClass((DatabaseSessionInternal) db, AuditingOperation.DROPPEDCLASS, iClass);
   }

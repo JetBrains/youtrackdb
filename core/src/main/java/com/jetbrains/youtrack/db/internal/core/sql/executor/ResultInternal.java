@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -21,8 +22,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -46,7 +45,6 @@ import javax.annotation.Nullable;
 
 
 public class ResultInternal implements Result {
-
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -261,6 +259,12 @@ public class ResultInternal implements Result {
         return res;
       }
       case Result result -> {
+        var resultSession = result.getBoundedToSession();
+        if (resultSession != null && resultSession != session) {
+          throw new DatabaseException(
+              "Result is bound to different session, cannot use it as property value");
+        }
+
         if (result.isEntity()) {
           return convertPropertyValue(result.asEntity());
         } else if (result.isBlob()) {
@@ -273,14 +277,8 @@ public class ResultInternal implements Result {
 
           return convertPropertyValue(result.asStatefulEdge());
         }
-        if (result instanceof ResultInternal resultInternal && resultInternal.isRelation()) {
-          return resultInternal.asRelation();
-        }
-
-        var resultSession = result.getBoundedToSession();
-        if (resultSession != null && resultSession != session) {
-          throw new DatabaseException(
-              "Result is bound to different session, cannot use it as property value");
+        if (result.isRelation()) {
+          return result.asRelation();
         }
 
         return result;
@@ -467,6 +465,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Override
   public <T> T getProperty(@Nonnull String name) {
     assert checkSession();
 
@@ -638,6 +637,7 @@ public class ResultInternal implements Result {
 
   }
 
+  @Override
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
     if (content != null) {
@@ -651,6 +651,7 @@ public class ResultInternal implements Result {
     return Collections.emptyList();
   }
 
+  @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
     if (isEntity() && asEntity().hasProperty(propName)) {
@@ -734,6 +735,7 @@ public class ResultInternal implements Result {
     }
   }
 
+  @Override
   @Nonnull
   public Entity asEntity() {
     assert checkSession();
@@ -972,9 +974,10 @@ public class ResultInternal implements Result {
     return map;
   }
 
+  @Override
   public boolean isRelation() {
     assert checkSession();
-    return relation != null;
+    return relation != null || isEdge();
   }
 
   @Override
@@ -1067,6 +1070,7 @@ public class ResultInternal implements Result {
     return null;
   }
 
+  @Override
   @Nonnull
   public Relation<?> asRelation() {
     assert checkSession();
@@ -1075,12 +1079,13 @@ public class ResultInternal implements Result {
     }
 
     if (isStatefulEdge()) {
-      return (EdgeInternal) asStatefulEdge();
+      return asStatefulEdge();
     }
 
     throw new DatabaseException("Result is not an relation");
   }
 
+  @Override
   @Nullable
   public Relation<?> asRelationOrNull() {
     assert checkSession();
@@ -1090,12 +1095,13 @@ public class ResultInternal implements Result {
     }
 
     if (isStatefulEdge()) {
-      return (EdgeInternal) asStatefulEdge();
+      return asStatefulEdge();
     }
 
     return null;
   }
 
+  @Override
   public @Nonnull String toJSON() {
     assert checkSession();
 

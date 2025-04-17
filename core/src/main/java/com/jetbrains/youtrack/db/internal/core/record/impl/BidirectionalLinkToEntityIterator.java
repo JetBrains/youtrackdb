@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import java.util.Iterator;
 
 public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iterator<T> {
@@ -28,8 +29,8 @@ public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iter
   public T next() {
     var edge = linksIterator.next();
     return switch (direction) {
-      case OUT -> edge.toEntity();
-      case IN -> edge.fromEntity();
+      case OUT -> edge.getTo();
+      case IN -> edge.getFrom();
       default -> throw new IllegalStateException("Unexpected direction: " + direction);
     };
   }

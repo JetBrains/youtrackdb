@@ -62,6 +62,7 @@ public class InternalResultSet implements ResultSet, Resettable {
     content.add(nextResult);
   }
 
+  @Override
   public void reset() {
     assert session == null || session.assertIfNotActive();
     this.next = 0;

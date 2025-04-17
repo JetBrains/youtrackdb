@@ -151,6 +151,7 @@ public class ParallelExecStep extends AbstractExecutionStep {
     return "| " + p;
   }
 
+  @Override
   public List<ExecutionPlan> getSubExecutionPlans() {
     //noinspection unchecked,rawtypes
     return (List) subExecutionPlans;

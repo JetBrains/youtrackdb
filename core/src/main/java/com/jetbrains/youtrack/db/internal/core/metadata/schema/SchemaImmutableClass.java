@@ -329,6 +329,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
 
+  @Override
   public CollectionSelectionStrategy getCollectionSelection() {
     return collectionSelection;
   }
@@ -376,10 +377,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
 
+  @Override
   public long count(DatabaseSessionInternal session) {
     return count(session, true);
   }
 
+  @Override
   public long count(DatabaseSessionInternal session, boolean isPolymorphic) {
     assert session.assertIfNotActive();
     return session.countClass(name, isPolymorphic);
@@ -739,10 +742,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
   }
 
+  @Override
   public boolean isEdgeType() {
     return isEdgeType;
   }
 
+  @Override
   public boolean isVertexType() {
     return isVertexType;
   }

@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.common.concur.resource;
 
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBShutdownListener;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBStartupListener;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -70,6 +70,7 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     }
   }
 
+  @Override
   public V getResource(K key, final long maxWaitMillis, Object... additionalArgs)
       throws LockException {
     var resourceHolderMap = activeResources.get();
@@ -97,6 +98,7 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     }
   }
 
+  @Override
   public boolean returnResource(final V res) {
     final var resourceHolderMap = activeResources.get();
     if (resourceHolderMap != null) {
@@ -135,6 +137,7 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     return holder.counter;
   }
 
+  @Override
   public void remove(final V res) {
     this.resources.remove(res);
 

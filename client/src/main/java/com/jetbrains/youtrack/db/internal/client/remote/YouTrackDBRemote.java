@@ -149,6 +149,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     return String.join(ADDRESS_SEPARATOR, hosts) + "/" + name;
   }
 
+  @Override
   public DatabaseSessionInternal open(String name, String user, String password) {
     return open(name, user, password, null);
   }
@@ -220,6 +221,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     executeServerStatementNamedParams(create, user, password, parameters).close();
   }
 
+  @Override
   public DatabaseSessionRemotePooled poolOpen(
       String name, String user, String password, DatabasePoolInternal pool) {
     StorageRemote storage;
@@ -352,6 +354,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
         });
   }
 
+  @Override
   public DatabasePoolInternal openPool(String name, String user, String password) {
     return openPool(name, user, password, null);
   }
@@ -381,6 +384,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     return pool;
   }
 
+  @Override
   public void removePool(DatabasePoolInternal pool) {
     pools.remove(pool);
   }
@@ -394,6 +398,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     internalClose();
   }
 
+  @Override
   public void internalClose() {
     if (!open) {
       return;
@@ -523,10 +528,12 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
     return context;
   }
 
+  @Override
   public void schedule(TimerTask task, long delay, long period) {
     timer.schedule(task, delay, period);
   }
 
+  @Override
   public void scheduleOnce(TimerTask task, long delay) {
     timer.schedule(task, delay);
   }

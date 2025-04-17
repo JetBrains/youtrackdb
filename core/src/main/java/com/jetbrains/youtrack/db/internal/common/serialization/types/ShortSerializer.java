@@ -44,11 +44,13 @@ public class ShortSerializer implements BinarySerializer<Short> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final ShortSerializer INSTANCE = new ShortSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Short object,
       Object... hints) {
     return SHORT_SIZE;
   }
 
+  @Override
   public void serialize(
       final Short object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -60,6 +62,7 @@ public class ShortSerializer implements BinarySerializer<Short> {
     stream[startPosition + 1] = (byte) ((value) & 0xFF);
   }
 
+  @Override
   public Short deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return deserializeLiteral(stream, startPosition);
@@ -69,15 +72,18 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return (short) ((stream[startPosition] << 8) | (stream[startPosition + 1] & 0xff));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return SHORT_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return SHORT_SIZE;
@@ -112,10 +118,12 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return CONVERTER.getShort(stream, startPosition, ByteOrder.nativeOrder());
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return SHORT_SIZE;
   }

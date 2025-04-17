@@ -36,6 +36,7 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
   public static final DecimalSerializer INSTANCE = new DecimalSerializer();
   public static final byte ID = 18;
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, BigDecimal object,
       Object... hints) {
     return staticGetObjectSize(object);
@@ -46,6 +47,7 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
         + BinaryTypeSerializer.getObjectSizeStatic(object.unscaledValue().toByteArray());
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return staticGetObjectSize(stream, startPosition);
@@ -57,6 +59,7 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
         stream, startPosition + IntegerSerializer.INT_SIZE);
   }
 
+  @Override
   public void serialize(BigDecimal object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
     staticSerialize(object, stream, startPosition);
@@ -69,6 +72,7 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
         startPosition);
   }
 
+  @Override
   public BigDecimal deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       int startPosition) {
     return staticDeserialize(stream, startPosition);
@@ -85,10 +89,12 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
     return new BigDecimal(new BigInteger(unscaledValue), scale);
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return IntegerSerializer.INT_SIZE
@@ -119,10 +125,12 @@ public class DecimalSerializer implements BinarySerializer<BigDecimal> {
     return new BigDecimal(new BigInteger(unscaledValue), scale);
   }
 
+  @Override
   public boolean isFixedLength() {
     return false;
   }
 
+  @Override
   public int getFixedLength() {
     return 0;
   }

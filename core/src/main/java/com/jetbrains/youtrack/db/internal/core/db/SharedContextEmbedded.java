@@ -73,6 +73,7 @@ public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
             });
   }
 
+  @Override
   public void load(DatabaseSessionInternal database) {
     if (loaded) {
       return;
@@ -120,7 +121,7 @@ public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
   }
 
 
-
+  @Override
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {
@@ -180,6 +181,7 @@ public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
     }
   }
 
+  @Override
   public void reInit(AbstractStorage storage2, DatabaseSessionInternal database) {
     lock.lock();
     try {

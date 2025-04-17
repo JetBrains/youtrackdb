@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.common.comparator;
 
-import java.lang.reflect.Field;
 import java.nio.ByteOrder;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -70,6 +69,7 @@ public class UnsafeByteArrayComparator implements Comparator<byte[]> {
     }
   }
 
+  @Override
   public int compare(byte[] arrayOne, byte[] arrayTwo) {
     final var commonLen = Math.min(arrayOne.length, arrayTwo.length);
     final var WORDS = commonLen / LONG_SIZE;

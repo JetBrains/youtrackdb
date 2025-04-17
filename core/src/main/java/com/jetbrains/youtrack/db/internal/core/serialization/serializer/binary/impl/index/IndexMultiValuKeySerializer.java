@@ -26,6 +26,7 @@ import javax.annotation.Nullable;
 
 public final class IndexMultiValuKeySerializer implements BinarySerializer<CompositeKey> {
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, CompositeKey compositeKey,
       Object... hints) {
     final var types = (PropertyTypeInternal[]) hints;
@@ -63,6 +64,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     };
   }
 
+  @Override
   public void serialize(
       CompositeKey compositeKey, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -149,6 +151,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     }
   }
 
+  @Override
   public CompositeKey deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     final var buffer = ByteBuffer.wrap(stream);
@@ -366,16 +369,19 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     }
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     //noinspection RedundantCast
     return ((ByteBuffer) ByteBuffer.wrap(stream).position(startPosition)).getInt();
   }
 
+  @Override
   public byte getId() {
     return -1;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     //noinspection RedundantCast
@@ -384,6 +390,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
         .getInt();
   }
 
+  @Override
   public void serializeNativeObject(
       CompositeKey compositeKey, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -392,6 +399,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     serialize(compositeKey, buffer, (PropertyTypeInternal[]) hints, serializerFactory);
   }
 
+  @Override
   public CompositeKey deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
     @SuppressWarnings("RedundantCast") final var buffer =
@@ -399,10 +407,12 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     return deserialize(buffer, serializerFactory);
   }
 
+  @Override
   public boolean isFixedLength() {
     return false;
   }
 
+  @Override
   public int getFixedLength() {
     return 0;
   }

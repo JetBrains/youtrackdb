@@ -160,6 +160,7 @@ public class MultiCollectionIterator<T>
     return sources.getFirst() instanceof Map<?, ?> || sources.getFirst() instanceof Entry<?, ?>;
   }
 
+  @Override
   public int size() {
     // SUM ALL THE COLLECTION SIZES
     var size = 0;

@@ -53,6 +53,7 @@ public interface DBRecord extends Identifiable, Element {
   /**
    * Returns the record identity.
    */
+  @Override
   @Nonnull
   RID getIdentity();
 

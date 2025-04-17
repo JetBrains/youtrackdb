@@ -58,14 +58,17 @@ public class Pair<K extends Comparable, V>
     value = iValue;
   }
 
+  @Override
   public K getKey() {
     return key;
   }
 
+  @Override
   public V getValue() {
     return value;
   }
 
+  @Override
   public V setValue(final V iValue) {
     var oldValue = value;
     value = iValue;
@@ -114,6 +117,7 @@ public class Pair<K extends Comparable, V>
     }
   }
 
+  @Override
   public int compareTo(final Pair<K, V> o) {
     return key.compareTo(o.key);
   }

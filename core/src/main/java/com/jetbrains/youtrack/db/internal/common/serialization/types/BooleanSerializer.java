@@ -39,11 +39,13 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
   public static final byte ID = 1;
   public static final BooleanSerializer INSTANCE = new BooleanSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Boolean object,
       Object... hints) {
     return BOOLEAN_SIZE;
   }
 
+  @Override
   public void serialize(
       final Boolean object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -54,6 +56,7 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     stream[startPosition] = value ? (byte) 1 : (byte) 0;
   }
 
+  @Override
   public Boolean deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return stream[startPosition] == 1;
@@ -63,15 +66,18 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     return stream[startPosition] == 1;
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return BOOLEAN_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return BOOLEAN_SIZE;
@@ -98,10 +104,12 @@ public class BooleanSerializer implements BinarySerializer<Boolean> {
     return deserializeLiteral(stream, startPosition);
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return BOOLEAN_SIZE;
   }

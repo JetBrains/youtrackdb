@@ -38,6 +38,7 @@ public final class DeleteRecordResponse implements BinaryResponse {
     this.result = result;
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

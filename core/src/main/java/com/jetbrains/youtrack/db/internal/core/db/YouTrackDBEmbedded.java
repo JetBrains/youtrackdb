@@ -432,6 +432,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return open(name, user, password, null);
   }
 
+  @Override
   public DatabaseSessionEmbedded openNoAuthenticate(String name, String user) {
     checkDatabaseName(name);
     try {
@@ -468,6 +469,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return embedded;
   }
 
+  @Override
   public DatabaseSessionEmbedded openNoAuthorization(String name) {
     checkDatabaseName(name);
     try {
@@ -585,6 +587,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public DatabaseSessionInternal poolOpen(
       String name, String user, String password, DatabasePoolInternal pool) {
     final DatabaseSessionEmbedded embedded;
@@ -675,6 +678,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return basePath + "/" + name;
   }
 
+  @Override
   public void create(String name, String user, String password, DatabaseType type) {
     create(name, user, password, type, null);
   }
@@ -780,6 +784,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public void restore(
       String name,
       String user,
@@ -819,6 +824,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     embedded.getSharedContext().reInit(storage, embedded);
   }
 
+  @Override
   public void restore(
       String name,
       InputStream in,
@@ -944,6 +950,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return databases;
   }
 
+  @Override
   public synchronized void loadAllDatabases() {
     if (basePath != null) {
       scanDatabaseDirectory(
@@ -958,6 +965,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public DatabasePoolInternal openPool(String name, String user, String password) {
     return openPool(name, user, password, null);
   }
@@ -1037,6 +1045,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
   }
 
 
+  @Override
   public synchronized void internalClose() {
     if (!open) {
       return;
@@ -1073,10 +1082,12 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public YouTrackDBConfigImpl getConfiguration() {
     return configuration;
   }
 
+  @Override
   public void removePool(DatabasePoolInternal pool) {
     pools.remove(pool);
   }
@@ -1103,6 +1114,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public synchronized void initCustomStorage(
       String name, String path, String userName, String userPassword) {
     DatabaseSessionEmbedded embedded = null;
@@ -1123,14 +1135,17 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public void removeShutdownHook() {
     youTrack.removeYouTrackDB(this);
   }
 
+  @Override
   public synchronized Collection<Storage> getStorages() {
     return storages.values().stream().map((x) -> (Storage) x).collect(Collectors.toSet());
   }
 
+  @Override
   public synchronized void forceDatabaseClose(String iDatabaseName) {
     var storage = storages.remove(iDatabaseName);
     if (storage != null) {
@@ -1146,6 +1161,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public boolean isOpen() {
     return open;
   }
@@ -1155,10 +1171,12 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return true;
   }
 
+  @Override
   public void schedule(TimerTask task, long delay, long period) {
     timer.schedule(task, delay, period);
   }
 
+  @Override
   public void scheduleOnce(TimerTask task, long delay) {
     timer.schedule(task, delay);
   }
@@ -1219,10 +1237,12 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return executor.submit(callable);
   }
 
+  @Override
   public ScriptManager getScriptManager() {
     return scriptManager;
   }
 
+  @Override
   public ResultSet executeServerStatementNamedParams(String script, String username, String pw,
       Map<String, Object> args) {
     var statement = SQLEngine.parseServerStatement(script, this);
@@ -1244,6 +1264,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return result;
   }
 
+  @Override
   public ResultSet executeServerStatementPositionalParams(
       String script, String username, String pw, Object... args) {
     var statement = SQLEngine.parseServerStatement(script, this);
@@ -1261,6 +1282,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return systemDatabase;
   }
 
+  @Override
   public DefaultSecuritySystem getSecuritySystem() {
     return securitySystem;
   }
@@ -1270,6 +1292,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return basePath;
   }
 
+  @Override
   public boolean isMemoryOnly() {
     return basePath == null;
   }
@@ -1283,6 +1306,7 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     }
   }
 
+  @Override
   public Set<String> listLodadedDatabases() {
     Set<String> dbs;
     synchronized (this) {
@@ -1292,10 +1316,12 @@ public class YouTrackDBEmbedded implements YouTrackDBInternal {
     return dbs;
   }
 
+  @Override
   public void startCommand(Optional<Long> timeout) {
     timeoutChecker.startCommand(timeout);
   }
 
+  @Override
   public void endCommand() {
     timeoutChecker.endCommand();
   }

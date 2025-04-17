@@ -33,18 +33,22 @@ public class LazyIteratorListWrapper<T> implements LazyIterator<T> {
     underlying = iUnderlying;
   }
 
+  @Override
   public boolean hasNext() {
     return underlying.hasNext();
   }
 
+  @Override
   public T next() {
     return underlying.next();
   }
 
+  @Override
   public void remove() {
     underlying.remove();
   }
 
+  @Override
   @Nullable
   public T update(T e) {
     underlying.set(e);

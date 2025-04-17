@@ -26,6 +26,7 @@ public class SafeBinaryConverter implements BinaryConverter {
 
   public static final SafeBinaryConverter INSTANCE = new SafeBinaryConverter();
 
+  @Override
   public void putShort(byte[] buffer, int index, short value, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       short2BytesBigEndian(value, buffer, index);
@@ -34,6 +35,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public short getShort(byte[] buffer, int index, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       return bytes2ShortBigEndian(buffer, index);
@@ -42,6 +44,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     return bytes2ShortLittleEndian(buffer, index);
   }
 
+  @Override
   public void putInt(byte[] buffer, int pointer, int value, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       int2BytesBigEndian(value, buffer, pointer);
@@ -50,6 +53,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public int getInt(byte[] buffer, int pointer, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       return bytes2IntBigEndian(buffer, pointer);
@@ -58,6 +62,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     return bytes2IntLittleEndian(buffer, pointer);
   }
 
+  @Override
   public void putLong(byte[] buffer, int index, long value, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       long2BytesBigEndian(value, buffer, index);
@@ -66,6 +71,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public long getLong(byte[] buffer, int index, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       return bytes2LongBigEndian(buffer, index);
@@ -74,6 +80,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     return bytes2LongLittleEndian(buffer, index);
   }
 
+  @Override
   public void putChar(byte[] buffer, int index, char character, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       buffer[index] = (byte) (character >>> 8);
@@ -84,6 +91,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     }
   }
 
+  @Override
   public char getChar(byte[] buffer, int index, ByteOrder byteOrder) {
     if (byteOrder.equals(ByteOrder.BIG_ENDIAN)) {
       return (char) (((buffer[index] & 0xFF) << 8) + (buffer[index + 1] & 0xFF));
@@ -92,6 +100,7 @@ public class SafeBinaryConverter implements BinaryConverter {
     return (char) (((buffer[index + 1] & 0xFF) << 8) + (buffer[index] & 0xFF));
   }
 
+  @Override
   public boolean nativeAccelerationUsed() {
     return false;
   }

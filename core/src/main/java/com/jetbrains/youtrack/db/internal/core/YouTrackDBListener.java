@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
  */
 public interface YouTrackDBListener extends YouTrackDBShutdownListener {
 
+  @Override
   void onShutdown();
 
   void onStorageRegistered(final Storage storage);
