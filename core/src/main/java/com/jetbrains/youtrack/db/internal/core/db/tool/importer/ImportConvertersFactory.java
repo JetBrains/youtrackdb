@@ -3,12 +3,12 @@ package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import javax.annotation.Nullable;
 
@@ -43,8 +43,8 @@ public final class ImportConvertersFactory {
       return new EmbeddedSetConverter(converterData);
     }
 
-    if (value instanceof RidBag) {
-      return new RidBagConverter(converterData);
+    if (value instanceof LinkBag) {
+      return new LinkBagConverter(converterData);
     }
 
     if (value instanceof Identifiable) {

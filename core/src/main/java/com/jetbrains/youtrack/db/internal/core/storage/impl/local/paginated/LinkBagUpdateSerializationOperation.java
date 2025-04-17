@@ -26,10 +26,10 @@ import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.DiffChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -43,7 +43,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
   private final Stream<RawPair<RID, Change>> changedValues;
 
   private final LinkBagPointer collectionPointer;
-  private final BTreeCollectionManager collectionManager;
+  private final LinkCollectionsBTreeManager collectionManager;
   private final int maxCounterValue;
 
   public LinkBagUpdateSerializationOperation(

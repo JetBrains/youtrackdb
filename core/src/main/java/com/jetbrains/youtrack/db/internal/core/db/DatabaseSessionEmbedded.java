@@ -51,7 +51,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
@@ -89,7 +89,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
@@ -929,7 +929,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       }
 
       var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyBeforeModification(entity, clazz);
+      ensureLinksConsistencyBeforeModification(entity);
 
       if (clazz != null) {
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
@@ -978,7 +978,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     if (recordAbstract instanceof EntityImpl entity) {
 
       var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyBeforeModification(entity, clazz);
+      ensureLinksConsistencyBeforeModification(entity);
 
       if (clazz != null) {
         if (clazz.isScheduler()) {
@@ -1683,9 +1683,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    * {@inheritDoc}
    */
   @Override
-  public BTreeCollectionManager getBTreeCollectionManager() {
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
-    return storage.getSBtreeCollectionManager();
+    return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
   @Override
@@ -1842,15 +1842,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     if (!ensureLinkConsistency) {
       return;
     }
-    var properties = entity.getPropertyNamesInternal(true, false);
-    var clazz = entity.getImmutableSchemaClass(this);
 
+    var properties = entity.getPropertyNamesInternal(true, false);
     var linksToUpdateMap = new HashMap<RecordId, int[]>();
     for (var propertyName : properties) {
       linksToUpdateMap.clear();
 
       if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
-        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName, false);
+        var oppositeLinksContainer = (LinkBag) entity.getPropertyInternal(propertyName, false);
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
@@ -1913,9 +1912,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
                         + " from opposite entity because it does not exist in the map");
               }
             }
-            case RidBag ridBag -> {
-              assert ridBag.contains(entity.getIdentity());
-              var removed = ridBag.remove(entity.getIdentity());
+            case LinkBag linkBag -> {
+              assert linkBag.contains(entity.getIdentity());
+              var removed = linkBag.remove(entity.getIdentity());
               if (!removed) {
                 throw new IllegalStateException(
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
@@ -1929,15 +1928,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           }
         }
       } else {
-        if (clazz != null) {
-          if (clazz.isVertexType()) {
-            if (VertexEntityImpl.isEdgeProperty(propertyName)) {
-              continue;
-            }
-          } else if (clazz.isEdgeType()) {
-            if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
-              continue;
-            }
+        if (entity.isVertex()) {
+          if (VertexEntityImpl.isEdgeProperty(propertyName)) {
+            continue;
+          }
+        } else if (entity.isEdge()) {
+          if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+            continue;
           }
         }
 
@@ -1948,19 +1945,17 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
-  private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity,
-      @Nullable SchemaImmutableClass clazz) {
+  private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity) {
     if (!ensureLinkConsistency) {
       return;
     }
+
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
-    if (clazz != null) {
-      if (clazz.isVertexType()) {
-        dirtyProperties = filterVertexProperties(dirtyProperties);
-      } else if (clazz.isEdgeType()) {
-        dirtyProperties = filterEdgeProperties(dirtyProperties);
-      }
+    if (entity.isVertex()) {
+      dirtyProperties = filterVertexProperties(dirtyProperties);
+    } else if (entity.isEdge()) {
+      dirtyProperties = filterEdgeProperties(dirtyProperties);
     }
 
     var linksToUpdateMap = new HashMap<RecordId, int[]>();
@@ -1975,7 +1970,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         if (timeLine != null) {
           if (currentPropertyValue instanceof EntityLinkListImpl
               || currentPropertyValue instanceof EntityLinkSetImpl ||
-              currentPropertyValue instanceof RidBag
+              currentPropertyValue instanceof LinkBag
               || currentPropertyValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
@@ -2034,14 +2029,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       if (oppositeEntity.equals(entity)) {
         continue;
       }
-      var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+      var linkBag = (LinkBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
 
       if (linkBag == null) {
         if (diff < 0) {
           throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
               + " from opposite entity " + oppositeEntity + " because it does not exist");
         }
-        linkBag = new RidBag(this);
+        linkBag = new LinkBag(this);
         oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
       }
 
@@ -2127,8 +2122,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           incrementLinkCounter((RecordId) link, links);
         }
       }
-      case RidBag ridBag -> {
-        for (var link : ridBag) {
+      case LinkBag linkBag -> {
+        for (var link : linkBag) {
           incrementLinkCounter((RecordId) link, links);
         }
       }
@@ -2168,8 +2163,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           decrementLinkCounter((RecordId) link, links);
         }
       }
-      case RidBag ridBag -> {
-        for (var link : ridBag) {
+      case LinkBag linkBag -> {
+        for (var link : linkBag) {
           decrementLinkCounter((RecordId) link, links);
         }
       }

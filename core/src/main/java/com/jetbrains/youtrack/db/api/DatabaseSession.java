@@ -44,6 +44,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -152,6 +153,7 @@ public interface DatabaseSession extends AutoCloseable {
    */
   <T, X extends Exception> void executeInTxBatches(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
+
   /**
    * Executes the given code in a transaction. Starts a transaction if not already started, in this
    * case the transaction is committed after the code is executed or rolled back if an exception is
@@ -163,6 +165,24 @@ public interface DatabaseSession extends AutoCloseable {
    */
   @Nullable
   <R, X extends Exception> R computeInTx(TxFunction<Transaction, R, X> supplier) throws X;
+
+  /**
+   * Executes the given code in a transaction. Starts a transaction if not already started, in this
+   * case the transaction is committed after the code is executed or rolled back if an exception is
+   * thrown.
+   * <p>
+   * This method is very similar to {@link DatabaseSession#computeInTx(TxFunction)} and exists
+   * primarily for Kotlin compatibility, allowing callers to avoid specifying generic exception
+   * types.
+   *
+   * @param action Code to execute in transaction
+   * @param <R>    the type of the returned result
+   * @return the result of the code execution
+   */
+  @Nullable
+  default <R> R transaction(Function<Transaction, R> action) throws Exception {
+    return computeInTx(action::apply);
+  }
 
   /**
    * Executes the given code for each element in the iterator in a transaction. Starts a transaction

@@ -5,11 +5,11 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import org.junit.Test;
 
-public class RidBagBasicTest extends DbTestBase {
+public class LinkBagBasicTest extends DbTestBase {
 
   @Test(expected = IllegalArgumentException.class)
   public void testExceptionInCaseOfNull() {
@@ -24,7 +24,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var valueList = session.newEmbeddedList();
 
-        valueList.add(new RidBag(session));
+        valueList.add(new LinkBag(session));
         record.setProperty("emb", valueList);
       });
 
@@ -38,7 +38,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var valueSet = session.newEmbeddedSet();
 
-        valueSet.add(new RidBag(session));
+        valueSet.add(new LinkBag(session));
         record.setProperty("emb", valueSet);
       });
 
@@ -52,7 +52,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var valueMap = session.newEmbeddedMap();
 
-        valueMap.put("key", new RidBag(session));
+        valueMap.put("key", new LinkBag(session));
         record.setProperty("emb", valueMap);
       });
 
@@ -67,7 +67,7 @@ public class RidBagBasicTest extends DbTestBase {
         var valueSet = session.newEmbeddedMap();
 
         var nested = session.newEmbeddedEntity();
-        nested.setProperty("bag", new RidBag(session));
+        nested.setProperty("bag", new LinkBag(session));
         valueSet.put("key", nested);
         record.setProperty("emb", valueSet);
       });
@@ -83,7 +83,7 @@ public class RidBagBasicTest extends DbTestBase {
         var valueList = session.newEmbeddedList();
         var nested = session.newEmbeddedEntity();
 
-        nested.setProperty("bag", new RidBag(session));
+        nested.setProperty("bag", new LinkBag(session));
         valueList.add(nested);
         record.setProperty("emb", valueList);
       });
@@ -99,7 +99,7 @@ public class RidBagBasicTest extends DbTestBase {
         var valueSet = session.newEmbeddedSet();
 
         var nested = session.newEmbeddedEntity();
-        nested.setProperty("bag", new RidBag(session));
+        nested.setProperty("bag", new LinkBag(session));
         valueSet.add(nested);
         record.setProperty("emb", valueSet);
       });
@@ -114,7 +114,7 @@ public class RidBagBasicTest extends DbTestBase {
         var record = session.newVertex();
         var nested = session.newEmbeddedEntity();
 
-        nested.setProperty("bag", new RidBag(session));
+        nested.setProperty("bag", new LinkBag(session));
         record.setEmbeddedEntity("emb", nested);
       });
 

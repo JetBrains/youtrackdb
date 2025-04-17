@@ -154,8 +154,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
   private CONNECTION_STRATEGY connectionStrategy = CONNECTION_STRATEGY.STICKY;
 
-  private final BTreeCollectionManagerRemote sbTreeCollectionManager =
-      new BTreeCollectionManagerRemote();
+  private final LinkCollectionsBTreeManagerRemote sbTreeCollectionManager =
+      new LinkCollectionsBTreeManagerRemote();
   private final RemoteURLs serverURLs;
   private final Map<String, StorageCollection> collectionMap = new ConcurrentHashMap<String, StorageCollection>();
   private final ExecutorService asynchExecutor;
@@ -605,7 +605,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
   }
 
   @Override
-  public BTreeCollectionManager getSBtreeCollectionManager() {
+  public LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
     return sbTreeCollectionManager;
   }
 

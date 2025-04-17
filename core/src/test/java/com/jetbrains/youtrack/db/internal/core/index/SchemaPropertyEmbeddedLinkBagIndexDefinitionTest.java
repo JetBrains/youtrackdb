@@ -3,14 +3,14 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import org.junit.Assert;
 
 /**
  * @since 1/30/14
  */
-public class SchemaPropertyEmbeddedRidBagIndexDefinitionTest extends
-    SchemaPropertyRidBagAbstractIndexDefinition {
+public class SchemaPropertyEmbeddedLinkBagIndexDefinitionTest extends
+    SchemaPropertyLinkBagAbstractIndexDefinition {
 
   @Override
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
@@ -25,7 +25,7 @@ public class SchemaPropertyEmbeddedRidBagIndexDefinitionTest extends
   }
 
   @Override
-  void assertEmbedded(RidBag ridBag) {
-    Assert.assertTrue(ridBag.isEmbedded());
+  void assertEmbedded(LinkBag linkBag) {
+    Assert.assertTrue(linkBag.isEmbedded());
   }
 }

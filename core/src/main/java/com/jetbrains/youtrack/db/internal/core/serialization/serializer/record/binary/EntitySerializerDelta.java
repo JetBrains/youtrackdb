@@ -34,7 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -244,7 +244,7 @@ public class EntitySerializerDelta {
         deserializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) toUpdate);
         break;
       case LINKBAG:
-        deserializeDeltaLinkBag(session, bytes, (RidBag) toUpdate);
+        deserializeDeltaLinkBag(session, bytes, (LinkBag) toUpdate);
         break;
       default:
         throw new SerializationException(session.getDatabaseName(),
@@ -287,7 +287,7 @@ public class EntitySerializerDelta {
 
   protected static void deserializeDeltaLinkBag(DatabaseSessionInternal session,
       BytesContainer bytes,
-      RidBag toUpdate) {
+      LinkBag toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
       var change = deserializeByte(bytes);
@@ -644,7 +644,7 @@ public class EntitySerializerDelta {
         serializeDeltaLinkMap(session, bytes, (EntityLinkMapIml) value);
         break;
       case LINKBAG:
-        serializeDeltaLinkBag(session, bytes, (RidBag) value);
+        serializeDeltaLinkBag(session, bytes, (LinkBag) value);
         break;
       default:
         throw new SerializationException(session.getDatabaseName(),
@@ -653,7 +653,7 @@ public class EntitySerializerDelta {
   }
 
   protected static void serializeDeltaLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag value) {
+      LinkBag value) {
     final var timeline =
         value.getTransactionTimeLine();
     assert timeline != null : "Collection timeline required for serialization of link types";
@@ -1118,7 +1118,7 @@ public class EntitySerializerDelta {
         writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
         break;
       case LINKBAG:
-        writeLinkBag(session, bytes, (RidBag) value);
+        writeLinkBag(session, bytes, (LinkBag) value);
         break;
     }
   }
@@ -1396,12 +1396,12 @@ public class EntitySerializerDelta {
   }
 
 
-  private static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+  private static LinkBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     return RecordSerializerNetworkV37.INSTANCE.readLinkBag(session, bytes);
   }
 
   private static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag bag) {
+      LinkBag bag) {
     RecordSerializerNetworkV37.INSTANCE.writeLinkBag(session, bytes, bag);
   }
 

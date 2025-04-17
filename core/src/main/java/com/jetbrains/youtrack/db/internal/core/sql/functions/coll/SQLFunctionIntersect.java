@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -131,8 +131,8 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
 
     for (var it = current; it.hasNext(); ) {
       final var curr = it.next();
-      if (value instanceof RidBag) {
-        if (((RidBag) value).contains(((Identifiable) curr).getIdentity())) {
+      if (value instanceof LinkBag) {
+        if (((LinkBag) value).contains(((Identifiable) curr).getIdentity())) {
           tempSet.add(curr);
         }
       } else if (value instanceof Collection) {

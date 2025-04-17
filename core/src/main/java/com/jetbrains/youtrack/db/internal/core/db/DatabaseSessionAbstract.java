@@ -106,13 +106,11 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.R
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -126,7 +124,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
@@ -164,7 +161,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
-  private Map<UUID, ObjectIntPair<LinkBagPointer>> collectionsChanges;
 
   // database stats!
   protected long loadedRecordsCount;
@@ -176,7 +172,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   protected long minRidbagPrefetchMs;
   protected long maxRidbagPrefetchMs;
 
-  protected final ThreadLocal<DatabaseSessionInternal> activeSession = new ThreadLocal<>();
+  protected final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
   protected DatabaseSessionAbstract() {
     // DO NOTHING IS FOR EXTENDED OBJECTS
@@ -525,16 +521,15 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
   @Override
-  public void deleteInternal(@Nonnull DBRecord record) {
+  public void deleteInternal(@Nonnull RecordAbstract record) {
     checkOpenness();
     assert assertIfNotActive();
 
     if (record instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        ensureEdgeConsistencyOnDeletion(entity, clazz);
-      }
+      ensureEdgeConsistencyOnDeletion(entity);
     }
+    record.dirty++;
+
     try {
       checkTxActive();
       currentTx.deleteRecord((RecordAbstract) record);
@@ -620,7 +615,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   @Override
   public STATUS getStatus() {
-    assert assertIfNotActive();
     return status;
   }
 
@@ -998,28 +992,28 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
       final RawBuffer recordBuffer;
       if (!rid.isValidPosition()) {
-        recordBuffer = null;
-      } else {
-        try {
-          var readRecordResult =
-              getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
-          recordBuffer = readRecordResult.buffer();
+        throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
+      }
 
-          previousRid = readRecordResult.previousRecordId();
-          nextRid = readRecordResult.nextRecordId();
-        } catch (RecordNotFoundException e) {
-          if (throwExceptionIfRecordNotFound) {
-            throw e;
-          } else {
-            if (fetchNextRid) {
-              nextRid = fetchNextRid(rid);
-            }
-            if (fetchPreviousRid) {
-              previousRid = fetchPreviousRid(rid);
-            }
+      try {
+        var readRecordResult =
+            getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
+        recordBuffer = readRecordResult.buffer();
 
-            return new LoadRecordResult(null, previousRid, nextRid);
+        previousRid = readRecordResult.previousRecordId();
+        nextRid = readRecordResult.nextRecordId();
+      } catch (RecordNotFoundException e) {
+        if (throwExceptionIfRecordNotFound) {
+          throw e;
+        } else {
+          if (fetchNextRid) {
+            nextRid = fetchNextRid(rid);
           }
+          if (fetchPreviousRid) {
+            previousRid = fetchPreviousRid(rid);
+          }
+
+          return new LoadRecordResult(null, previousRid, nextRid);
         }
       }
 
@@ -2040,12 +2034,13 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    */
   @Override
   public void activateOnCurrentThread() {
-    activeSession.set(this);
+    activeSession.set(true);
   }
 
   @Override
   public boolean isActiveOnCurrentThread() {
-    return activeSession.get() == this;
+    var isActive = activeSession.get();
+    return isActive != null && isActive;
   }
 
   protected void checkOpenness() {
@@ -2091,12 +2086,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 
-    //noinspection deprecation
-    if (currentDatabase instanceof DatabaseDocumentTx databaseDocumentTx) {
-      currentDatabase = databaseDocumentTx.internal;
-    }
-
-    if (currentDatabase != this) {
+    if (currentDatabase == null || !currentDatabase) {
       throw new SessionNotActivatedException(getDatabaseName());
     }
 
@@ -2212,16 +2202,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return clazz != null && clazz.isVertexType();
   }
 
-
-  public Map<UUID, ObjectIntPair<LinkBagPointer>> getCollectionsChanges() {
-    assert assertIfNotActive();
-
-    if (collectionsChanges == null) {
-      collectionsChanges = new HashMap<>();
-    }
-
-    return collectionsChanges;
-  }
 
   @Override
   public <X extends Exception> void executeInTxInternal(
@@ -2635,11 +2615,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
-  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity,
-      @Nonnull SchemaImmutableClass clazz) {
-    if (clazz.isVertexType()) {
+  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity) {
+    if (entity.isVertex()) {
       VertexEntityImpl.deleteLinks(entity.asVertex());
-    } else if (clazz.isEdgeType()) {
+    } else if (entity.isEdge()) {
       StatefullEdgeEntityImpl.deleteLinks(this, entity.asEdge());
     }
   }

@@ -89,8 +89,8 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected Spliterator<ObjectIntPair<RID>> btreeSpliterator(RID after) {
-    throw new UnsupportedOperationException();
+  protected boolean isEmbedded() {
+    return false;
   }
 
   @Override

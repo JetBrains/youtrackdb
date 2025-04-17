@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import org.junit.Assert;
@@ -35,7 +35,7 @@ public class SBTreeBagDeleteTest extends BaseMemoryInternalDatabase {
 
     session.begin();
     var entity = (EntityImpl) session.newEntity();
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
 
     for (var i = 0; i < size; i++) {
       bag.add(stubIds.get(i));

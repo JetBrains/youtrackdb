@@ -3,9 +3,9 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -120,9 +120,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -234,11 +234,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -288,11 +288,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -542,7 +542,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -556,7 +556,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(
         session.getActiveTransaction(), document);
@@ -603,7 +603,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   @Test
   public void testDocumentToIndexRidBagValueSuccessfulTwo() {
     session.begin();
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -617,7 +617,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new CompositeIndexDefinition("testCollectionClass");
 
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
@@ -671,7 +671,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.add(new RecordId("#1:10"));
     ridBag.add(new RecordId("#1:11"));
     ridBag.add(new RecordId("#1:11"));
@@ -686,7 +686,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
@@ -859,11 +859,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
     ridBag.enableTracking(null);
     ridBag.add(new RecordId("#10:0"));
     ridBag.add(new RecordId("#10:1"));
@@ -947,11 +947,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
     compositeIndexDefinition.addIndex(
-        new PropertyRidBagIndexDefinition("testCollectionClass", "fTwo"));
+        new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
-    final var ridBag = new RidBag(session);
+    final var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#10:1"));
     ridBag.add(new RecordId("#10:2"));

@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -197,7 +197,7 @@ public class GraphRepair {
                   final var outEdges = outVertex.getPropertyInternal(outFieldName);
                   switch (outEdges) {
                     case null -> outVertexMissing = true;
-                    case RidBag rids -> {
+                    case LinkBag rids -> {
                       if (!rids.contains(edgeId)) {
                         outVertexMissing = true;
                       }
@@ -247,7 +247,7 @@ public class GraphRepair {
                   final var inEdges = inVertex.getPropertyInternal(inFieldName);
                   switch (inEdges) {
                     case null -> inVertexMissing = true;
-                    case RidBag rids -> {
+                    case LinkBag rids -> {
                       if (!rids.contains(edgeId)) {
                         inVertexMissing = true;
                       }
@@ -424,7 +424,7 @@ public class GraphRepair {
                         }
                       }
                     }
-                    case RidBag ridbag -> {
+                    case LinkBag ridbag -> {
                       // In case of ridbags force save for trigger eventual conversions
                       if (ridbag.isEmpty()) {
                         vertex.removePropertyInternal(fieldName);
@@ -572,7 +572,7 @@ public class GraphRepair {
                     broken = true;
                   }
                 }
-                case RidBag rids -> {
+                case LinkBag rids -> {
                   if (!rids.contains(vertex.getIdentity()))
                   // NOT IN RIDBAG
                   {

@@ -6,9 +6,9 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.index.PropertyLinkBagIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.PropertyRidBagIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import java.util.List;
@@ -320,7 +320,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     final var indexDefinition = index.getDefinition();
 
-    Assert.assertTrue(indexDefinition instanceof PropertyRidBagIndexDefinition);
+    Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
     Assert.assertEquals(indexDefinition.getFields(), List.of("prop9"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
@@ -360,7 +360,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     final var indexDefinition = index.getDefinition();
 
-    Assert.assertTrue(indexDefinition instanceof PropertyRidBagIndexDefinition);
+    Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
     Assert.assertEquals(indexDefinition.getFields(), List.of("prop9"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");

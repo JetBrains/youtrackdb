@@ -30,16 +30,15 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.UUIDSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -51,10 +50,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ChangeSerializationHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.RidBagBucketPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.math.BigDecimal;
@@ -64,12 +59,10 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TimeZone;
-import java.util.UUID;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -390,7 +383,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
   }
 
   public void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag bag) {
+      LinkBag bag) {
     if (bag.isToSerializeEmbedded()) {
       var pos = bytes.alloc(1);
       bytes.bytes[pos] = 1;
@@ -416,11 +409,11 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
     }
   }
 
-  public RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+  public LinkBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      var bag = new RidBag(session);
+      var bag = new LinkBag(session);
       // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
       bag.enableTracking(null);
 
@@ -442,7 +435,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
       if (!pointer.isValid()) {
         throw new IllegalStateException("LinkBag with invalid pointer was found");
       }
-      return new RidBag(session,
+      return new LinkBag(session,
           new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
     }
   }
@@ -697,7 +690,7 @@ public class RecordSerializerNetworkV37 implements RecordSerializerNetwork {
         writeEmbeddedMap(session, bytes, (Map<Object, Object>) value);
         break;
       case LINKBAG:
-        writeLinkBag(session, bytes, (RidBag) value);
+        writeLinkBag(session, bytes, (LinkBag) value);
         break;
     }
   }

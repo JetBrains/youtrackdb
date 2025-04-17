@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
@@ -37,13 +37,13 @@ import javax.annotation.Nullable;
  *
  * @since 1/30/14
  */
-public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
+public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
 
-  public PropertyRidBagIndexDefinition() {
+  public PropertyLinkBagIndexDefinition() {
   }
 
-  public PropertyRidBagIndexDefinition(String className, String field) {
+  public PropertyLinkBagIndexDefinition(String className, String field) {
     super(className, field, PropertyTypeInternal.LINK);
   }
 
@@ -81,11 +81,11 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
   @Nullable
   @Override
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
-    if (!(params.get(0) instanceof RidBag ridBag)) {
+    if (!(params.get(0) instanceof LinkBag linkBag)) {
       return null;
     }
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : ridBag) {
+    for (final Identifiable item : linkBag) {
       values.add(createSingleValue(transaction, item.getIdentity()));
     }
 
@@ -95,11 +95,11 @@ public class PropertyRidBagIndexDefinition extends PropertyIndexDefinition
   @Nullable
   @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
-    if (!(params[0] instanceof RidBag ridBag)) {
+    if (!(params[0] instanceof LinkBag linkBag)) {
       return null;
     }
     final List<Object> values = new ArrayList<>();
-    for (final Identifiable item : ridBag) {
+    for (final Identifiable item : linkBag) {
       values.add(createSingleValue(transaction, item.getIdentity()));
     }
 

@@ -46,7 +46,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
@@ -881,9 +881,9 @@ public class JSONSerializerJackson {
           }
           jsonGenerator.writeEndArray();
         }
-        case RidBag ridBag -> {
+        case LinkBag linkBag -> {
           jsonGenerator.writeStartArray();
-          for (var link : ridBag) {
+          for (var link : linkBag) {
             serializeLink(jsonGenerator, link.getIdentity());
           }
           jsonGenerator.writeEndArray();
@@ -1190,9 +1190,9 @@ public class JSONSerializerJackson {
     return list;
   }
 
-  private static RidBag parseLinkBag(EntityImpl entity, JsonParser jsonParser)
+  private static LinkBag parseLinkBag(EntityImpl entity, JsonParser jsonParser)
       throws IOException {
-    var bag = new RidBag(entity.getSession());
+    var bag = new LinkBag(entity.getSession());
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();

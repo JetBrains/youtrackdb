@@ -18,7 +18,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -143,9 +143,9 @@ public class ResultInternal implements Result {
         }
         yield map;
       }
-      case RidBag ridBag -> {
-        List<RID> list = new ArrayList<>(ridBag.size());
-        for (var rid : ridBag) {
+      case LinkBag linkBag -> {
+        List<RID> list = new ArrayList<>(linkBag.size());
+        for (var rid : linkBag) {
           list.add(rid);
         }
         yield list;
@@ -220,9 +220,9 @@ public class ResultInternal implements Result {
     }
 
     switch (value) {
-      case RidBag ridBag -> {
-        var list = new ArrayList<RID>(ridBag.size());
-        for (var rid : ridBag) {
+      case LinkBag linkBag -> {
+        var list = new ArrayList<RID>(linkBag.size());
+        for (var rid : linkBag) {
           list.add(rid);
         }
 

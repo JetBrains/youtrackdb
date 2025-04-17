@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -310,9 +310,9 @@ public class SQLNestedProjection extends SimpleNode {
   }
 
   private Object convert(Object value) {
-    if (value instanceof RidBag) {
+    if (value instanceof LinkBag) {
       List result = new ArrayList();
-      ((RidBag) value).forEach(x -> result.add(x));
+      ((LinkBag) value).forEach(x -> result.add(x));
       return result;
     }
     return value;

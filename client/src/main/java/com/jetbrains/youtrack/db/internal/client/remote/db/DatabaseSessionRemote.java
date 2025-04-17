@@ -57,7 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.nio.file.Path;
@@ -858,9 +858,9 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
    * {@inheritDoc}
    */
   @Override
-  public BTreeCollectionManager getBTreeCollectionManager() {
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
-    return storage.getSBtreeCollectionManager();
+    return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
   @Override

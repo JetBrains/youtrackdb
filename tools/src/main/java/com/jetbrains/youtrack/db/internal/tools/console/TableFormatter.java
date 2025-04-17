@@ -27,7 +27,7 @@ import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ImmutableRecordId;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;
@@ -313,8 +313,8 @@ public class TableFormatter {
       value =
           getPrettyFieldMultiValue(
               ((MultiCollectionIterator<?>) value).iterator(), multiValueMaxEntries, session);
-    } else if (value instanceof RidBag) {
-      value = getPrettyFieldMultiValue(((RidBag) value).iterator(), multiValueMaxEntries, session);
+    } else if (value instanceof LinkBag) {
+      value = getPrettyFieldMultiValue(((LinkBag) value).iterator(), multiValueMaxEntries, session);
     } else if (value instanceof Iterator) {
       value = getPrettyFieldMultiValue((Iterator<?>) value, multiValueMaxEntries, session);
     } else if (value instanceof Collection<?>) {

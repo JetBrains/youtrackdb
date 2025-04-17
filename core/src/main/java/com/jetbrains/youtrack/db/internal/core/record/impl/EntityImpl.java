@@ -64,7 +64,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLin
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchemaProperty;
@@ -79,6 +79,7 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -122,7 +123,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private SchemaImmutableClass immutableClazz;
 
   @Nullable
-  private ArrayList<RidBag> ridBagsToDelete;
+  private ArrayList<BTreeBasedLinkBag> linkBagsToDelete;
 
   private int immutableSchemaVersion = 1;
 
@@ -491,7 +492,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var property = properties.get(name);
     if (property != null) {
       var onLoadValue = (RET) property.getOnLoadValue(session);
-      if (onLoadValue instanceof RidBag) {
+      if (onLoadValue instanceof LinkBag) {
         throw new IllegalArgumentException(
             "getPropertyOnLoadValue(name) is not designed to work with Edge properties");
       }
@@ -1113,12 +1114,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
               copyRidBagIfNecessary(session, fromValue, sameCollection),
               fromType);
         } else {
-          if (!(currentValue instanceof RidBag ridBag)) {
+          if (!(currentValue instanceof LinkBag linkBag)) {
             if (!Objects.equals(fromType, currentEntry.type)) {
               setPropertyInternal(propertyName, fromValue, fromType);
             }
           } else {
-            if (ridBag.isEmbedded() || ((RidBag) fromValue).isEmbedded()) {
+            if (linkBag.isEmbedded() || ((LinkBag) fromValue).isEmbedded()) {
               if (!Objects.equals(fromType, currentEntry.type)) {
                 setPropertyInternal(propertyName,
                     copyRidBagIfNecessary(session,
@@ -1145,16 +1146,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return value;
     }
 
-    if (!(value instanceof RidBag ridBag)) {
+    if (!(value instanceof LinkBag linkBag)) {
       return value;
     }
 
-    if (ridBag.isEmbedded()) {
-      return ridBag;
+    if (linkBag.isEmbedded()) {
+      return linkBag;
     }
 
-    var ridBagCopy = new RidBag(seession);
-    for (var rid : ridBag) {
+    var ridBagCopy = new LinkBag(seession);
+    for (var rid : linkBag) {
       ridBagCopy.add(rid);
     }
 
@@ -1361,7 +1362,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private void preprocessRemovedValue(Object oldValue) {
     switch (oldValue) {
-      case RidBag ridBag -> ridBag.setOwner(null);
+      case LinkBag linkBag -> linkBag.setOwner(null);
       case EntityImpl entity -> entity.removeOwner(this);
       case RecordElement recordElement -> {
         if (!(oldValue instanceof Blob)) {
@@ -1586,7 +1587,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           break;
 
         case LINKBAG:
-          if (!(propertyValue instanceof RidBag)) {
+          if (!(propertyValue instanceof LinkBag)) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -2556,7 +2557,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void updateLinkBagFromMapValue(Object value, DatabaseSessionInternal session,
       String key) {
     if (value instanceof Collection<?> collection) {
-      var linkBag = new RidBag(session);
+      var linkBag = new LinkBag(session);
       for (var item : collection) {
         if (item instanceof Identifiable identifiable) {
           linkBag.add(identifiable.getIdentity());
@@ -2952,17 +2953,24 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
     checkForProperties();
 
-    ridBagsToDelete = new ArrayList<>();
+    linkBagsToDelete = new ArrayList<>();
 
     for (var entry : properties.entrySet()) {
       var value = entry.getValue();
       if (value.exists()) {
-        if (value.value != null) {
-          if (value.value instanceof RidBag ridBag && !ridBag.isEmbedded()) {
-            ridBagsToDelete.add(ridBag);
+        var propertyValue = value.value;
+        var originalValue = value.original;
+
+        if (propertyValue != null) {
+          if (propertyValue instanceof LinkBag linkBag && !linkBag.isEmbedded()) {
+            linkBagsToDelete.add((BTreeBasedLinkBag) linkBag.getDelegate());
+          } else if (propertyValue instanceof EntityLinkSetImpl linkSet && !linkSet.isEmbedded()) {
+            linkBagsToDelete.add((BTreeBasedLinkBag) linkSet.getDelegate());
           }
-        } else if (value.original instanceof RidBag ridBag && !ridBag.isEmbedded()) {
-          ridBagsToDelete.add(ridBag);
+        } else if (originalValue instanceof LinkBag linkBag && !linkBag.isEmbedded()) {
+          linkBagsToDelete.add((BTreeBasedLinkBag) linkBag.getDelegate());
+        } else if (originalValue instanceof EntityLinkSetImpl linkSet && !linkSet.isEmbedded()) {
+          linkBagsToDelete.add((BTreeBasedLinkBag) linkSet.getDelegate());
         }
       }
     }
@@ -2970,7 +2978,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     try {
       super.delete();
     } catch (Exception e) {
-      ridBagsToDelete = null;
+      linkBagsToDelete = null;
       throw e;
     }
     internalReset();
@@ -2984,8 +2992,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  public ArrayList<RidBag> getRidBagsToDelete() {
-    return ridBagsToDelete;
+  public ArrayList<BTreeBasedLinkBag> getLinkBagsToDelete() {
+    return linkBagsToDelete;
   }
 
   /**
@@ -3567,12 +3575,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       for (var propertyEntry : properties.entrySet()) {
         var entry = propertyEntry.getValue();
         final var propertyValue = entry.value;
-        if (propertyValue instanceof RidBag) {
+        if (propertyValue instanceof LinkBag) {
           if (isEmbedded()) {
             throw new DatabaseException(session.getDatabaseName(),
                 "RidBag are supported only at entity root");
           }
-          ((RidBag) propertyValue).checkAndConvert();
+          ((LinkBag) propertyValue).checkAndConvert();
         }
         if (!(propertyValue instanceof Collection<?>)
             && !(propertyValue instanceof Map<?, ?>)
@@ -3648,7 +3656,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
             }
             break;
           case LINKBAG:
-            if (!(propertyValue instanceof RidBag)) {
+            if (!(propertyValue instanceof LinkBag)) {
               throw new DatabaseException(session.getDatabaseName(),
                   "Property " + propertyEntry.getKey() + " is supposed to be RidBag but is "
                       + propertyValue.getClass());
@@ -3811,7 +3819,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           case EntityLinkListImpl list -> iterables.add(
               new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
                   list, -1, list));
-          case RidBag bag -> iterables.add(
+          case LinkBag bag -> iterables.add(
               new EntityRelationsIterable(
                   this, new Pair<>(direction, linkName), linkNames, session,
                   bag, -1, bag));
