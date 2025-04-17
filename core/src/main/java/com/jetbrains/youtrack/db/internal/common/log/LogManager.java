@@ -21,10 +21,8 @@
 package com.jetbrains.youtrack.db.internal.common.log;
 
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.ConsoleHandler;
-import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
 import javax.annotation.Nonnull;
@@ -36,8 +34,8 @@ import org.slf4j.event.Level;
  * configuration and avoid hard-coding. It uses SLF4J as the logging facade. Logging methods are
  * accepting messages formatted as in {@link String#format(String, Object...)} It is strongly
  * recommended to use specialized logging methods from {@link SL4JLogManager} class instead of
- * generic {@link SL4JLogManager#log(Object, Level, String, Throwable, Object...)} methods from
- * this of {@link SL4JLogManager} class.
+ * generic {@link SL4JLogManager#log(Object, Level, String, Throwable, Object...)} methods from this
+ * of {@link SL4JLogManager} class.
  *
  * <p>There are additional methods to manage JUL runtime configuration. That is used for logging
  * messages in server and console.
@@ -48,8 +46,6 @@ public class LogManager extends SL4JLogManager {
 
   private static final String ENV_INSTALL_CUSTOM_FORMATTER = "youtrackdb.installCustomFormatter";
   private static final LogManager instance = new LogManager();
-
-  private java.util.logging.Level minimumLevel = java.util.logging.Level.SEVERE;
 
   private final AtomicBoolean shutdownFlag = new AtomicBoolean();
 
@@ -77,7 +73,7 @@ public class LogManager extends SL4JLogManager {
     }
   }
 
-  public void installCustomFormatter() {
+  public static void installCustomFormatter() {
     final var installCustomFormatter =
         Boolean.parseBoolean(
             SystemVariableResolver.resolveSystemVariables(
@@ -91,8 +87,6 @@ public class LogManager extends SL4JLogManager {
       // ASSURE TO HAVE THE YouTrackDB LOG FORMATTER TO THE CONSOLE EVEN IF NO CONFIGURATION FILE IS
       // TAKEN
       final var log = Logger.getLogger("");
-
-      setLevelInternal(log.getLevel());
 
       if (log.getHandlers().length == 0) {
         // SET DEFAULT LOG FORMATTER
@@ -113,78 +107,23 @@ public class LogManager extends SL4JLogManager {
     }
   }
 
-  public boolean isLevelEnabled(final java.util.logging.Level level) {
+  public static boolean isLevelEnabled(final java.util.logging.Level level,
+      org.slf4j.Logger logger) {
     if (level.equals(java.util.logging.Level.FINER)
         || level.equals(java.util.logging.Level.FINE)
         || level.equals(java.util.logging.Level.FINEST)) {
-      return debug;
+      return logger.isDebugEnabled();
     } else if (level.equals(java.util.logging.Level.INFO)) {
-      return info;
+      return logger.isInfoEnabled();
     } else if (level.equals(java.util.logging.Level.WARNING)) {
-      return warn;
+      return logger.isWarnEnabled();
     } else if (level.equals(java.util.logging.Level.SEVERE)) {
-      return error;
+      return logger.isErrorEnabled();
     }
     return false;
   }
 
-  public void setConsoleLevel(final String iLevel) {
-    setLevel(iLevel, ConsoleHandler.class);
-  }
-
-  public void setFileLevel(final String iLevel) {
-    setLevel(iLevel, FileHandler.class);
-  }
-
-  public java.util.logging.Level setLevel(
-      final String iLevel, final Class<? extends Handler> iHandler) {
-    final var level =
-        iLevel != null
-            ? java.util.logging.Level.parse(iLevel.toUpperCase(Locale.ENGLISH))
-            : java.util.logging.Level.INFO;
-    if (level.intValue() < minimumLevel.intValue()) {
-      // UPDATE MINIMUM LEVEL
-      minimumLevel = level;
-      setLevelInternal(level);
-    }
-
-    var log = Logger.getLogger(DEFAULT_LOG);
-    while (log != null) {
-      for (var h : log.getHandlers()) {
-        if (h.getClass().isAssignableFrom(iHandler)) {
-          h.setLevel(level);
-          break;
-        }
-      }
-
-      log = log.getParent();
-    }
-
-    return level;
-  }
-
-  protected void setLevelInternal(final java.util.logging.Level level) {
-    if (level == null) {
-      return;
-    }
-
-    if (level.equals(java.util.logging.Level.FINER)
-        || level.equals(java.util.logging.Level.FINE)
-        || level.equals(java.util.logging.Level.FINEST)) {
-      debug = info = warn = error = true;
-    } else if (level.equals(java.util.logging.Level.INFO)) {
-      info = warn = error = true;
-      debug = false;
-    } else if (level.equals(java.util.logging.Level.WARNING)) {
-      warn = error = true;
-      debug = info = false;
-    } else if (level.equals(java.util.logging.Level.SEVERE)) {
-      error = true;
-      debug = info = warn = false;
-    }
-  }
-
-  public void flush() {
+  public static void flush() {
     for (var h : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME).getHandlers()) {
       h.flush();
     }

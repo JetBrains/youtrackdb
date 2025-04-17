@@ -20,11 +20,15 @@ import com.jetbrains.youtrack.db.internal.core.security.PasswordValidator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import java.util.Map;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides a default implementation for validating passwords.
  */
 public class DefaultPasswordValidator implements PasswordValidator {
+
+  private static final Logger logger = LoggerFactory.getLogger(DefaultPasswordValidator.class);
 
   private boolean enabled = true;
   private boolean ignoreUUID = true;
@@ -38,7 +42,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
 
   // SecurityComponent
   public void active() {
-    LogManager.instance().debug(this, "DefaultPasswordValidator is active");
+    LogManager.instance().debug(this, "DefaultPasswordValidator is active", logger);
   }
 
   // SecurityComponent
@@ -99,7 +103,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password length (%d) is too short",
-                password.length());
+                logger, password.length());
         throw new InvalidPasswordException(
             "Password length is too short.  Minimum password length is " + minLength);
       }
@@ -109,7 +113,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " numbers");
+                    + " numbers", logger);
         throw new InvalidPasswordException("Password requires a minimum count of numbers");
       }
 
@@ -118,7 +122,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " special characters");
+                    + " special characters", logger);
         throw new InvalidPasswordException(
             "Password requires a minimum count of special characters");
       }
@@ -128,13 +132,14 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " uppercase characters");
+                    + " uppercase characters", logger);
         throw new InvalidPasswordException(
             "Password requires a minimum count of uppercase characters");
       }
     } else {
       LogManager.instance()
-          .debug(this, "DefaultPasswordValidator.validatePassword() Password is null or empty");
+          .debug(this, "DefaultPasswordValidator.validatePassword() Password is null or empty",
+              logger);
       throw new InvalidPasswordException(
           "DefaultPasswordValidator.validatePassword() Password is null or empty");
     }

@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -188,18 +189,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public byte getRecordType() {
     return RECORD_TYPE;
-  }
-
-  @Nullable
-  @Override
-  public Vertex fromEntity() {
-    return getFrom();
-  }
-
-  @Nullable
-  @Override
-  public Vertex toEntity() {
-    return getTo();
   }
 
   @Override

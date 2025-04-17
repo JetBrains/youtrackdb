@@ -68,6 +68,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     text(context.getDatabaseSession(), iText);
   }
 
+  @Override
   protected void throwSyntaxErrorException(String dbName, final String iText) {
     final var syntax = getSyntax();
     if (syntax.equals("?")) {
@@ -133,6 +134,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return evaluate(null, null, iContext);
   }
 
+  @Override
   public Object evaluate(
       final Result iRecord, EntityImpl iCurrentResult, final CommandContext iContext) {
     if (rootCondition == null) {

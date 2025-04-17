@@ -137,6 +137,7 @@ class ClosableLRUList<K, V extends ClosableItem> implements Iterable<ClosableEnt
   /**
    * @return Iterator to iterate from head to the tail.
    */
+  @Override
   public Iterator<ClosableEntry<K, V>> iterator() {
     return new Iterator<ClosableEntry<K, V>>() {
       private ClosableEntry<K, V> next = head;

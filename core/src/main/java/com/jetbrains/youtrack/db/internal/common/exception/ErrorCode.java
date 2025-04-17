@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.common.exception;
 import com.jetbrains.youtrack.db.api.exception.BackupInProgressException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import java.lang.reflect.InvocationTargetException;
@@ -32,9 +33,13 @@ public enum ErrorCode {
 
   VALIDATION_ERROR(ErrorCategory.VALIDATION, 4, "Record validation failure", BaseException.class),
 
-  GENERIC_ERROR(ErrorCategory.SQL_GENERIC, 5, "Generic Error", BaseException.class);
+  GENERIC_ERROR(ErrorCategory.SQL_GENERIC, 5, "Generic Error", BaseException.class),
 
-  private static final ErrorCode[] codes = new ErrorCode[6];
+  LINKS_CONSISTENCY_ERROR(ErrorCategory.STORAGE, 6,
+      "Links consistency error. Some of links in record are not valid",
+      LinksConsistencyException.class);
+
+  private static final ErrorCode[] codes = new ErrorCode[7];
 
   static {
     for (var code : ErrorCode.values()) {

@@ -47,6 +47,7 @@ public class SBTCreateTreeRequest implements BinaryRequest<SBTCreateTreeResponse
     network.writeInt(collectionId);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

@@ -31,8 +31,12 @@ import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class SocketChannel {
+
+  private static final Logger logger = LoggerFactory.getLogger(SocketChannel.class);
 
   private final AdaptiveLock lockRead = new AdaptiveLock();
   private final AdaptiveLock lockWrite = new AdaptiveLock();
@@ -119,7 +123,7 @@ public abstract class SocketChannel {
         socket = null;
       }
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Error during socket close", e);
+      LogManager.instance().debug(this, "Error during socket close", logger, e);
     }
 
     try {
@@ -128,7 +132,7 @@ public abstract class SocketChannel {
         inStream = null;
       }
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Error during closing of input stream", e);
+      LogManager.instance().debug(this, "Error during closing of input stream", logger, e);
     }
 
     try {
@@ -137,7 +141,7 @@ public abstract class SocketChannel {
         outStream = null;
       }
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Error during closing of output stream", e);
+      LogManager.instance().debug(this, "Error during closing of output stream", logger, e);
     }
 
     lockRead.close();

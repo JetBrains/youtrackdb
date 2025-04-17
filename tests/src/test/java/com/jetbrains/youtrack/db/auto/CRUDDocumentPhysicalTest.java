@@ -684,28 +684,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
   }
 
-  @Test(dependsOnMethods = "readAndBrowseDescendingAndCheckHoleUtilization")
-  public void testUpdateNoVersionCheck() {
-    session.begin();
-    var resultSet = executeQuery("select from Account");
-
-    var doc = (EntityImpl) resultSet.getFirst().asEntityOrNull();
-    doc.setProperty("name", "modified");
-    var oldVersion = doc.getVersion();
-
-    final var rec = (RecordAbstract) doc;
-    rec.setVersion(-2);
-
-    session.commit();
-
-    session.begin();
-    var activeTx = session.getActiveTransaction();
-    doc = activeTx.load(doc);
-    Assert.assertEquals(doc.getVersion(), oldVersion);
-    Assert.assertEquals(doc.getProperty("name"), "modified");
-    session.commit();
-  }
-
   @Test
   public void testCreateEmbddedClassDocument() {
     final Schema schema = session.getMetadata().getSchema();

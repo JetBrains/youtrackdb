@@ -20,13 +20,12 @@
 
 package com.jetbrains.youtrack.db.internal.core;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
-import java.util.Map.Entry;
 import sun.misc.Signal;
 
 @SuppressWarnings("restriction")
@@ -59,6 +58,7 @@ public class SignalHandler implements sun.misc.SignalHandler {
     }
   }
 
+  @Override
   public void handle(final Signal signal) {
     LogManager.instance().warn(this, "Received signal: %s", signal);
 

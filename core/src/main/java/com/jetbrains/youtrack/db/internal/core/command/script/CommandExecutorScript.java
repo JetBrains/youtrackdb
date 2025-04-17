@@ -66,6 +66,8 @@ import javax.script.Compilable;
 import javax.script.ScriptContext;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Executes Script Commands.
@@ -75,6 +77,8 @@ import javax.script.SimpleBindings;
 public class CommandExecutorScript extends CommandExecutorAbstract
     implements CommandDistributedReplicateRequest, TemporaryRidGenerator {
 
+  private static final Logger logger = LoggerFactory.getLogger(CommandExecutorScript.class);
+
   private static final int MAX_DELAY = 100;
   protected CommandScript request;
   protected AtomicInteger serialTempRID = new AtomicInteger(0);
@@ -82,6 +86,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   public CommandExecutorScript() {
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public CommandExecutorScript parse(DatabaseSessionInternal session,
       final CommandRequest iRequest) {
@@ -89,6 +94,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return this;
   }
 
+  @Override
   public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
     if (context == null) {
       context = new BasicCommandContext();
@@ -189,6 +195,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return builder.toString();
   }
 
+  @Override
   public boolean isIdempotent() {
     return false;
   }
@@ -659,7 +666,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     try {
       Thread.sleep(Integer.parseInt(sleepTimeInMs));
     } catch (InterruptedException e) {
-      LogManager.instance().debug(this, "Sleep was interrupted in SQL batch", e);
+      LogManager.instance().debug(this, "Sleep was interrupted in SQL batch", logger, e);
     }
   }
 

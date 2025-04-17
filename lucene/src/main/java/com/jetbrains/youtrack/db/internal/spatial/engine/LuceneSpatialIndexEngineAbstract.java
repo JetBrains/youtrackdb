@@ -46,12 +46,17 @@ import org.apache.lucene.spatial.SpatialStrategy;
 import org.apache.lucene.store.Directory;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
  */
 public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngineAbstract
     implements LuceneSpatialIndexContainer {
+
+  private static final Logger logger = LoggerFactory.getLogger(
+      LuceneSpatialIndexEngineAbstract.class);
 
   protected final ShapeBuilder factory;
   protected SpatialContext ctx;
@@ -82,7 +87,7 @@ public abstract class LuceneSpatialIndexEngineAbstract extends LuceneIndexEngine
   public IndexWriter createIndexWriter(Directory directory) throws IOException {
     var fc = new LuceneIndexWriterFactory();
 
-    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", directory);
+    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", logger, directory);
 
     return fc.createIndexWriter(directory, metadata, indexAnalyzer());
   }

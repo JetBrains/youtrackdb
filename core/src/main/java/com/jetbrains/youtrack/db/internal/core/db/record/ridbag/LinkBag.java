@@ -216,7 +216,7 @@ public class LinkBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   private void convertToTree() {
@@ -239,7 +239,7 @@ public class LinkBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override
@@ -248,7 +248,7 @@ public class LinkBag
   }
 
   public void delete() {
-    delegate.requestDelete();
+    delegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override
@@ -260,6 +260,7 @@ public class LinkBag
   }
 
 
+  @Override
   public void setOwner(RecordElement owner) {
     if ((!(owner instanceof EntityImpl) && owner != null)
         || (owner != null && ((EntityImpl) owner).isEmbedded())) {
@@ -331,6 +332,7 @@ public class LinkBag
     delegate.enableTracking(parent);
   }
 
+  @Override
   public void disableTracking(RecordElement entity) {
     delegate.disableTracking(entity);
   }
@@ -375,6 +377,7 @@ public class LinkBag
     return delegate.getTransactionTimeLine();
   }
 
+  @Override
   public void setOwnerFieldName(String fieldName) {
     if (this.delegate instanceof RemoteTreeLinkBag) {
       ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);

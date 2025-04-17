@@ -8,5 +8,6 @@ public interface SessionPool extends AutoCloseable {
 
   boolean isClosed();
 
+  @Override
   void close();
 }

@@ -38,6 +38,7 @@ public class GetSizeResponse implements BinaryResponse {
     this.size = size;
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

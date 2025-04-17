@@ -132,11 +132,15 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import net.jpountz.xxhash.XXHashFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @since 28.03.13
  */
 public class LocalStorage extends AbstractStorage {
+
+  private static final Logger logger = LoggerFactory.getLogger(LocalStorage.class);
 
   private static final String INCREMENTAL_BACKUP_LOCK = "backup.ibl";
 
@@ -468,7 +472,7 @@ public class LocalStorage extends AbstractStorage {
     java.io.File[] nonActiveSegments;
 
     LogSequenceNumber lastLSN;
-    final var freezeId = getAtomicOperationsManager().freezeAtomicOperations(null, null);
+    final var freezeId = getAtomicOperationsManager().freezeAtomicOperations(null);
     try {
       lastLSN = writeAheadLog.end();
       writeAheadLog.flush();
@@ -702,7 +706,7 @@ public class LocalStorage extends AbstractStorage {
               LocalStorage.class,
               "Cannot delete database files because they are still locked by the YouTrackDB process:"
                   + " waiting %d ms and retrying %d/%d...",
-              waitTime,
+              logger, waitTime,
               i,
               maxRetries);
     }
@@ -1301,7 +1305,9 @@ public class LocalStorage extends AbstractStorage {
       if (!isWriteAllowedDuringIncrementalBackup()) {
         freezeId =
             atomicOperationsManager.freezeAtomicOperations(
-                ModificationOperationProhibitedException.class, "Incremental backup in progress");
+                () -> new ModificationOperationProhibitedException(
+                    name, "Incremental backup in progress")
+            );
       } else {
         freezeId = -1;
       }
@@ -1330,7 +1336,7 @@ public class LocalStorage extends AbstractStorage {
           }
 
           final var newSegmentFreezeId =
-              atomicOperationsManager.freezeAtomicOperations(null, null);
+              atomicOperationsManager.freezeAtomicOperations(null);
           try {
             final var startLsn = writeAheadLog.end();
 
@@ -1996,8 +2002,9 @@ public class LocalStorage extends AbstractStorage {
   }
 
   @Override
-  public List<RecordOperation> commit(FrontendTransactionImpl clientTx, boolean allocated) {
-    var operations = super.commit(clientTx, allocated);
+  public List<RecordOperation> commit(FrontendTransactionImpl frontendTransaction,
+      boolean allocated) {
+    var operations = super.commit(frontendTransaction, allocated);
     listeners.forEach((l) -> l.onCommit(operations));
     return operations;
   }

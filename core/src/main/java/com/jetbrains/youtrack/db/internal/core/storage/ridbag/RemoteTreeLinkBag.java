@@ -89,11 +89,6 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  protected boolean isEmbedded() {
-    return false;
-  }
-
-  @Override
   public Object returnOriginalState(
       FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
@@ -125,7 +120,7 @@ public class RemoteTreeLinkBag extends AbstractLinkBag {
   }
 
   @Override
-  public void requestDelete() {
+  public void requestDelete(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 

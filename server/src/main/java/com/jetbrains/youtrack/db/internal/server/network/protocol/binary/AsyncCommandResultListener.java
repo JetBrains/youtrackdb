@@ -95,6 +95,7 @@ public class AsyncCommandResultListener extends AbstractCommandResultListener {
     return true;
   }
 
+  @Override
   public boolean isEmpty() {
     return empty.get();
   }

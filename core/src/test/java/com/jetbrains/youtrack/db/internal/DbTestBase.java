@@ -80,7 +80,7 @@ public class DbTestBase {
   }
 
   public static String getBaseDirectoryPath(Class<?> testClass) {
-    final String buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
+    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
     return
         buildDirectory + File.separator + "databases" + File.separator + testClass

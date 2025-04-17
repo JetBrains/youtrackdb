@@ -272,6 +272,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   /**
    * Close the factory with all related databases and pools.
    */
+  @Override
   void close();
 
   /**

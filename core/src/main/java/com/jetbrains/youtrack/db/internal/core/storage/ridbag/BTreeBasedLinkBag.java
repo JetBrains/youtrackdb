@@ -92,7 +92,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     return reverted;
   }
 
-  public void handleContextSBTree(
+  public void handleContextBTree(
       RecordSerializationContext context, LinkBagPointer pointer) {
     assert assertIfNotActive();
     this.collectionPointer = pointer;
@@ -102,9 +102,9 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
 
 
   @Override
-  public void requestDelete() {
-    final var context = RecordSerializationContext.getContext();
-    if (context != null && collectionPointer != null) {
+  public void requestDelete(FrontendTransaction transaction) {
+    if (collectionPointer != null) {
+      final var context = transaction.getRecordSerializationContext();
       context.push(new LinkBagDeleteSerializationOperation(this));
     }
   }
@@ -186,11 +186,6 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     }
 
     return btreeRecordsSpliterator;
-  }
-
-  @Override
-  protected boolean isEmbedded() {
-    return true;
   }
 
 }

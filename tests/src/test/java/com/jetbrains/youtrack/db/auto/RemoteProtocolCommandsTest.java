@@ -66,8 +66,8 @@ public class RemoteProtocolCommandsTest extends BaseDBTest {
     var doc = ((EntityImpl) session.newEntity("RidCreationTestClass"));
     doc.setProperty("test", "test");
     var bad = new RecordId(-1, -1);
-    var res =
-        storage.createRecord(bad, doc.toStream(), doc.getVersion(), EntityImpl.RECORD_TYPE, null);
+    storage.createRecord(bad, doc.toStream(),
+        doc.getVersion(), EntityImpl.RECORD_TYPE, null);
 
     // assertTrue(" the collection is not valid", bad.collectionId >= 0);
     var ids = "";

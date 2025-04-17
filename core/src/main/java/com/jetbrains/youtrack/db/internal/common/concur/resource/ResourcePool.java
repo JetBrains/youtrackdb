@@ -33,6 +33,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Generic non reentrant implementation about pool of resources. It pre-allocates a semaphore of
@@ -42,6 +44,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <V> Resource Object
  */
 public class ResourcePool<K, V> {
+
+  private static final Logger logger = LoggerFactory.getLogger(ResourcePool.class);
 
   protected final Semaphore sem;
   protected final Queue<V> resources = new ConcurrentLinkedQueue<V>();
@@ -112,23 +116,23 @@ public class ResourcePool<K, V> {
       if (res == null) {
         res = listener.createNewResource(key, additionalArgs);
         created.incrementAndGet();
-        if (LogManager.instance().isDebugEnabled()) {
+        if (logger.isDebugEnabled()) {
           LogManager.instance()
               .debug(
                   this,
                   "pool:'%s' created new resource '%s', new resource count '%d'",
-                  this,
+                  logger, this,
                   res,
                   created.get());
         }
       }
       resourcesOut.add(res);
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "pool:'%s' acquired resource '%s' available %d out %d ",
-                this,
+                logger, this,
                 res,
                 sem.availablePermits(),
                 resourcesOut.size());
@@ -162,12 +166,12 @@ public class ResourcePool<K, V> {
     if (resourcesOut.remove(res)) {
       resources.add(res);
       sem.release();
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "pool:'%s' returned resource '%s' available %d out %d",
-                this,
+                logger, this,
                 res,
                 sem.availablePermits(),
                 resourcesOut.size());
@@ -194,12 +198,12 @@ public class ResourcePool<K, V> {
     if (resourcesOut.remove(res)) {
       this.resources.remove(res);
       sem.release();
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "pool:'%s' removed resource '%s' available %d out %d",
-                this,
+                logger, this,
                 res,
                 sem.availablePermits(),
                 resourcesOut.size());

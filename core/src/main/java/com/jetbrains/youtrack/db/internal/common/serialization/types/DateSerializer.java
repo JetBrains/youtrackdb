@@ -37,11 +37,13 @@ public class DateSerializer implements BinarySerializer<Date> {
   public static final byte ID = 4;
   public static final DateSerializer INSTANCE = new DateSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Date object,
       Object... hints) {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Override
   public void serialize(Date object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
     var calendar = Calendar.getInstance();
@@ -54,26 +56,31 @@ public class DateSerializer implements BinarySerializer<Date> {
     dateTimeSerializer.serialize(calendar.getTime(), serializerFactory, stream, startPosition);
   }
 
+  @Override
   public Date deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     var dateTimeSerializer = DateTimeSerializer.INSTANCE;
     return dateTimeSerializer.deserialize(serializerFactory, stream, startPosition);
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Override
   public void serializeNativeObject(
       final Date object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -88,16 +95,19 @@ public class DateSerializer implements BinarySerializer<Date> {
         startPosition);
   }
 
+  @Override
   public Date deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     var dateTimeSerializer = DateTimeSerializer.INSTANCE;
     return dateTimeSerializer.deserializeNativeObject(serializerFactory, stream, startPosition);
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return LongSerializer.LONG_SIZE;
   }

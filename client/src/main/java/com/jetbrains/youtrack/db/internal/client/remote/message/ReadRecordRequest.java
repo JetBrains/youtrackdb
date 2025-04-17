@@ -58,6 +58,7 @@ public final class ReadRecordRequest implements BinaryRequest<ReadRecordResponse
     network.writeByte((byte) (loadTumbstone ? 1 : 0));
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

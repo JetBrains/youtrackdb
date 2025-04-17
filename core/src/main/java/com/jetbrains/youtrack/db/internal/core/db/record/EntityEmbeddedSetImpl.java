@@ -106,6 +106,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     return set.size();
   }
 
+  @Override
   public boolean add(@Nullable final T e) {
     checkValue(e);
     if (set.add(e)) {
@@ -115,6 +116,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     return false;
   }
 
+  @Override
   public void addInternal(final T e) {
     checkValue(e);
     if (set.add(e)) {
@@ -160,6 +162,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     }
   }
 
+  @Override
   public void setDirty() {
     this.dirty = true;
     this.transactionDirty = true;
@@ -178,6 +181,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     }
   }
 
+  @Override
   public Set<T> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<T, T>> multiValueChangeEvents) {
@@ -203,6 +207,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     return reverted;
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     if (!tracker.isEnabled()) {
       this.tracker.enable();
@@ -214,6 +219,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     }
   }
 
+  @Override
   public void disableTracking(RecordElement parent) {
     if (tracker.isEnabled()) {
       this.tracker.disable();
@@ -249,6 +255,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     return tracker.getTimeLine();
   }
 
+  @Override
   public MultiValueChangeTimeLine<T, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
   }

@@ -36,11 +36,13 @@ public class DateTimeSerializer implements BinarySerializer<Date> {
   public static final byte ID = 5;
   public static final DateTimeSerializer INSTANCE = new DateTimeSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Date object,
       Object... hints) {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Override
   public void serialize(Date object, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
     final var calendar = Calendar.getInstance();
@@ -48,6 +50,7 @@ public class DateTimeSerializer implements BinarySerializer<Date> {
     LongSerializer.serializeLiteral(calendar.getTimeInMillis(), stream, startPosition);
   }
 
+  @Override
   public Date deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     final var calendar = Calendar.getInstance();
@@ -55,15 +58,18 @@ public class DateTimeSerializer implements BinarySerializer<Date> {
     return calendar.getTime();
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LongSerializer.LONG_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return LongSerializer.LONG_SIZE;
@@ -86,10 +92,12 @@ public class DateTimeSerializer implements BinarySerializer<Date> {
     return calendar.getTime();
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return LongSerializer.LONG_SIZE;
   }

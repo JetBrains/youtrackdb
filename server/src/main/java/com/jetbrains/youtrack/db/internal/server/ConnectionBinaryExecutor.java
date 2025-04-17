@@ -164,12 +164,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
+
+  private static final Logger logger = LoggerFactory.getLogger(ConnectionBinaryExecutor.class);
 
   private final ClientConnection connection;
   private final YouTrackDBServer server;
@@ -624,7 +627,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
               session,
               request.getImporPath(),
               iText -> {
-                LogManager.instance().debug(ConnectionBinaryExecutor.this, iText);
+                LogManager.instance().debug(ConnectionBinaryExecutor.this, iText, logger);
                 if (iText != null) {
                   result.add(iText);
                 }

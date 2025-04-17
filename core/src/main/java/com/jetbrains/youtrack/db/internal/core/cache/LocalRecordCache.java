@@ -51,8 +51,7 @@ public class LocalRecordCache extends AbstractRecordCache {
     if (rid.getCollectionId() != excludedCollection
         && !rid.isTemporary()
         && rid.isValidPosition()
-        && !record.isDirty()
-        && !RecordVersionHelper.isTombstone(record.getVersion())) {
+        && !record.isDirty()) {
       var loadedRecord = underlying.get(rid);
       if (loadedRecord == null) {
         underlying.put(record);
@@ -82,10 +81,12 @@ public class LocalRecordCache extends AbstractRecordCache {
    *
    * @param rid unique identifier of record
    */
+  @Override
   public void deleteRecord(final RID rid) {
     super.deleteRecord(rid);
   }
 
+  @Override
   public void shutdown() {
     super.shutdown();
   }

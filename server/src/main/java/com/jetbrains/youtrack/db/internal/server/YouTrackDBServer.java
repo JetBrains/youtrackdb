@@ -128,7 +128,7 @@ public class YouTrackDBServer {
         SystemVariableResolver.resolveSystemVariables(
             "${" + YouTrackDBEnginesManager.YOUTRACKDB_HOME + "}", ".");
 
-    LogManager.instance().installCustomFormatter();
+    LogManager.installCustomFormatter();
 
     defaultSettings();
 
@@ -551,7 +551,7 @@ public class YouTrackDBServer {
       }
     } finally {
       LogManager.instance().info(this, "YouTrackDB Server shutdown complete\n");
-      LogManager.instance().flush();
+      LogManager.flush();
     }
 
     return true;

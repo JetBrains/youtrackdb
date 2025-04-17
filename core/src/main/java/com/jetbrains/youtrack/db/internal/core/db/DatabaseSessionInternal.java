@@ -133,6 +133,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordSerializer getSerializer();
 
+  @Override
   RecordHook registerHook(final @Nonnull RecordHook iHookImpl);
 
   /**
@@ -269,7 +270,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean isCollectionEdge(int collection);
 
-  void deleteInternal(@Nonnull DBRecord record);
+  void deleteInternal(@Nonnull RecordAbstract record);
 
   void internalClose(boolean recycle);
 
@@ -873,6 +874,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @see #commit()
    * @see #rollback()
    */
+  @Override
   int activeTxCount();
 
   /**
@@ -1448,9 +1450,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     executeInTxBatchesInternal(iterator, batchSize, consumer::accept);
   }
 
+  @Override
   @Nonnull
   FrontendTransaction getActiveTransaction();
 
+  @Override
   FrontendTransaction begin();
 
   default Index getIndex(String indexName) {

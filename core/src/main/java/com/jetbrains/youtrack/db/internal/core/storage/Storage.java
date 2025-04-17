@@ -167,8 +167,6 @@ public interface Storage extends Backupable, StorageInfo {
 
   String getPhysicalCollectionNameById(int iCollectionId);
 
-  boolean checkForRecordValidity(PhysicalPosition ppos);
-
   String getName();
 
   long getVersion();

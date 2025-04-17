@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -169,7 +170,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var schemaClass = session.getClass(type);
     if (schemaClass == null) {
-      throw new IllegalArgumentException("Schema class for label" + type + " not found");
+      throw new IllegalArgumentException("Schema class for label " + type + " not found");
     }
     if (schemaClass.isAbstract()) {
       return session.newLightweightEdge(this, to, type);

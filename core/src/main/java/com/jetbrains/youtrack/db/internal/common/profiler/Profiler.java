@@ -18,6 +18,8 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A component that is responsible for database profiling and monitoring. At the moment it is
@@ -29,6 +31,8 @@ import javax.management.ObjectName;
  * </ol>
  */
 public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(Profiler.class);
 
   private final Ticker ticker = new GranularTicker(
       GlobalConfiguration.PROFILER_TICKER_GRANULARITY.getValueAsLong());
@@ -201,9 +205,9 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
           }
         }
       } catch (Exception e) {
-        LogManager.instance().debug(this, "Error on memory checker task", e);
+        LogManager.instance().debug(this, "Error on memory checker task", logger, e);
       } catch (Error e) {
-        LogManager.instance().debug(this, "Error on memory checker task", e);
+        LogManager.instance().debug(this, "Error on memory checker task", logger, e);
         throw e;
       }
     }

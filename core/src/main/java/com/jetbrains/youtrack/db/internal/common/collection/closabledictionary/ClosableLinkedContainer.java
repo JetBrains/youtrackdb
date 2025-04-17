@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Container for the elements which may be in open/closed state. But only limited amount of elements
@@ -35,6 +37,8 @@ import javax.annotation.Nullable;
  * @param <V> Value which may be in open/closed stated and associated with key.
  */
 public class ClosableLinkedContainer<K, V extends ClosableItem> {
+
+  private static final Logger logger = LoggerFactory.getLogger(ClosableLinkedContainer.class);
   /**
    * Design of container consist of several major parts.
    *
@@ -866,7 +870,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
               "Reached maximum of opened files %d (max=%d), closed %d files. Consider to raise this"
                   + " limit by increasing the global setting '%s' and the OS limit on opened files"
                   + " per processor",
-              initialSize,
+              logger, initialSize,
               openLimit,
               closedFiles,
               GlobalConfiguration.OPEN_FILES_LIMIT.getKey());

@@ -61,6 +61,7 @@ public class CommandScript extends CommandRequestTextAbstract {
     return List.of();
   }
 
+  @Override
   public boolean isIdempotent() {
     return false;
   }
@@ -77,6 +78,7 @@ public class CommandScript extends CommandRequestTextAbstract {
     return this;
   }
 
+  @Override
   public CommandRequestText fromStream(DatabaseSessionInternal session, byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
@@ -86,6 +88,7 @@ public class CommandScript extends CommandRequestTextAbstract {
     return this;
   }
 
+  @Override
   public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream();

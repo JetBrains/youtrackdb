@@ -35,6 +35,7 @@ public class Binary implements Comparable<Binary> {
     value = buffer;
   }
 
+  @Override
   public int compareTo(final Binary o) {
     final var size = value.length;
 

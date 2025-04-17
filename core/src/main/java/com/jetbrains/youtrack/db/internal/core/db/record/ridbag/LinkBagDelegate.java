@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.Change;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
 import java.util.Spliterator;
 import java.util.stream.Stream;
@@ -50,7 +51,7 @@ public interface LinkBagDelegate
     return false;
   }
 
-  void requestDelete();
+  void requestDelete(FrontendTransaction transaction);
 
   /**
    * THIS IS VERY EXPENSIVE METHOD AND CAN NOT BE CALLED IN REMOTE STORAGE.
@@ -61,8 +62,10 @@ public interface LinkBagDelegate
    */
   boolean contains(RID identifiable);
 
+  @Override
   void setOwner(RecordElement owner);
 
+  @Override
   RecordElement getOwner();
 
   String toString();
@@ -77,5 +80,6 @@ public interface LinkBagDelegate
 
   Stream<RID> stream();
 
+  @Override
   Spliterator<RID> spliterator();
 }

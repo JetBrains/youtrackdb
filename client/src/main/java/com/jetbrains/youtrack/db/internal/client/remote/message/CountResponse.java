@@ -44,6 +44,7 @@ public final class CountResponse implements BinaryResponse {
     count = network.readLong();
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

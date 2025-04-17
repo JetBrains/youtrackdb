@@ -36,10 +36,12 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   public static final String NAME = "ci";
 
+  @Override
   public @Nonnull String getName() {
     return NAME;
   }
 
+  @Override
   public @Nullable Object transform(final @Nullable Object obj) {
     if (obj instanceof String) {
       return ((String) obj).toLowerCase(Locale.ENGLISH);

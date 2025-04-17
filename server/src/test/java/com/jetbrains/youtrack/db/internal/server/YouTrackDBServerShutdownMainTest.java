@@ -30,8 +30,6 @@ public class YouTrackDBServerShutdownMainTest {
 
   @Before
   public void startupOServer() throws Exception {
-
-    LogManager.instance().setConsoleLevel(Level.OFF.getName());
     prevPassword = System.setProperty("YOUTRACKDB_ROOT_PASSWORD", "rootPassword");
     prevOrientHome = System.setProperty("YOUTRACKDB_HOME", "./target/testhome");
 

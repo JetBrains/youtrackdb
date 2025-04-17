@@ -57,6 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -117,6 +118,8 @@ public class FrontendTransactionImpl implements
   protected boolean sentToServer = false;
   private final boolean readOnly;
 
+  private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
+
   public FrontendTransactionImpl(final DatabaseSessionInternal iDatabase) {
     this(iDatabase, false);
   }
@@ -141,6 +144,7 @@ public class FrontendTransactionImpl implements
     readOnly = false;
   }
 
+  @Override
   public int beginInternal() {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter: " + txStartCounter);
@@ -170,6 +174,7 @@ public class FrontendTransactionImpl implements
     return txStartCounter;
   }
 
+  @Override
   public void commitInternal() {
     commitInternal(false);
   }
@@ -207,6 +212,7 @@ public class FrontendTransactionImpl implements
     }
   }
 
+  @Override
   public RecordAbstract getRecord(final RID rid) {
     final var e = getRecordEntry(rid);
     if (e != null) {
@@ -220,11 +226,13 @@ public class FrontendTransactionImpl implements
     return null;
   }
 
+  @Override
   public void clearIndexEntries() {
     indexEntries.clear();
     recordIndexOperations.clear();
   }
 
+  @Override
   public List<String> getInvolvedIndexes() {
     List<String> list = null;
     for (var indexName : indexEntries.keySet()) {
@@ -236,10 +244,12 @@ public class FrontendTransactionImpl implements
     return list;
   }
 
+  @Override
   public Map<String, FrontendTransactionIndexChanges> getIndexOperations() {
     return indexEntries;
   }
 
+  @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(final String indexName) {
     if (session.isRemote()) {
       return null;
@@ -302,6 +312,7 @@ public class FrontendTransactionImpl implements
   /**
    * Buffer sizes index changes to be flushed at commit time.
    */
+  @Override
   public FrontendTransactionIndexChanges getIndexChanges(final String iIndexName) {
     return indexEntries.get(iIndexName);
   }
@@ -311,10 +322,12 @@ public class FrontendTransactionImpl implements
     return txStartCounter;
   }
 
+  @Override
   public void rollbackInternal() {
     rollbackInternal(false, -1);
   }
 
+  @Override
   public void internalRollback() {
     status = TXSTATUS.ROLLBACKING;
 
@@ -331,9 +344,9 @@ public class FrontendTransactionImpl implements
   }
 
   private void invalidateChangesInCacheDuringRollback() {
+    var recordsSize = recordOperations.size();
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
-      rec.txEntry = null;
       rec.unsetDirty();
       rec.unload();
     }
@@ -397,6 +410,7 @@ public class FrontendTransactionImpl implements
     return session.executeReadRecord((RecordId) rid, false, false, true);
   }
 
+  @Override
   public void deleteRecord(final RecordAbstract record) {
     try {
       addRecordOperation(record, RecordOperation.DELETED);
@@ -421,10 +435,12 @@ public class FrontendTransactionImpl implements
         + ']';
   }
 
+  @Override
   public void setStatus(final TXSTATUS iStatus) {
     status = iStatus;
   }
 
+  @Override
   public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
     if (readOnly) {
       throw new DatabaseException(session, "Transaction is read-only");
@@ -563,6 +579,7 @@ public class FrontendTransactionImpl implements
     status = TXSTATUS.COMPLETED;
   }
 
+  @Override
   public boolean isScheduledForCallbackProcessing(RecordId rid) {
     if (operationsBetweenCallbacks.containsKey(rid)) {
       return true;
@@ -577,6 +594,7 @@ public class FrontendTransactionImpl implements
     return false;
   }
 
+  @Override
   @Nullable
   public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
     if (beforeCallBacksInProgress) {
@@ -798,6 +816,8 @@ public class FrontendTransactionImpl implements
 
     clearUnfinishedChanges();
 
+    recordSerializationContext.clear();
+
     status = TXSTATUS.INVALID;
   }
 
@@ -813,6 +833,7 @@ public class FrontendTransactionImpl implements
     userData.clear();
   }
 
+  @Override
   public boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid) {
     if (oldRid.equals(newRid))
     // NO CHANGE, IGNORE IT
@@ -1042,6 +1063,7 @@ public class FrontendTransactionImpl implements
     }
   }
 
+  @Override
   @Nullable
   public RecordId getFirstRid(int collectionId) {
     var result = recordsInTransaction.ceiling(new RecordId(collectionId, Long.MIN_VALUE));
@@ -1062,6 +1084,7 @@ public class FrontendTransactionImpl implements
     return result;
   }
 
+  @Override
   @Nullable
   public RecordId getLastRid(int collectionId) {
     var result = recordsInTransaction.floor(new RecordId(collectionId, Long.MAX_VALUE));
@@ -1082,6 +1105,7 @@ public class FrontendTransactionImpl implements
     return result;
   }
 
+  @Override
   @Nullable
   public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
     var collectionId = rid.getCollectionId();
@@ -1106,6 +1130,7 @@ public class FrontendTransactionImpl implements
     }
   }
 
+  @Override
   @Nullable
   public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
     var collectionId = rid.getCollectionId();
@@ -1161,10 +1186,12 @@ public class FrontendTransactionImpl implements
     }
   }
 
+  @Override
   public long getId() {
     return id;
   }
 
+  @Override
   public void clearRecordEntries() {
   }
 
@@ -1176,14 +1203,17 @@ public class FrontendTransactionImpl implements
     return recordOperations.size();
   }
 
+  @Override
   public Collection<RecordOperation> getCurrentRecordEntries() {
     return recordOperations.values();
   }
 
+  @Override
   public Collection<RecordOperation> getRecordOperationsInternal() {
     return recordOperations.values();
   }
 
+  @Override
   public RecordOperation getRecordEntry(RID rid) {
     assert rid instanceof RecordId;
     var operation = recordOperations.get(rid);
@@ -1219,6 +1249,7 @@ public class FrontendTransactionImpl implements
     this.metadata = metadata;
   }
 
+  @Override
   public Iterator<byte[]> getSerializedOperations() {
     if (serializedOperations != null) {
       return serializedOperations.iterator();
@@ -1231,21 +1262,25 @@ public class FrontendTransactionImpl implements
     return txStartCounter;
   }
 
+  @Override
   public boolean isActive() {
     return status != TXSTATUS.INVALID
         && status != TXSTATUS.COMPLETED
         && status != TXSTATUS.ROLLED_BACK;
   }
 
+  @Override
   public TXSTATUS getStatus() {
     return status;
   }
 
+  @Override
   @Nonnull
   public final DatabaseSessionInternal getDatabaseSession() {
     return session;
   }
 
+  @Override
   public void setSession(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
   }
@@ -1722,6 +1757,10 @@ public class FrontendTransactionImpl implements
     return amountOfNestedTxs();
   }
 
+  @Override
+  public @Nonnull RecordSerializationContext getRecordSerializationContext() {
+    return recordSerializationContext;
+  }
 
   private boolean isWriteTransaction() {
     return !recordOperations.isEmpty() || !indexEntries.isEmpty();

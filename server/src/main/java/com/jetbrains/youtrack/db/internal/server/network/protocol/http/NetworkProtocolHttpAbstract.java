@@ -113,10 +113,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     implements ONetworkHttpExecutor {
 
+  private static final Logger logger = LoggerFactory.getLogger(NetworkProtocolHttpAbstract.class);
   private static final String COMMAND_SEPARATOR = "|";
   private static final Charset utf8 = StandardCharsets.UTF_8;
   private static int requestMaxContentLength; // MAX = 10Kb
@@ -350,8 +353,8 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     } finally {
       server.getClientConnectionManager().disconnect(connection.getId());
       ServerPluginHelper.invokeHandlerCallbackOnSocketDestroyed(server, this);
-      if (LogManager.instance().isDebugEnabled()) {
-        LogManager.instance().debug(this, "Connection closed");
+      if (logger.isDebugEnabled()) {
+        LogManager.instance().debug(this, "Connection closed", logger);
       }
     }
   }
@@ -394,8 +397,8 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
   }
 
   protected void handleError(Throwable e, HttpRequest iRequest) {
-    if (LogManager.instance().isDebugEnabled()) {
-      LogManager.instance().debug(this, "Caught exception", e);
+    if (logger.isDebugEnabled()) {
+      LogManager.instance().debug(this, "Caught exception", logger, e);
     }
 
     var errorCode = 500;
@@ -482,7 +485,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       if (e instanceof NullPointerException) {
         LogManager.instance().error(this, "Internal server error:\n", e);
       } else {
-        LogManager.instance().debug(this, "Internal server error:\n", e);
+        LogManager.instance().debug(this, "Internal server error:\n", logger, e);
       }
     }
 
@@ -758,12 +761,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
       }
     }
 
-    if (LogManager.instance().isDebugEnabled()) {
+    if (logger.isDebugEnabled()) {
       LogManager.instance()
           .debug(
               this,
               "Error on parsing HTTP content from client %s:\n%s",
-              channel.socket.getInetAddress().getHostAddress(),
+              logger, channel.socket.getInetAddress().getHostAddress(),
               request);
     }
   }
@@ -854,12 +857,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
                 URLDecoder.decode(request.getContent(), StandardCharsets.UTF_8).trim());
           }
 
-          if (LogManager.instance().isDebugEnabled()) {
+          if (logger.isDebugEnabled()) {
             LogManager.instance()
                 .debug(
                     this,
                     "[NetworkProtocolHttpAbstract.execute] Requested: %s %s",
-                    request.getHttpMethod(),
+                    logger, request.getHttpMethod(),
                     request.getUrl());
           }
 
@@ -880,14 +883,14 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
         }
       }
 
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "Parsing request from client "
                     + channel.socket.getInetAddress().getHostAddress()
                     + ":\n"
-                    + requestContent);
+                    + requestContent, logger);
       }
 
     } catch (SocketException e) {

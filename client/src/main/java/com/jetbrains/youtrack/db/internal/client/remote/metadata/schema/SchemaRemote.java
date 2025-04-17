@@ -71,10 +71,12 @@ public class SchemaRemote extends SchemaShared {
     return cls;
   }
 
+  @Override
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassRemote(this, name);
   }
 
+  @Override
   public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
@@ -156,6 +158,7 @@ public class SchemaRemote extends SchemaShared {
     return result;
   }
 
+  @Override
   public SchemaClassImpl createClass(
       DatabaseSessionInternal session,
       final String className,
@@ -245,6 +248,7 @@ public class SchemaRemote extends SchemaShared {
     }
   }
 
+  @Override
   public void dropClass(DatabaseSessionInternal session, final String className) {
 
     acquireSchemaWriteLock(session);

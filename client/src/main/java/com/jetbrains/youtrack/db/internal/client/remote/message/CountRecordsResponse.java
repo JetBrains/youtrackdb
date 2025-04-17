@@ -38,6 +38,7 @@ public class CountRecordsResponse implements BinaryResponse {
   public CountRecordsResponse() {
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

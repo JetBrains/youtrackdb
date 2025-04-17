@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.common.log;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,12 +22,7 @@ import org.slf4j.event.Level;
  */
 public abstract class SL4JLogManager {
   private final ConcurrentHashMap<String, Logger> loggersCache = new ConcurrentHashMap<>();
-
   protected static final String DEFAULT_LOG = "com.jetbrains.youtrack.db";
-  protected boolean debug = false;
-  protected boolean info = true;
-  protected boolean warn = true;
-  protected boolean error = true;
 
   /**
    * Loges a message if provided level of logging is enabled.
@@ -123,13 +117,14 @@ public abstract class SL4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
+   * @param logger
    * @param additionalArgs additional arguments to format the message
    */
   public void debug(
       @Nonnull final Object requester,
       @Nonnull final String message,
-      @Nullable final Object... additionalArgs) {
-    debug(requester, message, null, additionalArgs);
+      Logger logger, @Nullable final Object... additionalArgs) {
+    debug(requester, message, logger, null, additionalArgs);
   }
 
   /**
@@ -138,15 +133,16 @@ public abstract class SL4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
+   * @param logger
    * @param exception      the exception to log
    * @param additionalArgs additional arguments to format the message
    */
   public void debug(
       @Nonnull final Object requester,
       @Nonnull final String message,
-      @Nullable final Throwable exception,
+      Logger logger, @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (debug) {
+    if (logger.isDebugEnabled()) {
       log(requester, Level.DEBUG, message, exception, additionalArgs);
     }
   }
@@ -180,9 +176,7 @@ public abstract class SL4JLogManager {
       final @Nonnull String message,
       final @Nullable Throwable exception,
       final @Nullable Object... additionalArgs) {
-    if (info) {
-      log(requester, Level.INFO, message, exception, additionalArgs);
-    }
+    log(requester, Level.INFO, message, exception, additionalArgs);
   }
 
   /**
@@ -214,9 +208,7 @@ public abstract class SL4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (warn) {
-      log(requester, Level.WARN, message, exception, additionalArgs);
-    }
+    log(requester, Level.WARN, message, exception, additionalArgs);
   }
 
   /**
@@ -232,37 +224,6 @@ public abstract class SL4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (error) {
-      log(requester, Level.ERROR, message, exception, additionalArgs);
-    }
-  }
-
-  public boolean isWarn() {
-    return warn;
-  }
-
-  public CommandOutputListener getCommandOutputListener(
-      final Object requester, final Level level) {
-    return text -> log(requester, level, text, null);
-  }
-
-  public boolean isDebugEnabled() {
-    return debug;
-  }
-
-  public boolean isInfoEnabled() {
-    return info;
-  }
-
-  public boolean isWarnEnabled() {
-    return warn;
-  }
-
-  public boolean isErrorEnabled() {
-    return error;
-  }
-
-  public void setErrorEnabled(boolean error) {
-    this.error = error;
+    log(requester, Level.ERROR, message, exception, additionalArgs);
   }
 }

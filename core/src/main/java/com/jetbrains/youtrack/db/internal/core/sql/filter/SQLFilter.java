@@ -102,6 +102,7 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
     return iCondition;
   }
 
+  @Override
   public Object evaluate(
       final Result iRecord, final EntityImpl iCurrentResult,
       final CommandContext iContext) {

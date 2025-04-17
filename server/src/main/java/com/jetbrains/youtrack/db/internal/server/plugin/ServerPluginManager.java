@@ -44,11 +44,15 @@ import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manages Server Extensions
  */
 public class ServerPluginManager implements Service {
+
+  private static final Logger logger = LoggerFactory.getLogger(ServerPluginManager.class);
 
   private static final int CHECK_DELAY = 5000;
   private YouTrackDBServer server;
@@ -66,6 +70,7 @@ public class ServerPluginManager implements Service {
     server = iServer;
   }
 
+  @Override
   public void startup() {
     var hotReload = false;
     var dynamic = true;
@@ -213,7 +218,7 @@ public class ServerPluginManager implements Service {
       } catch (Exception e) {
         // IGNORE EXCEPTIONS
         LogManager.instance()
-            .debug(this, "Error on shutdowning plugin '%s'...", e, pluginFileName);
+            .debug(this, "Error on shutdowning plugin '%s'...", logger, e, pluginFileName);
       }
     }
 

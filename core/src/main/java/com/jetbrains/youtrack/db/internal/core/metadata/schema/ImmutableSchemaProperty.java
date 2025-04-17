@@ -393,6 +393,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   }
 
 
+  @Override
   public String createIndex(String iType, Map<String, Object> metadata) {
     throw new UnsupportedOperationException();
   }

@@ -44,11 +44,13 @@ public class DoubleSerializer implements BinarySerializer<Double> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final DoubleSerializer INSTANCE = new DoubleSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Double object,
       Object... hints) {
     return DOUBLE_SIZE;
   }
 
+  @Override
   public void serialize(
       final Double object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -56,21 +58,25 @@ public class DoubleSerializer implements BinarySerializer<Double> {
         Double.doubleToLongBits(object), stream, startPosition);
   }
 
+  @Override
   public Double deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return Double.longBitsToDouble(
         LongSerializer.deserializeLiteral(stream, startPosition));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return DOUBLE_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return DOUBLE_SIZE;
@@ -109,10 +115,12 @@ public class DoubleSerializer implements BinarySerializer<Double> {
         CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder()));
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return DOUBLE_SIZE;
   }

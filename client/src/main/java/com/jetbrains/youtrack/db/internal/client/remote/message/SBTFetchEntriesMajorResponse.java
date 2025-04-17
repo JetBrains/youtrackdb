@@ -72,6 +72,7 @@ public class SBTFetchEntriesMajorResponse<K, V> implements BinaryResponse {
     }
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

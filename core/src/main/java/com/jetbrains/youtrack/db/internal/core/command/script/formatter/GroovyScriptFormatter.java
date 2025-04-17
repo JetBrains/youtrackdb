@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
  */
 public class GroovyScriptFormatter implements ScriptFormatter {
 
+  @Override
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
 
     final var fCode = new StringBuilder(1024);

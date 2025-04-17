@@ -1,40 +1,49 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.common.util.RawTriple;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
-  public static final String URL = "disk:target/testdb/BTreeRidBagConcurrencySingleBasedRidBagTestIT";
-  private final AtomicInteger positionCounter = new AtomicInteger();
-  private final ConcurrentSkipListSet<RID> ridTree = new ConcurrentSkipListSet<>();
+
+  private final Set<RID> ridSet = ConcurrentHashMap.newKeySet();
   private final CountDownLatch latch = new CountDownLatch(1);
-  private RID docContainerRid;
+
+  private RID entityContainerRid;
   private final ExecutorService threadExecutor = Executors.newCachedThreadPool();
+
   private volatile boolean cont = true;
 
   private int topThreshold;
   private int bottomThreshold;
+
+  private YouTrackDB youTrackDB;
 
   @Before
   public void beforeMethod() {
@@ -45,178 +54,265 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(30);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(20);
+
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class));
+
+    if (youTrackDB.exists(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName())) {
+      youTrackDB.drop(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName());
+    }
+
+    youTrackDB.create(
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(),
+        DatabaseType.DISK, "admin", "admin", "admin");
   }
 
   @After
   public void afterMethod() {
+    youTrackDB.drop(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName());
+
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
+
+    youTrackDB.close();
   }
 
   @Test
   public void testConcurrency() throws Exception {
-    DatabaseSessionInternal db = new DatabaseDocumentTx(URL);
-    if (db.exists()) {
-      db.open("admin", "admin");
-      db.drop();
+    try (var session = (DatabaseSessionEmbedded) youTrackDB.open(
+        BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(), "admin", "admin")) {
+      var addedRids = session.computeInTx(transaction -> {
+        var entity = session.newEntity();
+        var linkBag = new LinkBag(session);
+        entity.setProperty("linkBag", linkBag);
+
+        var rids = new ArrayList<RID>();
+        for (var i = 0; i < 100; i++) {
+          final var ridToAdd = session.newEntity().getIdentity();
+          linkBag.add(ridToAdd);
+          rids.add(ridToAdd);
+        }
+
+        entityContainerRid = entity.getIdentity();
+        return rids;
+      });
+
+      ridSet.addAll(addedRids);
+
+      List<Future<Void>> addFutures = new ArrayList<>();
+      List<Future<HashSet<RID>>> remoteFutures = new ArrayList<>();
+      var postDeletedCounter = 0;
+
+      try (var pool = youTrackDB.cachedPool(
+          BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName(), "admin",
+          "admin")) {
+        for (var i = 0; i < 5; i++) {
+          addFutures.add(threadExecutor.submit(new RidAdder(i, pool)));
+        }
+
+        for (var i = 0; i < 5; i++) {
+          remoteFutures.add(threadExecutor.submit(new RidDeleter(i, pool)));
+        }
+
+        latch.countDown();
+
+        Thread.sleep(30 * 60_000);
+        cont = false;
+
+        for (var future : addFutures) {
+          future.get();
+        }
+
+        for (var future : remoteFutures) {
+          var ridsToDelete = future.get();
+
+          for (var rid : ridsToDelete) {
+            Assert.assertTrue(ridSet.remove(rid));
+            postDeletedCounter++;
+          }
+        }
+      }
+
+      System.out.println("Post delete counter: " + postDeletedCounter);
+
+      session.executeInTx(transaction -> {
+        var entity = session.loadEntity(entityContainerRid);
+        LinkBag linkBag = entity.getProperty("linkBag");
+
+        for (Identifiable identifiable : linkBag) {
+          Assert.assertTrue(ridSet.remove(identifiable.getIdentity()));
+        }
+
+        Assert.assertTrue(ridSet.isEmpty());
+
+        System.out.println("Result size is " + linkBag.size());
+      });
     }
-
-    db.create();
-
-    var document = ((EntityImpl) db.newEntity());
-    var ridBag = new LinkBag(db);
-
-    document.setProperty("ridBag", ridBag);
-    for (var i = 0; i < 100; i++) {
-      final RID ridToAdd = new RecordId(0, positionCounter.incrementAndGet());
-      ridBag.add(ridToAdd);
-      ridTree.add(ridToAdd);
-    }
-
-    docContainerRid = document.getIdentity();
-
-    List<Future<Void>> futures = new ArrayList<>();
-
-    for (var i = 0; i < 5; i++) {
-      futures.add(threadExecutor.submit(new RidAdder(i)));
-    }
-
-    for (var i = 0; i < 5; i++) {
-      futures.add(threadExecutor.submit(new RidDeleter(i)));
-    }
-
-    latch.countDown();
-
-    Thread.sleep(30 * 60000);
-    cont = false;
-
-    for (var future : futures) {
-      future.get();
-    }
-
-    document = db.load(document.getIdentity());
-    document.setLazyLoad(false);
-
-    ridBag = document.getProperty("ridBag");
-
-    for (Identifiable identifiable : ridBag) {
-      Assert.assertTrue(ridTree.remove(identifiable.getIdentity()));
-    }
-
-    Assert.assertTrue(ridTree.isEmpty());
-
-    System.out.println("Result size is " + ridBag.size());
-    db.close();
   }
 
   public class RidAdder implements Callable<Void> {
 
     private final int id;
+    private final SessionPool pool;
 
-    public RidAdder(int id) {
+    public RidAdder(int id, SessionPool pool) {
       this.id = id;
+      this.pool = pool;
     }
 
     @Override
     public Void call() throws Exception {
-      latch.await();
+      try {
+        latch.await();
 
-      var addedRecords = 0;
+        var addedRecords = 0;
 
-      DatabaseSessionInternal db = new DatabaseDocumentTx(URL);
-      try (db) {
-        db.open("admin", "admin");
-        while (cont) {
-          List<RID> ridsToAdd = new ArrayList<>();
-          for (var i = 0; i < 10; i++) {
-            ridsToAdd.add(new RecordId(0, positionCounter.incrementAndGet()));
-          }
+        try (var db = pool.acquire()) {
+          while (cont) {
+            List<RID> ridsToAdd = new ArrayList<>();
 
-          while (true) {
-            EntityImpl document = db.load(docContainerRid);
-            document.setLazyLoad(false);
-
-            LinkBag linkBag = document.getProperty("ridBag");
-            for (var rid : ridsToAdd) {
-              linkBag.add(rid);
-            }
-
-            try {
-
-            } catch (ConcurrentModificationException e) {
+            if (ridSet.size() > 100_000) {
+              Thread.yield();
               continue;
             }
 
-            break;
-          }
+            db.executeInTx(transaction -> {
+              for (var i = 0; i < 10; i++) {
+                ridsToAdd.add(transaction.newEntity().getIdentity());
+              }
+            });
 
-          ridTree.addAll(ridsToAdd);
-          addedRecords += ridsToAdd.size();
+            while (true) {
+              try {
+                db.executeInTx(transaction -> {
+                  var entity = transaction.loadEntity(entityContainerRid);
+                  LinkBag linkBag = entity.getProperty("linkBag");
+
+                  for (var rid : ridsToAdd) {
+                    linkBag.add(rid);
+                  }
+                });
+              } catch (ConcurrentModificationException | LinksConsistencyException e) {
+                continue;
+              }
+
+              break;
+            }
+
+            ridSet.addAll(ridsToAdd);
+            addedRecords += ridsToAdd.size();
+          }
         }
+
+        System.out.println(
+            RidAdder.class.getSimpleName() + ":" + id + " : " + addedRecords + " were added.");
+        return null;
+      } catch (Throwable e) {
+        e.printStackTrace();
+        throw e;
       }
 
-      System.out.println(
-          RidAdder.class.getSimpleName() + ":" + id + "-" + addedRecords + " were added.");
-      return null;
     }
   }
 
-  public class RidDeleter implements Callable<Void> {
+  public class RidDeleter implements Callable<HashSet<RID>> {
 
     private final int id;
+    private final SessionPool pool;
 
-    public RidDeleter(int id) {
+    public RidDeleter(int id, SessionPool pool) {
       this.id = id;
+      this.pool = pool;
     }
 
     @Override
-    public Void call() throws Exception {
-      latch.await();
+    public HashSet<RID> call() throws Exception {
+      try {
+        latch.await();
 
-      var deletedRecords = 0;
+        var deletedRecords = 0;
 
-      var rnd = new Random();
-      DatabaseSessionInternal db = new DatabaseDocumentTx(URL);
-      try (db) {
-        db.open("admin", "admin");
-        while (cont) {
-          while (true) {
-            EntityImpl document = db.load(docContainerRid);
-            document.setLazyLoad(false);
-            LinkBag linkBag = document.getProperty("ridBag");
-            var iterator = linkBag.iterator();
+        var ridsToDeleteFromSet = new HashSet<RID>();
+        var rnd = new Random();
+        try (var db = pool.acquire()) {
+          while (cont) {
 
-            List<RID> ridsToDelete = new ArrayList<>();
-            var counter = 0;
-            while (iterator.hasNext()) {
-              Identifiable identifiable = iterator.next();
-              if (rnd.nextBoolean()) {
-                iterator.remove();
-                counter++;
-                ridsToDelete.add(identifiable.getIdentity());
-              }
-
-              if (counter >= 5) {
-                break;
-              }
-            }
-
-            try {
-
-            } catch (ConcurrentModificationException e) {
+            if (ridSet.size() < 10) {
+              Thread.yield();
               continue;
             }
 
-            ridsToDelete.forEach(ridTree::remove);
-            deletedRecords += ridsToDelete.size();
-            break;
+            while (true) {
+              try {
+                var triple = db.computeInTx(transaction -> {
+                  var entity = transaction.loadEntity(entityContainerRid);
+                  LinkBag linkBag = entity.getProperty("linkBag");
+                  var iterator = linkBag.iterator();
+
+                  List<RID> ridsToDelete = new ArrayList<>();
+                  var counter = 0;
+                  while (iterator.hasNext()) {
+                    Identifiable identifiable = iterator.next();
+
+                    if (rnd.nextBoolean()) {
+                      iterator.remove();
+                      counter++;
+                      ridsToDelete.add(identifiable.getIdentity());
+                    }
+
+                    if (counter >= 5) {
+                      break;
+                    }
+                  }
+
+                  assert ridsToDelete.isEmpty() || entity.isDirty();
+                  return RawTriple.of(ridsToDelete, entity.getVersion(), entity);
+                });
+
+                var deletedRids = triple.first();
+                if (!deletedRids.isEmpty()) {
+                  var entityVersion = triple.second();
+                  var entity = triple.third();
+                  assert entity.getVersion() == entityVersion + 1;
+                }
+
+                for (var rid : deletedRids) {
+                  ridsToDeleteFromSet.remove(rid);
+
+                  if (!ridSet.remove(rid)) {
+                    ridsToDeleteFromSet.add(rid);
+                  } else {
+                    deletedRecords++;
+                  }
+                }
+
+                var iter = ridsToDeleteFromSet.iterator();
+                while (iter.hasNext()) {
+                  var rid = iter.next();
+
+                  if (ridSet.remove(rid)) {
+                    iter.remove();
+                    deletedRecords++;
+                  }
+                }
+
+                break;
+              } catch (ConcurrentModificationException | LinksConsistencyException |
+                       RecordNotFoundException e) {
+                //retry
+              }
+            }
           }
         }
-      }
 
-      System.out.println(
-          RidDeleter.class.getSimpleName() + ":" + id + "-" + deletedRecords + " were deleted.");
-      return null;
+        System.out.println(
+            RidDeleter.class.getSimpleName() + ":" + id + " : " + deletedRecords
+                + " were deleted.");
+        return ridsToDeleteFromSet;
+      } catch (Throwable e) {
+        e.printStackTrace();
+        throw e;
+      }
     }
   }
 }

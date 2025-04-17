@@ -49,6 +49,7 @@ public abstract class IdentityWrapper implements Identifiable {
     return rid.compareTo(o.getIdentity());
   }
 
+  @Override
   @Nonnull
   public RID getIdentity() {
     return rid;

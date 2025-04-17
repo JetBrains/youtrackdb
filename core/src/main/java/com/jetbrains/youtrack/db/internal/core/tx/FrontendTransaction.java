@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.Collection;
 import java.util.Iterator;
@@ -58,6 +59,7 @@ public interface FrontendTransaction extends Transaction {
 
   void rollbackInternal(boolean force, int commitLevelDiff);
 
+  @Override
   @Nonnull
   DatabaseSessionInternal getDatabaseSession();
 
@@ -68,6 +70,7 @@ public interface FrontendTransaction extends Transaction {
   LoadRecordResult loadRecord(RID rid)
       throws RecordNotFoundException;
 
+  @Override
   boolean exists(@Nonnull RID rid);
 
   TXSTATUS getStatus();
@@ -102,6 +105,7 @@ public interface FrontendTransaction extends Transaction {
   /**
    * @return {@code true} if this transaction is active, {@code false} otherwise.
    */
+  @Override
   boolean isActive();
 
   /**
@@ -244,4 +248,7 @@ public interface FrontendTransaction extends Transaction {
   void internalRollback();
 
   boolean isScheduledForCallbackProcessing(RecordId rid);
+
+  @Nonnull
+  RecordSerializationContext getRecordSerializationContext();
 }

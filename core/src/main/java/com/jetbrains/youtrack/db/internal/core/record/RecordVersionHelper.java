@@ -48,22 +48,6 @@ public class RecordVersionHelper {
     return version - 1;
   }
 
-  public static boolean isUntracked(final int version) {
-    return version == -1;
-  }
-
-  public static int setRollbackMode(final int version) {
-    return Integer.MIN_VALUE + version;
-  }
-
-  public static int clearRollbackMode(final int version) {
-    return version - Integer.MIN_VALUE;
-  }
-
-  public static boolean isTemporary(final int version) {
-    return version < -1;
-  }
-
   public static boolean isValid(final int version) {
     return version > -1;
   }

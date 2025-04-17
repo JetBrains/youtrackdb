@@ -44,6 +44,7 @@ public class IncrementalBackupResponse implements BinaryResponse {
     fileName = network.readString();
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

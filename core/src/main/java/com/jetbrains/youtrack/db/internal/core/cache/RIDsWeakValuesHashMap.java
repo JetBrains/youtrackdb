@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.cache;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrack.db.api.record.RID;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.AbstractMap;
@@ -14,12 +14,16 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Cache implementation that uses Weak References.
  */
 public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     implements IdentityChangeListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(RIDsWeakValuesHashMap.class);
 
   private final ReferenceQueue<V> refQueue = new ReferenceQueue<>();
 
@@ -75,10 +79,13 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     }
 
     if (evicted > 0) {
-      LogManager.instance().debug(this, "Evicted %d items", evicted);
+      if (logger.isDebugEnabled()) {
+        LogManager.instance().debug(this, "Evicted %d items", logger, evicted);
+      }
     }
   }
 
+  @Override
   @Nullable
   public V put(final RID key, final V value) {
     if (stopModification) {
@@ -121,6 +128,7 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     return result.get();
   }
 
+  @Override
   public void clear() {
     if (stopModification) {
       throw new IllegalStateException("Modification is not allowed");
@@ -129,12 +137,14 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     hashMap.clear();
   }
 
+  @Override
   public int size() {
     evictStaleEntries();
 
     return hashMap.size();
   }
 
+  @Override
   public @Nonnull Set<Entry<RID, V>> entrySet() {
     evictStaleEntries();
     Set<Entry<RID, V>> result = new HashSet<>();
@@ -143,14 +153,17 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
       if (value != null) {
         result.add(
             new Entry<>() {
+              @Override
               public RID getKey() {
                 return entry.getKey();
               }
 
+              @Override
               public V getValue() {
                 return value;
               }
 
+              @Override
               public V setValue(V v) {
                 throw new UnsupportedOperationException();
               }

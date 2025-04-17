@@ -70,6 +70,7 @@ public abstract class RecordHookAbstract implements RecordHook {
   public void onAfterRecordDelete(final DBRecord iRecord) {
   }
 
+  @Override
   public void onTrigger(@Nonnull final TYPE iType,
       @Nonnull final DBRecord record) {
     switch (iType) {
