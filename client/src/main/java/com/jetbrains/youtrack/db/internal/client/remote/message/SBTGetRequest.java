@@ -52,6 +52,7 @@ public class SBTGetRequest implements BinaryRequest<SBTGetResponse> {
     network.writeBytes(keyStream);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

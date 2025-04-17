@@ -35,10 +35,12 @@ public interface Gauge<T> extends Metric<T> {
 
     private volatile T value;
 
+    @Override
     public T getValue() {
       return value;
     }
 
+    @Override
     public void setValue(T value) {
       this.value = value;
     }

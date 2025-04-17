@@ -71,10 +71,12 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
     return true;
   }
 
+  @Override
   public Set<DBRecord> getFetchedRecordsToSend() {
     return fetchedRecordsToSend;
   }
 
+  @Override
   public boolean isEmpty() {
     return false;
   }

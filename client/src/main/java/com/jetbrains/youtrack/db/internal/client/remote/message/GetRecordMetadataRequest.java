@@ -48,6 +48,7 @@ public class GetRecordMetadataRequest implements BinaryRequest<GetRecordMetadata
     network.writeRID(rid);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

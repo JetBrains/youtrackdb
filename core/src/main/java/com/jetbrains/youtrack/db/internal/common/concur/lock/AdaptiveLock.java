@@ -70,6 +70,7 @@ public class AdaptiveLock extends AbstractLock {
     this.ignoreThreadInterruption = ignoreThreadInterruption;
   }
 
+  @Override
   public void lock() {
     if (concurrent) {
       if (timeout > 0) {
@@ -135,6 +136,7 @@ public class AdaptiveLock extends AbstractLock {
     return true;
   }
 
+  @Override
   public void unlock() {
     if (concurrent) {
       lock.unlock();

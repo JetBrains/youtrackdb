@@ -62,8 +62,10 @@ public interface LinkBagDelegate
    */
   boolean contains(RID identifiable);
 
+  @Override
   void setOwner(RecordElement owner);
 
+  @Override
   RecordElement getOwner();
 
   String toString();
@@ -78,5 +80,6 @@ public interface LinkBagDelegate
 
   Stream<RID> stream();
 
+  @Override
   Spliterator<RID> spliterator();
 }

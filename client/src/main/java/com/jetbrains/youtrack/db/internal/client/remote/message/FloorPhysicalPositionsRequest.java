@@ -55,6 +55,7 @@ public class FloorPhysicalPositionsRequest
     network.writeInt(limit);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)
@@ -86,6 +87,7 @@ public class FloorPhysicalPositionsRequest
     return limit;
   }
 
+  @Override
   public FloorPhysicalPositionsResponse createResponse() {
     return new FloorPhysicalPositionsResponse();
   }

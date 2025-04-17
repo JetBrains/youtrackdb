@@ -44,6 +44,7 @@ public class SBTFirstKeyResponse implements BinaryResponse {
     stream = network.readBytes();
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

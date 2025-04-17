@@ -93,6 +93,7 @@ public class Triple<K extends Comparable<K>, V extends Comparable<V>, SV>
     }
   }
 
+  @Override
   public int compareTo(final Triple<K, V, SV> o) {
     return key.compareTo(o.key);
   }

@@ -285,6 +285,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
   /**
    * Closes all the databases.
    */
+  @Override
   public void close() {
     lock();
     try {
@@ -350,6 +351,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
     return maxSize;
   }
 
+  @Override
   public void onStorageRegistered(final Storage iStorage) {
   }
 
@@ -357,6 +359,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
    * Removes from memory the pool associated to the closed storage. This avoids pool open against
    * closed storages.
    */
+  @Override
   public void onStorageUnregistered(final Storage iStorage) {
     final var storageURL = iStorage.getURL();
 

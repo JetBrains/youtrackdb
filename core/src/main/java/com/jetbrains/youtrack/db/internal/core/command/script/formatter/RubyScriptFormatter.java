@@ -28,6 +28,7 @@ import java.util.Scanner;
  */
 public class RubyScriptFormatter implements ScriptFormatter {
 
+  @Override
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
 
     final var fCode = new StringBuilder(1024);

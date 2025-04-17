@@ -39,6 +39,7 @@ public class GuaranteeEmptyCountStep extends AbstractExecutionStep {
     return new GuaranteeEmptyCountStep(item.copy(), ctx, profilingEnabled);
   }
 
+  @Override
   public boolean canBeCached() {
     return true;
   }

@@ -70,10 +70,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     this.session = session;
   }
 
+  @Override
   public int beginInternal() {
     throw new UnsupportedOperationException("Begin is not supported in no tx mode");
   }
 
+  @Override
   public void commitInternal() {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
@@ -230,10 +232,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
+  @Override
   public void rollbackInternal() {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 
+  @Override
   public @Nonnull LoadRecordResult loadRecord(final RID rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
@@ -302,14 +306,17 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   /**
    * Deletes the record.
    */
+  @Override
   public void deleteRecord(final RecordAbstract iRecord) {
     throw new DatabaseException(session.getDatabaseName(), "Cannot delete record in no tx mode");
   }
 
+  @Override
   public Collection<RecordOperation> getCurrentRecordEntries() {
     return Collections.emptyList();
   }
 
+  @Override
   public Collection<RecordOperation> getRecordOperationsInternal() {
     return Collections.emptyList();
   }
@@ -340,14 +347,17 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
         "getSerializedOperations is not supported in no tx mode");
   }
 
+  @Override
   public void clearRecordEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
+  @Override
   public RecordAbstract getRecord(final RID rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
+  @Override
   public RecordOperation getRecordEntry(final RID rid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -367,6 +377,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
+  @Override
   public void addIndexEntry(
       final Index delegate,
       final String indexName,
@@ -376,6 +387,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
+  @Override
   public void clearIndexEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -384,18 +396,22 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   public void close() {
   }
 
+  @Override
   public FrontendTransactionIndexChanges getIndexChanges(final String iName) {
     return null;
   }
 
+  @Override
   public long getId() {
     return 0;
   }
 
+  @Override
   public List<String> getInvolvedIndexes() {
     return Collections.emptyList();
   }
 
+  @Override
   public boolean assertIdentityChangedAfterCommit(RecordId oldRid, RecordId newRid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }

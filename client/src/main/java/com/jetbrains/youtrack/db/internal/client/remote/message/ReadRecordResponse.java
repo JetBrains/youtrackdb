@@ -54,6 +54,7 @@ public final class ReadRecordResponse implements BinaryResponse {
     this.recordsToSend = recordsToSend;
   }
 
+  @Override
   public void write(DatabaseSessionInternal session, ChannelDataOutput network,
       int protocolVersion, RecordSerializer serializer)
       throws IOException {

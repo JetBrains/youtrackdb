@@ -107,6 +107,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     return list.size();
   }
 
+  @Override
   public void addInternal(T element) {
     checkValue(element);
     final var result = list.add(element);
@@ -203,6 +204,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     list.clear();
   }
 
+  @Override
   public void setDirty() {
     this.dirty = true;
     this.transactionDirty = true;
@@ -221,6 +223,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     }
   }
 
+  @Override
   public List<T> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Integer, T>> multiValueChangeEvents) {
@@ -249,6 +252,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     return reverted;
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     if (!tracker.isEnabled()) {
       tracker.enable();
@@ -260,6 +264,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     }
   }
 
+  @Override
   public void disableTracking(RecordElement parent) {
     if (tracker.isEnabled()) {
       tracker.disable();
@@ -294,6 +299,7 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
     return tracker.getTimeLine();
   }
 
+  @Override
   public MultiValueChangeTimeLine<Integer, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
   }

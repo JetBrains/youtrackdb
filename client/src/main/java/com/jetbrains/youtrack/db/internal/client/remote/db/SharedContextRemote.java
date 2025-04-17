@@ -36,6 +36,7 @@ public class SharedContextRemote extends SharedContext<IndexManagerRemote> {
     indexManager = new IndexManagerRemote(storage);
   }
 
+  @Override
   public void load(DatabaseSessionInternal database) {
     if (loaded) {
       return;
@@ -75,6 +76,7 @@ public class SharedContextRemote extends SharedContext<IndexManagerRemote> {
     }
   }
 
+  @Override
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {

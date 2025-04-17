@@ -40,10 +40,12 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
   public static final String METADATA_SCHEMA = "SCHEMA";
   public static final String METADATA_INDEXMGR = "INDEXMANAGER";
 
+  @Override
   public boolean isIdempotent() {
     return false;
   }
 
+  @Override
   protected void throwSyntaxErrorException(String dbName, final String iText) {
     throw new CommandSQLParsingException(dbName,
         iText + ". Use " + getSyntax(), parserText, parserGetPreviousPosition());

@@ -122,6 +122,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     network.writeBoolean(namedParams);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

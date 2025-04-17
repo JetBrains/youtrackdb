@@ -49,6 +49,7 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
     super.open(iUserName, iUserPassword);
   }
 
+  @Override
   public void reuse(final Object iOwner, final Object[] iAdditionalArgs) {
     ownerPool = (DatabaseDocumentPool) iOwner;
     getLocalCache().invalidate();
@@ -93,6 +94,7 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
             + " connection");
   }
 
+  @Override
   public boolean isUnderlyingOpen() {
     return !super.isClosed();
   }
@@ -152,11 +154,13 @@ public class DatabaseDocumentTxPooled extends DatabaseDocumentTx implements Data
     }
   }
 
+  @Override
   public void forceClose() {
     super.close();
   }
 
   //  @Override
+  @Override
   protected void checkOpenness() {
     if (ownerPool == null) {
       throw new DatabaseException(

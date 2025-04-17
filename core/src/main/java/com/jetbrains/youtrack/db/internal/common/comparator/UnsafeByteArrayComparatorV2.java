@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.common.comparator;
 
-import java.lang.reflect.Field;
 import java.nio.ByteOrder;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -51,6 +50,7 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
         (Unsafe)
             AccessController.doPrivileged(
                 new PrivilegedAction<Object>() {
+                  @Override
                   public Object run() {
                     try {
                       var f = Unsafe.class.getDeclaredField("theUnsafe");
@@ -73,6 +73,7 @@ public class UnsafeByteArrayComparatorV2 implements Comparator<byte[]> {
     }
   }
 
+  @Override
   public int compare(byte[] arrayOne, byte[] arrayTwo) {
     final var WORDS = arrayOne.length / LONG_SIZE;
 

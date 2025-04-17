@@ -30,6 +30,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     super(oClassImpl, global);
   }
 
+  @Override
   public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
@@ -44,6 +45,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setName(DatabaseSessionInternal session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -76,6 +78,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setCollate(DatabaseSessionInternal session, String collate) {
     if (collate == null) {
       collate = DefaultCollate.NAME;
@@ -94,6 +97,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void clearCustom(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -107,6 +111,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setCustom(DatabaseSessionInternal session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -123,6 +128,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setRegexp(DatabaseSessionInternal session, final String regexp) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -137,6 +143,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedClass(DatabaseSessionInternal session,
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -157,6 +164,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedType(DatabaseSessionInternal session,
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -176,6 +184,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setNotNull(DatabaseSessionInternal session, final boolean isNotNull) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -191,6 +200,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setDefaultValue(DatabaseSessionInternal session,
       final String defaultValue) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -208,6 +218,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMax(DatabaseSessionInternal session, final String max) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -222,6 +233,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMin(DatabaseSessionInternal session, final String min) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -236,6 +248,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setReadonly(DatabaseSessionInternal session, final boolean isReadonly) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -251,6 +264,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMandatory(DatabaseSessionInternal session,
       final boolean isMandatory) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);

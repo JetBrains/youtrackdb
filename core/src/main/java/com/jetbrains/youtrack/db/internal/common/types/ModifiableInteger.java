@@ -63,6 +63,7 @@ public class ModifiableInteger extends Number implements Comparable<ModifiableIn
     value -= iValue;
   }
 
+  @Override
   public int compareTo(final ModifiableInteger anotherInteger) {
     var thisVal = value;
     var anotherVal = anotherInteger.value;

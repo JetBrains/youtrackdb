@@ -143,10 +143,12 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return internal;
   }
 
+  @Override
   public void registerResultTransformer(Class clazz, ResultTransformer transformer) {
     transformers.put(clazz, transformer);
   }
 
+  @Override
   public void registerResultSetTransformer(Class clazz, ResultSetTransformer transformer) {
     resultSetTransformers.put(clazz, transformer);
   }

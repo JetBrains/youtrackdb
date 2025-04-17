@@ -23,6 +23,7 @@ import static com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper.l
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
@@ -36,7 +37,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFactory;
@@ -384,7 +384,7 @@ public class SQLEngine {
       return result;
     } else if (current instanceof Identifiable) {
       return function.apply(current);
-    } else if (current instanceof ResultInternal result) {
+    } else if (current instanceof Result result) {
       if (result.isRelation()) {
         return function.apply(result.asRelation());
       } else if (result.isEntity()) {

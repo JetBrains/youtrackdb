@@ -45,6 +45,7 @@ public class TraverseContext extends BasicCommandContext {
     memory.add(iProcess);
   }
 
+  @Override
   public Map<String, Object> getVariables() {
     final var map = new HashMap<String, Object>();
     map.put("depth", getDepth());
@@ -55,6 +56,7 @@ public class TraverseContext extends BasicCommandContext {
     return map;
   }
 
+  @Override
   public Object getVariable(final String iName) {
     final var name = iName.trim().toUpperCase(Locale.ENGLISH);
 

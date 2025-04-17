@@ -48,6 +48,7 @@ public class LinkSerializer implements BinarySerializer<RID> {
   public static final int RID_SIZE = ShortSerializer.SHORT_SIZE + COLLECTION_POS_SIZE;
   public static final LinkSerializer INSTANCE = new LinkSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final RID rid,
       Object... hints) {
     return staticGetObjectSize();
@@ -57,6 +58,7 @@ public class LinkSerializer implements BinarySerializer<RID> {
     return RID_SIZE;
   }
 
+  @Override
   public void serialize(
       final RID r, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, Object... hints) {
@@ -68,6 +70,7 @@ public class LinkSerializer implements BinarySerializer<RID> {
     long2bytes(r.getCollectionPosition(), stream, startPosition + ShortSerializer.SHORT_SIZE);
   }
 
+  @Override
   public RecordId deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return staticDeserialize(stream, startPosition);
@@ -80,20 +83,24 @@ public class LinkSerializer implements BinarySerializer<RID> {
         bytes2long(stream, startPosition + ShortSerializer.SHORT_SIZE));
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return RID_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return RID_SIZE;
   }
 
+  @Override
   public void serializeNativeObject(
       RID r, BinarySerializerFactory serializerFactory, byte[] stream, int startPosition,
       Object... hints) {
@@ -104,6 +111,7 @@ public class LinkSerializer implements BinarySerializer<RID> {
         startPosition + ShortSerializer.SHORT_SIZE);
   }
 
+  @Override
   public RecordId deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     final int collectionId = ShortSerializer.INSTANCE.deserializeNative(stream, startPosition);
@@ -114,10 +122,12 @@ public class LinkSerializer implements BinarySerializer<RID> {
     return new RecordId(collectionId, collectionPosition);
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return RID_SIZE;
   }

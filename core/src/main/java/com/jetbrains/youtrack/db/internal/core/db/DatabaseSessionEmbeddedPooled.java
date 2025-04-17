@@ -42,6 +42,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
     pool.release(this);
   }
 
+  @Override
   public void reuse() {
     activateOnCurrentThread();
     setStatus(STATUS.OPEN);
@@ -53,6 +54,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
     return (DatabaseSessionInternal) pool.acquire();
   }
 
+  @Override
   public void realClose() {
     activateOnCurrentThread();
     super.close();

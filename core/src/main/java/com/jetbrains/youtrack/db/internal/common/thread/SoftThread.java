@@ -44,9 +44,11 @@ public abstract class SoftThread extends Thread implements Service {
 
   protected abstract void execute() throws Exception;
 
+  @Override
   public void startup() {
   }
 
+  @Override
   public void shutdown() {
   }
 

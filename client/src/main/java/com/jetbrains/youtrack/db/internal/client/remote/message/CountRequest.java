@@ -54,6 +54,7 @@ public final class CountRequest implements BinaryRequest<CountResponse> {
     network.writeByte(countTombstones ? (byte) 1 : (byte) 0);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

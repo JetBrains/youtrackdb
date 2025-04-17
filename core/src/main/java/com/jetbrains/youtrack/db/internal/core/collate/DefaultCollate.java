@@ -31,10 +31,12 @@ public class DefaultCollate extends DefaultComparator implements Collate {
 
   public static final String NAME = "default";
 
+  @Override
   public @Nonnull String getName() {
     return NAME;
   }
 
+  @Override
   public @Nullable Object transform(final @Nullable Object obj) {
     return obj;
   }

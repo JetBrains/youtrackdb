@@ -47,6 +47,7 @@ public class DropCollectionRequest implements BinaryRequest<DropCollectionRespon
     network.writeShort((short) collectionId);
   }
 
+  @Override
   public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
       int protocolVersion,
       RecordSerializerNetwork serializer)

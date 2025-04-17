@@ -161,6 +161,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public DatabaseSession open(final String iUserName, final String iUserPassword) {
     throw new UnsupportedOperationException("Use YouTrackDB");
   }
@@ -299,6 +300,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    * @return The Database instance itself giving a "fluent interface". Useful to call multiple
    * methods in chain.
    */
+  @Override
   @Deprecated
   public DatabaseSession open(final Token iToken) {
     throw new UnsupportedOperationException("Deprecated Method");
@@ -453,6 +455,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public DatabaseSession setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
@@ -495,6 +498,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    * Returns a copy of current database if it's open. The returned instance can be used by another
    * thread without affecting current instance. The database copy is not set in thread local.
    */
+  @Override
   public DatabaseSessionInternal copy() {
     assertIfNotActive();
     var storage = (Storage) getSharedContext().getStorage();
@@ -907,6 +911,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    *
    * @param record record to delete
    */
+  @Override
   public void delete(@Nonnull DBRecord record) {
     checkOpenness();
     assert assertIfNotActive();
@@ -914,6 +919,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     record.delete();
   }
 
+  @Override
   public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -968,6 +974,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     callbackHooks(RecordHook.TYPE.AFTER_CREATE, recordAbstract);
   }
 
+  @Override
   public void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -1018,6 +1025,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
   }
 
+  @Override
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
       java.lang.String collectionName) {
     assert assertIfNotActive();
@@ -1186,6 +1194,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
+  @Override
   public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
@@ -1265,6 +1274,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -1295,6 +1305,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1313,6 +1324,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1377,11 +1389,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
+  @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
     return getStorageInfo().getRecordConflictStrategy();
   }
 
+  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
     storage.setConflictStrategy(
@@ -1389,6 +1403,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return this;
   }
 
+  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
     storage.setConflictStrategy(iResolver);
@@ -1525,6 +1540,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return dropCollectionInternal(collectionId);
   }
 
+  @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
     return storage.dropCollection(this, collectionId);
@@ -1536,6 +1552,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.getSize(this);
   }
 
+  @Override
   public DatabaseStats getStats() {
     assert assertIfNotActive();
     var stats = new DatabaseStats();
@@ -1552,6 +1569,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return stats;
   }
 
+  @Override
   public void addRidbagPrefetchStats(long execTimeMs) {
     assert assertIfNotActive();
     this.ridbagPrefetchCount++;
@@ -1565,6 +1583,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public void resetRecordLoadStats() {
     assert assertIfNotActive();
     this.loadedRecordsCount = 0L;
@@ -1668,6 +1687,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
     return storage.getLinkCollectionsBtreeCollectionManager();
@@ -1690,6 +1710,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     this.storage.commit(transaction);
   }
 
+  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;
@@ -1741,11 +1762,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.getCollectionsIds(filterCollections);
   }
 
+  @Override
   public void startExclusiveMetadataChange() {
     assert assertIfNotActive();
     ((AbstractStorage) storage).startDDL();
   }
 
+  @Override
   public void endExclusiveMetadataChange() {
     assert assertIfNotActive();
     ((AbstractStorage) storage).endDDL();

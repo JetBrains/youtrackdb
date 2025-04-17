@@ -83,6 +83,7 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
     return -1;
   }
 
+  @Override
   public int getBinaryVersion() {
     return binaryVersion;
   }

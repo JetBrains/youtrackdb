@@ -14,6 +14,7 @@ public class BasicServerCommandContext extends BasicCommandContext
     this.server = server;
   }
 
+  @Override
   public YouTrackDBInternal getServer() {
     return server;
   }

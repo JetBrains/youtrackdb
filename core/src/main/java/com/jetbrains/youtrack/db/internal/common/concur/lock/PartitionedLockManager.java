@@ -311,6 +311,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     return locks;
   }
 
+  @Override
   @SafeVarargs
   public final Lock[] acquireSharedLocksInBatch(final T... value) {
     if (value == null) {
@@ -327,6 +328,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     return locks;
   }
 
+  @Override
   public Lock[] acquireExclusiveLocksInBatch(Collection<T> values) {
     if (values == null || values.isEmpty()) {
       return new Lock[0];
@@ -440,6 +442,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     releaseSLock(index);
   }
 
+  @Override
   public void releaseSharedLock(final T value) {
     final int index;
     if (value == null) {
@@ -484,6 +487,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
     releaseWLock(index);
   }
 
+  @Override
   public void releaseExclusiveLock(final T value) {
     final int index;
     if (value == null) {

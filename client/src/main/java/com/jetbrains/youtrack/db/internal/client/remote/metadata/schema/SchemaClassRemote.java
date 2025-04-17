@@ -97,6 +97,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
   }
 
 
+  @Override
   public void setCustom(DatabaseSessionInternal session, final String name, final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -109,6 +110,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void clearCustom(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -149,6 +151,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void addSuperClass(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -167,6 +170,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void removeSuperClass(DatabaseSessionInternal session, SchemaClassImpl superClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
@@ -233,6 +237,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     session.execute(queryBuilder.toString()).close();
   }
 
+  @Override
   public void setName(DatabaseSessionInternal session, final String name) {
     if (getName(session).equals(name)) {
       return;
@@ -266,10 +271,12 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   protected SchemaPropertyImpl createPropertyInstance() {
     return new SchemaPropertyRemote(this);
   }
 
+  @Override
   public void setStrictMode(DatabaseSessionInternal session, final boolean isStrict) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
@@ -282,6 +289,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
 
   }
 
+  @Override
   public void setDescription(DatabaseSessionInternal session, String iDescription) {
     if (iDescription != null) {
       iDescription = iDescription.trim();
@@ -300,6 +308,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
@@ -334,6 +343,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void setAbstract(DatabaseSessionInternal session, boolean isAbstract) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -366,6 +376,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
+  @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
       final List<SchemaClassImpl> classes) {
     List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
@@ -395,6 +406,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     superClasses.addAll(newSuperClasses);
   }
 
+  @Override
   protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
   }
 }
