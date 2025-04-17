@@ -66,7 +66,7 @@ public interface SchemaProperty {
    *
    * @return
    */
-  SchemaClass getLinkedClass(DatabaseSession session);
+  SchemaClass getLinkedClass();
 
   SchemaProperty setLinkedClass(SchemaClass oClass);
 
@@ -233,7 +233,7 @@ public interface SchemaProperty {
 
   SchemaClass getOwnerClass();
 
-  Object get(DatabaseSession session, ATTRIBUTES iAttribute);
+  Object get(ATTRIBUTES iAttribute);
 
   Integer getId();
 

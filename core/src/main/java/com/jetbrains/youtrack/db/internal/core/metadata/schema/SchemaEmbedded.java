@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -45,10 +46,10 @@ public class SchemaEmbedded extends SchemaShared {
       try {
         result = doCreateClass(session, className, collectionIds, retry, superClasses);
         break;
-      } catch (ClusterIdsAreEmptyException ignore) {
+      } catch (CollectionIdsAreEmptyException ignore) {
         String normalizedClassName = normalizeClassName(className);
         classesRefs.remove(normalizedClassName);
-        clusterIds = createClusters(database, className);
+        collectionIds = createCollections(session, className);
         retry++;
       }
     }
@@ -83,7 +84,7 @@ public class SchemaEmbedded extends SchemaShared {
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
     acquireSchemaWriteLock(session);
     try {
@@ -139,12 +140,12 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected void doRealCreateClass(
-      DatabaseSessionEmbedded database,
+      DatabaseSessionEmbedded session,
       String className,
       List<SchemaClassImpl> superClassesList,
       int[] collectionIds)
       throws CollectionIdsAreEmptyException {
-    createClassInternal(database, className, collectionIds, superClassesList);
+    createClassInternal(session, className, collectionIds, superClassesList);
   }
 
   protected void createClassInternal(
@@ -181,14 +182,15 @@ public class SchemaEmbedded extends SchemaShared {
 
       var cls = createClassInstance(className, collectionIds);
 
-      EntityImpl classEntity = cls.toStream(database);
+      Entity classEntity = cls.toStream(session);
       // do we need to save or to batch
       // todo move to schema lock release step
-      EntityImpl savedClassEntity = database.computeInTx(
-          () -> database.save(classEntity, MetadataDefault.CLUSTER_INTERNAL_NAME));
+      EntityImpl savedClassEntity = session.computeInTx(
+          // how to save?
+          () -> session.save(classEntity, MetadataDefault.CLUSTER_INTERNAL_NAME));
 
       classesRefs.put(key, LazySchemaClass.fromTemplate(savedClassEntity.getIdentity(), cls));
-      this.markClassDirty(cls);
+      this.markClassDirty(session, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
         cls.setSuperClassesInternal(session, superClasses);
@@ -236,7 +238,7 @@ public class SchemaEmbedded extends SchemaShared {
     try {
       LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
-        SchemaClassInternal cls = lazySchemaClass.getDelegate();
+        var cls = lazySchemaClass.getDelegate();
         if (cls != null) {
           return cls;
         }
@@ -287,7 +289,7 @@ public class SchemaEmbedded extends SchemaShared {
     SchemaClassImpl result;
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
 
     acquireSchemaWriteLock(session);
@@ -319,7 +321,7 @@ public class SchemaEmbedded extends SchemaShared {
       doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
           collectionIds);
 
-      result = classesRef.get(normalizeClassName(className));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
       for (var oSessionListener : session.getListeners()) {
         oSessionListener.onCreateClass(session, new SchemaClassProxy(result, session));
       }
@@ -416,14 +418,14 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classesRefs.get(key).getDelegate();
+      SchemaClassImpl cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      Collection<SchemaClass> subclasses = cls.getSubclasses(database);
+      Collection<SchemaClassImpl> subclasses = cls.getSubclasses(session);
       if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
@@ -463,13 +465,13 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      final SchemaClass cls = classesRefs.get(key).getDelegate();
+      final SchemaClassImpl cls = classesRefs.get(key).getDelegate();
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      Collection<SchemaClass> subclasses = cls.getSubclasses(database);
+      Collection<SchemaClassImpl> subclasses = cls.getSubclasses(session);
       if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
@@ -481,7 +483,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       checkEmbedded(session);
 
-      for (SchemaClass superClass : cls.getSuperClasses(database)) {
+      for (SchemaClassImpl superClass : cls.getSuperClasses(session)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }
@@ -495,13 +497,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       classesRefs.remove(key);
 
-      if (cls.getShortName() != null)
-      // REMOVE THE ALIAS TOO
-      {
-        classesRefs.remove(cls.getShortName().toLowerCase(Locale.ENGLISH));
-      }
-
-      removeClusterClassMap(cls);
+      removeCollectionClassMap(session, cls);
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (var it = YouTrackDBEnginesManager.instance()

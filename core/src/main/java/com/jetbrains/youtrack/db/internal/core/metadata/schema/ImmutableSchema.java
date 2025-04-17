@@ -52,7 +52,7 @@ public class ImmutableSchema implements SchemaInternal {
   private final Int2ObjectOpenHashMap<SchemaClass> collectionsToClasses;
   private final Map<String, SchemaClassInternal> classes;
   private final Map<String, LazySchemaClass> classesRefs;
-  private final IntSet blobClusters;
+  private final IntSet blobCollections;
 
   public final int version;
   private final RID identity;
@@ -66,17 +66,19 @@ public class ImmutableSchema implements SchemaInternal {
     identity = schemaShared.getIdentity(session);
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
-    clustersToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(database).size() * 3);
-    classes = new HashMap<>(schemaShared.getClasses(database).size());
+    var classes = schemaShared.getClassesSlow(session);
+    var size = classes.size();
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(size * 3);
+    this.classes = new HashMap<>(size);
 
-    Map<String, LazySchemaClass> schemaSharedClassesRefs = schemaShared.getClassesRefs(database);
+    var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
     classesRefs = new HashMap<>(schemaSharedClassesRefs.size());
     classesRefs.putAll(schemaSharedClassesRefs);
 
-    for (var oClass : schemaShared.getClasses(session)) {
+    for (var oClass : classes) {
       final var immutableClass = new SchemaImmutableClass(session, oClass, this);
 
-      classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
+      this.classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 
       for (var collectionId : immutableClass.getCollectionIds()) {
         collectionsToClasses.put(collectionId, immutableClass);
@@ -86,11 +88,11 @@ public class ImmutableSchema implements SchemaInternal {
     properties = new ArrayList<>();
     properties.addAll(schemaShared.getGlobalProperties(session));
 
-    for (SchemaClass cl : classes.values()) {
+    for (SchemaClass cl : this.classes.values()) {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blobClusters = schemaShared.getBlobClusters();
+    this.blobCollections = schemaShared.getBlobCollections(session);
 
     var indexManager = session.getSharedContext().getIndexManager();
     var internalIndexes = indexManager.getIndexes(session);
@@ -237,8 +239,12 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public Map<String, LazySchemaClass> getClassesRefs() {
-    return new HashMap<>(classesRefs);
+  public Map<String, RID> getClassesRefs() {
+    var result = new HashMap<String, RID>(classesRefs.size());
+    for (var lazyClassRef : classesRefs.entrySet()) {
+      result.put(lazyClassRef.getKey(), lazyClassRef.getValue().getId());
+    }
+    return result;
   }
 
   @Override
@@ -316,8 +322,7 @@ public class ImmutableSchema implements SchemaInternal {
     throw new UnsupportedOperationException();
   }
 
-
-  public IntSet getBlobClusters() {
-    return blobClusters;
+  public IntSet getBlobCollections() {
+    return blobCollections;
   }
 }

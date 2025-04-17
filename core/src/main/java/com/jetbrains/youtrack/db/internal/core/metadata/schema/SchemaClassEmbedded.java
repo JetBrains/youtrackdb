@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class SchemaClassEmbedded extends SchemaClassImpl {
 
@@ -73,7 +74,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       setCustomInternal(session, name, value);
       // todo move inside internal method
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -97,7 +98,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded(session);
 
       customFields = null;
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -111,16 +112,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded(session);
 
       if (subclasses.isEmpty()) {
-        return this;
+        return;
       }
 
-      LazySchemaClass removedClass = subclasses.remove(baseClass.getName());
+      LazySchemaClass removedClass = subclasses.remove(baseClass.getName(session));
       if (removedClass != null) {
         // todo replace with removedClass.getDelegate()
-        removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
+        removePolymorphicCollectionIds(session, (SchemaClassImpl) baseClass);
       }
-      owner.markClassDirty(this);
-      owner.markClassDirty(baseClass);
+      owner.markClassDirty(session, this);
+      owner.markClassDirty(session, baseClass);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -148,11 +149,12 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
       if (cls != null) {
 
-        if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
-            superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        var superClassName = superClass.getName(session);
+        if (superClassName.equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+            superClassName.equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
           throw new SchemaException(session.getDatabaseName(),
               "Cannot add the class '"
-                  + superClass.getName(session)
+                  + superClassName
                   + "' as superclass of the class '"
                   + this.getName(session)
                   + "'. Addition of graph classes is not allowed");
@@ -165,19 +167,19 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
               Role.PERMISSION_UPDATE);
         }
 
-        if (superClasses.contains(superClass)) {
+        if (superClasses.containsKey(superClassName)) {
           throw new SchemaException(session.getDatabaseName(),
               "Class: '"
                   + this.getName(session)
                   + "' already has the class '"
-                  + superClass.getName(session)
+                  + superClassName
                   + "' as superclass");
         }
 
         cls.addBaseClass(session, this);
-        superClasses.add(cls);
+        superClasses.put(superClassName, owner.getLazyClass(superClassName));
 
-        owner.markClassDirty(this);
+        owner.markClassDirty(session, this);
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -212,11 +214,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final SchemaClassImpl cls;
       cls = superClass;
 
-      if (superClasses.containsKey(cls.getName())) {
+      if (superClasses.containsKey(cls.getName(session))) {
         cls.removeBaseClassInternal(session, this);
 
-        superClasses.remove(superClass.getName());
-        owner.markClassDirty(this);
+        superClasses.remove(superClass.getName(session));
+        owner.markClassDirty(session, this);
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -240,10 +242,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes) {
+      final List<? extends SchemaClassImpl> classes) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
       if (!classes.contains(owner.getClass(session, SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
@@ -259,31 +260,42 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
     }
 
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
+    Map<String, LazySchemaClass> newSuperClasses = new HashMap<>();
     SchemaClassImpl cls;
     for (var superClass : classes) {
-      cls = superClass;
-      if (newSuperClasses.contains(cls)) {
+      String className = superClass.getName(session);
+      if (newSuperClasses.containsKey(className)) {
         throw new SchemaException(session.getDatabaseName(),
-            "Duplicated superclass '" + cls.getName(session) + "'");
+            "Duplicated superclass '" + className + "'");
       }
 
-      newSuperClasses.add(cls);
+      newSuperClasses.put(className, owner.getLazyClass(className));
     }
 
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
-    toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
-    toRemoveList.removeAll(newSuperClasses);
-
-    for (var toRemove : toRemoveList) {
-      toRemove.removeBaseClassInternal(session, this);
+    Map<String, LazySchemaClass> classesToAdd = new HashMap<>();
+    for (var potentialSuperClass : newSuperClasses.entrySet()) {
+      if (!superClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToAdd.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
     }
-    for (var addTo : toAddList) {
-      addTo.addBaseClass(session, this);
+
+    Map<String, LazySchemaClass> classesToRemove = new HashMap<>();
+    for (var potentialSuperClass : superClasses.entrySet()) {
+      if (!newSuperClasses.containsKey(potentialSuperClass.getKey())) {
+        classesToRemove.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+      }
+    }
+
+    for (var toRemove : classesToRemove.values()) {
+      toRemove.loadIfNeeded(session);
+      toRemove.getDelegate().removeBaseClassInternal(session, this);
+    }
+    for (var toAdd : classesToAdd.values()) {
+      toAdd.loadIfNeeded(session);
+      toAdd.getDelegate().addSubClass(session, this);
     }
     superClasses.clear();
-    superClasses.addAll(newSuperClasses);
+    superClasses.putAll(newSuperClasses);
   }
 
   public void setName(DatabaseSessionInternal session, final String name) {
@@ -324,8 +336,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       final var oldName = this.name;
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
-      renameCluster(database, oldName, this.name);
-      owner.markClassDirty(this);
+      renameCollection(session, oldName, this.name);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -374,7 +386,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       prop = createPropertyInstance(global);
 
       properties.put(name, prop);
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
 
       if (linkedType != null) {
         prop.setLinkedTypeInternal(session, linkedType);
@@ -417,7 +429,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded(session);
 
       this.strictMode = iStrict;
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -446,7 +458,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       checkEmbedded(session);
       this.description = iDescription;
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -488,7 +500,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         throw new SchemaException(session.getDatabaseName(),
             "Property '" + iPropertyName + "' not found in class " + name + "'");
       }
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -511,7 +523,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded(session);
 
       this.overSize = overSize;
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -542,7 +554,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       } else {
         customFields.put(name, value);
       }
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -562,11 +574,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 "Cannot set the class as abstract because contains records.");
           }
 
-          tryDropCollection(database, defaultCollectionId);
-          for (var collectionId : getCollectionIds(database)) {
-            tryDropCollection(database, collectionId);
-            removePolymorphicCollectionId(database, collectionId);
-            ((SchemaEmbedded) owner).removeCollectionForClass(database, collectionId);
+          tryDropCollection(session, defaultCollectionId);
+          for (var collectionId : getCollectionIds(session)) {
+            tryDropCollection(session, collectionId);
+            removePolymorphicCollectionId(session, collectionId);
+            ((SchemaEmbedded) owner).removeCollectionForClass(session, collectionId);
           }
 
           setCollectionIds(new int[]{NOT_EXISTENT_COLLECTION_ID});
@@ -578,17 +590,17 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           return;
         }
 
-        var collectionId = database.getCollectionIdByName(name);
+        var collectionId = session.getCollectionIdByName(name);
         if (collectionId == -1) {
-          collectionId = database.addCollection(name);
+          collectionId = session.addCollection(name);
         }
 
         this.defaultCollectionId = collectionId;
         this.collectionIds[0] = this.defaultCollectionId;
         this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
-        for (var clazz : getAllSubclasses(database)) {
+        for (var clazz : getAllSubclasses(session)) {
           if (clazz instanceof SchemaClassImpl) {
-            addPolymorphicCollectionIds(database, clazz);
+            addPolymorphicCollectionIds(session, clazz);
           } else {
             LogManager.instance()
                 .warn(this, "Warning: cannot set polymorphic collection IDs for class " + name);
@@ -597,7 +609,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       this.abstractClass = isAbstract;
-      owner.markClassDirty(this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -637,8 +649,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         defaultCollectionId = collectionId;
       }
 
-      ((SchemaEmbedded) owner).addClusterForClass(database, clusterId, this);
-      owner.markClassDirty(this);
+      ((SchemaEmbedded) owner).addCollectionForClass(session, collectionId, this);
+      owner.markClassDirty(session, this);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -658,7 +670,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     for (LazySchemaClass superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
-      ((SchemaClassEmbedded) superClass.getDelegate()).addPolymorphicClusterId(session, clusterId);
+      ((SchemaClassEmbedded) superClass.getDelegate()).addPolymorphicCollectionId(session,
+          collectionId);
     }
   }
 

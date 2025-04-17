@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.IndexDefinition;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -32,9 +33,11 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -217,10 +220,21 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
   public Collection<SchemaClass> getClasses() {
     assert session.assertIfNotActive();
-    var classes = delegate.getClasses(session);
+    var classes = delegate.getClassesSlow(session);
     var result = new ArrayList<SchemaClass>(classes.size());
     for (var cls : classes) {
       result.add(new SchemaClassProxy(cls, session));
+    }
+    return result;
+  }
+
+  @Override
+  public Map<String, RID> getClassesRefs() {
+    assert session.assertIfNotActive();
+    var classesRefs = delegate.getClassesRefs(session);
+    var result = new HashMap<String, RID>();
+    for (var lazyClassEntry : classesRefs.entrySet()) {
+      result.put(lazyClassEntry.getKey(), lazyClassEntry.getValue().getId());
     }
     return result;
   }

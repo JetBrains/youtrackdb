@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.api.schema;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.LazySchemaClass;
+import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -116,7 +116,7 @@ public interface Schema {
 
   Collection<SchemaClass> getClasses();
 
-  Map<String, LazySchemaClass> getClassesRefs();
+  Map<String, RID> getClassesRefs();
 
   Collection<String> getIndexes();
 
