@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -58,7 +58,7 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
     }
 
     // IN-LINE MODE (STATELESS)
-    final Set<Object> result = new HashSet<Object>();
+    final Set<Object> result = new LinkedHashSet<>();
 
     final var firstIt = MultiValue.getMultiValueIterator(iParams[0]);
     while (firstIt.hasNext()) {
