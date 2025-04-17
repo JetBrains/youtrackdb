@@ -216,7 +216,7 @@ public class LinkBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   private void convertToTree() {
@@ -239,7 +239,7 @@ public class LinkBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override
@@ -248,7 +248,7 @@ public class LinkBag
   }
 
   public void delete() {
-    delegate.requestDelete();
+    delegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override

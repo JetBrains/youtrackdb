@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.cas;
 
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.AbstractWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -84,18 +85,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, wal.pageSize(), 1);
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -122,17 +123,17 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         records = wal.read(lsn, 10);
         Assert.assertEquals(2, records.size());
-        readRecord = (TestRecord) records.get(0);
+        readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -191,18 +192,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, wal.pageSize(), 1);
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -230,17 +231,17 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         records = wal.read(lsn, 10);
         Assert.assertEquals(2, records.size());
-        readRecord = (TestRecord) records.get(0);
+        readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -298,18 +299,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, wal.pageSize(), 1);
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, walRecord.getLsn());
@@ -336,13 +337,13 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         try {
           wal.read(lsn, 10);
@@ -402,18 +403,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, wal.pageSize(), 1);
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, walRecord.getLsn());
@@ -443,13 +444,13 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         records = wal.read(lsn, 10);
         Assert.assertTrue(records.isEmpty());
@@ -501,18 +502,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, 2 * wal.pageSize(), wal.pageSize());
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -539,18 +540,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         records = wal.read(lsn, 10);
         Assert.assertEquals(2, records.size());
-        Assert.assertEquals(lsn, records.get(0).getLsn());
-        readRecord = (TestRecord) records.get(0);
+        Assert.assertEquals(lsn, records.getFirst().getLsn());
+        readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -608,18 +609,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         var walRecord = new TestRecord(random, 2 * wal.pageSize(), wal.pageSize());
         final var lsn = wal.log(walRecord);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(wal.end(), lsn);
 
         var records = wal.read(lsn, 10);
         Assert.assertEquals(1, records.size());
-        var readRecord = (TestRecord) records.get(0);
+        var readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, walRecord.getLsn());
@@ -646,18 +647,18 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         wal.flush();
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         records = wal.read(lsn, 10);
         Assert.assertEquals(2, records.size());
-        Assert.assertEquals(lsn, records.get(0).getLsn());
-        readRecord = (TestRecord) records.get(0);
+        Assert.assertEquals(lsn, records.getFirst().getLsn());
+        readRecord = (TestRecord) records.getFirst();
 
         Assert.assertArrayEquals(walRecord.data, readRecord.data);
         Assert.assertEquals(lsn, readRecord.getLsn());
@@ -710,8 +711,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -722,7 +723,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -765,8 +766,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 5; i++) {
           final var result = wal.read(records.get(i).getLsn(), 10);
@@ -839,8 +840,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -851,7 +852,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -894,8 +895,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 5; i++) {
           final var result = wal.read(records.get(i).getLsn(), 10);
@@ -965,8 +966,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -976,7 +977,7 @@ public class CASDiskWriteAheadLogIT {
 
           var lsn = wal.log(walRecord);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
           Assert.assertEquals(walRecord.getLsn(), lsn);
         }
@@ -1022,8 +1023,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 4; i++) {
           final var result = wal.next(records.get(i).getLsn(), 10);
@@ -1047,8 +1048,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(4).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -1103,8 +1104,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1114,7 +1115,7 @@ public class CASDiskWriteAheadLogIT {
 
           var lsn = wal.log(walRecord);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
           Assert.assertEquals(walRecord.getLsn(), lsn);
         }
@@ -1160,8 +1161,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 4; i++) {
           final var result = wal.next(records.get(i).getLsn(), 10);
@@ -1185,8 +1186,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(4).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -1237,8 +1238,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1249,7 +1250,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1292,8 +1293,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 5; i++) {
           final var result = wal.read(records.get(i).getLsn(), 10);
@@ -1366,8 +1367,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1378,7 +1379,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1421,8 +1422,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 5; i++) {
           final var result = wal.read(records.get(i).getLsn(), 10);
@@ -1491,8 +1492,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1503,7 +1504,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1547,8 +1548,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 4; i++) {
           final var result = wal.next(records.get(i).getLsn(), 10);
@@ -1572,8 +1573,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(4).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -1628,8 +1629,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1640,7 +1641,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1684,8 +1685,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < 4; i++) {
           final var result = wal.next(records.get(i).getLsn(), 10);
@@ -1709,8 +1710,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(4).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -1761,8 +1762,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1775,7 +1776,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1823,8 +1824,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -1895,8 +1896,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -1909,7 +1910,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -1957,8 +1958,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -2025,8 +2026,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2039,7 +2040,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -2085,8 +2086,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -2106,8 +2107,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -2159,8 +2160,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2173,7 +2174,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -2219,8 +2220,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -2240,8 +2241,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -2291,8 +2292,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2300,7 +2301,7 @@ public class CASDiskWriteAheadLogIT {
         for (var i = 0; i < numberOfSegmentsToAdd; i++) {
           wal.appendNewSegment();
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), new LogSequenceNumber(i + 2, CASWALPage.RECORDS_OFFSET));
 
           final var recordsCount = random.nextInt(10_000) + 100;
@@ -2310,7 +2311,7 @@ public class CASDiskWriteAheadLogIT {
 
             records.add(walRecord);
 
-            Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+            Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
             Assert.assertEquals(wal.end(), lastLsn);
           }
         }
@@ -2384,7 +2385,7 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(
             wal.end(),
             new LogSequenceNumber(numberOfSegmentsToAdd + 2, CASWALPage.RECORDS_OFFSET));
@@ -2421,7 +2422,7 @@ public class CASDiskWriteAheadLogIT {
 
           records.add(walRecord);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), walRecord.getLsn());
         }
 
@@ -2509,8 +2510,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2518,7 +2519,7 @@ public class CASDiskWriteAheadLogIT {
         for (var i = 0; i < numberOfSegmentsToAdd; i++) {
           wal.appendNewSegment();
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), new LogSequenceNumber(i + 2, CASWALPage.RECORDS_OFFSET));
 
           final var recordsCount = random.nextInt(10_000) + 100;
@@ -2528,7 +2529,7 @@ public class CASDiskWriteAheadLogIT {
 
             records.add(walRecord);
 
-            Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+            Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
             Assert.assertEquals(wal.end(), lastLsn);
           }
         }
@@ -2595,7 +2596,7 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         Assert.assertEquals(
             wal.end(),
             new LogSequenceNumber(numberOfSegmentsToAdd + 2, CASWALPage.RECORDS_OFFSET));
@@ -2632,7 +2633,7 @@ public class CASDiskWriteAheadLogIT {
 
           records.add(walRecord);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), walRecord.getLsn());
         }
 
@@ -2715,8 +2716,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2729,7 +2730,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -2777,8 +2778,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -2850,8 +2851,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2864,7 +2865,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -2913,8 +2914,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -2981,8 +2982,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -2995,7 +2996,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3046,8 +3047,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -3071,8 +3072,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -3124,8 +3125,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -3138,7 +3139,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3189,8 +3190,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -3215,8 +3216,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -3263,8 +3264,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -3277,7 +3278,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3325,8 +3326,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -3395,8 +3396,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -3409,7 +3410,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3457,8 +3458,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount; i++) {
           final var result = wal.read(records.get(i).getLsn(), 500);
@@ -3522,8 +3523,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 false,
                 10);
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -3536,7 +3537,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3587,8 +3588,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -3613,8 +3614,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -3665,8 +3666,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.end());
 
         List<TestRecord> records = new ArrayList<>();
 
@@ -3679,7 +3680,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
         }
 
@@ -3730,8 +3731,8 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
-        Assert.assertEquals(wal.end(), new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
+        Assert.assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), wal.end());
 
         for (var i = 0; i < recordsCount - 1; i++) {
           final var result = wal.next(records.get(i).getLsn(), 500);
@@ -3756,8 +3757,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -3877,7 +3878,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
           lastLSN = lsn;
         }
@@ -3991,7 +3992,7 @@ public class CASDiskWriteAheadLogIT {
             Assert.assertTrue(wal.read(record.getLsn(), 1).isEmpty());
           } else {
             Assert.assertArrayEquals(
-                record.data, ((TestRecord) (wal.read(record.getLsn(), 1).get(0))).data);
+                record.data, ((TestRecord) (wal.read(record.getLsn(), 1).getFirst())).data);
           }
         }
 
@@ -4047,7 +4048,7 @@ public class CASDiskWriteAheadLogIT {
           Assert.assertTrue(loadedWAL.read(record.getLsn(), 1).isEmpty());
         } else {
           Assert.assertArrayEquals(
-              record.data, ((TestRecord) (loadedWAL.read(record.getLsn(), 1).get(0))).data);
+              record.data, ((TestRecord) (loadedWAL.read(record.getLsn(), 1).getFirst())).data);
         }
       }
 
@@ -4219,7 +4220,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
 
           if (random.nextDouble() < 0.05) {
@@ -4278,17 +4279,17 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         if (segmentWasAdded) {
           Assert.assertEquals(
               new LogSequenceNumber(
-                  records.get(records.size() - 1).getLsn().getSegment() + 4,
+                  records.getLast().getLsn().getSegment() + 4,
                   CASWALPage.RECORDS_OFFSET),
               wal.end());
         } else {
           Assert.assertEquals(
               new LogSequenceNumber(
-                  records.get(records.size() - 1).getLsn().getSegment() + 1,
+                  records.getLast().getLsn().getSegment() + 1,
                   CASWALPage.RECORDS_OFFSET),
               wal.end());
         }
@@ -4370,7 +4371,7 @@ public class CASDiskWriteAheadLogIT {
           var lsn = wal.log(walRecord);
           Assert.assertEquals(walRecord.getLsn(), lsn);
 
-          Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+          Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
           Assert.assertEquals(wal.end(), lsn);
 
           if (random.nextDouble() < 0.05) {
@@ -4432,17 +4433,17 @@ public class CASDiskWriteAheadLogIT {
                 false,
                 10);
 
-        Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+        Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
         if (segmentWasAdded) {
           Assert.assertEquals(
               new LogSequenceNumber(
-                  records.get(records.size() - 1).getLsn().getSegment() + 2,
+                  records.getLast().getLsn().getSegment() + 2,
                   CASWALPage.RECORDS_OFFSET),
               wal.end());
         } else {
           Assert.assertEquals(
               new LogSequenceNumber(
-                  records.get(records.size() - 1).getLsn().getSegment() + 1,
+                  records.getLast().getLsn().getSegment() + 1,
                   CASWALPage.RECORDS_OFFSET),
               wal.end());
         }
@@ -4468,8 +4469,8 @@ public class CASDiskWriteAheadLogIT {
         }
 
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 10);
-        Assert.assertEquals(lastResult.size(), 1);
-        var emptyRecord = lastResult.get(0);
+        Assert.assertEquals(1, lastResult.size());
+        var emptyRecord = lastResult.getFirst();
 
         Assert.assertTrue(emptyRecord instanceof EmptyWALRecord);
 
@@ -4518,7 +4519,7 @@ public class CASDiskWriteAheadLogIT {
       var lsn = wal.log(walRecord);
       Assert.assertEquals(walRecord.getLsn(), lsn);
 
-      Assert.assertEquals(wal.begin(), new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET));
+      Assert.assertEquals(new LogSequenceNumber(1, CASWALPage.RECORDS_OFFSET), wal.begin());
       Assert.assertEquals(wal.end(), lsn);
 
       if (random.nextDouble() < 0.05) {
@@ -4595,9 +4596,7 @@ public class CASDiskWriteAheadLogIT {
           channel.read(buffer);
 
           buffer.put(42, (byte) (buffer.get(42) + 1));
-          buffer.position(0);
-
-          channel.write(buffer);
+          IOUtils.writeByteBuffer(buffer, channel, 0);
         }
 
         var loadedWAL =
@@ -4622,7 +4621,7 @@ public class CASDiskWriteAheadLogIT {
                 10);
 
         var recordIterator = records.iterator();
-        var walRecords = loadedWAL.read(records.get(0).getLsn(), 100);
+        var walRecords = loadedWAL.read(records.getFirst().getLsn(), 100);
         var walRecordIterator = walRecords.iterator();
 
         LogSequenceNumber lastLSN = null;
@@ -4755,7 +4754,7 @@ public class CASDiskWriteAheadLogIT {
         wal.maxCacheSize());
   }
 
-  private void checkThatSegmentsBellowAreRemoved(CASDiskWriteAheadLog wal) {
+  private static void checkThatSegmentsBellowAreRemoved(CASDiskWriteAheadLog wal) {
     final var begin = wal.begin();
 
     for (var i = 0; i < begin.getSegment(); i++) {
@@ -4764,7 +4763,7 @@ public class CASDiskWriteAheadLogIT {
     }
   }
 
-  private void checkThatAllNonActiveSegmentsAreRemoved(
+  private static void checkThatAllNonActiveSegmentsAreRemoved(
       long[] nonActive, long segment, CASDiskWriteAheadLog wal) {
     if (nonActive.length == 0) {
       return;
@@ -4823,7 +4822,7 @@ public class CASDiskWriteAheadLogIT {
     return lsn;
   }
 
-  private String getSegmentName(long segment) {
+  private static String getSegmentName(long segment) {
     return "walTest." + segment + ".wal";
   }
 

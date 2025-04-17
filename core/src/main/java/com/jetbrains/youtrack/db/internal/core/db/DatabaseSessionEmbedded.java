@@ -28,6 +28,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
@@ -1863,7 +1864,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var oppositeLinkProperty = oppositeEntity.getPropertyInternal(linkName, false);
 
           if (oppositeLinkProperty == null) {
-            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+            throw new LinksConsistencyException(this, "Cannot remove link " + entity.getIdentity()
                 + " from opposite entity because system property "
                 + linkName + " does not exist");
           }
@@ -1872,7 +1873,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               if (identifiable.getIdentity().equals(entity.getIdentity())) {
                 oppositeEntity.setPropertyInternal(linkName, null);
               } else {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link" + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist");
               }
@@ -1880,7 +1881,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
             case EntityLinkListImpl linkList -> {
               var removed = linkList.remove(entity);
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the list");
               }
@@ -1888,7 +1889,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
             case EntityLinkSetImpl linkSet -> {
               var removed = linkSet.remove(entity);
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the set");
               }
@@ -1907,7 +1908,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               }
 
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the map");
               }
@@ -1916,7 +1917,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               assert linkBag.contains(entity.getIdentity());
               var removed = linkBag.remove(entity.getIdentity());
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in link bag");
               }
@@ -2013,7 +2014,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
       if (currentTx.isDeletedInTx(oppositeLink)) {
         if (diff > 0) {
-          throw new IllegalStateException("Cannot add link " + entity.getIdentity()
+          throw new LinksConsistencyException(this, "Cannot add link " + entity.getIdentity()
               + " to opposite entity because it was deleted in transaction");
         }
         continue;
@@ -2033,8 +2034,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
       if (linkBag == null) {
         if (diff < 0) {
-          throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
-              + " from opposite entity " + oppositeEntity + " because it does not exist");
+          throw new LinksConsistencyException(this,
+              "Cannot remove link " + propertyName + " for " + entity
+                  + " from opposite entity " + oppositeEntity
+                  + " because required property does not exist");
         }
         linkBag = new LinkBag(this);
         oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
@@ -2048,8 +2051,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         } else {
           var removed = linkBag.remove(entity.getIdentity());
           if (!removed) {
-            throw new IllegalStateException("Cannot remove link " + rid
-                + " from opposite entity because it does not exist");
+            throw new LinksConsistencyException(this, "Cannot remove link " + rid
+                + " from opposite entity because it does not exist in opposite link bag : "
+                + oppositeLinkBagPropertyName);
           }
         }
       }

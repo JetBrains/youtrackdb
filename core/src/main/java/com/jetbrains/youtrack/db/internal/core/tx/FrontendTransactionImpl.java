@@ -57,6 +57,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -116,6 +117,8 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   protected boolean sentToServer = false;
   private final boolean readOnly;
+
+  private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
   public FrontendTransactionImpl(final DatabaseSessionInternal iDatabase) {
     this(iDatabase, false);
@@ -812,6 +815,8 @@ public class FrontendTransactionImpl implements
     dbCache.clear();
 
     clearUnfinishedChanges();
+
+    recordSerializationContext.clear();
 
     status = TXSTATUS.INVALID;
   }
@@ -1752,6 +1757,10 @@ public class FrontendTransactionImpl implements
     return amountOfNestedTxs();
   }
 
+  @Override
+  public @Nonnull RecordSerializationContext getRecordSerializationContext() {
+    return recordSerializationContext;
+  }
 
   private boolean isWriteTransaction() {
     return !recordOperations.isEmpty() || !indexEntries.isEmpty();
