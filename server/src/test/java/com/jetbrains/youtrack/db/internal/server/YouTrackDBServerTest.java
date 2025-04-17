@@ -20,16 +20,13 @@ import org.junit.Test;
  *
  */
 public class YouTrackDBServerTest {
-
   private String prevPassword;
   private String prevOrientHome;
-  private boolean allowJvmShutdownPrev;
   private YouTrackDBServer server;
   private ServerConfiguration conf;
 
   @Before
   public void setUp() throws Exception {
-    LogManager.instance().setConsoleLevel(Level.OFF.getName());
     prevPassword = System.setProperty("YOUTRACKDB_ROOT_PASSWORD", "rootPassword");
     prevOrientHome = System.setProperty("YOUTRACKDB_HOME", "./target/testhome");
 

@@ -14,12 +14,16 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Cache implementation that uses Weak References.
  */
 public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     implements IdentityChangeListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(RIDsWeakValuesHashMap.class);
 
   private final ReferenceQueue<V> refQueue = new ReferenceQueue<>();
 
@@ -75,7 +79,9 @@ public final class RIDsWeakValuesHashMap<V> extends AbstractMap<RID, V>
     }
 
     if (evicted > 0) {
-      LogManager.instance().debug(this, "Evicted %d items", evicted);
+      if (logger.isDebugEnabled()) {
+        LogManager.instance().debug(this, "Evicted %d items", logger, evicted);
+      }
     }
   }
 

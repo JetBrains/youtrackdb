@@ -102,7 +102,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     super(storage, name, dataExtension, name + dataExtension);
 
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
-    collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(), cpmExtension);
+    collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
+        cpmExtension);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
     storageName = storage.getName();
 
@@ -359,7 +360,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                         cacheEntry.close();
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
-                            new PaginatedCollectionException(storageName, "Can not store the record",
+                            new PaginatedCollectionException(storageName,
+                                "Can not store the record",
                                 this), e, storageName);
                       }
                     });
@@ -436,7 +438,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var nextPageOffset = -1;
 
     while (bytesToWrite > 0) {
-      final var page = pageSupplier.apply(bytesToWrite);
+      final var page = pageSupplier.apply(Math.max(bytesToWrite, MIN_ENTRY_SIZE + 1));
       if (page == null) {
         return new int[]{nextPageIndex, nextPageOffset, bytesToWrite};
       }
@@ -472,6 +474,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
             nextRecordPointers = createPagePointer(nextPageIndex, nextPageOffset);
           }
+        } else {
+          return new int[]{nextPageIndex, nextPageOffset, bytesToWrite};
         }
         maxRecordSize = page.getMaxRecordSize();
       } finally {
@@ -815,7 +819,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             final var positionEntry =
                 collectionPositionMap.get(collectionPosition, atomicOperation);
             if (positionEntry == null) {
-              return;
+              throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
             }
 
             var oldContentSize = 0;
@@ -917,6 +921,44 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                   collectionPosition,
                   new CollectionPositionMapBucket.PositionEntry(nextPageIndex, nextRecordPosition),
                   atomicOperation);
+            }
+          } finally {
+            releaseExclusiveLock();
+          }
+        });
+  }
+
+  @Override
+  public void updateRecordVersion(long collectionPosition, int recordVersion,
+      AtomicOperation atomicOperation) {
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          acquireExclusiveLock();
+          try {
+            final var positionEntry =
+                collectionPositionMap.get(collectionPosition, atomicOperation);
+            if (positionEntry == null) {
+              throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+            }
+
+            final var pageIndex = positionEntry.getPageIndex();
+            final var recordPosition = positionEntry.getRecordPosition();
+
+            try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
+                true)) {
+              final var localPage = new CollectionPage(cacheEntry);
+              if (localPage.getRecordByteValue(
+                  recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
+                  == 0) {
+                throw new RecordNotFoundException(storageName,
+                    new RecordId(id, collectionPosition));
+              }
+
+              if (!localPage.updateRecordVersion(recordPosition)) {
+                throw new RecordNotFoundException(storageName,
+                    new RecordId(id, collectionPosition));
+              }
             }
           } finally {
             releaseExclusiveLock();
@@ -1151,7 +1193,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
-            collectionPositionMap.higherPositions(position.collectionPosition, atomicOperation, limit);
+            collectionPositionMap.higherPositions(position.collectionPosition, atomicOperation,
+                limit);
         return convertToPhysicalPositions(collectionPositions);
       } finally {
         releaseSharedLock();
@@ -1170,7 +1213,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
-            collectionPositionMap.ceilingPositions(position.collectionPosition, atomicOperation, limit);
+            collectionPositionMap.ceilingPositions(position.collectionPosition, atomicOperation,
+                limit);
         return convertToPhysicalPositions(collectionPositions);
       } finally {
         releaseSharedLock();
@@ -1189,7 +1233,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
-            collectionPositionMap.lowerPositions(position.collectionPosition, atomicOperation, limit);
+            collectionPositionMap.lowerPositions(position.collectionPosition, atomicOperation,
+                limit);
         return convertToPhysicalPositions(collectionPositions);
       } finally {
         releaseSharedLock();
@@ -1208,7 +1253,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       try {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
         final var collectionPositions =
-            collectionPositionMap.floorPositions(position.collectionPosition, atomicOperation, limit);
+            collectionPositionMap.floorPositions(position.collectionPosition, atomicOperation,
+                limit);
         return convertToPhysicalPositions(collectionPositions);
       } finally {
         releaseSharedLock();
@@ -1283,7 +1329,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       setName(newName);
     } catch (IOException e) {
       throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName, "Error during renaming of collection", this),
+          new PaginatedCollectionException(storageName, "Error during renaming of collection",
+              this),
           e, storageName);
     } finally {
       releaseExclusiveLock();

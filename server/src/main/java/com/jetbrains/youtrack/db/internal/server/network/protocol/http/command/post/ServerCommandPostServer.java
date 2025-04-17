@@ -51,13 +51,8 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
     final var settingValue = urlParts[2];
 
     if (settingName.startsWith("configuration.")) {
-
       changeConfiguration(
           iResponse, settingName.substring("configuration.".length()), settingValue);
-
-    } else if (settingName.startsWith("log.")) {
-
-      changeLogLevel(iResponse, settingName.substring("log.".length()), settingValue);
 
     } else {
       iResponse.send(
@@ -100,30 +95,6 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
           "Server global configuration '" + settingName + "' is invalid",
           null);
     }
-  }
-
-  private void changeLogLevel(
-      final HttpResponse iResponse, final String settingName, final String settingValue)
-      throws IOException {
-    if (settingName.equals("console")) {
-      LogManager.instance().setConsoleLevel(settingValue);
-    } else if (settingName.equals("file")) {
-      LogManager.instance().setFileLevel(settingValue);
-    } else {
-      iResponse.send(
-          HttpUtils.STATUS_BADREQ_CODE,
-          HttpUtils.STATUS_BADREQ_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
-          "log name '" + settingName + "' is not supported. Use 'console' or 'log'",
-          null);
-    }
-
-    iResponse.send(
-        HttpUtils.STATUS_OK_CODE,
-        HttpUtils.STATUS_OK_DESCRIPTION,
-        HttpUtils.CONTENT_TEXT_PLAIN,
-        "Server log configuration '" + settingName + "' update successfully",
-        null);
   }
 
   @Override

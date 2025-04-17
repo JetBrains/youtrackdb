@@ -37,8 +37,12 @@ import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(LuceneIndexFactory.class);
 
   public static final String LUCENE_ALGORITHM = "LUCENE";
 
@@ -115,17 +119,17 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
 
   @Override
   public void onCreate(@Nonnull DatabaseSessionInternal session) {
-    LogManager.instance().debug(this, "onCreate");
+    LogManager.instance().debug(this, "onCreate", logger);
   }
 
   @Override
   public void onOpen(@Nonnull DatabaseSessionInternal session) {
-    LogManager.instance().debug(this, "onOpen");
+    LogManager.instance().debug(this, "onOpen", logger);
   }
 
   @Override
   public void onClose(@Nonnull DatabaseSessionInternal session) {
-    LogManager.instance().debug(this, "onClose");
+    LogManager.instance().debug(this, "onClose", logger);
   }
 
   @Override
@@ -135,11 +139,11 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
         return;
       }
 
-      LogManager.instance().debug(this, "Dropping Lucene indexes...");
+      LogManager.instance().debug(this, "Dropping Lucene indexes...", logger);
 
       session.getSharedContext().getIndexManager().getIndexes(session).stream()
           .filter(idx -> idx instanceof LuceneFullTextIndex)
-          .peek(idx -> LogManager.instance().debug(this, "deleting index " + idx.getName()))
+          .peek(idx -> LogManager.instance().debug(this, "deleting index " + idx.getName(), logger))
           .forEach(idx -> session.executeInTxInternal(idx::delete));
 
     } catch (Exception e) {

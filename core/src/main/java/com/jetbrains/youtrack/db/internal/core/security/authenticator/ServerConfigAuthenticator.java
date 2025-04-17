@@ -22,16 +22,20 @@ package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides an SecurityAuthenticator for the users listed in youtrackdb-server-config.xml.
  */
 public class ServerConfigAuthenticator extends SecurityAuthenticatorAbstract {
 
+  private static final Logger logger = LoggerFactory.getLogger(ServerConfigAuthenticator.class);
+
   // SecurityComponent
   // Called once the Server is running.
   public void active() {
-    LogManager.instance().debug(this, "ServerConfigAuthenticator is active");
+    LogManager.instance().debug(this, "ServerConfigAuthenticator is active", logger);
   }
 
   // SecurityAuthenticator

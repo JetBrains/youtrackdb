@@ -77,9 +77,12 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.function.Function;
 import java.util.logging.Level;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NetworkProtocolBinary extends NetworkProtocol {
 
+  private static final Logger logger = LoggerFactory.getLogger(NetworkProtocolBinary.class);
   protected final Level logClientExceptions;
   protected final boolean logClientFullStackTrace;
   protected SocketChannelBinary channel;
@@ -261,7 +264,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
   private void sessionRequest(@Nullable ClientConnection connection, int requestType,
       int clientTxId) {
 
-    LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType);
+    LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType, logger);
 
     final var event = new BinaryProtocolRequestEvent();
     event.begin();
@@ -305,7 +308,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           connection.endOperation();
           LogManager.instance()
               .debug(
-                  this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                  this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                  requestType, e);
           sendShutdown();
           return;
         } catch (Throwable e) {
@@ -347,7 +351,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           } catch (IOException e) {
             LogManager.instance()
                 .debug(
-                    this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                    this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                    requestType, e);
             sendShutdown();
           } finally {
             afterOperationRequest(connection);
@@ -373,7 +378,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           } catch (IOException e) {
             LogManager.instance()
                 .debug(
-                    this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                    this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                    requestType, e);
             sendShutdown();
           } catch (Exception | Error e) {
             LogManager.instance().error(this, "Error while binary response serialization", e);
@@ -659,7 +665,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       channel.flush();
 
-      if (LogManager.instance().isLevelEnabled(logClientExceptions)) {
+      if (LogManager.isLevelEnabled(logClientExceptions, logger)) {
         if (logClientFullStackTrace) {
           assert t != null;
           LogManager.instance()
@@ -743,7 +749,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     try {
       channel.flush();
     } catch (IOException e1) {
-      LogManager.instance().debug(this, "Error during channel flush", e1);
+      LogManager.instance().debug(this, "Error during channel flush", logger, e1);
     }
     LogManager.instance().error(this, "Error executing request", e);
     ServerPluginHelper.invokeHandlerCallbackOnClientError(server, connection, e);

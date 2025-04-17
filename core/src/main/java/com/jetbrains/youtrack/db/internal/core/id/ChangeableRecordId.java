@@ -143,10 +143,10 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
   @Override
   public int hashCode() {
     if (collectionPosition != COLLECTION_POS_INVALID || collectionId != COLLECTION_ID_INVALID) {
-      return 31 * collectionId + 103 * (int) collectionPosition;
+      return super.hashCode();
     }
 
-    return 31 * collectionId + 103 * (int) collectionPosition + 17 * tempId;
+    return super.hashCode() + 17 * tempId;
   }
 
   @Override

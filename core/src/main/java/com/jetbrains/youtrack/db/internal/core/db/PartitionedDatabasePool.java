@@ -36,6 +36,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Database pool which has good multicore scalability characteristics because of creation of several
@@ -70,6 +72,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 06/11/14
  */
 public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(PartitionedDatabasePool.class);
 
   private static final int HASH_INCREMENT = 0x61c88647;
   private static final int MIN_POOL_SIZE = 2;
@@ -304,7 +308,7 @@ public class PartitionedDatabasePool extends YouTrackDBListenerAbstract {
               .debug(
                   this,
                   "Can not create storage " + db.getStorage() + " because it already exists.",
-                  ex);
+                  logger, ex);
           db.internalOpen();
         }
       } else {

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorScript;
 import com.jetbrains.youtrack.db.internal.core.security.CredentialInterceptor;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -38,11 +39,15 @@ import org.ietf.jgss.GSSException;
 import org.ietf.jgss.GSSManager;
 import org.ietf.jgss.GSSName;
 import org.ietf.jgss.Oid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides a Kerberos credential interceptor.
  */
 public class KerberosCredentialInterceptor implements CredentialInterceptor {
+
+  private static final Logger logger = LoggerFactory.getLogger(KerberosCredentialInterceptor.class);
 
   private String principal;
   private String serviceTicket;
@@ -143,7 +148,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
       lc = new LoginContext("ignore", null, null, cfg);
       lc.login();
     } catch (LoginException lie) {
-      LogManager.instance().debug(this, "intercept() LoginException", lie);
+      LogManager.instance().debug(this, "intercept() LoginException", logger, lie);
 
       throw BaseException.wrapException(
           new SecurityException(url, "KerberosCredentialInterceptor Client Validation Exception!"),
@@ -163,7 +168,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
     try {
       lc.logout();
     } catch (LoginException loe) {
-      LogManager.instance().debug(this, "intercept() LogoutException", loe);
+      LogManager.instance().debug(this, "intercept() LogoutException", logger, loe);
     }
 
     if (this.serviceTicket == null) {
@@ -228,7 +233,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
                       return context.initSecContext(token, 0, token.length);
                     } catch (Exception inner) {
                       LogManager.instance()
-                          .debug(this, "getServiceTicket() doAs() Exception", inner);
+                          .debug(this, "getServiceTicket() doAs() Exception", logger, inner);
                     }
 
                     return null;
@@ -241,7 +246,7 @@ public class KerberosCredentialInterceptor implements CredentialInterceptor {
 
         context.dispose();
       } else {
-        LogManager.instance().debug(this, "getServiceTicket() GSSContext is null!");
+        LogManager.instance().debug(this, "getServiceTicket() GSSContext is null!", logger);
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "getServiceTicket() Exception", ex);

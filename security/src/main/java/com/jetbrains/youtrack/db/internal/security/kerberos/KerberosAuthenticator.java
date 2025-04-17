@@ -32,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.security.auth.Subject;
 import javax.security.auth.login.Configuration;
 import javax.security.auth.login.LoginContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 // Temporary, for Java 7 support.
 // import sun.misc.BASE64Decoder;
@@ -40,6 +42,8 @@ import javax.security.auth.login.LoginContext;
  * Implements the Kerberos authenticator module.
  */
 public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(KerberosAuthenticator.class);
 
   private final String kerberosPluginVersion = "0.15";
   private final long ticketRelayExpiration = 600000L; // 10 minutes, do not change
@@ -83,7 +87,8 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
 
     LogManager.instance()
         .debug(this,
-            "YouTrackDB Kerberos Authenticator Is Active Version: " + kerberosPluginVersion);
+            "YouTrackDB Kerberos Authenticator Is Active Version: " + kerberosPluginVersion,
+            logger);
   }
 
   // SecurityAuthenticator
@@ -182,7 +187,8 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
         }
       }
     } catch (Exception ex) {
-      LogManager.instance().debug(this, "KerberosAuthenticator.authenticate() Exception: ", ex);
+      LogManager.instance().debug(this, "KerberosAuthenticator.authenticate() Exception: ", logger,
+          ex);
     }
 
     return new ImmutableUser(session, principal,

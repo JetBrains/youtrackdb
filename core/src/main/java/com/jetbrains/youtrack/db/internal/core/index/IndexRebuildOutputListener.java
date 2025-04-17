@@ -22,11 +22,15 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Progress listener for index rebuild.
  */
 public class IndexRebuildOutputListener implements ProgressListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(IndexRebuildOutputListener.class);
 
   private long startTime;
   private long lastDump;
@@ -59,7 +63,7 @@ public class IndexRebuildOutputListener implements ProgressListener {
             .debug(
                 this,
                 "- Building index %s.%s (estimated %,d items)...",
-                idx.getDatabaseName(),
+                logger, idx.getDatabaseName(),
                 idx.getName(),
                 iTotal);
       }
@@ -112,7 +116,7 @@ public class IndexRebuildOutputListener implements ProgressListener {
             .debug(
                 this,
                 "--> OK, indexed %,d items in %,d ms",
-                idxSize,
+                logger, idxSize,
                 (System.currentTimeMillis() - startTime));
       }
     }

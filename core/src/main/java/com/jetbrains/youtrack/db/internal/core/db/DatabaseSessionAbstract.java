@@ -129,6 +129,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Entity API entrypoint.
@@ -137,6 +139,8 @@ import javax.annotation.Nullable;
 public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> extends
     ListenerManger<SessionListener>
     implements DatabaseSessionInternal {
+
+  private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionAbstract.class);
 
   protected final HashMap<String, Object> properties = new HashMap<>();
   protected final HashSet<Identifiable> inHook = new HashSet<>();
@@ -528,11 +532,13 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     if (record instanceof EntityImpl entity) {
       ensureEdgeConsistencyOnDeletion(entity);
     }
+
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
     record.dirty++;
 
     try {
       checkTxActive();
-      currentTx.deleteRecord((RecordAbstract) record);
+      currentTx.deleteRecord(record);
     } catch (BaseException e) {
       throw e;
     } catch (Exception e) {
@@ -1833,8 +1839,11 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     } catch (RuntimeException e) {
 
       if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
-        LogManager.instance()
-            .debug(this, "Error on transaction commit `%08X`", e, System.identityHashCode(e));
+        if (logger.isDebugEnabled()) {
+          LogManager.instance()
+              .debug(this, "Error on transaction commit `%08X`", logger, e,
+                  System.identityHashCode(e));
+        }
       } else {
         LogManager.instance()
             .error(this, "Error on transaction commit `%08X`", e, System.identityHashCode(e));
@@ -2138,11 +2147,11 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
               + " open command/query result sets, please make sure you close them with"
               + " ResultSet.close()";
       LogManager.instance().warn(this, msg);
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         activeQueries.values().stream()
             .map(pendingQuery -> pendingQuery.getResultSet().getExecutionPlan())
             .filter(Objects::nonNull)
-            .forEach(plan -> LogManager.instance().debug(this, plan.toString()));
+            .forEach(plan -> LogManager.instance().debug(this, plan.toString(), logger));
       }
     }
     this.activeQueries.put(id, state);

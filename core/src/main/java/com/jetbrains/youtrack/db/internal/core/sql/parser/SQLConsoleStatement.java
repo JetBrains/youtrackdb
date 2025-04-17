@@ -10,8 +10,12 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SQLConsoleStatement extends SQLSimpleExecStatement {
+
+  private static final Logger logger = LoggerFactory.getLogger(SQLConsoleStatement.class);
 
   protected SQLIdentifier logLevel;
   protected SQLExpression message;
@@ -39,7 +43,7 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
     } else if (logLevel.getStringValue().equalsIgnoreCase("warn")) {
       LogManager.instance().warn(this, "%s", msg);
     } else if (logLevel.getStringValue().equalsIgnoreCase("debug")) {
-      LogManager.instance().debug(this, "%s", msg);
+      LogManager.instance().debug(this, "%s", logger, msg);
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Unsupported log level: " + logLevel);

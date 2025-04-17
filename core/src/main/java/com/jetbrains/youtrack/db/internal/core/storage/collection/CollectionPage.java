@@ -456,6 +456,23 @@ public final class CollectionPage extends DurablePage {
     return getVersionAt(entryIndexPosition);
   }
 
+  public boolean updateRecordVersion(int position) {
+    var indexesLength = getPageIndexesLength();
+    if (position >= indexesLength) {
+      return false;
+    }
+
+    final var entryIndexPosition = computePointerPosition(position);
+    final var entryPointer = getPointerAt(entryIndexPosition);
+
+    if ((entryPointer & MARKED_AS_DELETED_FLAG) != 0) {
+      return false;
+    }
+
+    updateRecordVersion(entryIndexPosition);
+    return true;
+  }
+
   public boolean isEmpty() {
     return getFreeSpace() == PAGE_SIZE - PAGE_INDEXES_OFFSET;
   }
@@ -828,7 +845,11 @@ public final class CollectionPage extends DurablePage {
     return getIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE);
   }
 
-  public int computePointerPosition(int position) {
+  public void updateVersionAt(int entryIndexPosition, int version) {
+    setIntValue(entryIndexPosition + IntegerSerializer.INT_SIZE, version);
+  }
+
+  public static int computePointerPosition(int position) {
     return PAGE_INDEXES_OFFSET + INDEX_ITEM_SIZE * position;
   }
 
@@ -836,7 +857,7 @@ public final class CollectionPage extends DurablePage {
     return getIntValue(FREELIST_HEADER_OFFSET);
   }
 
-  public int setFreeListHeader(int freePosition) {
-    return setIntValue(FREELIST_HEADER_OFFSET, freePosition);
+  public void setFreeListHeader(int freePosition) {
+    setIntValue(FREELIST_HEADER_OFFSET, freePosition);
   }
 }

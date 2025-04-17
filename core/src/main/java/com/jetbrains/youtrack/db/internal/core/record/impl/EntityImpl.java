@@ -1758,7 +1758,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    if (p.isReadonly() && !RecordVersionHelper.isTombstone(iRecord.getVersion())) {
+    if (p.isReadonly()) {
       if (entry != null
           && (entry.isTxChanged() || entry.isTxTrackedModified())
           && !entry.isTxCreated()) {

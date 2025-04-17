@@ -94,7 +94,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponent
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
@@ -133,11 +132,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This object is bound to each remote ODatabase instances.
  */
 public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
+
+  private static final Logger logger = LoggerFactory.getLogger(StorageRemote.class);
 
   @Deprecated
   public static final String PARAM_CONNECTION_STRATEGY = "connectionStrategy";
@@ -271,12 +274,6 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
     return configuration;
   }
 
-  @Override
-  public boolean checkForRecordValidity(final PhysicalPosition ppos) {
-    return ppos != null && !RecordVersionHelper.isTombstone(ppos.recordVersion);
-  }
-
-  @Override
   public String getName() {
     return name;
   }
@@ -478,7 +475,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             .debug(
                 this,
                 "Redirecting the request from server '%s' to the server '%s' because %s",
-                e,
+                logger, e,
                 e.getFromServer(),
                 e.toString(),
                 e.getMessage());
@@ -505,7 +502,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
                 "Caught Network I/O errors on %s, trying an automatic reconnection... (error: %s)",
                 network.getServerURL(),
                 e.getMessage());
-        LogManager.instance().debug(this, "I/O error stack: ", e);
+        LogManager.instance().debug(this, "I/O error stack: ", logger, e);
         connectionManager.remove(network);
         if (--retry <= 0) {
           throw BaseException.wrapException(new YTIOException(e.getMessage()), e, name);
@@ -1559,7 +1556,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
                   .debug(
                       this,
                       "Client connected to %s with session id=%d",
-                      network.getServerURL(),
+                      logger, network.getServerURL(),
                       response.getSessionId());
               return;
             } finally {
@@ -1580,9 +1577,10 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             connectionManager.remove(network);
           }
 
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
         } catch (SecurityException ex) {
-          LogManager.instance().debug(this, "Invalidate token for url=%s", ex, currentURL);
+          LogManager.instance().debug(this, "Invalidate token for url=%s", logger, ex, currentURL);
           var session = getCurrentSession(database);
           session.removeServerSession(currentURL);
 
@@ -1593,7 +1591,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             } catch (Exception e) {
               // IGNORE ANY EXCEPTION
               LogManager.instance()
-                  .debug(this, "Cannot remove connection or database url=" + currentURL, e);
+                  .debug(this, "Cannot remove connection or database url=" + currentURL, logger, e);
             }
           }
         } catch (BaseException e) {
@@ -1602,7 +1600,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
           throw e;
 
         } catch (Exception e) {
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
           if (network != null) {
             // REMOVE THE NETWORK CONNECTION IF ANY
             try {
@@ -1610,7 +1609,7 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             } catch (Exception ex) {
               // IGNORE ANY EXCEPTION
               LogManager.instance()
-                  .debug(this, "Cannot remove connection or database url=" + currentURL, e);
+                  .debug(this, "Cannot remove connection or database url=" + currentURL, logger, e);
             }
           }
         }
@@ -1667,7 +1666,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
 
     LogManager.instance()
         .debug(
-            this, "Client connected to %s with session id=%d", network.getServerURL(), sessionId);
+            this, "Client connected to %s with session id=%d", logger, network.getServerURL(),
+            sessionId);
 
     // READ COLLECTION CONFIGURATION
     // updateCollectionConfiguration(network.getServerURL(),
@@ -1754,7 +1754,8 @@ public class StorageRemote implements StorageProxy, RemotePushHandler, Storage {
             connectionManager.remove(network);
           }
 
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
 
         } catch (BaseException e) {
           connectionManager.release(network);

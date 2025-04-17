@@ -184,7 +184,23 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     if (change == null) {
       if (rid.isPersistent()) {
-        return removeAndUpdateAbsoluteValue(rid);
+        var absoluteValue = getAbsoluteValue(rid);
+
+        if (absoluteValue > 0) {
+          localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1));
+          localChangesModificationsCount++;
+
+          assert size >= absoluteValue;
+
+          size--;
+          removeEvent(rid);
+
+          return true;
+        }
+
+        //we mark it as dirty to trigger CME in cases of concurrent modification of underlying tree.
+        setDirtyNoChanged();
+        return false;
       }
 
       return false;
@@ -195,24 +211,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       size--;
 
       removeEvent(rid);
-      return true;
-    }
-
-    return false;
-  }
-
-  private boolean removeAndUpdateAbsoluteValue(RID rid) {
-    var absoluteValue = getAbsoluteValue(rid);
-
-    if (absoluteValue > 0) {
-      localChanges.putChange(rid, new AbsoluteChange(absoluteValue - 1));
-      localChangesModificationsCount++;
-
-      assert size >= absoluteValue;
-
-      size--;
-      removeEvent(rid);
-
       return true;
     }
 

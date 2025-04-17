@@ -26,15 +26,18 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.security.SecureRandom;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Handles the HTTP sessions such as a real HTTP Server.
  */
 public class HttpSessionManager extends SharedResourceAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(HttpSessionManager.class);
 
   private final Map<String, HttpSession> sessions = new HashMap<String, HttpSession>();
   private int expirationTime;
@@ -55,7 +58,8 @@ public class HttpSessionManager extends SharedResourceAbstract {
               public void run() {
                 final var expired = checkSessionsValidity();
                 if (expired > 0) {
-                  LogManager.instance().debug(this, "Removed %d session because expired", expired);
+                  LogManager.instance().debug(this, "Removed %d session because expired", logger,
+                      expired);
                 }
               }
             },
