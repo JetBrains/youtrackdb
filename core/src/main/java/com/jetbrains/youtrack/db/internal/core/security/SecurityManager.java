@@ -36,9 +36,12 @@ import java.util.Map;
 import javax.annotation.Nullable;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SecurityManager {
 
+  private static final Logger logger = LoggerFactory.getLogger(SecurityManager.class);
   public static final String HASH_ALGORITHM = "SHA-256";
   public static final String HASH_ALGORITHM_PREFIX = "{" + HASH_ALGORITHM + "}";
 
@@ -302,7 +305,7 @@ public class SecurityManager {
           .debug(
               SecuritySystem.class,
               "The %s algorithm is not supported, downgrading to %s",
-              iAlgorithm,
+              logger, iAlgorithm,
               validAlgo);
     }
 
@@ -350,7 +353,8 @@ public class SecurityManager {
       }
     } catch (Exception ex) {
       LogManager.instance()
-          .debug(this, "newCredentialInterceptor() Exception creating CredentialInterceptor", ex);
+          .debug(this, "newCredentialInterceptor() Exception creating CredentialInterceptor",
+              logger, ex);
     }
 
     return ci;

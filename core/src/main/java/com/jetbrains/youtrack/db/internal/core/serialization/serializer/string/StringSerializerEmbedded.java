@@ -30,8 +30,12 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.s
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class StringSerializerEmbedded implements StringSerializer {
+
+  private static final Logger logger = LoggerFactory.getLogger(StringSerializerEmbedded.class);
 
   public static final StringSerializerEmbedded INSTANCE = new StringSerializerEmbedded();
   public static final String NAME = "em";
@@ -67,7 +71,7 @@ public class StringSerializerEmbedded implements StringSerializer {
           .debug(
               this,
               "Class name provided in embedded entity " + className + " does not exist.",
-              e);
+              logger, e);
     }
 
     if (clazz == null) {

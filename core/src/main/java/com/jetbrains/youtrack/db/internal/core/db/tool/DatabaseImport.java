@@ -87,12 +87,15 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.zip.GZIPInputStream;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Import data from a file into a database.
  */
 public class DatabaseImport extends DatabaseImpExpAbstract {
 
+  private static final Logger logger = LoggerFactory.getLogger(DatabaseImport.class);
   public static final String EXPORT_IMPORT_CLASS_NAME = "___exportImportRIDMap";
   public static final String EXPORT_IMPORT_INDEX_NAME = EXPORT_IMPORT_CLASS_NAME + "Index";
 
@@ -1238,7 +1241,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       var last = begin;
       Set<String> involvedCollections = new HashSet<>();
 
-      LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".");
+      if (logger.isDebugEnabled()) {
+        LogManager.instance().debug(this, "Detected exporter version " + exporterVersion + ".",
+            logger);
+      }
       while (jsonReader.lastChar() != ']') {
         rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
 

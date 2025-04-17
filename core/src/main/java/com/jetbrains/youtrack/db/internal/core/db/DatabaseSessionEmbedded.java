@@ -106,12 +106,16 @@ import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
  */
 public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManagerEmbedded>
     implements QueryLifecycleListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
   private YouTrackDBConfigImpl config;
   private final Storage storage; // todo: make this final when "removeStorage" is removed
@@ -1272,12 +1276,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         user.allow(this, resourceGeneric, resourceSpecific, iOperation);
       } catch (SecurityAccessException e) {
 
-        if (LogManager.instance().isDebugEnabled()) {
+        if (logger.isDebugEnabled()) {
           LogManager.instance()
               .debug(
                   this,
                   "User '%s' tried to access the reserved resource '%s.%s', operation '%s'",
-                  getCurrentUser(),
+                  logger, getCurrentUser(),
                   resourceGeneric,
                   resourceSpecific,
                   iOperation);
@@ -1891,7 +1895,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               }
             }
             case LinkBag linkBag -> {
-              assert linkBag.contains(entity.getIdentity());
               var removed = linkBag.remove(entity.getIdentity());
               if (!removed) {
                 throw new LinksConsistencyException(this,

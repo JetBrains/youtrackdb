@@ -48,11 +48,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides an implementation of OServerSecurity.
  */
 public class DefaultSecuritySystem implements SecuritySystem {
+
+  private static final Logger logger = LoggerFactory.getLogger(DefaultSecuritySystem.class);
 
   private boolean enabled = false; // Defaults to not
   // enabled at
@@ -160,7 +164,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
             auditor.addRule(session, ResourceGeneric.COLLECTION, "ouser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "orole", Role.PERMISSION_NONE);
-            auditor.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null, Role.PERMISSION_NONE);
+            auditor.addRule(session, ResourceGeneric.SYSTEM_COLLECTIONS, null,
+                Role.PERMISSION_NONE);
             auditor.addRule(session, ResourceGeneric.CLASS, "OAuditingLog",
                 Role.PERMISSION_CREATE + Role.PERMISSION_READ + Role.PERMISSION_UPDATE);
             auditor.addRule(session,
@@ -811,7 +816,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
       }
     } else {
       initDefultAuthenticators(session);
-      LogManager.instance().debug(this, "onAfterDynamicPlugins() Configuration entity is empty");
+      LogManager.instance().debug(this, "onAfterDynamicPlugins() Configuration entity is empty",
+          logger);
     }
   }
 
@@ -959,7 +965,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
       } else {
         LogManager.instance()
-            .debug(this, "DefaultServerSecurity.loadSecurity() jsonConfig is null");
+            .debug(this, "DefaultServerSecurity.loadSecurity() jsonConfig is null", logger);
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "DefaultServerSecurity.loadSecurity()", ex);

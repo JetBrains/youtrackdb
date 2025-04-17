@@ -29,12 +29,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Adaptive class to handle shared resources. It's configurable specifying if it's running in a
  * concurrent environment and allow o specify a maximum timeout to avoid deadlocks.
  */
 public class AdaptiveLock extends AbstractLock {
+
+  private static final Logger logger = LoggerFactory.getLogger(AdaptiveLock.class);
 
   private final ReentrantLock lock = new ReentrantLock();
   private final boolean concurrent;
@@ -144,7 +148,7 @@ public class AdaptiveLock extends AbstractLock {
         lock.unlock();
       }
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Cannot unlock a lock", e);
+      LogManager.instance().debug(this, "Cannot unlock a lock", logger, e);
     }
   }
 

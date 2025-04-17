@@ -427,11 +427,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean checkForRecordValidity(PhysicalPosition ppos) {
-          return false;
-        }
-
-        @Override
         public String getName() {
           return null;
         }

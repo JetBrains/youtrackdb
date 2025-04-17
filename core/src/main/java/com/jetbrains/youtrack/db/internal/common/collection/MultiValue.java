@@ -42,6 +42,8 @@ import java.util.Set;
 import java.util.function.Function;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Handles Multi-value types such as Arrays, Collections and Maps. It recognizes special YouTrackDB
@@ -49,6 +51,8 @@ import javax.annotation.Nullable;
  */
 @SuppressWarnings("unchecked")
 public class MultiValue {
+
+  private static final Logger logger = LoggerFactory.getLogger(MultiValue.class);
 
   /**
    * Checks if a class is a multi-value type.
@@ -152,7 +156,9 @@ public class MultiValue {
       // IGNORE IT
       LogManager.instance()
           .debug(
-              iObject, "Error on reading the first item of the Multi-value field '%s'", iObject, e);
+              iObject, "Error on reading the first item of the Multi-value field '%s'", logger,
+              iObject,
+              e);
     }
 
     return null;
@@ -196,7 +202,9 @@ public class MultiValue {
       // IGNORE IT
       LogManager.instance()
           .debug(
-              iObject, "Error on reading the last item of the Multi-value field '%s'", iObject, e);
+              iObject, "Error on reading the last item of the Multi-value field '%s'", logger,
+              iObject,
+              e);
     }
 
     return null;
@@ -269,7 +277,9 @@ public class MultiValue {
       // IGNORE IT
       LogManager.instance()
           .debug(
-              iObject, "Error on reading the first item of the Multi-value field '%s'", iObject, e);
+              iObject, "Error on reading the first item of the Multi-value field '%s'", logger,
+              iObject,
+              e);
     }
     return null;
   }

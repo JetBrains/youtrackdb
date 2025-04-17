@@ -41,10 +41,13 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class DatabasePoolAbstract extends AdaptiveLock
     implements ResourcePoolListener<String, DatabaseSession>, YouTrackDBListener {
 
+  private static final Logger logger = LoggerFactory.getLogger(DatabasePoolAbstract.class);
   private final HashMap<String, ReentrantResourcePool<String, DatabaseSession>> pools =
       new HashMap<>();
   protected Object owner;
@@ -71,7 +74,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
      */
     @Override
     public void run() {
-      LogManager.instance().debug(this, "Running Connection Pool Evictor Service...");
+      LogManager.instance().debug(this, "Running Connection Pool Evictor Service...", logger);
       lock();
       try {
         for (var pool :
@@ -88,7 +91,7 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
               if (oResourcePool != null) {
                 LogManager.instance()
                     .debug(this, "Closing idle pooled database '%s'...",
-                        db.getKey().getDatabaseName());
+                        logger, db.getKey().getDatabaseName());
                 ((DatabasePooled) db.getKey()).forceClose();
                 oResourcePool.remove(db.getKey());
                 iterator.remove();
@@ -296,11 +299,11 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
           pool.getValue().close();
           try {
             LogManager.instance()
-                .debug(this, "Closing pooled database '%s'...", db.getDatabaseName());
+                .debug(this, "Closing pooled database '%s'...", logger, db.getDatabaseName());
             ((DatabasePooled) db).forceClose();
-            LogManager.instance().debug(this, "OK", db.getDatabaseName());
+            LogManager.instance().debug(this, "OK", logger, db.getDatabaseName());
           } catch (Exception e) {
-            LogManager.instance().debug(this, "Error: %d", e.toString());
+            LogManager.instance().debug(this, "Error: %d", logger, e.toString());
           }
         }
       }
@@ -326,12 +329,12 @@ public abstract class DatabasePoolAbstract extends AdaptiveLock
           if (stg != null && stg.getStatus() == Storage.STATUS.OPEN) {
             try {
               LogManager.instance()
-                  .debug(this, "Closing pooled database '%s'...", db.getDatabaseName());
+                  .debug(this, "Closing pooled database '%s'...", logger, db.getDatabaseName());
               ((DatabaseSessionInternal) db).activateOnCurrentThread();
               ((DatabasePooled) db).forceClose();
-              LogManager.instance().debug(this, "OK", db.getDatabaseName());
+              LogManager.instance().debug(this, "OK", logger, db.getDatabaseName());
             } catch (Exception e) {
-              LogManager.instance().debug(this, "Error: %d", e.toString());
+              LogManager.instance().debug(this, "Error: %d", logger, e.toString());
             }
           }
         }

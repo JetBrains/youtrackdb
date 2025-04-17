@@ -35,12 +35,16 @@ import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Abstract representation of a channel.
  */
 public abstract class SocketChannelBinary extends SocketChannel
     implements ChannelDataInput, ChannelDataOutput {
+
+  private static final Logger logger = LoggerFactory.getLogger(SocketChannelBinary.class);
 
   private static final int MAX_LENGTH_DEBUG = 150;
   protected final boolean debug;
@@ -426,7 +430,7 @@ public abstract class SocketChannelBinary extends SocketChannel
         in.close();
       }
     } catch (IOException e) {
-      LogManager.instance().debug(this, "Error during closing of input stream", e);
+      LogManager.instance().debug(this, "Error during closing of input stream", logger, e);
     }
 
     try {
@@ -434,7 +438,7 @@ public abstract class SocketChannelBinary extends SocketChannel
         out.close();
       }
     } catch (IOException e) {
-      LogManager.instance().debug(this, "Error during closing of output stream", e);
+      LogManager.instance().debug(this, "Error during closing of output stream", logger, e);
     }
 
     super.close();

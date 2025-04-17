@@ -31,12 +31,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides a default password authenticator.
  */
 public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract {
 
+  private static final Logger logger = LoggerFactory.getLogger(DefaultPasswordAuthenticator.class);
   // Holds a map of the users specified in the security.json file.
   private ConcurrentHashMap<String, SecurityUser> usersMap =
       new ConcurrentHashMap<String, SecurityUser>();
@@ -44,7 +47,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   // SecurityComponent
   // Called once the Server is running.
   public void active() {
-    LogManager.instance().debug(this, "DefaultPasswordAuthenticator is active");
+    LogManager.instance().debug(this, "DefaultPasswordAuthenticator is active", logger);
   }
 
   // SecurityComponent

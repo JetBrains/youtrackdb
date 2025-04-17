@@ -36,6 +36,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Scheduler default implementation.
@@ -43,6 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since Mar 28, 2013
  */
 public class SchedulerImpl {
+
+  private static final Logger logger = LoggerFactory.getLogger(SchedulerImpl.class);
 
   private static final String RIDS_OF_EVENTS_TO_RESCHEDULE_KEY =
       SchedulerImpl.class.getName() + ".ridsOfEventsToReschedule";
@@ -96,7 +100,7 @@ public class SchedulerImpl {
   }
 
   public void removeEvent(DatabaseSessionInternal session, final String eventName) {
-    LogManager.instance().debug(this, "Removing scheduled event '%s'...", eventName);
+    LogManager.instance().debug(this, "Removing scheduled event '%s'...", logger, eventName);
 
     final var event = removeEventInternal(eventName);
 
@@ -121,7 +125,7 @@ public class SchedulerImpl {
         .debug(
             this,
             "Updated scheduled event '%s' rid=%s...",
-            event,
+            logger, event,
             event.getIdentity());
   }
 

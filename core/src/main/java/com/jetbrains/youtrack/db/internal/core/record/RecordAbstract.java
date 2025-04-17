@@ -324,8 +324,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
           + " If called this method in beforeCallbackXXX method, please move this call "
           + "to afterCallbackXX method.");
     }
-    //preprocess any creation, deletion operations
-    tx.preProcessRecordsAndExecuteCallCallbacks();
 
     session.deleteInternal(this);
     internalReset();
@@ -473,9 +471,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public void unsetDirty() {
-//    if (txEntry != null) {
-//      throw new IllegalStateException("txEntry is not null during unsetDirty");
-//    }
     contentChanged = false;
     dirty = 0;
   }

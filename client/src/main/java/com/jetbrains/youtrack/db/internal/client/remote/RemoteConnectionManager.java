@@ -36,6 +36,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manages network connections against YouTrackDB servers. All the connection pools are managed in a
@@ -44,6 +46,7 @@ import javax.annotation.Nullable;
  */
 public class RemoteConnectionManager {
 
+  private static final Logger logger = LoggerFactory.getLogger(RemoteConnectionManager.class);
   public static final String PARAM_MAX_POOL = "maxpool";
 
   protected final ConcurrentMap<String, RemoteConnectionPool> connections;
@@ -127,7 +130,7 @@ public class RemoteConnectionManager {
     } catch (Exception e) {
       // ERROR ON RETRIEVING THE INSTANCE FROM THE POOL
       LogManager.instance()
-          .debug(this, "Error on retrieving the connection from pool: " + iServerURL, e);
+          .debug(this, "Error on retrieving the connection from pool: " + iServerURL, logger, e);
     }
     return null;
   }
@@ -144,7 +147,8 @@ public class RemoteConnectionManager {
         LogManager.instance()
             .debug(
                 this,
-                "Network connection pool is receiving a closed connection to reuse: discard it");
+                "Network connection pool is receiving a closed connection to reuse: discard it",
+                logger);
         remove(conn);
       } else {
         pool.getPool().returnResource(conn);
@@ -168,13 +172,13 @@ public class RemoteConnectionManager {
     try {
       conn.unlock();
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Cannot unlock connection lock", e);
+      LogManager.instance().debug(this, "Cannot unlock connection lock", logger, e);
     }
 
     try {
       conn.close();
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Cannot close connection", e);
+      LogManager.instance().debug(this, "Cannot close connection", logger, e);
     }
   }
 
@@ -238,7 +242,7 @@ public class RemoteConnectionManager {
         // Unregister the listener that make the connection return to the closing pool.
         c.close();
       } catch (Exception e) {
-        LogManager.instance().debug(this, "Cannot close binary channel", e);
+        LogManager.instance().debug(this, "Cannot close binary channel", logger, e);
       }
     }
     pool.getPool().close();

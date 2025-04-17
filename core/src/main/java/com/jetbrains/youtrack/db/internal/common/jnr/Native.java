@@ -35,17 +35,18 @@ import javax.annotation.Nullable;
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
 import javax.management.MBeanException;
-import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import javax.management.ReflectionException;
 import jnr.constants.platform.Sysconf;
 import jnr.posix.POSIX;
 import jnr.posix.POSIXFactory;
-import jnr.posix.RLimit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Native {
 
+  private static final Logger logger = LoggerFactory.getLogger(Native.class);
   private static final String DEFAULT_MEMORY_CGROUP_PATH = "/sys/fs/cgroup/memory";
 
   private static volatile Native instance = null;
@@ -515,17 +516,18 @@ public class Native {
           try {
             osMemory = Long.parseLong(attribute.toString());
           } catch (final NumberFormatException e) {
-            if (!LogManager.instance().isDebugEnabled()) {
+            if (!logger.isDebugEnabled()) {
               LogManager.instance()
                   .warn(Memory.class, "Unable to determine the amount of installed RAM.");
             } else {
               LogManager.instance()
-                  .debug(Memory.class, "Unable to determine the amount of installed RAM.", e);
+                  .debug(Memory.class, "Unable to determine the amount of installed RAM.", logger,
+                      e);
             }
           }
         }
       } else {
-        if (!LogManager.instance().isDebugEnabled()) {
+        if (!logger.isDebugEnabled()) {
           LogManager.instance()
               .warn(Memory.class, "Unable to determine the amount of installed RAM.");
         }
@@ -535,12 +537,12 @@ public class Native {
              | InstanceNotFoundException
              | MBeanException
              | ReflectionException e) {
-      if (!LogManager.instance().isDebugEnabled()) {
+      if (!logger.isDebugEnabled()) {
         LogManager.instance()
             .warn(Memory.class, "Unable to determine the amount of installed RAM.");
       } else {
         LogManager.instance()
-            .debug(Memory.class, "Unable to determine the amount of installed RAM.", e);
+            .debug(Memory.class, "Unable to determine the amount of installed RAM.", logger, e);
       }
     } catch (final RuntimeException e) {
       LogManager.instance()

@@ -334,9 +334,9 @@ public class FrontendTransactionImpl implements
   }
 
   private void invalidateChangesInCacheDuringRollback() {
+    var recordsSize = recordOperations.size();
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
-      rec.txEntry = null;
       rec.unsetDirty();
       rec.unload();
     }

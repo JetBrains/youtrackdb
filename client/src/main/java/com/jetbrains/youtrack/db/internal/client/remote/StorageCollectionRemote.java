@@ -95,6 +95,12 @@ public class StorageCollectionRemote implements StorageCollection {
     throw new UnsupportedOperationException("updateRecord");
   }
 
+  @Override
+  public void updateRecordVersion(long collectionPosition, int recordVersion,
+      AtomicOperation atomicOperation) {
+    throw new UnsupportedOperationException("updateRecordVersion");
+  }
+
   @Nonnull
   @Override
   public RawBuffer readRecord(long collectionPosition) throws IOException {

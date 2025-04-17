@@ -75,8 +75,12 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Version;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
+
+  private static final Logger logger = LoggerFactory.getLogger(LuceneIndexEngineAbstract.class);
 
   public static final String RID = "RID";
   public static final String KEY = "KEY";
@@ -182,7 +186,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
                       }
                       if (!closed.get()) {
 
-                        LogManager.instance().debug(this, "Flushing index: " + indexName());
+                        LogManager.instance().debug(this, "Flushing index: " + indexName(), logger);
                         flush();
                       }
                     });
