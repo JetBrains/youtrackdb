@@ -88,7 +88,7 @@ public abstract class SchemaClassImpl {
   protected Map<String, String> customFields;
   protected final CollectionSelectionStrategy collectionSelection = new RoundRobinCollectionSelectionStrategy();
   protected volatile int hashCode;
-  protected volatile RecordId identity;
+  protected volatile RID identity;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
       final int[] iCollectionIds) {
@@ -312,11 +312,11 @@ public abstract class SchemaClassImpl {
 
     for (LazySchemaClass toRemove : classesToRemove.values()) {
       toRemove.loadWithoutInheritanceIfNeeded(session);
-      ((SchemaClassImpl) toRemove.getDelegate()).removeBaseClassInternal(session, this);
+      toRemove.getDelegate().removeBaseClassInternal(session, this);
     }
     for (LazySchemaClass addTo : classesToAdd.values()) {
       addTo.loadWithoutInheritanceIfNeeded(session);
-      ((SchemaClassImpl) addTo.getDelegate()).addBaseClass(session, this);
+      addTo.getDelegate().addBaseClass(session, this);
     }
     superClasses.clear();
     superClasses.putAll(newSuperClasses);
@@ -589,11 +589,11 @@ public abstract class SchemaClassImpl {
   public abstract void removeSuperClass(DatabaseSessionInternal session,
       SchemaClassImpl superClass);
 
-  public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
+  public void fromStream(DatabaseSessionInternal session, Entity entity) {
     fromStream(session, entity, true);
   }
 
-  public void fromStream(DatabaseSessionInternal session, EntityImpl entity,
+  public void fromStream(DatabaseSessionInternal session, Entity entity,
       boolean loadInheritanceTree) {
     acquireSchemaWriteLock(session);
     try {
@@ -681,7 +681,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public void loadInheritanceTree(DatabaseSessionInternal session, EntityImpl entity) {
+  public void loadInheritanceTree(DatabaseSessionInternal session, Entity entity) {
     Collection<String> superClassNames = entity.getProperty("superClasses");
     String legacySuperClassName = entity.getProperty("superClass");
     if (superClassNames == null) {
@@ -734,10 +734,10 @@ public abstract class SchemaClassImpl {
     try {
       final Entity entity;
       // null identity means entity is new
-      if (identity != null && identity.isValidPosition()) {
+      if (identity != null && identity.isPersistent()) {
         entity = session.load(identity);
       } else {
-        entity = session.newEmbeddedEntity();
+        entity = session.newEntity();
         // I don't like the solution, there should be a better way to make only one copy of identity present in the system
         identity = (RecordId) entity.getIdentity();
       }
@@ -833,9 +833,9 @@ public abstract class SchemaClassImpl {
       }
 
       List<SchemaClassImpl> result = new ArrayList<>(subclasses.size());
-      for (LazySchemaClass lazySchemaClass : subclasses.values()) {
+      for (var lazySchemaClass : subclasses.values()) {
         lazySchemaClass.loadIfNeeded(session);
-        result.add((SchemaClassImpl) lazySchemaClass.getDelegate());
+        result.add(lazySchemaClass.getDelegate());
       }
       return result;
     } finally {
@@ -879,6 +879,16 @@ public abstract class SchemaClassImpl {
     return ret;
   }
 
+  public void removeSubClassInternal(DatabaseSessionInternal session,
+      final SchemaClassImpl baseClass) {
+    removeBaseClassInternal(session, baseClass);
+  }
+
+  /**
+   * Base class is used wrong in this context meaning subclass and not superclass Please use remove
+   * subClassInternal method instead
+   */
+  @Deprecated
   public abstract void removeBaseClassInternal(DatabaseSessionInternal session,
       final SchemaClassImpl baseClass);
 

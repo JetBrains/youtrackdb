@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -521,7 +520,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       while (entityIterator.hasNext()) {
         var o = entityIterator.next();
         for (Identifiable id :
-            tx.query("match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
+            tx.query(
+                    "match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
                     o.getIdentity())
                 .stream().map(result -> result.getLink("record")).toList()) {
           tx.load(id.getIdentity()).toJSON();
@@ -578,13 +578,12 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     // I don't know where I've broken it, but at this point Company is no longet a subclass of an account,
     // before my changes it was like this
 
-    session.getClass("Company").setSuperClasses(session, List.of(session.getClass("Account")));
+    session.getClass("Company").setSuperClasses(List.of(session.getClass("Account")));
 
     session.begin();
-    final RecordAbstract newAccount =
-        new EntityImpl("Account").field("name", "testInheritanceName");
-    newAccount.save();
-    session.commit();
+    final RecordAbstract newAccount = ((EntityImpl) session
+        .newEntity("Account"))
+        .setPropertyInChain("name", "testInheritanceName");
 
     session.commit();
 

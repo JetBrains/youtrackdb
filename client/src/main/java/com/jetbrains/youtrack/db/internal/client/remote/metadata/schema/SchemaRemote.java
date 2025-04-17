@@ -42,7 +42,7 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass cls = classesRefs.get(normalizeClassName(iClassName));
       if (cls != null) {
-        cls.loadIfNeededWithTemplate(database, createClassInstance(iClassName));
+        cls.loadIfNeededWithTemplate(session, createClassInstance(iClassName));
         return cls.getDelegate();
       }
     } finally {
@@ -57,7 +57,7 @@ public class SchemaRemote extends SchemaShared {
     try {
       LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
-        lazySchemaClass.loadIfNeededWithTemplate(database, createClassInstance(iClassName));
+        lazySchemaClass.loadIfNeededWithTemplate(session, createClassInstance(iClassName));
         return lazySchemaClass.getDelegate();
       }
 
@@ -94,7 +94,7 @@ public class SchemaRemote extends SchemaShared {
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
 
     acquireSchemaWriteLock(session);
@@ -148,7 +148,7 @@ public class SchemaRemote extends SchemaShared {
       session.execute(cmd.toString()).close();
       reload(session);
 
-      result = classesRefs.get(normalizeClassName(className));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -176,7 +176,7 @@ public class SchemaRemote extends SchemaShared {
 
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
     if (superClasses != null) {
-      SchemaClassImpl.checkParametersConflict(database, Arrays.asList(superClasses));
+      SchemaClassImpl.checkParametersConflict(session, Arrays.asList(superClasses));
     }
     acquireSchemaWriteLock(session);
     try {
@@ -216,7 +216,7 @@ public class SchemaRemote extends SchemaShared {
 
       session.execute(cmd.toString()).close();
       reload(session);
-      result = classesRefs.get(normalizeClassName(className));
+      result = classesRefs.get(normalizeClassName(className)).getDelegate();
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -224,7 +224,8 @@ public class SchemaRemote extends SchemaShared {
     return result;
   }
 
-  private void checkCollectionsAreAbsent(final int[] iCollectionIds, DatabaseSessionInternal session) {
+  private void checkCollectionsAreAbsent(final int[] iCollectionIds,
+      DatabaseSessionInternal session) {
     if (iCollectionIds == null) {
       return;
     }
@@ -260,36 +261,78 @@ public class SchemaRemote extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClass cls = classesRefs.get(key).getDelegate();
+      SchemaClassImpl cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException(session,
             "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses(database).isEmpty()) {
+      if (!cls.getSubclasses(session).isEmpty()) {
         throw new SchemaException(
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses(database)
+                + cls.getSubclasses(session)
                 + ". Remove the dependencies before trying to drop it again");
       }
 
       String cmd = "drop class `" + className + "` unsafe";
       // mark potentially dropped class as dirty
-      markClassDirty(cls);
-      markSuperClassesDirty(database, cls);
-      markSubClassesDirty(database, cls);
-      database.command(cmd).close();
-      reload(database);
+      markClassDirty(session, cls);
+      markSuperClassesDirty(session, cls);
+      markSubClassesDirty(session, cls);
+      session.execute(cmd).close();
+      reload(session);
 
-      var localCache = database.getLocalCache();
-      for (int clusterId : cls.getClusterIds()) {
-        localCache.freeCluster(clusterId);
+      var localCache = session.getLocalCache();
+      for (int clusterId : cls.getCollectionIds(session)) {
+        localCache.freeCollection(clusterId);
       }
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
+    updateIfRequested(session);
+
+    lockNesting.get().increment();
+  }
+
+  @Override
+  public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
+    super.releaseSchemaWriteLock(session);
+    lockNesting.get().decrement();
+
+    updateIfRequested(session);
+  }
+
+  private void updateIfRequested(@Nonnull DatabaseSessionInternal database) {
+    var ignoreReloadRequest = this.ignoreReloadRequest.get();
+    //stack overflow guard
+    if (ignoreReloadRequest[0]) {
+      return;
+    }
+
+    var lockNesting = this.lockNesting.get().value;
+    if (lockNesting > 0) {
+      return;
+    }
+
+    while (true) {
+      var updateReqs = updateRequests.getAndSet(0);
+      if (updateReqs > 0) {
+        ignoreReloadRequest[0] = true;
+        try {
+          reload(database);
+        } finally {
+          ignoreReloadRequest[0] = false;
+        }
+      } else {
+        break;
+      }
     }
   }
 

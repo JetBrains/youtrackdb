@@ -115,11 +115,9 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     try {
       final var cmd =
           String.format(
-              "alter property %s custom %s=%s", getFullNameQuoted(), name, quoteString(value));
-      owner.getOwner().markClassDirty(owner);
-      database.command(cmd).close();
               "alter property %s custom %s=%s", getFullNameQuoted(session), name,
               quoteString(value));
+      owner.getOwner().markClassDirty(session, owner);
       session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);

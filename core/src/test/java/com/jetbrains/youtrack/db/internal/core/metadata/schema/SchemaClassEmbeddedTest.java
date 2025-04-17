@@ -11,14 +11,14 @@ public class SchemaClassEmbeddedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void shouldAddSuperClass() {
-    final Schema oSchema = db.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSchema();
 
     SchemaClass oClass = oSchema.createClass("Test1");
     SchemaClass newSuperClass = oSchema.createClass("Super");
-    final int oldClusterId = oClass.getClusterIds()[0];
+    final int oldClusterId = oClass.getCollectionIds()[0];
 
-    oClass.addSuperClass(db, newSuperClass);
+    oClass.addSuperClass(newSuperClass);
 
-    assertTrue(oClass.getSuperClasses(db).contains(newSuperClass));
+    assertTrue(oClass.getSuperClasses().contains(newSuperClass));
   }
 }

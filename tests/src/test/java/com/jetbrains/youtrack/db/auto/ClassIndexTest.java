@@ -2206,6 +2206,6 @@ public class ClassIndexTest extends BaseDBTest {
 
     oClass.dropProperty("fFive");
 
-    assertNull(oClass.getProperty(database, "fFive"));
+    assertNull(oClass.getProperty("fFive"));
   }
 }

@@ -6,10 +6,8 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -182,12 +180,9 @@ public class SchemaEmbedded extends SchemaShared {
 
       var cls = createClassInstance(className, collectionIds);
 
-      Entity classEntity = cls.toStream(session);
       // do we need to save or to batch
       // todo move to schema lock release step
-      EntityImpl savedClassEntity = session.computeInTx(
-          // how to save?
-          () -> session.save(classEntity, MetadataDefault.CLUSTER_INTERNAL_NAME));
+      var savedClassEntity = session.computeInTx(tx -> cls.toStream(session));
 
       classesRefs.put(key, LazySchemaClass.fromTemplate(savedClassEntity.getIdentity(), cls));
       this.markClassDirty(session, cls);

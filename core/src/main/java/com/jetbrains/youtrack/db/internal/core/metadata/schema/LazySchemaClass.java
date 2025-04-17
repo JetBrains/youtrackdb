@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
 // todo potentially implement SchemaClass interface to make it interchangeable
@@ -10,25 +10,17 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 // I don't have the will power to do it now, but I see points where it will be beneficial.
 public class LazySchemaClass {
 
-  private final RecordId recordId;
+  private final RID recordId;
   private boolean classLoaded = false;
   private boolean inheritanceLoaded = false;
   private SchemaClassImpl delegate;
 
-  private LazySchemaClass(RecordId recordId) {
-    this.recordId = recordId;
-  }
-
-  private LazySchemaClass(RecordId recordId, SchemaClassImpl delegate) {
+  private LazySchemaClass(RID recordId, SchemaClassImpl delegate) {
     this.recordId = recordId;
     this.delegate = delegate;
   }
 
-  public static LazySchemaClass fromId(RecordId value) {
-    return new LazySchemaClass(value);
-  }
-
-  public static LazySchemaClass fromTemplate(RecordId identity, SchemaClassImpl cls) {
+  public static LazySchemaClass fromTemplate(RID identity, SchemaClassImpl cls) {
     return new LazySchemaClass(identity, cls);
   }
 
@@ -97,7 +89,7 @@ public class LazySchemaClass {
     });
   }
 
-  public RecordId getId() {
+  public RID getId() {
     return recordId;
   }
 

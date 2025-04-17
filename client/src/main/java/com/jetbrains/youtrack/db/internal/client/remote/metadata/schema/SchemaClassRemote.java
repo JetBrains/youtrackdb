@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
@@ -100,20 +101,14 @@ public class SchemaClassRemote extends SchemaClassImpl {
   private void reload(DatabaseSessionInternal database) {
     acquireSchemaWriteLock(database);
     try {
-      database.executeInTx(
-          () -> {
-            EntityImpl entity = database.load(identity);
-            fromStream(database, entity);
-          });
+      database.executeInTx(tx -> {
+        Entity entity = database.load(identity);
+        fromStream(database, entity);
+      });
     } finally {
       releaseSchemaWriteLock(database);
     }
   }
-
-  @Override
-  public SchemaClass setClusterSelection(DatabaseSession session, final String value) {
-    DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
   public void setCustom(DatabaseSessionInternal session, final String name, final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -160,9 +155,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
         sb.append("null");
       }
 
-      owner.markClassDirty(this);
-      final String cmd = String.format("alter class `%s` superclasses %s", name, sb);
-      database.command(cmd).close();
+      owner.markClassDirty(session, this);
       final var cmd = String.format("alter class `%s` superclasses %s", name, sb);
       session.execute(cmd).close();
     } finally {
@@ -235,7 +228,8 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
 
     var queryBuilder = new StringBuilder();
-    queryBuilder.append("create index ").append(name).append(" on ").append(localName).append(" (");
+    queryBuilder.append("create index ").append(name).append(" on ").append(localName)
+        .append(" (");
     for (var i = 0; i < fields.length - 1; i++) {
       queryBuilder.append(fields[i]).append(", ");
     }
@@ -321,36 +315,6 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
   }
 
-  public SchemaClass addClusterId(DatabaseSession session, final int clusterId) {
-    DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    if (isAbstract()) {
-      throw new SchemaException("Impossible to associate a cluster to an abstract class class");
-    }
-    acquireSchemaWriteLock(database);
-    try {
-      owner.markClassDirty(this);
-      final String cmd = String.format("alter class `%s` add_cluster %d", name, clusterId);
-      database.command(cmd).close();
-
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-    return this;
-  }
-
-  public SchemaClass removeClusterId(DatabaseSession session, final int clusterId) {
-    DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    if (clusterIds.length == 1 && clusterId == clusterIds[0]) {
-      throw new DatabaseException(
-          " Impossible to remove the last cluster of class '"
-              + getName()
-              + "' drop the class instead");
-    }
-
   public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
@@ -365,16 +329,14 @@ public class SchemaClassRemote extends SchemaClassImpl {
             "Property '" + propertyName + "' not found in class " + name + "'");
       }
 
-      owner.markClassDirty(this);
-      database.command("drop property " + name + '.' + propertyName).close();
+      owner.markClassDirty(session, this);
       session.execute("drop property " + name + '.' + propertyName).close();
 
-      reload(database);
+      reload(session);
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
-
 
   public void setOverSize(DatabaseSessionInternal session, final float overSize) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -411,42 +373,13 @@ public class SchemaClassRemote extends SchemaClassImpl {
         return;
       }
 
-      if (subclasses.remove(baseClass)) {
+      if (subclasses.remove(baseClass.getName(session)) != null) {
         removePolymorphicCollectionIds(session, baseClass);
       }
 
     } finally {
       releaseSchemaWriteLock(session);
     }
-  }
-
-  protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes) {
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
-    SchemaClassImpl cls;
-    for (var superClass : classes) {
-      cls = superClass;
-
-      if (newSuperClasses.contains(cls)) {
-        throw new SchemaException(session, "Duplicated superclass '" + cls.getName(session) + "'");
-      }
-
-      newSuperClasses.add(cls);
-    }
-
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
-    toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
-    toRemoveList.removeAll(newSuperClasses);
-
-    for (var toRemove : toRemoveList) {
-      toRemove.removeBaseClassInternal(session, this);
-    }
-    for (var addTo : toAddList) {
-      addTo.addBaseClass(session, this);
-    }
-    superClasses.clear();
-    superClasses.addAll(newSuperClasses);
   }
 
   protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {

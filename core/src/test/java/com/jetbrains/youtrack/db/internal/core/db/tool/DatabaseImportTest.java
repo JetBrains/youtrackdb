@@ -26,7 +26,7 @@ public class DatabaseImportTest {
     var databaseName = "export";
     final var exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
     var youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
-    youTrackDB.createIfNotExists(databaseName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
     final var output = new ByteArrayOutputStream();
     try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
@@ -41,7 +41,6 @@ public class DatabaseImportTest {
     youTrackDB.drop(databaseName);
     youTrackDB.close();
 
-    final var importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
     youTrackDB = YourTracks.embedded(importDbPath, YouTrackDBConfig.defaultConfig());
     databaseName = "import";
 

@@ -4,13 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -22,11 +22,11 @@ public class SchemaSharedClassReadTest extends DbTestBase {
   @Test
   public void testRereadClassAfterModification() {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
     SchemaClass originalClass = schema.createClass("zurich");
     SchemaClass loadedClass = schema.getClass("zurich");
-    originalClass.createProperty(db, "modification", PropertyType.STRING);
+    originalClass.createProperty("modification", PropertyType.STRING);
     SchemaClass reloadedClass = schema.getClass("zurich");
     assertThat(reloadedClass)
         .as("Reloaded class reference is " + System.identityHashCode(reloadedClass)
@@ -35,7 +35,7 @@ public class SchemaSharedClassReadTest extends DbTestBase {
     assertTrue(originalClass == loadedClass);
     assertTrue(originalClass == reloadedClass);
 
-    assertEquals(reloadedClass.getProperty(db, "modification").getType(), PropertyType.STRING);
+    assertEquals(reloadedClass.getProperty("modification").getType(), PropertyType.STRING);
   }
 
 //  @Test
@@ -83,8 +83,8 @@ public class SchemaSharedClassReadTest extends DbTestBase {
     final SessionPool pool =
         youTrackDb.cachedPool("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
-    SchemaClass coldClass = db.getMetadata().getSchema().getClass("propertizedClass");
-    assertEquals(coldClass.getProperty(db, "prop1").getType(), PropertyType.STRING);
+    SchemaClass coldClass = session.getMetadata().getSchema().getClass("propertizedClass");
+    assertEquals(coldClass.getProperty("prop1").getType(), PropertyType.STRING);
 
     youTrackDb.close();
   }

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SchemaNotCreatedException;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
@@ -433,6 +434,9 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       var normalizedClassName = normalizeClassName(iClassName);
       var lazySchemaClass = classesRefs.get(normalizedClassName);
+      if(lazySchemaClass==null){
+        return null;
+      }
       lazySchemaClass.loadIfNeeded(session);
       return lazySchemaClass.getDelegate();
     } finally {
@@ -639,7 +643,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       EntityImpl entity = session.load(identity);
       entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      Map<String, RecordId> classIds = classesRefs.entrySet().stream()
+      Map<String, RID> classIds = classesRefs.entrySet().stream()
           .map(e -> Map.entry(e.getKey(), e.getValue().getId()))
           .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
       entity.setProperty("classesRefs", classIds, PropertyType.EMBEDDEDMAP);
