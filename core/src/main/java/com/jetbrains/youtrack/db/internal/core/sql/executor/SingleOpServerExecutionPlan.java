@@ -89,8 +89,8 @@ public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var result = new ResultInternal((DatabaseSessionInternal) db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty("javaType", getClass().getName());
     result.setProperty("stmText", statement.toString());

@@ -19,6 +19,7 @@
 package com.jetbrains.youtrack.db.internal.lucene.engine;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngine;
@@ -61,7 +62,7 @@ public interface LuceneIndexEngine extends IndexEngine, FreezableStorageComponen
 
   void release(Storage storage, IndexSearcher searcher);
 
-  Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes);
 
   long sizeInTx(LuceneTxChanges changes, Storage storage);

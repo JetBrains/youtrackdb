@@ -17,17 +17,18 @@
 
 package com.jetbrains.youtrack.db.internal.core;
 
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
@@ -37,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
@@ -54,11 +56,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-/**
- *
- */
 public class PostponedEngineStartTest {
-
   private static YouTrackDBEnginesManager YOUTRACKDB;
 
   private static Engine ENGINE1;
@@ -79,7 +77,6 @@ public class PostponedEngineStartTest {
 
           @Override
           public YouTrackDBEnginesManager shutdown() {
-            DatabaseDocumentTx.closeAll();
             return this;
           }
         };
@@ -211,7 +208,7 @@ public class PostponedEngineStartTest {
         long maxWalSegSize,
         long doubleWriteLogMaxSegSize,
         int storageId,
-        YouTrackDBInternal context) {
+        YouTrackDBInternalEmbedded context) {
       return new Storage() {
 
         @Override
@@ -239,9 +236,8 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean setCollectionAttribute(int id, StorageCollection.ATTRIBUTES attribute,
+        public void setCollectionAttribute(int id, ATTRIBUTES attribute,
             Object value) {
-          return false;
         }
 
         @Override
@@ -614,19 +610,20 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public YouTrackDBInternal getContext() {
+        public YouTrackDBInternalEmbedded getContext() {
+          return null;
+        }
+
+        @Override
+        public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool,
+            String query, BasicLiveQueryResultListener<DatabaseSession, Result> listener,
+            Map<String, ?> args) {
           return null;
         }
 
         @Override
         public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-            LiveQueryResultListener listener, Map<String, ?> args) {
-          return null;
-        }
-
-        @Override
-        public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-            LiveQueryResultListener listener, Object... args) {
+            BasicLiveQueryResultListener listener, Object... args) {
           return null;
         }
       };
@@ -657,7 +654,7 @@ public class PostponedEngineStartTest {
         long maxWalSegSize,
         long doubleWriteLogMaxSegSize,
         int storageId,
-        YouTrackDBInternal context) {
+        YouTrackDBInternalEmbedded context) {
       throw new UnsupportedOperationException();
     }
 

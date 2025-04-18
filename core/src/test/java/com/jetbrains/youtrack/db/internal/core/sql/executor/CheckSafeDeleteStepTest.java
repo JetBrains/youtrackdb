@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -73,7 +72,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
                       var to = db.newVertex();
 
                       var edge = db.newStatefulEdge(from, to, className);
-                      result.add(new ResultInternal(db, (Identifiable) edge));
+                      result.add(new ResultInternal(db, edge));
                     }
                   }
                 }

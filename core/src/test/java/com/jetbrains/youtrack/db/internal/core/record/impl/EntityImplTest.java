@@ -7,12 +7,14 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -72,7 +74,7 @@ public class EntityImplTest extends DbTestBase {
     assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
     assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
     assertEquals(PropertyType.BINARY, doc.getPropertyType("binary"));
-    var ser = DatabaseSessionAbstract.getDefaultSerializer();
+    var ser = session.getSerializer();
     var bytes = ser.toStream(session, doc);
     doc = (EntityImpl) session.newEntity();
     ser.fromStream(session, bytes, doc, null);
@@ -97,7 +99,7 @@ public class EntityImplTest extends DbTestBase {
     assertEquals(PropertyType.STRING, doc.getPropertyType("string"));
     assertEquals(PropertyType.BINARY, doc.getPropertyType("binary"));
 
-    var ser = DatabaseSessionAbstract.getDefaultSerializer();
+    var ser = session.getSerializer();
     var bytes = ser.toStream(session, doc);
     doc = (EntityImpl) session.newEntity();
     ser.fromStream(session, bytes, doc, null);
@@ -110,11 +112,12 @@ public class EntityImplTest extends DbTestBase {
 
   @Test
   public void testKeepSchemafullFieldTypeSerialization() throws Exception {
-    DatabaseSessionInternal session = null;
+    DatabaseSessionEmbedded session = null;
     YouTrackDB ytdb = null;
     try {
-      ytdb = CreateDatabaseUtil.createDatabase(dbName, "memory:", CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
+      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, "memory:",
+          CreateDatabaseUtil.TYPE_MEMORY);
+      session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       var clazz = session.getMetadata().getSchema().createClass("Test");
@@ -136,7 +139,7 @@ public class EntityImplTest extends DbTestBase {
       assertEquals(PropertyType.LINK, entity.getPropertyType("link"));
       assertEquals(PropertyType.STRING, entity.getPropertyType("string"));
       assertEquals(PropertyType.BINARY, entity.getPropertyType("binary"));
-      var ser = DatabaseSessionAbstract.getDefaultSerializer();
+      var ser = session.getSerializer();
       var bytes = ser.toStream(session, entity);
       entity = (EntityImpl) session.newEntity();
       ser.fromStream(session, bytes, entity, null);
@@ -162,7 +165,7 @@ public class EntityImplTest extends DbTestBase {
     session.begin();
     var doc = (EntityImpl) session.newEntity();
     doc.setProperty("link", new RecordId(1, 2));
-    var ser = DatabaseSessionAbstract.getDefaultSerializer();
+    var ser = session.getSerializer();
     var bytes = ser.toStream(session, doc);
     doc = (EntityImpl) session.newEntity();
     ser.fromStream(session, bytes, doc, null);
@@ -177,7 +180,8 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionInternal db = null;
     YouTrackDB odb = null;
     try {
-      odb = CreateDatabaseUtil.createDatabase(dbName, "memory:", CreateDatabaseUtil.TYPE_MEMORY);
+      odb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, "memory:",
+          CreateDatabaseUtil.TYPE_MEMORY);
       db = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
@@ -216,7 +220,7 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testUndo() {
     DatabaseSessionInternal session = null;
-    YouTrackDB odb = null;
+    BasicYouTrackDB odb = null;
     try {
       odb = CreateDatabaseUtil.createDatabase(dbName, "memory:", CreateDatabaseUtil.TYPE_MEMORY);
       session = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,

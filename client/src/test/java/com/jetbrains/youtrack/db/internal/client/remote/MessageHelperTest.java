@@ -2,19 +2,15 @@ package com.jetbrains.youtrack.db.internal.client.remote;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.client.remote.message.MessageHelper;
 import com.jetbrains.youtrack.db.internal.client.remote.message.MockChannel;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
-import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -32,14 +28,14 @@ public class MessageHelperTest {
   @Test
   public void testIdentifiable() throws IOException {
 
-    YouTrackDB youTrackDB = new YouTrackDBImpl("embedded",
+    var youTrackDB = new YouTrackDBAbstract("embedded",
         YouTrackDBConfig.defaultConfig());
 
     youTrackDB.execute(
         "create database testIdentifiable memory users (admin identified by 'admin' role admin)");
 
     var db =
-        (DatabaseSessionInternal) youTrackDB.open("testIdentifiable", "admin", "admin");
+        (DatabaseSessionEmbedded) youTrackDB.open("testIdentifiable", "admin", "admin");
     try {
       db.createClass("Test");
       db.begin();
@@ -57,8 +53,8 @@ public class MessageHelperTest {
       MessageHelper.writeIdentifiable(db, channel, doc);
       channel.close();
 
-      var rid =  MessageHelper.readIdentifiable(db,
-                  channel, RecordSerializerNetworkFactory.current());
+      var rid = MessageHelper.readIdentifiable(db,
+          channel, RecordSerializerNetworkFactory.current());
       assertThat(rid).isEqualTo(doc.getIdentity());
       Assert.assertTrue(
           db.getTransactionInternal().getRecordOperationsInternal()

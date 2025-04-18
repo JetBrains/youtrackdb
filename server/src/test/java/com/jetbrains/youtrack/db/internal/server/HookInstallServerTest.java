@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
@@ -28,7 +27,7 @@ public class HookInstallServerTest {
 
   public static class MyHook extends EntityHookAbstract {
 
-    public MyHook(DatabaseSession session) {
+    public MyHook(BasicDatabaseSession session) {
       super();
     }
 

@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
@@ -109,7 +110,7 @@ public class EntityHelper {
   }
 
 
-  public static <RET> RET getFieldValue(DatabaseSessionInternal db, Object value,
+  public static <RET> RET getFieldValue(DatabaseSessionEmbedded db, Object value,
       final String iFieldName) {
     var context = new BasicCommandContext();
     context.setDatabaseSession(db);
@@ -120,7 +121,7 @@ public class EntityHelper {
   @Nullable
   @SuppressWarnings("unchecked")
   public static <RET> RET getFieldValue(
-      DatabaseSessionInternal session, Object value, final String iFieldName,
+      DatabaseSessionEmbedded session, Object value, final String iFieldName,
       @Nonnull final CommandContext iContext) {
     if (value == null) {
       return null;
@@ -628,7 +629,7 @@ public class EntityHelper {
   @Nullable
   @SuppressWarnings("unchecked")
   protected static Object filterItem(
-      DatabaseSessionInternal db, final String iConditionFieldName,
+      DatabaseSessionEmbedded db, final String iConditionFieldName,
       final Object iConditionFieldValue, final Object iValue) {
     if (iValue instanceof Identifiable) {
       final DBRecord rec;
@@ -675,7 +676,7 @@ public class EntityHelper {
    */
   @Nullable
   @SuppressWarnings("unchecked")
-  public static Object getMapEntry(DatabaseSessionInternal session, final Map<String, ?> iMap,
+  public static Object getMapEntry(DatabaseSessionEmbedded session, final Map<String, ?> iMap,
       final Object iKey) {
     if (iMap == null || iKey == null) {
       return null;

@@ -1,13 +1,11 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
@@ -20,7 +18,7 @@ public class QueryResponseTest extends DbTestBase {
   @Test
   public void test() throws IOException {
 
-    List<Result> resuls = new ArrayList<>();
+    List<BasicResult> resuls = new ArrayList<>();
     for (var i = 0; i < 10; i++) {
       var item = new ResultInternal(session);
       item.setProperty("name", "foo");
@@ -28,13 +26,13 @@ public class QueryResponseTest extends DbTestBase {
       resuls.add(item);
     }
     var response =
-        new QueryResponse("query", true, resuls, null, false, new HashMap<>(), true);
+        new QueryResponse("query", resuls, false);
 
     var channel = new MockChannel();
     response.write(null,
         channel,
-        ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION,
-        RecordSerializerNetworkFactory.current());
+        ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION
+    );
 
     channel.close();
 
@@ -50,7 +48,5 @@ public class QueryResponseTest extends DbTestBase {
       Assert.assertEquals((Integer) i, item.getProperty("counter"));
     }
     Assert.assertFalse(responseRs.hasNext());
-    Assert.assertTrue(newResponse.isReloadMetadata());
-    Assert.assertTrue(newResponse.isTxChanges());
   }
 }

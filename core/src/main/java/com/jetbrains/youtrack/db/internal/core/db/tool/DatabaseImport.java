@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
@@ -91,7 +91,7 @@ import javax.annotation.Nullable;
 /**
  * Import data from a file into a database.
  */
-public class DatabaseImport extends DatabaseImpExpAbstract {
+public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   public static final String EXPORT_IMPORT_CLASS_NAME = "___exportImportRIDMap";
   public static final String EXPORT_IMPORT_INDEX_NAME = EXPORT_IMPORT_CLASS_NAME + "Index";
@@ -119,7 +119,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private int maxRidbagStringSizeBeforeLazyImport = 100_000_000;
 
   public DatabaseImport(
-      final DatabaseSessionInternal database,
+      final DatabaseSessionEmbedded database,
       final String fileName,
       final CommandOutputListener outputListener)
       throws IOException {
@@ -140,7 +140,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   public DatabaseImport(
-      final DatabaseSessionInternal database,
+      final DatabaseSessionEmbedded database,
       final InputStream inputStream,
       final CommandOutputListener outputListener)
       throws IOException {
@@ -930,7 +930,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
         if (!preserveCollectionIDs) {
           createdCollectionId = session.addCollection(name);
         } else {
-          if (getDatabase().getCollectionNameById(collectionIdFromJson) == null) {
+          if (session.getCollectionNameById(collectionIdFromJson) == null) {
             createdCollectionId = session.addCollection(name, collectionIdFromJson, null);
             assert createdCollectionId == collectionIdFromJson;
           } else {
@@ -994,7 +994,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           .getSharedContext()
           .getIndexManager()
           .getIndex(session, indexName)
-          .rebuild(session,
+          .rebuild((DatabaseSessionEmbedded) session,
               new ProgressListener() {
                 private long last = 0;
 
@@ -1022,7 +1022,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 }
 
                 @Override
-                public void onCompletition(DatabaseSessionInternal session, Object iTask,
+                public void onCompletition(DatabaseSessionEmbedded session, Object iTask,
                     boolean iSucceed) {
                   listener.onMessage(" Index " + indexName + " was successfully rebuilt.");
                 }
@@ -1443,7 +1443,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.setValue(
           indexDefinition.isNullValuesIgnored());
       indexManager.createIndex(
-          session,
+          (DatabaseSessionEmbedded) session,
           indexName,
           indexType,
           indexDefinition,

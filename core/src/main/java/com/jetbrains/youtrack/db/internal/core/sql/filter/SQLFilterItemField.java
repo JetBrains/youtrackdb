@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -100,7 +101,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   public SQLFilterItemField(
-      DatabaseSessionInternal session, final BaseParser iQueryToParse, final String iName,
+      DatabaseSessionEmbedded session, final BaseParser iQueryToParse, final String iName,
       final SchemaClass iClass) {
     super(session, iQueryToParse, iName);
     collate = getCollateForField(session, iClass, iName);
@@ -184,7 +185,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     return name;
   }
 
-  public void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     if (isStringLiteral(iRoot)) {
       this.stringValue = IOUtils.getStringContent(iRoot);

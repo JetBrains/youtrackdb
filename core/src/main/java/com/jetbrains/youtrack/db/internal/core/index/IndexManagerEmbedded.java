@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.common.util.UncaughtExceptionHandler;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
@@ -245,7 +246,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @return a newly created index instance
    */
   public Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       final String iType,
       final IndexDefinition indexDefinition,
@@ -279,7 +280,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @return a newly created index instance
    */
   public Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       String type,
       final IndexDefinition indexDefinition,
@@ -386,7 +387,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   private static void checkSecurityConstraintsForIndexCreate(
-      DatabaseSessionInternal database, IndexDefinition indexDefinition) {
+      DatabaseSessionEmbedded database, IndexDefinition indexDefinition) {
 
     var security = database.getSharedContext().getSecurity();
 

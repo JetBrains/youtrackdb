@@ -19,8 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage;
 
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -28,9 +30,10 @@ import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
@@ -106,7 +109,7 @@ public interface Storage extends Backupable, StorageInfo {
   int addCollection(DatabaseSessionInternal database, String iCollectionName,
       Object... iParameters);
 
-  int getAbsoluteLinkBagCounter(RID ownerId, String fieldName,  RID key);
+  int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key);
 
   /**
    * Add a new collection into the storage.
@@ -120,13 +123,12 @@ public interface Storage extends Backupable, StorageInfo {
 
   String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
-  boolean setCollectionAttribute(final int id, StorageCollection.ATTRIBUTES attribute,
+  void setCollectionAttribute(final int id, ATTRIBUTES attribute,
       Object value);
 
   /**
    * Drops a collection.
    *
-   * @param database
    * @param iId      id of the collection to delete
    * @return true if has been removed, otherwise false
    */
@@ -269,17 +271,17 @@ public interface Storage extends Backupable, StorageInfo {
 
   int[] getCollectionsIds(Set<String> filterCollections);
 
-  default boolean isIcrementalBackupRunning() {
+  default boolean isIncrementalBackupRunning() {
     return false;
   }
 
-  YouTrackDBInternal getContext();
+  YouTrackDBInternalEmbedded getContext();
 
-  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener,
+  LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener,
       Map<String, ?> args);
 
-  LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener,
+  LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener,
       Object... args);
 }

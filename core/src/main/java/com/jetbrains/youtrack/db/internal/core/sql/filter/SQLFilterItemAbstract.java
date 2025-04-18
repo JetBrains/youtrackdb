@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -51,7 +52,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
   protected SQLFilterItemAbstract() {
   }
 
-  public SQLFilterItemAbstract(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public SQLFilterItemAbstract(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iText) {
     final var parts =
         StringSerializerHelper.smartSplit(
@@ -202,7 +203,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     return null;
   }
 
-  protected abstract void setRoot(DatabaseSessionInternal session, BaseParser iQueryToParse,
+  protected abstract void setRoot(DatabaseSessionEmbedded session, BaseParser iQueryToParse,
       final String iRoot);
 
   @Nullable

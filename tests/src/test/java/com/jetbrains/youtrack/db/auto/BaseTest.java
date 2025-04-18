@@ -5,8 +5,8 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.util.Locale;
@@ -76,7 +76,7 @@ public abstract class BaseTest<T extends DatabaseSessionInternal> {
         var builder = new YouTrackDBConfigBuilderImpl();
         if (remoteDB) {
           youTrackDB =
-              new YouTrackDBImpl("remote:localhost", "root", SERVER_PASSWORD,
+              new YouTrackDBAbstract("remote:localhost", "root", SERVER_PASSWORD,
                   createConfig(builder));
         } else {
           final var buildDirectory = System.getProperty("buildDirectory", ".");

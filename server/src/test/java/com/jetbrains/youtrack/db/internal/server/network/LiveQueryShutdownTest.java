@@ -5,13 +5,11 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.concurrent.CountDownLatch;
@@ -52,21 +50,21 @@ public class LiveQueryShutdownTest {
         db.getSchema().createClass("Test");
         youTrackDd.live(LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin",
             "live select from Test",
-            new LiveQueryResultListener() {
+            new BasicLiveQueryResultListener() {
 
               @Override
-              public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+              public void onCreate(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
 
               }
 
               @Override
-              public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-                  @Nonnull Result after) {
+              public void onUpdate(@Nonnull DatabaseSession session, @Nonnull BasicResult before,
+                  @Nonnull BasicResult after) {
 
               }
 
               @Override
-              public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+              public void onDelete(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
 
               }
 

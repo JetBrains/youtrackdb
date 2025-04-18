@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransacationMetadataHolder;
@@ -22,14 +22,14 @@ import org.junit.Test;
 
 public class TransactionMetadataTest {
 
-  private YouTrackDBImpl youTrackDB;
+  private YouTrackDBAbstract youTrackDB;
   private DatabaseSessionInternal db;
   private static final String DB_NAME = TransactionMetadataTest.class.getSimpleName();
 
   @Before
   public void before() {
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");

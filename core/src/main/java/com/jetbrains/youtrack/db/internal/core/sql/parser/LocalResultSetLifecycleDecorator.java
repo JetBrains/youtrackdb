@@ -75,7 +75,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   }
 
   @Override
-  public ExecutionPlan getExecutionPlan() {
+  public @Nonnull ExecutionPlan getExecutionPlan() {
     return entity.getExecutionPlan();
   }
 

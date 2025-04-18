@@ -40,6 +40,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -79,7 +80,7 @@ public class FrontendTransactionImpl implements
   private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
   protected TXSTATUS status = TXSTATUS.INVALID;
 
   protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
@@ -117,17 +118,17 @@ public class FrontendTransactionImpl implements
   protected boolean sentToServer = false;
   private final boolean readOnly;
 
-  public FrontendTransactionImpl(final DatabaseSessionInternal iDatabase) {
+  public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
   }
 
-  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, boolean readOnly) {
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, boolean readOnly) {
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
   }
 
-  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long txId,
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
       boolean readOnly) {
     this.session = session;
     this.id = txId;
@@ -135,7 +136,7 @@ public class FrontendTransactionImpl implements
   }
 
 
-  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long id) {
+  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long id) {
     this.session = session;
     this.id = id;
     readOnly = false;
@@ -1242,11 +1243,11 @@ public class FrontendTransactionImpl implements
   }
 
   @Nonnull
-  public final DatabaseSessionInternal getDatabaseSession() {
+  public final DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 
-  public void setSession(@Nonnull DatabaseSessionInternal session) {
+  public void setSession(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
   }
 

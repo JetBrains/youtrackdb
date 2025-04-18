@@ -281,7 +281,6 @@ public class TokenHandlerImpl implements TokenHandler {
       }
       payload.setExpiry(curTime + sessionInMills);
       payload.setProtocolVersion(data.protocolVersion);
-      payload.setSerializer(data.getSerializationImpl());
       payload.setDriverName(data.driverName);
       payload.setDriverVersion(data.driverVersion);
       token.setPayload(payload);
@@ -311,7 +310,6 @@ public class TokenHandlerImpl implements TokenHandler {
       final var data = new NetworkProtocolData();
       // data.clientId = binary.get;
       data.protocolVersion = binary.getProtocolVersion();
-      data.setSerializationImpl(binary.getSerializer());
       data.driverName = binary.getDriverName();
       data.driverVersion = binary.getDriverVersion();
       data.serverUser = binary.isServerUser();

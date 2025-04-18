@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -30,7 +31,6 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
@@ -233,7 +233,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     throw new UnsupportedOperationException();
   }
 
-  default Map<String, QueryDatabaseState> getActiveQueries() {
+  default Map<String, QueryDatabaseState<?>> getActiveQueries() {
     throw new UnsupportedOperationException();
   }
 
@@ -490,18 +490,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void setUser(SecurityUser user);
 
   void resetInitialization();
-
-  /**
-   * Returns the database owner. Used in wrapped instances to know the up level ODatabase instance.
-   *
-   * @return Returns the database owner.
-   */
-  DatabaseSessionInternal getDatabaseOwner();
-
-  /**
-   * Internal. Sets the database owner.
-   */
-  DatabaseSessionInternal setDatabaseOwner(DatabaseSessionInternal iOwner);
 
   /**
    * Internal method. Don't call it directly unless you're building an internal component.

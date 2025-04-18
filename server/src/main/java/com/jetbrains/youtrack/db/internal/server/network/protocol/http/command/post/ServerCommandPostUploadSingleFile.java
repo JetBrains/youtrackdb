@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
@@ -45,7 +46,7 @@ public class ServerCommandPostUploadSingleFile extends
   protected String fileName;
   protected String fileType;
   protected long now;
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionEmbedded database;
 
   @Override
   public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {

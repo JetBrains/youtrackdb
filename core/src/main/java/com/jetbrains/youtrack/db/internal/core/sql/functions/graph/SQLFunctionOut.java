@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -26,19 +27,19 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+      final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
     return v2v(graph, record, Direction.OUT, labels);
   }
 
   @Override
-  protected Object move(DatabaseSessionInternal db,
+  protected Object move(DatabaseSessionEmbedded db,
       Relation<?> bidirectionalRelation, String[] labels) {
     throw new UnsupportedOperationException(
         "Function 'out' is not supported for bidirectional links");
   }
 
   protected Object move(
-      final DatabaseSessionInternal graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final String[] iLabels,
       Iterable<Identifiable> iPossibleResults) {
@@ -66,7 +67,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
 
   @Nullable
   private static Object fetchFromIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Identifiable iFrom,
       Iterable<Identifiable> iTo,
       String[] iEdgeTypes) {

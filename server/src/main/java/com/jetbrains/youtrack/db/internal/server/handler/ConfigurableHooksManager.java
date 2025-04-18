@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.server.handler;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -82,7 +82,7 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
           final RecordHook h;
           Constructor constructor = null;
           try {
-            constructor = klass.getConstructor(DatabaseSession.class);
+            constructor = klass.getConstructor(BasicDatabaseSession.class);
           } catch (NoSuchMethodException ex) {
             // Ignore
           }

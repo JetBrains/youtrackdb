@@ -5,20 +5,17 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.Assertions;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -60,24 +56,9 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions();
     if (serializerVersion < numOfRegistretedSerializers) {
       serializer = new RecordSerializerBinary(serializerVersion);
-    } else if (serializerVersion == numOfRegistretedSerializers) {
-      serializer = new RecordSerializerNetworkBase();
-    } else if (serializerVersion == numOfRegistretedSerializers + 1) {
-      serializer = new RecordSerializerNetworkV37();
     }
 
     this.serializerVersion = serializerVersion;
-  }
-
-  @Before
-  public void createSerializer() {
-    // we want new instance before method only for network serializers
-    if (serializerVersion == RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions()) {
-      serializer = new RecordSerializerNetworkBase();
-    } else if (serializerVersion
-        == RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions() + 1) {
-      serializer = new RecordSerializerNetworkV37();
-    }
   }
 
   @Test
@@ -242,12 +223,12 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @SuppressWarnings({"rawtypes", "unchecked", "OverwrittenKey"})
   @Test
   public void testSimpleLiteralSet() throws InterruptedException {
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute(
           "create database testSimpleLiteralSet memory users(admin identified by 'adminpwd' role"
               + " admin)");
-      try (var session = (DatabaseSessionInternal) ctx.open("testSimpleLiteralSet", "admin",
+      try (var session = (DatabaseSessionEmbedded) ctx.open("testSimpleLiteralSet", "admin",
           "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
@@ -338,10 +319,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Test
   public void testLinkCollections() {
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
         var linkSet = session.newLinkSet();
@@ -532,10 +513,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @Test
   public void testMapOfLink() {
     // needs a database because of the lazy loading
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.begin();
         var document = (EntityImpl) session.newEntity();
 
@@ -557,10 +538,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Test
   public void testDocumentSimple() {
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
-      try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
+      try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.createClass("TestClass");
 
         session.begin();
@@ -784,29 +765,6 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     assertEquals(document.propertyNames().length, extr.propertyNames().length);
     session.rollback();
-  }
-
-  @Test
-  public void testPartialNotFound() {
-    // this test want to do only for RecordSerializerNetworkV37
-    if (serializer instanceof RecordSerializerNetworkV37) {
-      session.begin();
-      var document = (EntityImpl) session.newEntity();
-      document.setProperty("name", "name");
-      document.setProperty("age", 20);
-      document.setProperty("youngAge", (short) 20);
-      document.setProperty("oldAge", (long) 20);
-
-      var res = serializer.toStream(session, document);
-      var extr = (EntityImpl) session.newEntity();
-      serializer.fromStream(session, res, extr, new String[]{});
-
-      assertEquals(document.getProperty("name"), extr.<Object>getProperty("name"));
-      assertEquals(document.<Object>getProperty("age"), extr.getProperty("age"));
-      assertEquals(document.<Object>getProperty("youngAge"), extr.getProperty("youngAge"));
-      assertEquals(document.<Object>getProperty("oldAge"), extr.getProperty("oldAge"));
-      session.rollback();
-    }
   }
 
   @Test

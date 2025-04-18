@@ -6,16 +6,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
@@ -35,7 +35,7 @@ public class YouTrackDBRemoteTest {
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
   private YouTrackDBServer server;
 
-  private YouTrackDBImpl factory;
+  private YouTrackDBAbstract factory;
 
   @Before
   public void before() throws Exception {
@@ -55,7 +55,7 @@ public class YouTrackDBRemoteTest {
                 300_000)
             .build();
 
-    factory = new YouTrackDBImpl("remote:localhost", "root", "root", config);
+    factory = new YouTrackDBAbstract("remote:localhost", "root", "root", config);
   }
 
   @Test
@@ -242,7 +242,7 @@ public class YouTrackDBRemoteTest {
   @Test
   public void testCopyOpenedDatabase() {
     factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    DatabaseSession db1;
+    BasicDatabaseSession db1;
     try (var db =
         (DatabaseSessionInternal) factory.open("test", "admin", "admin")) {
       db1 = db.copy();

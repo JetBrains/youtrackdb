@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -43,6 +44,8 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -142,12 +145,12 @@ public class EntitySerializerDelta {
     }
   }
 
-  public void deserialize(DatabaseSessionInternal session, byte[] content, EntityImpl toFill) {
+  public void deserialize(DatabaseSessionEmbedded session, byte[] content, EntityImpl toFill) {
     var bytesContainer = new BytesContainer(content);
     deserialize(session, toFill, bytesContainer);
   }
 
-  private void deserialize(DatabaseSessionInternal session, final EntityImpl entity,
+  private void deserialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     final var className = readString(bytes);
     if (!className.isEmpty()) {
@@ -171,13 +174,13 @@ public class EntitySerializerDelta {
     }
   }
 
-  public void deserializeDelta(DatabaseSessionInternal session, byte[] content,
+  public void deserializeDelta(DatabaseSessionEmbedded session, byte[] content,
       EntityImpl toFill) {
     var bytesContainer = new BytesContainer(content);
     deserializeDelta(session, bytesContainer, toFill);
   }
 
-  public void deserializeDelta(DatabaseSessionInternal session, BytesContainer bytes,
+  public void deserializeDelta(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityImpl toFill) {
     final var className = readString(bytes);
     if (!className.isEmpty() && toFill != null) {
@@ -202,7 +205,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private void deserializeDeltaEntry(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeDeltaEntry(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityImpl toFill) {
     var name = readString(bytes);
     var type = readNullableType(bytes);
@@ -215,7 +218,7 @@ public class EntitySerializerDelta {
     deserializeDeltaValue(session, bytes, type, toUpdate);
   }
 
-  private void deserializeDeltaValue(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeDeltaValue(DatabaseSessionEmbedded session, BytesContainer bytes,
       PropertyTypeInternal type, Object toUpdate) {
     switch (type) {
       case EMBEDDEDLIST:
@@ -373,7 +376,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private void deserializeDeltaEmbeddedMap(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeDeltaEmbeddedMap(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityEmbeddedMapImpl<Object> toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
@@ -431,7 +434,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private void deserializeDeltaEmbeddedSet(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeDeltaEmbeddedSet(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityEmbeddedSetImpl<Object> toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
@@ -487,7 +490,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private void deserializeDeltaEmbeddedList(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeDeltaEmbeddedList(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityEmbeddedListImpl<Object> toUpdate) {
     var rootChanges = VarIntSerializer.readAsLong(bytes);
     while (rootChanges-- > 0) {
@@ -545,7 +548,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  private void deserializeFullEntry(DatabaseSessionInternal session, BytesContainer bytes,
+  private void deserializeFullEntry(DatabaseSessionEmbedded session, BytesContainer bytes,
       EntityImpl toFill) {
     var name = readString(bytes);
     var type = readNullableType(bytes);
@@ -1207,7 +1210,7 @@ public class EntitySerializerDelta {
     }
   }
 
-  public Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes,
+  public Object deserializeValue(DatabaseSessionEmbedded session, BytesContainer bytes,
       PropertyTypeInternal type,
       RecordElement owner) {
     Object value = null;
@@ -1305,7 +1308,7 @@ public class EntitySerializerDelta {
     return value;
   }
 
-  private EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal session,
+  private EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded session,
       final BytesContainer bytes, final RecordElement owner) {
     var found = new EntityEmbeddedListImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
@@ -1320,7 +1323,7 @@ public class EntitySerializerDelta {
     return found;
   }
 
-  private EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal session,
+  private EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded session,
       final BytesContainer bytes, final RecordElement owner) {
     var found = new EntityEmbeddedSetImpl<>(owner);
     final var items = VarIntSerializer.readAsInteger(bytes);
@@ -1352,7 +1355,7 @@ public class EntitySerializerDelta {
   }
 
   private Map<String, Identifiable> readLinkMap(
-      DatabaseSessionInternal session, final BytesContainer bytes, final RecordElement owner) {
+      DatabaseSessionEmbedded session, final BytesContainer bytes, final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     var result = new EntityLinkMapIml(owner);
     while ((size--) > 0) {
@@ -1369,7 +1372,7 @@ public class EntitySerializerDelta {
     return result;
   }
 
-  private Object readEmbeddedMap(DatabaseSessionInternal session, final BytesContainer bytes,
+  private Object readEmbeddedMap(DatabaseSessionEmbedded session, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     final var result = new EntityEmbeddedMapImpl<>(owner);
@@ -1387,22 +1390,120 @@ public class EntitySerializerDelta {
 
   private static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
       BytesContainer bytes) {
-    return RecordSerializerNetworkV37.INSTANCE.readLinkSet(session, bytes);
+    var b = bytes.bytes[bytes.offset];
+    bytes.skip(1);
+    if (b == 1) {
+      var bag = new EntityLinkSetImpl(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
+
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
+      }
+
+      bag.disableTracking(null);
+      bag.transactionClear();
+      return bag;
+    } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
+      }
+      return new EntityLinkSetImpl(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, 1));
+    }
   }
 
   private static void writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
       EntityLinkSetImpl linkSet) {
-    RecordSerializerNetworkV37.INSTANCE.writeLinkSet(session, bytes, linkSet);
+    if (linkSet.isToSerializeEmbedded()) {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 1;
+      VarIntSerializer.write(bytes, linkSet.size());
+
+      for (var itemValue : linkSet) {
+        writeOptimizedLink(session, bytes, itemValue);
+      }
+    } else {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 2;
+
+      var delegate = (BTreeBasedLinkBag) linkSet.getDelegate();
+      var pointer = delegate.getCollectionPointer();
+
+      if (pointer == null || !pointer.isValid()) {
+        throw new IllegalStateException("LinkSet with invalid pointer was found");
+      }
+
+      VarIntSerializer.write(bytes, delegate.size());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
+    }
   }
 
 
   private static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
-    return RecordSerializerNetworkV37.INSTANCE.readLinkBag(session, bytes);
+    var b = bytes.bytes[bytes.offset];
+    bytes.skip(1);
+    if (b == 1) {
+      var bag = new RidBag(session);
+      // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
+      bag.enableTracking(null);
+
+      var size = VarIntSerializer.readAsInteger(bytes);
+      for (var i = 0; i < size; i++) {
+        Identifiable id = readOptimizedLink(session, bytes);
+        bag.add(id.getIdentity());
+      }
+
+      bag.disableTracking(null);
+      bag.transactionClear();
+      return bag;
+    } else {
+      var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+      var fileId = VarIntSerializer.readAsLong(bytes);
+      var linkBagId = VarIntSerializer.readAsLong(bytes);
+
+      var pointer = new LinkBagPointer(fileId, linkBagId);
+      if (!pointer.isValid()) {
+        throw new IllegalStateException("LinkBag with invalid pointer was found");
+      }
+      return new RidBag(session,
+          new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
+    }
   }
 
   private static void writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
       RidBag bag) {
-    RecordSerializerNetworkV37.INSTANCE.writeLinkBag(session, bytes, bag);
+    if (bag.isToSerializeEmbedded()) {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 1;
+      VarIntSerializer.write(bytes, bag.size());
+
+      for (var itemValue : bag) {
+        writeOptimizedLink(session, bytes, itemValue);
+      }
+    } else {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 2;
+
+      var delegate = (BTreeBasedLinkBag) bag.getDelegate();
+      var pointer = delegate.getCollectionPointer();
+
+      if (pointer == null || !pointer.isValid()) {
+        throw new IllegalStateException("RidBag with invalid pointer was found");
+      }
+
+      VarIntSerializer.write(bytes, delegate.size());
+      VarIntSerializer.write(bytes, pointer.fileId());
+      VarIntSerializer.write(bytes, pointer.linkBagId());
+    }
   }
 
   public static void writeNullableType(BytesContainer bytes, PropertyTypeInternal type) {
@@ -1442,7 +1543,13 @@ public class EntitySerializerDelta {
       VarIntSerializer.write(bytes, -2);
       VarIntSerializer.write(bytes, -2);
     } else {
-      RecordSerializerNetworkV37.writeOptimizedLink(session, bytes, link);
+      var rid = link.getIdentity();
+      if (!rid.isPersistent()) {
+        rid = session.refreshRid(rid);
+      }
+
+      VarIntSerializer.write(bytes, rid.getCollectionId());
+      VarIntSerializer.write(bytes, rid.getCollectionPosition());
     }
   }
 }

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.common.log;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -68,12 +68,12 @@ public abstract class SL4JLogManager {
             });
 
     if (log.isEnabledForLevel(level)) {
-      var dbName = fetchDbName(requester, exception);
+      var dbURL = fetchDbName(requester, exception);
 
       Marker dbMarker = null;
-      if (dbName != null) {
-        message = "[" + dbName + "] " + message;
-        dbMarker = MarkerFactory.getMarker("youtrackdb:" + dbName);
+      if (dbURL != null) {
+        message = "[" + dbURL + "] " + message;
+        dbMarker = MarkerFactory.getMarker("youtrackdb:" + dbURL);
       }
 
       // USE THE LOG
@@ -106,7 +106,7 @@ public abstract class SL4JLogManager {
     try {
       if (requester instanceof Storage) {
         dbName = ((Storage) requester).getName();
-      } else if (requester instanceof DatabaseSession databaseSession) {
+      } else if (requester instanceof BasicDatabaseSession<?, ?> databaseSession) {
         dbName = databaseSession.getDatabaseName();
       } else if (exception instanceof BaseException baseException) {
         dbName = baseException.getDbName();

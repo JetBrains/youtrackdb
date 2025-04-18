@@ -1,24 +1,21 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
 public class LiveQueryClientListener {
 
   @Nonnull
   private final DatabasePoolInternal pool;
-  private final LiveQueryResultListener listener;
+  private final BasicLiveQueryResultListener listener;
 
   public LiveQueryClientListener(@Nonnull DatabasePoolInternal pool,
-      LiveQueryResultListener listener) {
+      BasicLiveQueryResultListener listener) {
     this.pool = pool;
     this.listener = listener;
   }

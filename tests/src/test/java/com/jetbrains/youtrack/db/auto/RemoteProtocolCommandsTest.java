@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.AssertJUnit.assertTrue;
 
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;

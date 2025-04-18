@@ -2,16 +2,16 @@ package com.jetbrains.youtrack.db.internal.server.query;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.token.TokenHandlerImpl;
@@ -28,8 +28,8 @@ public class RemoteTokenExpireTest {
 
   private static final String SERVER_DIRECTORY = "./target/token";
   private YouTrackDBServer server;
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSession session;
+  private YouTrackDBAbstract youTrackDB;
+  private BasicDatabaseSession session;
   private int oldPageSize;
 
   private final long expireTimeout = 500;
@@ -47,7 +47,7 @@ public class RemoteTokenExpireTest {
     var token = (TokenHandlerImpl) server.getTokenHandler();
     token.setSessionInMills(expireTimeout);
 
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
@@ -64,7 +64,7 @@ public class RemoteTokenExpireTest {
             .addGlobalConfigurationParameter(GlobalConfiguration.NETWORK_SOCKET_RETRY, 0)
             .addGlobalConfigurationParameter(QUERY_REMOTE_RESULTSET_PAGE_SIZE, 1).build();
 
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root", config);
+    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root", config);
     session = youTrackDB.open(RemoteTokenExpireTest.class.getSimpleName(), "admin", "admin",
         config);
   }
@@ -183,8 +183,8 @@ public class RemoteTokenExpireTest {
 
   @Test
   public void itShouldNotFailWithRoundRobin() {
-    SessionPool pool =
-        new SessionPoolImpl(
+    var pool =
+        new SessionPoolImpl<RemoteDatabaseSession>(
             youTrackDB,
             RemoteTokenExpireTest.class.getSimpleName(),
             "admin",
@@ -192,7 +192,7 @@ public class RemoteTokenExpireTest {
             (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(
                     GlobalConfiguration.CLIENT_CONNECTION_STRATEGY,
-                    StorageRemote.CONNECTION_STRATEGY.ROUND_ROBIN_CONNECT)
+                    RemoteCommandsOrchestratorImpl.CONNECTION_STRATEGY.ROUND_ROBIN_CONNECT)
                 .build());
 
     var session = pool.acquire();

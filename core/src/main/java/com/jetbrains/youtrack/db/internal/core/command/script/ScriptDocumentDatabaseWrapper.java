@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -223,10 +223,6 @@ public class ScriptDocumentDatabaseWrapper {
 
   public <RET extends DBRecord> RET load(final String iRidAsString) {
     return session.load(new RecordId(iRidAsString));
-  }
-
-  public DatabaseSession setDatabaseOwner(DatabaseSessionInternal iOwner) {
-    return session.setDatabaseOwner(iOwner);
   }
 
   public Object setProperty(String iName, Object iValue) {

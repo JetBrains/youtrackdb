@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -17,7 +17,7 @@ import org.junit.Test;
 
 public class DBRecordLazyListTest {
 
-  private YouTrackDB youTrackDb;
+  private BasicYouTrackDB youTrackDb;
   private DatabaseSessionInternal db;
 
   @Before

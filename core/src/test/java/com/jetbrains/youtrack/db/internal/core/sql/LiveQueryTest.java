@@ -20,24 +20,22 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.sql.query.LiveResultListener;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
@@ -49,16 +47,17 @@ import org.junit.Test;
  */
 public class LiveQueryTest {
 
-  private YouTrackDBImpl odb;
-  private DatabaseSessionInternal session;
+  private YouTrackDB odb;
+  private DatabaseSessionEmbedded session;
 
   @Before
   public void before() {
-    odb = new YouTrackDBImpl("memory:", YouTrackDBConfig.defaultConfig());
+    odb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(LiveQueryTest.class),
+        YouTrackDBConfig.defaultConfig());
     odb.execute(
         "create database LiveQueryTest memory users ( admin identified by 'admin' role admin,"
             + " reader identified by 'reader' role reader)");
-    session = (DatabaseSessionInternal) odb.open("LiveQueryTest", "admin", "admin");
+    session = (DatabaseSessionEmbedded) odb.open("LiveQueryTest", "admin", "admin");
   }
 
   @After
@@ -77,7 +76,7 @@ public class LiveQueryTest {
     }
 
     public List<RecordOperation> ops = new ArrayList<RecordOperation>();
-    public List<Result> created = new ArrayList<Result>();
+    public List<BasicResult> created = new ArrayList<BasicResult>();
 
     @Override
     public void onLiveResult(DatabaseSessionInternal db, int iLiveToken, RecordOperation iOp)
@@ -95,18 +94,18 @@ public class LiveQueryTest {
     }
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull Result data) {
       created.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull Result before,
         @Nonnull Result after) {
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull Result data) {
     }
 
     @Override

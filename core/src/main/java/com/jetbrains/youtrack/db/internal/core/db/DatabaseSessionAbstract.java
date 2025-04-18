@@ -22,6 +22,13 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -31,7 +38,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
@@ -46,12 +52,6 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -102,7 +102,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
@@ -138,8 +138,7 @@ import javax.annotation.Nullable;
  */
 @SuppressWarnings("unchecked")
 public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> extends
-    ListenerManger<SessionListener>
-    implements DatabaseSessionInternal {
+    ListenerManger<SessionListener> implements DatabaseSessionInternal {
 
   protected final HashMap<String, Object> properties = new HashMap<>();
   protected final HashSet<Identifiable> inHook = new HashSet<>();
@@ -162,8 +161,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   private boolean prefetchRecords;
 
-  protected ConcurrentHashMap<String, QueryDatabaseState> activeQueries = new ConcurrentHashMap<>();
-  protected LinkedList<QueryDatabaseState> queryState = new LinkedList<>();
+  protected ConcurrentHashMap<String, QueryDatabaseState<ResultSet>> activeQueries = new ConcurrentHashMap<>();
+  protected LinkedList<QueryDatabaseState<ResultSet>> queryState = new LinkedList<>();
   private Map<UUID, ObjectIntPair<LinkBagPointer>> collectionsChanges;
 
   // database stats!
@@ -178,26 +177,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected final ThreadLocal<DatabaseSessionInternal> activeSession = new ThreadLocal<>();
 
+
   protected DatabaseSessionAbstract() {
     // DO NOTHING IS FOR EXTENDED OBJECTS
     super(false);
-  }
-
-  /**
-   * @return default serializer which is used to serialize documents. Default serializer is common
-   * for all database instances.
-   */
-  public static RecordSerializer getDefaultSerializer() {
-    return RecordSerializerFactory.instance().getDefaultRecordSerializer();
-  }
-
-  /**
-   * Sets default serializer. The default serializer is common for all database instances.
-   *
-   * @param iDefaultSerializer new default serializer value
-   */
-  public static void setDefaultSerializer(RecordSerializer iDefaultSerializer) {
-    RecordSerializerFactory.instance().setDefaultRecordSerializer(iDefaultSerializer);
   }
 
   public void callOnOpenListeners() {
@@ -217,7 +200,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
         it.hasNext(); ) {
-      it.next().onOpen(getDatabaseOwner());
+      it.next().onOpen(this);
     }
   }
 
@@ -226,14 +209,14 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
         it.hasNext(); ) {
-      it.next().onClose(getDatabaseOwner());
+      it.next().onClose(this);
     }
   }
 
   private void wakeupOnCloseListeners() {
     for (var listener : getListenersCopy()) {
       try {
-        listener.onClose(getDatabaseOwner());
+        listener.onClose(this);
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during call of database listener", e);
       }
@@ -315,29 +298,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     assert assertIfNotActive();
     checkOpenness();
     return metadata;
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public DatabaseSessionInternal getDatabaseOwner() {
-    assert assertIfNotActive();
-    var current = databaseOwner;
-    while (current != null && current != this && current.getDatabaseOwner() != current) {
-      current = current.getDatabaseOwner();
-    }
-    return current;
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public DatabaseSessionInternal setDatabaseOwner(DatabaseSessionInternal iOwner) {
-    assert assertIfNotActive();
-    databaseOwner = iOwner;
-    return this;
   }
 
   /**
@@ -814,368 +774,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-    checkOpenness();
-
-    var firstPosition = getStorage().ceilingPhysicalPositions(this, collectionId,
-        new PhysicalPosition(0), 1);
-    var firstTxRid = currentTx.getFirstRid(collectionId);
-
-    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
-      return null;
-    }
-
-    RecordId firstRid;
-    if (firstPosition == null || firstPosition.length == 0) {
-      firstRid = firstTxRid;
-    } else if (firstTxRid == null) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else {
-      firstRid = firstTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(firstRid)) {
-      firstRid = fetchNextRid(firstRid);
-    }
-
-    if (firstRid == null) {
-      return null;
-    }
-
-    var recordId = firstRid;
-    while (true) {
-      var result = executeReadRecord(recordId, false, true, false);
-
-      if (result.recordAbstract() == null) {
-        if (result.nextRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.nextRecordId();
-          continue;
-        }
-      }
-
-      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
-    }
-  }
-
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-    checkOpenness();
-
-    var lastPosition = getStorage().floorPhysicalPositions(this, collectionId,
-        new PhysicalPosition(Long.MAX_VALUE), 1);
-    var lastTxRid = currentTx.getLastRid(collectionId);
-
-    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
-      return null;
-    }
-
-    RecordId lastRid;
-    if (lastPosition == null || lastPosition.length == 0) {
-      lastRid = lastTxRid;
-    } else if (lastTxRid == null) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else {
-      lastRid = lastTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(lastRid)) {
-      lastRid = fetchPreviousRid(lastRid);
-    }
-
-    if (lastRid == null) {
-      return null;
-    }
-
-    var recordId = lastRid;
-    while (true) {
-      var result = executeReadRecord(recordId, true, false, false);
-      if (result.recordAbstract() == null) {
-        if (result.previousRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.previousRecordId();
-          continue;
-        }
-      }
-      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
-    }
-  }
-
-  @Nullable
-  public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
-      boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    checkOpenness();
-    assert assertIfNotActive();
-
-    RecordId previousRid = null;
-    RecordId nextRid = null;
-    getMetadata().makeThreadLocalSchemaSnapshot();
-    try {
-      checkSecurity(
-          Rule.ResourceGeneric.COLLECTION,
-          Role.PERMISSION_READ,
-          getCollectionNameById(rid.getCollectionId()));
-      // SEARCH IN LOCAL TX
-      var txInternal = getTransactionInternal();
-      if (txInternal.isDeletedInTx(rid)) {
-        // DELETED IN TX
-        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-            throwExceptionIfRecordNotFound);
-      }
-
-      var record = getTransactionInternal().getRecord(rid);
-      var cachedRecord = localCache.findRecord(rid);
-      if (record == null) {
-        record = cachedRecord;
-      }
-      if (record != null && record.isUnloaded()) {
-        throw new IllegalStateException(
-            "Unloaded record with rid " + rid + " was found in local cache");
-      }
-
-      if (record != null) {
-        if (beforeReadOperations(record)) {
-          return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-              throwExceptionIfRecordNotFound);
-        }
-
-        afterReadOperations(record);
-        if (record instanceof EntityImpl entity) {
-          entity.checkClass(this);
-        }
-
-        localCache.updateRecord(record, this);
-
-        assert !record.isUnloaded();
-        assert record.getSession() == this;
-
-        if (fetchPreviousRid) {
-          previousRid = fetchPreviousRid(rid);
-        }
-
-        if (fetchNextRid) {
-          nextRid = fetchNextRid(rid);
-        }
-
-        return new LoadRecordResult(record, previousRid, nextRid);
-      }
-
-      loadedRecordsCount++;
-
-      final RawBuffer recordBuffer;
-      if (!rid.isValidPosition()) {
-        recordBuffer = null;
-      } else {
-        try {
-          var readRecordResult =
-              getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
-          recordBuffer = readRecordResult.buffer();
-
-          previousRid = readRecordResult.previousRecordId();
-          nextRid = readRecordResult.nextRecordId();
-        } catch (RecordNotFoundException e) {
-          if (throwExceptionIfRecordNotFound) {
-            throw e;
-          } else {
-            if (fetchNextRid) {
-              nextRid = fetchNextRid(rid);
-            }
-            if (fetchPreviousRid) {
-              previousRid = fetchPreviousRid(rid);
-            }
-
-            return new LoadRecordResult(null, previousRid, nextRid);
-          }
-        }
-      }
-
-      record =
-          YouTrackDBEnginesManager.instance()
-              .getRecordFactoryManager()
-              .newInstance(recordBuffer.recordType, rid, this);
-      final var rec = record;
-      rec.unsetDirty();
-
-      if (record.getRecordType() != recordBuffer.recordType) {
-        throw new DatabaseException(getDatabaseName(),
-            "Record type is different from the one in the database");
-      }
-
-      record.recordSerializer = serializer;
-      record.fill(rid, recordBuffer.version, recordBuffer.buffer, false);
-
-      if (record instanceof EntityImpl entity) {
-        entity.checkClass(this);
-      }
-
-      localCache.updateRecord(record, this);
-      record.fromStream(recordBuffer.buffer);
-
-      if (beforeReadOperations(record)) {
-        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
-            throwExceptionIfRecordNotFound);
-      }
-
-      afterReadOperations(record);
-
-      assert !record.isUnloaded();
-      assert record.getSession() == this;
-
-      if (fetchPreviousRid) {
-        var previousTxRid = currentTx.getPreviousRidInCollection(rid);
-
-        if (previousRid == null) {
-          if (previousTxRid != null) {
-            previousRid = previousTxRid;
-          }
-        } else if (previousTxRid != null && previousTxRid.compareTo(previousRid) > 0) {
-          previousRid = previousTxRid;
-        }
-
-        if (previousRid != null && currentTx.isDeletedInTx(previousRid)) {
-          previousRid = fetchPreviousRid(previousRid);
-        }
-      }
-
-      if (fetchNextRid) {
-        var nextTxRid = currentTx.getNextRidInCollection(rid);
-
-        if (nextRid == null) {
-          if (nextTxRid != null) {
-            nextRid = nextTxRid;
-          }
-        } else if (nextTxRid != null && nextTxRid.compareTo(nextRid) < 0) {
-          nextRid = nextTxRid;
-        }
-
-        if (nextRid != null && currentTx.isDeletedInTx(nextRid)) {
-          nextRid = fetchNextRid(nextRid);
-        }
-      }
-
-      return new LoadRecordResult(record, previousRid, nextRid);
-    } catch (RecordNotFoundException t) {
-      throw t;
-    } catch (Exception t) {
-      if (rid.isTemporary()) {
-        throw BaseException.wrapException(
-            new DatabaseException(getDatabaseName(),
-                "Error on retrieving record using temporary RID: " + rid), t, getDatabaseName());
-      } else {
-        throw BaseException.wrapException(
-            new DatabaseException(getDatabaseName(),
-                "Error on retrieving record "
-                    + rid
-                    + " (collection: "
-                    + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
-                    + ")"),
-            t, getDatabaseName());
-      }
-    } finally {
-      getMetadata().clearThreadLocalSchemaSnapshot();
-    }
-  }
-
-  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
-      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    RecordId previousRid = null;
-    RecordId nextRid = null;
-    if (throwExceptionIfRecordNotFound) {
-      throw new RecordNotFoundException(getDatabaseName(), rid);
-    } else {
-      if (fetchNextRid) {
-        nextRid = fetchNextRid(rid);
-      }
-      if (fetchPreviousRid) {
-        previousRid = fetchPreviousRid(rid);
-      }
-
-      return new LoadRecordResult(null, previousRid, nextRid);
-    }
-  }
-
-  @Nullable
-  private RecordId fetchNextRid(RecordId rid) {
-    RecordId nextRid;
-    while (true) {
-      var higherPositions = getStorage().higherPhysicalPositions(this, rid.getCollectionId(),
-          new PhysicalPosition(rid.getCollectionPosition()), 1);
-      var txNextRid = currentTx.getNextRidInCollection(rid);
-
-      if (higherPositions != null && higherPositions.length > 0) {
-        if (txNextRid == null) {
-          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
-        } else if (higherPositions[0].collectionPosition > txNextRid.getCollectionPosition()) {
-          nextRid = txNextRid;
-        } else {
-          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
-        }
-      } else {
-        nextRid = txNextRid;
-      }
-
-      if (nextRid == null) {
-        return null;
-      }
-
-      if (currentTx.isDeletedInTx(nextRid)) {
-        rid = nextRid;
-        continue;
-      }
-
-      break;
-    }
-
-    return nextRid;
-  }
-
-  @Nullable
-  private RecordId fetchPreviousRid(RecordId rid) {
-    RecordId previousRid;
-
-    while (true) {
-      var lowerPositions = getStorage().lowerPhysicalPositions(this, rid.getCollectionId(),
-          new PhysicalPosition(rid.getCollectionPosition()), 1);
-      var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
-      if (lowerPositions != null && lowerPositions.length > 0) {
-        if (txPreviousRid == null) {
-          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
-        } else if (lowerPositions[0].collectionPosition < txPreviousRid.getCollectionPosition()) {
-          previousRid = txPreviousRid;
-        } else {
-          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
-        }
-      } else {
-        previousRid = txPreviousRid;
-      }
-
-      if (previousRid == null) {
-        return null;
-      }
-
-      if (currentTx.isDeletedInTx(previousRid)) {
-        rid = previousRid;
-        continue;
-      }
-
-      break;
-    }
-    return previousRid;
-  }
-
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
@@ -1250,27 +848,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return collectionId;
   }
 
-  public FrontendTransaction begin() {
-    assert assertIfNotActive();
-
-    if (currentTx.isActive()) {
-      currentTx.beginInternal();
-      return currentTx;
-    }
-
-    begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
-    return currentTx;
-  }
-
-  public void beginReadOnly() {
-    assert assertIfNotActive();
-
-    if (currentTx.isActive()) {
-      return;
-    }
-
-    begin(newReadOnlyTxInstance(FrontendTransactionImpl.generateTxId()));
-  }
 
   public int begin(FrontendTransactionImpl transaction) {
     checkOpenness();
@@ -1301,22 +878,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return currentTx.beginInternal();
   }
 
-  protected FrontendTransactionImpl newTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendTransactionImpl(this);
-  }
-
-  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendTransactionImpl(this, true);
-  }
-
-
-  public void setDefaultTransactionMode() {
-    if (!(currentTx instanceof FrontendTransactionNoTx)) {
-      currentTx = new FrontendTransactionNoTx(this);
-    }
-  }
 
   /**
    * Creates a new EntityImpl.
@@ -1326,84 +887,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return newInstance(Entity.DEFAULT_CLASS_NAME);
   }
 
-  @Override
-  public EntityImpl newInternalInstance() {
-    assert assertIfNotActive();
-
-    var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
-    var rid = new ChangeableRecordId();
-
-    rid.setCollectionId(collectionId);
-
-    var entity = new EntityImpl(this, rid);
-    entity.setInternalStatus(RecordElement.STATUS.LOADED);
-
-    var tx = (FrontendTransactionImpl) currentTx;
-    tx.addRecordOperation(entity, RecordOperation.CREATED);
-
-    return entity;
-  }
-
-  @Override
-  public Blob newBlob(byte[] bytes) {
-    assert assertIfNotActive();
-
-    var blob = new RecordBytes(this, bytes);
-    blob.setInternalStatus(RecordElement.STATUS.LOADED);
-
-    var tx = (FrontendTransactionImpl) currentTx;
-    tx.addRecordOperation(blob, RecordOperation.CREATED);
-
-    return blob;
-  }
-
-  @Override
-  public Blob newBlob() {
-    assert assertIfNotActive();
-
-    var blob = new RecordBytes(this);
-    blob.setInternalStatus(RecordElement.STATUS.LOADED);
-
-    var tx = (FrontendTransactionImpl) currentTx;
-    tx.addRecordOperation(blob, RecordOperation.CREATED);
-
-    return blob;
-  }
-
-  /**
-   * Creates a entity with specific class.
-   *
-   * @param className the name of class that should be used as a class of created entity.
-   * @return new instance of entity.
-   */
-  @Override
-  public EntityImpl newInstance(final String className) {
-    assert assertIfNotActive();
-
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
-    if (cls == null) {
-      throw new IllegalArgumentException("Class " + className + " not found");
-    }
-
-    if (cls.isVertexType()) {
-      throw new IllegalArgumentException(
-          "The class " + cls.getName()
-              + " is a vertex type and cannot be used to create an entity, "
-              + "please use newVertex() method");
-    }
-    if (cls.isEdgeType()) {
-      throw new IllegalArgumentException(
-          "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
-              + "please use newStatefulEdge() method");
-    }
-    var entity = new EntityImpl(this, className);
-    entity.setInternalStatus(RecordElement.STATUS.LOADED);
-
-    currentTx.addRecordOperation(entity, RecordOperation.CREATED);
-    //init default property values, can not do that in constructor as it is not registerd in tx
-    entity.convertPropertiesToClassAndInitDefaultValues(entity.getImmutableSchemaClass(this));
-    return entity;
-  }
 
   @Override
   public Entity newEntity() {
@@ -1435,72 +918,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return newInstance(className);
   }
 
-
-  @Override
-  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
-    assert assertIfNotActive();
-    return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
-  }
-
-  @Override
-  public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
-    assert assertIfNotActive();
-    return new EmbeddedEntityImpl(schemaClass, this);
-  }
-
-  @Override
-  public EmbeddedEntity newEmbeddedEntity() {
-    assert assertIfNotActive();
-    return new EmbeddedEntityImpl(this);
-  }
-
-
   public Entity newEntity(SchemaClass clazz) {
     assert assertIfNotActive();
     return newInstance(clazz.getName());
-  }
-
-  public Vertex newVertex(final String className) {
-    assert assertIfNotActive();
-
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
-    if (cls == null) {
-      throw new IllegalArgumentException("Class " + className + " not found");
-    }
-    if (!cls.isVertexType()) {
-      throw new IllegalArgumentException(
-          "The class " + cls.getName()
-              + " is not a vertex type and cannot be used to create a vertex, "
-              + "please use newInstance() method");
-    }
-
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
-    var vertex = new VertexEntityImpl(this, className);
-    currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
-    vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
-
-    return vertex;
-  }
-
-  private StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
-    if (cls == null) {
-      throw new IllegalArgumentException("Class " + className + " not found");
-    }
-    if (!cls.isEdgeType()) {
-      throw new IllegalArgumentException(
-          "The class " + cls.getName()
-              + " is not an edge type and cannot be used to create a stateful edge, "
-              + "please use newInstance() method");
-    }
-
-    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
-    var edge = new StatefullEdgeEntityImpl(this, className);
-    currentTx.addRecordOperation(edge, RecordOperation.CREATED);
-
-    edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
-
-    return edge;
   }
 
   @Override
@@ -1512,35 +932,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return newVertex(type.getName());
   }
 
-  @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
-    assert assertIfNotActive();
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType()) {
-      throw new IllegalArgumentException(type + " is not a regular edge class");
-    }
-    if (cl.isAbstract()) {
-      throw new IllegalArgumentException(
-          type + " is an abstract class and can not be used for creation of regular edge");
-    }
-
-    return (StatefulEdge) addEdgeInternal(from, to, type, true);
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
-    assert assertIfNotActive();
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType()) {
-      throw new IllegalArgumentException(type + " is not a lightweight edge class");
-    }
-    if (!cl.isAbstract()) {
-      throw new IllegalArgumentException(
-          type + " is not an abstract class and can not be used for creation of lightweight edge");
-    }
-
-    return addEdgeInternal(from, to, type, false);
-  }
 
   @Override
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
@@ -1558,82 +949,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return newLightweightEdge(from, to, type.getName());
   }
 
-  private EdgeInternal addEdgeInternal(
-      final Vertex toVertex,
-      final Vertex inVertex,
-      String className,
-      boolean isRegular) {
-    Objects.requireNonNull(toVertex, "From vertex is null");
-    Objects.requireNonNull(inVertex, "To vertex is null");
-
-    EdgeInternal edge;
-    EntityImpl outEntity;
-    EntityImpl inEntity;
-
-    var outEntityModified = false;
-    if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
-      throw new RecordNotFoundException(getDatabaseName(),
-          toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
-    }
-
-    if (getTransactionInternal().isDeletedInTx(inVertex.getIdentity())) {
-      throw new RecordNotFoundException(getDatabaseName(),
-          inVertex.getIdentity(), "The vertex " + inVertex.getIdentity() + " has been deleted");
-    }
-
-    outEntity = (EntityImpl) toVertex;
-    inEntity = (EntityImpl) inVertex;
-
-    Schema schema = getMetadata().getImmutableSchemaSnapshot();
-    final var edgeType = schema.getClass(className);
-
-    if (edgeType == null) {
-      throw new IllegalArgumentException("Class " + className + " does not exist");
-    }
-
-    className = edgeType.getName();
-
-    var createLightweightEdge =
-        !isRegular
-            && (edgeType.isAbstract() || className.equals(EdgeInternal.CLASS_NAME));
-    if (!isRegular && !createLightweightEdge) {
-      throw new IllegalArgumentException(
-          "Cannot create lightweight edge for class " + className + " because it is not abstract");
-    }
-
-    final var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, className);
-    final var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, className);
-
-    if (createLightweightEdge) {
-      var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      var transaction2 = getActiveTransaction();
-      var transaction3 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction3.load(toVertex), transaction2.load(inVertex),
-          outFieldName);
-      var transaction = getActiveTransaction();
-      var transaction1 = getActiveTransaction();
-      VertexEntityImpl.createLink(this, transaction1.load(inVertex), transaction.load(toVertex),
-          inFieldName);
-      edge = lightWeightEdge;
-    } else {
-      var statefulEdge = newStatefulEdgeInternal(className);
-      var transaction = getActiveTransaction();
-      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, transaction.load(toVertex));
-      statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
-
-      if (!outEntityModified) {
-        // OUT-VERTEX ---> IN-VERTEX/EDGE
-        VertexEntityImpl.createLink(this, outEntity, statefulEdge, outFieldName);
-      }
-
-      // IN-VERTEX ---> OUT-VERTEX/EDGE
-      VertexEntityImpl.createLink(this, inEntity, statefulEdge, inFieldName);
-      edge = statefulEdge;
-    }
-    // OK
-
-    return edge;
-  }
 
   /**
    * {@inheritDoc}
@@ -2046,19 +1361,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
-  protected void init() {
-    assert assertIfNotActive();
-    currentTx = new FrontendTransactionNoTx(this);
-  }
-
   @Override
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
-
-    //noinspection deprecation
-    if (currentDatabase instanceof DatabaseDocumentTx databaseDocumentTx) {
-      currentDatabase = databaseDocumentTx.internal;
-    }
 
     if (currentDatabase != this) {
       throw new SessionNotActivatedException(getDatabaseName());
@@ -2088,18 +1393,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return new EdgeImpl(this, from, to, clazz);
   }
 
-  public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
-    assert assertIfNotActive();
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
-    if (cl == null || !cl.isEdgeType()) {
-      throw new IllegalArgumentException(iClassName + " is not an edge class");
-    }
-
-    return addEdgeInternal(from, to, iClassName, true);
-  }
-
-  public synchronized void queryStarted(String id, QueryDatabaseState state) {
+  public synchronized void queryStarted(String id, QueryDatabaseState<ResultSet> state) {
     assert assertIfNotActive();
 
     if (this.activeQueries.size() > 1 && this.activeQueries.size() % 10 == 0) {
@@ -2112,7 +1407,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
       if (LogManager.instance().isDebugEnabled()) {
         activeQueries.values().stream()
             .map(pendingQuery -> pendingQuery.getResultSet().getExecutionPlan())
-            .filter(Objects::nonNull)
             .forEach(plan -> LogManager.instance().debug(this, plan.toString()));
       }
     }
@@ -2139,10 +1433,11 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
-  public Map<String, QueryDatabaseState> getActiveQueries() {
+  public Map<String, QueryDatabaseState<?>> getActiveQueries() {
     assert assertIfNotActive();
 
-    return activeQueries;
+    //noinspection rawtypes
+    return (Map) activeQueries;
   }
 
   public ResultSet getActiveQuery(String id) {

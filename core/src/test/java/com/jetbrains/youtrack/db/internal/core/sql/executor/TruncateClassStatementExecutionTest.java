@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -175,8 +175,8 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     }
   }
 
-  private List<Result> toList(ResultSet input) {
-    List<Result> result = new ArrayList<>();
+  private List<BasicResult> toList(BasicResultSet input) {
+    List<BasicResult> result = new ArrayList<>();
     while (input.hasNext()) {
       result.add(input.next());
     }

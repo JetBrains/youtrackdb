@@ -3,12 +3,11 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -33,7 +32,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
 
   public SubscribeLiveQueryRequest(String query, Object[] params) {
     this.query = query;
-    this.params = StorageRemote.paramsArrayToParamsMap(params);
+    this.params = RemoteCommandsOrchestratorImpl.paramsArrayToParamsMap(params);
     this.namedParams = false;
   }
 
@@ -41,21 +40,19 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
   }
 
   @Override
-  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
+  public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
-    var serializer = new RecordSerializerNetworkV37Client();
     network.writeString(query);
     // params
-    var paramsResult = new ResultInternal(databaseSession);
+    var paramsResult = new RemoteResultImpl(databaseSession);
     paramsResult.setProperty("params", this.params);
-    MessageHelper.writeResult(databaseSession, paramsResult, network);
+    MessageHelper.writeProjection(null, paramsResult, network);
     network.writeBoolean(namedParams);
   }
 
   @Override
-  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
-      int protocolVersion,
-      RecordSerializerNetwork serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     this.query = channel.readString();
 

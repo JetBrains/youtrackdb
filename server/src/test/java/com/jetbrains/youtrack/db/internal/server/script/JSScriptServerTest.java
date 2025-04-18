@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.server.script;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Assert;
@@ -29,8 +29,8 @@ public class JSScriptServerTest {
   @Test
   public void jsPackagesFromConfigTest() {
 
-    YouTrackDB youTrackDB =
-        new YouTrackDBImpl("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
+    BasicYouTrackDB youTrackDB =
+        new YouTrackDBAbstract("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         name.getMethodName());

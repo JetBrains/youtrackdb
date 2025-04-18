@@ -19,9 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
@@ -49,7 +50,7 @@ public class BasicCommandContext implements CommandContext {
   public static final String TIMEOUT_STRATEGY = "TIMEOUT_STARTEGY";
   public static final String INVALID_COMPARE_COUNT = "INVALID_COMPARE_COUNT";
 
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
   protected Object[] args;
 
   protected boolean recordMetrics = false;
@@ -75,7 +76,7 @@ public class BasicCommandContext implements CommandContext {
   public BasicCommandContext() {
   }
 
-  public BasicCommandContext(DatabaseSessionInternal session) {
+  public BasicCommandContext(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -490,7 +491,7 @@ public class BasicCommandContext implements CommandContext {
     return this.uniqueResult.add(toAdd);
   }
 
-  public DatabaseSessionInternal getDatabaseSession() {
+  public DatabaseSessionEmbedded getDatabaseSession() {
     if (session != null) {
       return session;
     }
@@ -507,7 +508,7 @@ public class BasicCommandContext implements CommandContext {
   }
 
 
-  public void setDatabaseSession(DatabaseSessionInternal session) {
+  public void setDatabaseSession(DatabaseSessionEmbedded session) {
     this.session = session;
 
     if (child != null) {

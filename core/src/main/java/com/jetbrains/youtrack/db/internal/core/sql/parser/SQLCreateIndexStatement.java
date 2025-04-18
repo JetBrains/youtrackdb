@@ -162,7 +162,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
       SchemaClass oClass,
       String[] fields,
       String engine,
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       List<Collate> collatesList,
       Map<String, Object> metadata) {
     Index idx;

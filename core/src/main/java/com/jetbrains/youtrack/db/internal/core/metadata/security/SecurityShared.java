@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
@@ -193,7 +194,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     SecurityUser user = null;
     final var dbName = session.getDatabaseName();
     assert !session.isRemote();
@@ -220,7 +221,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, String userName, String password) {
+      DatabaseSessionEmbedded session, String userName, String password) {
     SecurityUser user;
     final var dbName = session.getDatabaseName();
     assert !session.isRemote();
@@ -1320,7 +1321,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public Set<String> getFilteredProperties(DatabaseSessionInternal session,
+  public Set<String> getFilteredProperties(DatabaseSessionEmbedded session,
       EntityImpl entity) {
     if (session.getCurrentUser() == null) {
       return Collections.emptySet();
@@ -1367,7 +1368,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  public boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName) {
 
     if (session.getCurrentUser() == null) {
@@ -1443,7 +1444,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canCreate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canCreate(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1486,7 +1487,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canRead(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canRead(DatabaseSessionEmbedded session, DBRecord record) {
     // TODO what about server users?
     if (session.getCurrentUser() == null) {
       // executeNoAuth
@@ -1532,7 +1533,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canUpdate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1638,7 +1639,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canDelete(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canDelete(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1680,7 +1681,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canExecute(DatabaseSessionInternal session, Function function) {
+  public boolean canExecute(DatabaseSessionEmbedded session, Function function) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1726,7 +1727,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
     var sessionInternal = (DatabaseSessionInternal) session;
     if (sessionInternal.getCurrentUser() == null) {
       // executeNoAuth
@@ -1741,7 +1742,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public synchronized Set<SecurityResourceProperty> getAllFilteredProperties(
-      DatabaseSessionInternal database) {
+      DatabaseSessionEmbedded database) {
     if (filteredProperties == null) {
       updateAllFilteredProperties(database);
     }

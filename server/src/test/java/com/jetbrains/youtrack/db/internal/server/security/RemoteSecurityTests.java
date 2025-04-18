@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.internal.server.security;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.IOException;
 import org.junit.After;
@@ -17,15 +17,15 @@ import org.junit.Test;
 public class RemoteSecurityTests {
 
   private static final String DB_NAME = RemoteSecurityTests.class.getSimpleName();
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private YouTrackDBServer server;
-  private DatabaseSession session;
+  private BasicDatabaseSession session;
 
   @Before
   public void before()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException, IOException {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin, writer identified"

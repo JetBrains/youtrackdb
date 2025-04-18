@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
@@ -2083,7 +2084,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertNotNull(item);
-    var one = item.<Result>getEmbeddedList("one");
+    var one = item.<BasicResult>getEmbeddedList("one");
     Assert.assertEquals(1, one.size());
     var x = one.getFirst();
     Assert.assertEquals(1, x.getInt("a").intValue());
@@ -2319,13 +2320,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertNotNull(item);
     var currentProperty = item.getProperty("$current.*");
-    Assert.assertTrue(currentProperty instanceof Result);
+    Assert.assertTrue(currentProperty instanceof BasicResult);
     final var currentResult = (Result) currentProperty;
     Assert.assertTrue(currentResult.isProjection());
     Assert.assertEquals(Integer.valueOf(1), currentResult.<Integer>getProperty("sqa"));
     Assert.assertEquals(className, currentResult.getProperty("sqc"));
     var bProperty = item.getProperty("$b.*");
-    Assert.assertTrue(bProperty instanceof Result);
+    Assert.assertTrue(bProperty instanceof BasicResult);
     final var bResult = (Result) bProperty;
     Assert.assertTrue(bResult.isProjection());
     Assert.assertEquals(Integer.valueOf(1), bResult.<Integer>getProperty("sqa"));
@@ -3585,8 +3586,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertNotNull(item);
     // TODO refine this!
-    Assert.assertTrue(item.getProperty("elem1") instanceof Result);
-    Assert.assertEquals("a", ((Result) item.getProperty("elem1")).getProperty("name"));
+    Assert.assertTrue(item.getProperty("elem1") instanceof BasicResult);
+    Assert.assertEquals("a", ((BasicResult) item.getProperty("elem1")).getProperty("name"));
     printExecutionPlan(result);
 
     result.close();

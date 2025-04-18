@@ -15,5 +15,4 @@ public class ClientConnectionStats {
   public String lastDatabase = null;
   public String lastUser = null;
   public long totalCommandExecutionTime = 0;
-  public List<String> activeQueries;
 }

@@ -1,14 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -21,7 +23,8 @@ public class StorageBackupTestWithLuceneIndex {
 
   private String buildDirectory;
 
-  private DatabaseSessionInternal db;
+  private YouTrackDB youTrackDB;
+  private DatabaseSessionEmbedded db;
   private String dbDirectory;
   private String backedUpDbDirectory;
 
@@ -31,6 +34,8 @@ public class StorageBackupTestWithLuceneIndex {
     dbDirectory =
         buildDirectory + File.separator + StorageBackupTestWithLuceneIndex.class.getSimpleName();
     FileUtils.deleteRecursively(new File(dbDirectory));
+    youTrackDB = YourTracks.embedded(dbDirectory, YouTrackDBConfig.defaultConfig());
+
     db = new DatabaseDocumentTx("disk:" + dbDirectory);
     db.create();
 
@@ -108,7 +113,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     backupStorage.close(db, true);
 
-    var youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    var youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     final var compare =
         new DatabaseCompare(
@@ -186,7 +191,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     backupStorage.close(db, true);
 
-    var youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    var youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     final var compare =
         new DatabaseCompare(

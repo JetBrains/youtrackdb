@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.lucene.index;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,7 +14,7 @@ public class LuceneFailTest {
 
   @Before
   public void before() {
-    odb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    odb = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     odb.execute("create database tdb memory users (admin identified by 'admpwd' role admin)")
         .close();

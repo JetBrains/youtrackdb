@@ -50,8 +50,7 @@ public class LocalResultSet implements ResultSet {
   }
 
   @Override
-  @Nullable
-  public ExecutionPlan getExecutionPlan() {
+  public @Nonnull ExecutionPlan getExecutionPlan() {
     return executionPlan;
   }
 

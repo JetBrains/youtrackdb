@@ -5,7 +5,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
@@ -24,19 +24,19 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+      final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
     return v2v(graph, record, Direction.IN, labels);
   }
 
   @Override
-  protected Object move(DatabaseSessionInternal db,
+  protected Object move(DatabaseSessionEmbedded db,
       Relation<?> bidirectionalLink, String[] labels) {
     throw new UnsupportedOperationException(
         "Function in is not supported for bidirectional links");
   }
 
   protected Object move(
-      final DatabaseSessionInternal graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final String[] iLabels,
       Iterable<Identifiable> iPossibleResults) {
@@ -64,7 +64,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Nullable
   private static Iterator<Vertex> fetchFromIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Identifiable iFrom,
       Iterable<Identifiable> to,
       String[] iEdgeTypes) {

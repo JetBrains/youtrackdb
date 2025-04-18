@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.ExecutionThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.exception.CommandInterruptedException;
@@ -278,7 +279,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
-      DatabaseSessionInternal session, Index index, boolean isOrderAsc) {
+      DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
@@ -297,7 +298,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   @Nullable
-  private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionInternal session,
+  private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
       Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
       return null;
@@ -460,7 +461,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   private static Stream<RawPair<Object, RID>> getStreamForNullKey(
-      DatabaseSessionInternal session, Index index) {
+      DatabaseSessionEmbedded session, Index index) {
     final var stream = index.getRids(session, null);
     return stream.map((rid) -> new RawPair<>(null, rid));
   }

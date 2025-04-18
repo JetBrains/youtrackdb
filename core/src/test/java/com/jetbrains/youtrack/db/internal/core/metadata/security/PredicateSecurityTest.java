@@ -1,14 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -20,13 +21,13 @@ public class PredicateSecurityTest {
 
   private static final String DB_NAME = PredicateSecurityTest.class.getSimpleName();
   private static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   @BeforeClass
   public static void beforeClass() {
     youTrackDB =
-        new YouTrackDBImpl(
-            "disk:.",
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(PredicateSecurityTest.class),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -52,7 +53,7 @@ public class PredicateSecurityTest {
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role writer)");
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
@@ -80,7 +81,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.executeInTx(
@@ -118,7 +119,7 @@ public class PredicateSecurityTest {
     session.close();
     Thread.sleep(500);
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.begin();
@@ -163,7 +164,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
     session.begin();
     var rs = session.query("select from Person");
@@ -205,7 +206,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
     session.begin();
     var rs = session.query("select from Person where name = 'bar'");
@@ -247,7 +248,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
     session.begin();
     var rs = session.query("select from Person where name = 'foo'");
@@ -276,7 +277,7 @@ public class PredicateSecurityTest {
     session.close();
     Thread.sleep(500);
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
@@ -333,7 +334,7 @@ public class PredicateSecurityTest {
 
   private boolean doTestBeforeUpdateSQL() {
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
@@ -376,7 +377,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
@@ -420,7 +421,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
@@ -462,7 +463,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     var elem =
@@ -515,7 +516,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "writer"
 
     session.executeInTx(
@@ -580,7 +581,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
     session.begin();
     var rs = session.query("select count(*) as count from Person");
@@ -620,7 +621,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
     session.begin();
     var rs = session.query("select count(*) as count from Person where name = 'bar'");
@@ -664,7 +665,7 @@ public class PredicateSecurityTest {
 
     session.close();
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
 
     var index = session.getSharedContext().getIndexManager().getIndex(session, "Person.name");

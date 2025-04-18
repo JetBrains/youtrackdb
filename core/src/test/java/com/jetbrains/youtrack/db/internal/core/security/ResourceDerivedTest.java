@@ -21,12 +21,12 @@ package com.jetbrains.youtrack.db.internal.core.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,7 +40,7 @@ public class ResourceDerivedTest {
 
   @Before
   public void before() {
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
@@ -128,8 +128,8 @@ public class ResourceDerivedTest {
     db.close();
   }
 
-  private ResultSet query(DatabaseSession db, String sql, Object... params) {
-    return db.getActiveTransaction().query(sql, params);
+  private ResultSet query(DatabaseSessionEmbedded db, String sql, Object... params) {
+    return db.query(sql, params);
   }
 
   @After
@@ -141,7 +141,7 @@ public class ResourceDerivedTest {
   // This tests for a result size of three.  The "Customer_u2" record should not be included.
   public void shouldTestFiltering() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -158,7 +158,7 @@ public class ResourceDerivedTest {
   // This should return the record in "Customer_t2" but filter out the "Customer_u2" record.
   public void shouldTestCustomer_t2() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -173,7 +173,7 @@ public class ResourceDerivedTest {
 
   public void shouldTestAccess2() {
 
-    var db = youTrackDB.open("test", "tenant1", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant1", "password");
 
     var tx = db.begin();
     try {
@@ -186,7 +186,7 @@ public class ResourceDerivedTest {
   }
 
   public void shouldTestCustomer() {
-    var db = youTrackDB.open("test", "tenant2", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant2", "password");
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer");
@@ -202,7 +202,7 @@ public class ResourceDerivedTest {
   // included.
   public void shouldTestCustomer_t2Tenant2() {
 
-    var db = youTrackDB.open("test", "tenant2", "password");
+    var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "tenant2", "password");
     var tx = db.begin();
     try {
       var result = query(db, "SELECT FROM Customer_t2");

@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
@@ -213,7 +214,7 @@ public abstract class HttpResponseAbstract implements HttpResponse {
       } else if (MultiValue.isMultiValue(result)
           && (MultiValue.getSize(result) > 0
           && !((MultiValue.getFirstValue(result) instanceof Identifiable)
-          || ((MultiValue.getFirstValue(result) instanceof Result))))) {
+          || ((MultiValue.getFirstValue(result) instanceof BasicResult))))) {
         newResult = Collections.singleton(Map.of("value", result)).iterator();
       } else if (result instanceof Identifiable) {
         // CONVERT SINGLE VALUE IN A COLLECTION
@@ -499,8 +500,8 @@ public abstract class HttpResponseAbstract implements HttpResponse {
             buffer.append(", ");
           }
 
-          if (entry instanceof Result) {
-            objectJson = ((Result) entry).toJSON();
+          if (entry instanceof BasicResult) {
+            objectJson = ((BasicResult) entry).toJSON();
             buffer.append(objectJson);
           } else if (entry instanceof Identifiable identifiable) {
             try {

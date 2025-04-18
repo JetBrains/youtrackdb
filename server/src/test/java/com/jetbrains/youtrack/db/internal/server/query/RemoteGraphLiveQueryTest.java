@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.server.query;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,11 +42,11 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
     context.live(session.getDatabaseName(), "admin", "adminpwd",
         "select from SecondV",
-        new LiveQueryResultListener() {
+        new BasicLiveQueryResultListener() {
 
           @Override
-          public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-              @Nonnull Result after) {
+          public void onUpdate(@Nonnull DatabaseSession session, @Nonnull BasicResult before,
+              @Nonnull BasicResult after) {
             l.incrementAndGet();
           }
 
@@ -60,11 +59,11 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
           }
 
           @Override
-          public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+          public void onDelete(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
           }
 
           @Override
-          public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+          public void onCreate(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
           }
         },
         new HashMap<String, String>());

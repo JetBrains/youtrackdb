@@ -37,6 +37,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -117,7 +118,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return false;
   }
 
-  public void deserializePartial(DatabaseSessionInternal db, EntityImpl entity,
+  public void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields) {
     // TRANSFORMS FIELDS FOM STRINGS TO BYTE[]
     final var fields = new byte[iFields.length][];
@@ -266,7 +267,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
-  public void deserialize(DatabaseSessionInternal session, final EntityImpl entity,
+  public void deserialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     var headerLength = VarIntSerializer.readAsInteger(bytes);
     var headerStart = bytes.offset;
@@ -321,7 +322,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
   }
 
-  public void deserializeWithClassName(DatabaseSessionInternal db, final EntityImpl entity,
+  public void deserializeWithClassName(DatabaseSessionEmbedded db, final EntityImpl entity,
       final BytesContainer bytes) {
 
     final var className = readString(bytes);
@@ -529,7 +530,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   public <RET> RET deserializeFieldTyped(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
       boolean isEmbedded,
       ImmutableSchema schema,
@@ -542,7 +543,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
   @Nullable
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
       final ImmutableSchema schema,
       PropertyEncryption encryption) {
@@ -616,7 +617,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   public void deserializeDebug(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionEmbedded session, BytesContainer bytes,
       RecordSerializationDebug debugInfo,
       ImmutableSchema schema) {
 
@@ -740,7 +741,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return fullPos;
   }
 
-  protected Object readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes,
+  protected Object readEmbeddedMap(DatabaseSessionEmbedded db, final BytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     final var result = new EntityEmbeddedMapImpl<Object>(owner);
@@ -759,7 +760,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected List<MapRecordInfo> getPositionsFromEmbeddedMap(
-      DatabaseSessionInternal session, final BytesContainer bytes, ImmutableSchema schema) {
+      DatabaseSessionEmbedded session, final BytesContainer bytes, ImmutableSchema schema) {
     List<MapRecordInfo> retList = new ArrayList<>();
 
     var numberOfElements = VarIntSerializer.readAsInteger(bytes);
@@ -956,7 +957,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   public Object deserializeValue(
-      DatabaseSessionInternal db, final BytesContainer bytes, final PropertyTypeInternal type,
+      DatabaseSessionEmbedded db, final BytesContainer bytes, final PropertyTypeInternal type,
       final RecordElement owner) {
     var entity = owner;
     while (!(entity instanceof EntityImpl) && entity != null) {
@@ -970,7 +971,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected Object deserializeValue(
-      DatabaseSessionInternal session, final BytesContainer bytes,
+      DatabaseSessionEmbedded session, final BytesContainer bytes,
       final PropertyTypeInternal type,
       final RecordElement owner,
       boolean embeddedAsDocument,
@@ -1263,7 +1264,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected List<?> deserializeEmbeddedCollectionAsCollectionOfBytes(
-      DatabaseSessionInternal session, final BytesContainer bytes, ImmutableSchema schema) {
+      DatabaseSessionEmbedded session, final BytesContainer bytes, ImmutableSchema schema) {
     var retVal = new ArrayList<>();
     var fieldsInfo = getPositionsFromEmbeddedCollection(session, bytes, schema);
     for (var fieldInfo : fieldsInfo) {
@@ -1285,7 +1286,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected Map<String, Object> deserializeEmbeddedMapAsMapOfBytes(
-      DatabaseSessionInternal db, final BytesContainer bytes, ImmutableSchema schema) {
+      DatabaseSessionEmbedded db, final BytesContainer bytes, ImmutableSchema schema) {
     Map<String, Object> retVal = new TreeMap<>();
     var positionsWithLengths = getPositionsFromEmbeddedMap(db, bytes, schema);
     for (var recordInfo : positionsWithLengths) {
@@ -1309,7 +1310,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected Object deserializeEmbeddedAsDocument(
-      DatabaseSessionInternal db, final BytesContainer bytes, final RecordElement owner) {
+      DatabaseSessionEmbedded db, final BytesContainer bytes, final RecordElement owner) {
     Object value = new EmbeddedEntityImpl(db);
     deserializeWithClassName(db, (EntityImpl) value, bytes);
     if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
@@ -1334,7 +1335,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
   // returns begin position and length for each value in embedded collection
   private List<RecordInfo> getPositionsFromEmbeddedCollection(
-      DatabaseSessionInternal session, final BytesContainer bytes, ImmutableSchema schema) {
+      DatabaseSessionEmbedded session, final BytesContainer bytes, ImmutableSchema schema) {
     List<RecordInfo> retList = new ArrayList<>();
 
     var numberOfElements = VarIntSerializer.readAsInteger(bytes);
@@ -1363,14 +1364,14 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected ResultBinary deserializeEmbeddedAsBytes(
-      DatabaseSessionInternal db, final BytesContainer bytes, int valueLength,
+      DatabaseSessionEmbedded db, final BytesContainer bytes, int valueLength,
       ImmutableSchema schema) {
     var startOffset = bytes.offset;
     return new ResultBinary(db, schema, bytes.bytes, startOffset, valueLength, this);
   }
 
   @Nullable
-  protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionInternal db,
+  protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -1394,7 +1395,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Nullable
-  protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionInternal db,
+  protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 

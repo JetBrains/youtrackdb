@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
-import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,8 +16,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class LiveIndexRebuildTest {
-
-  private final PartitionedDatabasePool pool =
+  private final SessionPool<DatabaseSession> pool =
       new PartitionedDatabasePool("memory:liveIndexRebuild", "admin", "admin");
 
   private final String indexName = "liveIndex";

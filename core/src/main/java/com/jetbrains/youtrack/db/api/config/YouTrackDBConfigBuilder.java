@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.api.config;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.SessionListener;
 import java.util.Map;
 import javax.annotation.Nonnull;

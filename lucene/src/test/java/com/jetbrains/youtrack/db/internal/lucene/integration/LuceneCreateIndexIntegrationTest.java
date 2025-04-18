@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Assert;
@@ -21,7 +21,7 @@ public class LuceneCreateIndexIntegrationTest {
     server0 =
         YouTrackDBServer.startFromClasspathConfig(
             "com/orientechnologies/lucene/integration/youtrackdb-simple-server-config.xml");
-    remote = new YouTrackDBImpl("remote:localhost", "root", "test",
+    remote = new YouTrackDBAbstract("remote:localhost", "root", "test",
         YouTrackDBConfig.defaultConfig());
 
     remote.execute(

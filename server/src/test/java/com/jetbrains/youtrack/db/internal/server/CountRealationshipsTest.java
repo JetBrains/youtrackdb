@@ -2,13 +2,13 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -21,7 +21,7 @@ public class CountRealationshipsTest {
 
   private static final String SERVER_DIRECTORY = "./target/collection";
   private YouTrackDBServer server;
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
@@ -30,7 +30,7 @@ public class CountRealationshipsTest {
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config-tree-ridbag.xml"));
     server.activate();
 
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",

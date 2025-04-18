@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.Command;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -47,7 +48,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
   private final TraverseContext context = new TraverseContext();
   private int maxDepth = -1;
 
-  public Traverse(DatabaseSessionInternal db) {
+  public Traverse(DatabaseSessionEmbedded db) {
     context.setDatabaseSession(db);
   }
 
@@ -60,7 +61,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
    * Executes a traverse collecting all the result in the returning List<Identifiable>. This could be memory expensive because for
    * large results the list could be huge. it's always better to use it as an Iterable and lazy fetch each result on next() call.
    */
-  public List<Identifiable> execute(DatabaseSessionInternal session) {
+  public List<Identifiable> execute(DatabaseSessionEmbedded session) {
     context.setDatabaseSession(session);
     final List<Identifiable> result = new ArrayList<>();
 

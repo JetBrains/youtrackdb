@@ -38,6 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -246,7 +247,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
   }
 
   // TODO: CREATE A REGULAR JSR223 SCRIPT IMPL
-  protected Object executeSQL(DatabaseSessionInternal db) {
+  protected Object executeSQL(DatabaseSessionEmbedded db) {
     try {
       return executeSQLScript(parserText, db);
 
@@ -264,7 +265,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
         "Error on execution of the script: " + iText, request.getText(), 0);
   }
 
-  protected Object executeSQLScript(final String iText, final DatabaseSessionInternal db)
+  protected Object executeSQLScript(final String iText, final DatabaseSessionEmbedded db)
       throws IOException {
     Object lastResult = null;
     var maxRetry = 1;
@@ -563,7 +564,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     return parameters;
   }
 
-  private Object getValue(final String iValue, final DatabaseSessionInternal db) {
+  private Object getValue(final String iValue, final DatabaseSessionEmbedded db) {
     Object lastResult = null;
     var recordResultSet = true;
     if (iValue.equalsIgnoreCase("NULL")) {
@@ -663,23 +664,23 @@ public class CommandExecutorScript extends CommandExecutorAbstract
     }
   }
 
-  private void executeConsoleLog(final String lastCommand, final DatabaseSessionInternal db) {
+  private void executeConsoleLog(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.log ".length()).trim();
     LogManager.instance().info(this, "%s", getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
-  private void executeConsoleOutput(final String lastCommand, final DatabaseSessionInternal db) {
+  private void executeConsoleOutput(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.output ".length()).trim();
     System.out.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
-  private void executeConsoleError(final String lastCommand, final DatabaseSessionInternal db) {
+  private void executeConsoleError(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.error ".length()).trim();
     System.err.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
   }
 
   @Nullable
-  private Object executeLet(final String lastCommand, final DatabaseSessionInternal db) {
+  private Object executeLet(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var equalsPos = lastCommand.indexOf('=');
     final var variable = lastCommand.substring("let ".length(), equalsPos).trim();
     final var cmd = lastCommand.substring(equalsPos + 1).trim();

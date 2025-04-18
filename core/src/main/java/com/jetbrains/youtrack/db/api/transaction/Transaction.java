@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.api.transaction;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -16,12 +16,12 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.Collection;
@@ -33,7 +33,6 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public interface Transaction {
-
   boolean isActive();
 
   @Nonnull
@@ -45,7 +44,6 @@ public interface Transaction {
 
   @Nonnull
   DatabaseSession getDatabaseSession();
-
 
   /**
    * Loads an element by its id, throws an exception if record is not an element or does not exist.
@@ -506,5 +504,4 @@ public interface Transaction {
   default Schema getSchema() {
     return getDatabaseSession().getSchema();
   }
-
 }

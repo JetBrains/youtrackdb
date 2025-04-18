@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.api.record;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -46,7 +47,7 @@ public interface DBRecord extends Identifiable, Element {
    * @param session The session to check.
    *
    * @return <code>true</code> if record is bound to the passed in session.
-   * @see com.jetbrains.youtrack.db.api.transaction.Transaction#load(Identifiable)
+   * @see Transaction#load(Identifiable)
    */
   boolean isNotBound(@Nonnull DatabaseSession session);
 
@@ -115,7 +116,7 @@ public interface DBRecord extends Identifiable, Element {
 
   /**
    * Checks if the record exists in the database. It adheres the same rules
-   * {@link com.jetbrains.youtrack.db.api.transaction.Transaction#exists(RID)}.
+   * {@link Transaction#exists(RID)}.
    *
    * @return true if the record exists, otherwise false
    */

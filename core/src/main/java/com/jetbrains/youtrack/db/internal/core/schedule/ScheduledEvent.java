@@ -16,13 +16,16 @@
 
 package com.jetbrains.youtrack.db.internal.core.schedule;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -147,7 +150,7 @@ public class ScheduledEvent extends IdentityWrapper {
     return this.running.get();
   }
 
-  public ScheduledEvent schedule(String database, String user, YouTrackDBInternal youtrackDB) {
+  public ScheduledEvent schedule(String database, String user, YouTrackDBInternalEmbedded youtrackDB) {
     if (isRunning()) {
       interrupt();
     }
@@ -173,11 +176,11 @@ public class ScheduledEvent extends IdentityWrapper {
 
     private final String database;
     private final String user;
-    private final YouTrackDBInternal youTrackDBInternal;
+    private final YouTrackDBInternalEmbedded youTrackDBInternal;
 
     private ScheduledTimerTask(
         ScheduledEvent event, String database, String user,
-        YouTrackDBInternal youTrackDBInternal) {
+        YouTrackDBInternalEmbedded youTrackDBInternal) {
       this.event = event;
       this.database = database;
       this.user = user;
@@ -206,7 +209,7 @@ public class ScheduledEvent extends IdentityWrapper {
           });
     }
 
-    private void runTask(DatabaseSessionInternal db) {
+    private void runTask(DatabaseSessionEmbedded db) {
       if (event.running.get()) {
         LogManager.instance()
             .error(
@@ -318,7 +321,7 @@ public class ScheduledEvent extends IdentityWrapper {
       return false;
     }
 
-    private void executeEventFunction(DatabaseSessionInternal session) {
+    private void executeEventFunction(DatabaseSessionEmbedded session) {
       Object result = null;
       try {
         var context = new BasicCommandContext();

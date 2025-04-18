@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PatternConst;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -47,7 +48,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
   private static final String[] NAMES = {"POST|studio/*"};
 
   public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    DatabaseSessionInternal db = null;
+    DatabaseSessionEmbedded db = null;
 
     try {
       final var urlParts =
@@ -288,7 +289,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
   }
 
   private void executeDocument(
-      DatabaseSessionInternal session, final HttpRequest iRequest,
+      DatabaseSessionEmbedded session, final HttpRequest iRequest,
       final HttpResponse iResponse,
       final String operation,
       final String rid,

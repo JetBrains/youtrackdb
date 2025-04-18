@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.common.collection;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Resettable;
@@ -26,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -64,7 +64,7 @@ public class MultiValue {
         || MultiCollectionIterator.class.isAssignableFrom(iType)
         || (Iterable.class.isAssignableFrom(iType)
         && !(Identifiable.class.isAssignableFrom(iType)))
-        || ResultSet.class.isAssignableFrom(iType);
+        || BasicResultSet.class.isAssignableFrom(iType);
   }
 
   /**

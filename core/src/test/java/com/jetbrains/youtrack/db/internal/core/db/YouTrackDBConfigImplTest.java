@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import java.util.HashMap;

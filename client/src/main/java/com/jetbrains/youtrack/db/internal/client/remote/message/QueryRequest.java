@@ -22,12 +22,11 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -43,7 +42,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   public static byte EXECUTE = 2;
 
   private int recordsPerPage = 100;
-  private RecordSerializerNetwork serializer;
   private String language;
   private String statement;
   private byte operationType;
@@ -51,18 +49,17 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   private boolean namedParams;
 
   public QueryRequest(
-      DatabaseSessionInternal session, String language,
+      String language,
       String iCommand,
       Object[] positionalParams,
       byte operationType,
-      RecordSerializerNetwork serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    params = StorageRemote.paramsArrayToParamsMap(positionalParams);
+    params = RemoteCommandsOrchestratorImpl.paramsArrayToParamsMap(positionalParams);
 
     namedParams = false;
-    this.serializer = serializer;
+
     this.recordsPerPage = recordsPerPage;
     if (this.recordsPerPage <= 0) {
       this.recordsPerPage = 100;
@@ -71,18 +68,16 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   }
 
   public QueryRequest(
-      DatabaseSessionInternal session, String language,
+      String language,
       String iCommand,
       Map<String, Object> namedParams,
       byte operationType,
-      RecordSerializerNetwork serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
     this.params = namedParams;
 
     this.namedParams = true;
-    this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
     if (this.recordsPerPage <= 0) {
       this.recordsPerPage = 100;
@@ -94,7 +89,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
+  public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
@@ -106,7 +101,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     if (params != null) {
       network.writeByte((byte) 1);
 
-      var result = new ResultInternal(databaseSession);
+      var result = new RemoteResultImpl(databaseSession);
       for (var entry : params.entrySet()) {
         var key = entry.getKey();
         var value = entry.getValue();
@@ -114,7 +109,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
         result.setProperty(key, value);
       }
 
-      MessageHelper.writeResult(databaseSession, result, network);
+      MessageHelper.writeProjection(null, result, network);
     } else {
       network.writeByte((byte) 0);
     }
@@ -122,9 +117,8 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     network.writeBoolean(namedParams);
   }
 
-  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
-      int protocolVersion,
-      RecordSerializerNetwork serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     this.language = channel.readString();
     this.statement = channel.readString();
@@ -134,12 +128,11 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     channel.readString();
 
     if (channel.readByte() == 1) {
-      this.params = MessageHelper.readResult(databaseSession, channel).toMap();
+      this.params = MessageHelper.readProjection(databaseSession, channel).toMap();
     } else {
       this.params = Collections.emptyMap();
     }
     this.namedParams = channel.readBoolean();
-    this.serializer = serializer;
   }
 
   @Override
@@ -200,10 +193,6 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
   public int getRecordsPerPage() {
     return recordsPerPage;
-  }
-
-  public RecordSerializer getSerializer() {
-    return serializer;
   }
 
   public String getLanguage() {

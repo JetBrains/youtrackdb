@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
@@ -56,7 +57,7 @@ import java.util.zip.GZIPOutputStream;
 /**
  * Export data from a database to a file.
  */
-public class DatabaseExport extends DatabaseImpExpAbstract {
+public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   public static final int EXPORTER_VERSION = 13;
 
@@ -68,7 +69,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
   private final String tempFileName;
 
   public DatabaseExport(
-      final DatabaseSessionInternal iDatabase,
+      final DatabaseSessionEmbedded iDatabase,
       final String iFileName,
       final CommandOutputListener iListener)
       throws IOException {
@@ -102,7 +103,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
   }
 
   public DatabaseExport(
-      final DatabaseSessionInternal iDatabase,
+      final DatabaseSessionEmbedded iDatabase,
       final OutputStream iOutputStream,
       final CommandOutputListener iListener)
       throws IOException {

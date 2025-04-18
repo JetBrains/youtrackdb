@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -98,22 +99,6 @@ public class JSScriptTest extends DbTestBase {
     }
   }
 
-  // @Test
-  // THIS TEST WONT PASS WITH GRAALVM
-  public void jsSandboxWithNativeTest() {
-    var scriptManager = YouTrackDBInternal.extract(context).getScriptManager();
-    try {
-      scriptManager.addAllowedPackages(new HashSet<>(List.of("java.lang.System")));
-
-      var resultSet =
-          session.runScript(
-              "javascript", "var System = Java.type('java.lang.System'); System.nanoTime();");
-      Assert.assertEquals(0, resultSet.stream().count());
-    } finally {
-      scriptManager.removeAllowedPackages(new HashSet<>(List.of("java.lang.System")));
-    }
-  }
-
   @Test
   public void jsSandboxWithMathTest() {
     var resultSet = session.runScript("javascript", "Math.random()");
@@ -141,7 +126,7 @@ public class JSScriptTest extends DbTestBase {
 
   @Test
   public void jsSandboxWithBigDecimal() {
-    final var scriptManager = YouTrackDBInternal.extract(context).getScriptManager();
+    final var scriptManager = ((YouTrackDBInternalEmbedded)YouTrackDBInternal.extract(context)).getScriptManager();
     try {
       scriptManager.addAllowedPackages(new HashSet<>(List.of("java.math.BigDecimal")));
 

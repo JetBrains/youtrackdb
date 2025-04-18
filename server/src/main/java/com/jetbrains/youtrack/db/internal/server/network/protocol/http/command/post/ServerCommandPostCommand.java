@@ -20,8 +20,9 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -104,7 +105,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
 
     DatabaseSessionInternal session = null;
 
-    var response = new ArrayList<Result>();
+    var response = new ArrayList<BasicResult>();
     Map<String, Object> additionalContent = new HashMap<>();
     String format = null;
 
@@ -204,7 +205,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
   }
 
   @Nullable
-  public static SQLStatement parseStatement(String language, String text, DatabaseSession db) {
+  public static SQLStatement parseStatement(String language, String text, BasicDatabaseSession db) {
     try {
       if (language != null && language.equalsIgnoreCase("sql")) {
         return SQLEngine.parse(text, (DatabaseSessionInternal) db);

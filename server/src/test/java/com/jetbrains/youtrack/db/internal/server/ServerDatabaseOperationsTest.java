@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.server;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -94,7 +94,7 @@ public class ServerDatabaseOperationsTest {
         .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName()
             + " memory users (admin identified by 'admin' role admin)").close();
     assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
-    DatabaseSession session = server.openSession(
+    BasicDatabaseSession session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName());
     assertNotNull(session);
     session.close();

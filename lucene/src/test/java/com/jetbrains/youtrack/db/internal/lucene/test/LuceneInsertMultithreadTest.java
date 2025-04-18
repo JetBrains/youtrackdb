@@ -24,7 +24,7 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -62,7 +62,7 @@ public class LuceneInsertMultithreadTest {
     }
 
     dbName = "multiThread";
-    YOUTRACKDB = new YouTrackDBImpl(storageType + ":" + buildDirectory,
+    YOUTRACKDB = new YouTrackDBAbstract(storageType + ":" + buildDirectory,
         YouTrackDBConfig.defaultConfig());
   }
 

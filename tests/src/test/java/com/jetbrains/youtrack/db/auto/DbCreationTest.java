@@ -21,7 +21,7 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.File;
@@ -100,7 +100,7 @@ public class DbCreationTest {
     var url = calculateURL() + "/";
 
     var configBuilder = YouTrackDBConfig.builder();
-    try (var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build())) {
+    try (var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build())) {
       var database = odb.open(DB_NAME, "admin", "admin");
       database.close();
     }
@@ -156,7 +156,7 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
+    var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");
     }
@@ -177,7 +177,7 @@ public class DbCreationTest {
     var url = calculateURL();
 
     var configBuilder = YouTrackDBConfig.builder();
-    var odb = new YouTrackDBImpl(url, "root", "root", configBuilder.build());
+    var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build());
     if (odb.exists("sub")) {
       odb.drop("sub");
     }

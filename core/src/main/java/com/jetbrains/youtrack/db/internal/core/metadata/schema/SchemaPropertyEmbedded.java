@@ -123,7 +123,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  public void setCollate(DatabaseSessionInternal session, String collate) {
+  public void setCollate(DatabaseSessionEmbedded session, String collate) {
     if (collate == null) {
       collate = DefaultCollate.NAME;
     }
@@ -138,7 +138,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setCollateInternal(DatabaseSessionInternal session, String iCollate) {
+  protected void setCollateInternal(DatabaseSessionEmbedded session, String iCollate) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);

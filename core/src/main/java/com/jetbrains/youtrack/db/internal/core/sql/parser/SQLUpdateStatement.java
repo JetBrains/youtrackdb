@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlanner;
 import java.util.ArrayList;
@@ -156,7 +156,7 @@ public class SQLUpdateStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -182,7 +182,7 @@ public class SQLUpdateStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {

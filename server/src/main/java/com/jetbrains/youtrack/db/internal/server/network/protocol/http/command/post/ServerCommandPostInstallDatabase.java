@@ -17,7 +17,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
@@ -57,7 +57,7 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
                     //noinspection ReturnOfNull
                     return null;
                   });
-          try (DatabaseSession session = server.getDatabases().openNoAuthorization(name)) {
+          try (BasicDatabaseSession session = server.getDatabases().openNoAuthorization(name)) {
           }
 
           iResponse.send(

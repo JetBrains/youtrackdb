@@ -1,9 +1,12 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -13,9 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class LiveQueryPushRequest implements BinaryPushRequest {
 
   public static final byte HAS_MORE = 1;
@@ -48,7 +48,7 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
   }
 
   @Override
-  public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+  public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
       throws IOException {
     channel.writeInt(monitorId);
     channel.writeByte(status);
@@ -61,17 +61,17 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
       for (var event : events) {
         channel.writeByte(event.getEventType());
         MessageHelper.writeResult(session,
-            event.getCurrentValue(), channel);
+            (Result) event.getCurrentValue(), channel);
         if (event.getEventType() == LiveQueryResult.UPDATE_EVENT) {
           MessageHelper.writeResult(session,
-              event.getOldValue(), channel);
+              (Result) event.getOldValue(), channel);
         }
       }
     }
   }
 
   @Override
-  public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+  public void read(DatabaseSessionRemote session, ChannelDataInput network) throws IOException {
     monitorId = network.readInt();
     status = network.readByte();
     if (status == ERROR) {
@@ -83,8 +83,8 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
       events = new ArrayList<>(eventSize);
       while (eventSize-- > 0) {
         var type = network.readByte();
-        Result currentValue = MessageHelper.readResult(session, network);
-        Result oldValue = null;
+        BasicResult currentValue = MessageHelper.readResult(session, network);
+        BasicResult oldValue = null;
         if (type == LiveQueryResult.UPDATE_EVENT) {
           oldValue = MessageHelper.readResult(session, network);
         }

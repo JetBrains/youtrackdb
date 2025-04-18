@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolLis
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -107,7 +108,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Object... params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params) {
     preExecute(database, script, params);
 
     var par = new Int2ObjectOpenHashMap<Object>();
@@ -119,7 +120,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Map params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
 
     preExecute(database, script, params);
 

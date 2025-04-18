@@ -3,8 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -33,7 +33,7 @@ public class UpdateStatementExecutionTest {
   private DatabaseSessionInternal session;
 
   private String className;
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
 
   @Before
   public void before() {
@@ -722,7 +722,7 @@ public class UpdateStatementExecutionTest {
     Assert.assertTrue(result.hasNext());
     item = result.next();
     Assert.assertNotNull(item);
-    Result ls = item.getProperty("theProperty");
+    BasicResult ls = item.getProperty("theProperty");
     Assert.assertNotNull(ls);
     Assert.assertFalse(ls.getPropertyNames().contains("sub"));
     Assert.assertEquals("bar", ls.getProperty("aaa"));

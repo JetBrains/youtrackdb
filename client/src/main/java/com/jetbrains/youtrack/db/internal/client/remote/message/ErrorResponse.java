@@ -2,14 +2,13 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 
 public class ErrorResponse implements BinaryResponse {
 
@@ -25,7 +24,7 @@ public class ErrorResponse implements BinaryResponse {
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network,
+  public void read(DatabaseSessionRemote db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
     messages = new HashMap<>();
     while (network.readByte() == 1) {
@@ -37,8 +36,8 @@ public class ErrorResponse implements BinaryResponse {
   }
 
   @Override
-  public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
-      int protocolVersion, RecordSerializer serializer)
+  public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel,
+      int protocolVersion)
       throws IOException {
     for (var entry : messages.entrySet()) {
       // MORE DETAILS ARE COMING AS EXCEPTION

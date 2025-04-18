@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -91,7 +92,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return result.toString();
   }
 
-  public SQLPredicate text(DatabaseSessionInternal session, final String iText) {
+  public SQLPredicate text(DatabaseSessionEmbedded session, final String iText) {
     if (iText == null) {
       throw new CommandSQLParsingException(session.getDatabaseName(), "Query text is null");
     }
@@ -142,7 +143,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return rootCondition.evaluate(iRecord, iCurrentResult, iContext);
   }
 
-  protected Object extractConditions(DatabaseSessionInternal session) {
+  protected Object extractConditions(DatabaseSessionEmbedded session) {
     final var oldPosition = parserGetCurrentPosition();
     parserNextWord(true, " )=><,\r\n");
     final var word = parserGetLastWord();
@@ -192,7 +193,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
   }
 
   @Nullable
-  protected SQLFilterCondition extractCondition(DatabaseSessionInternal session) {
+  protected SQLFilterCondition extractCondition(DatabaseSessionEmbedded session) {
 
     if (!parserSkipWhiteSpaces())
     // END OF TEXT
@@ -308,7 +309,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return op;
   }
 
-  private Object extractConditionItem(DatabaseSessionInternal session,
+  private Object extractConditionItem(DatabaseSessionEmbedded session,
       final boolean iAllowOperator,
       final int iExpectedWords) {
     final var result = new Object[iExpectedWords];

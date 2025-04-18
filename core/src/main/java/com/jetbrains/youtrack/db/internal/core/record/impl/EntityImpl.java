@@ -19,6 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -36,12 +42,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -50,7 +50,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -133,7 +133,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Internal constructor used on unmarshalling.
    */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session) {
+  public EntityImpl(@Nonnull DatabaseSessionEmbedded session) {
     super(session);
     assert session.assertIfNotActive();
     setup();
@@ -142,7 +142,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Internal constructor used on unmarshalling.
    */
-  public EntityImpl(@Nonnull DatabaseSessionInternal database, RecordId rid) {
+  public EntityImpl(@Nonnull DatabaseSessionEmbedded database, RecordId rid) {
     super(database);
     assert assertIfAlreadyLoaded(rid);
 
@@ -158,7 +158,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
-  public EntityImpl(@Nonnull DatabaseSessionInternal session, final String iClassName) {
+  public EntityImpl(@Nonnull DatabaseSessionEmbedded session, final String iClassName) {
     super(session);
 
     status = STATUS.LOADED;
@@ -858,11 +858,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
 
-  public @Nonnull <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name) {
-    var value = this.<Map<String, T>>getProperty(name);
+  public @Nonnull <T> EmbeddedMap<T> getOrCreateEmbeddedMap(@Nonnull String name) {
+    var value = this.<EmbeddedMap<T>>getProperty(name);
     if (value == null) {
       value = new EntityEmbeddedMapImpl<>(this);
-      return (Map<String, T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
+      return (EmbeddedMap<T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
     }
 
     return value;
@@ -887,13 +887,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name) {
+  public <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name) {
     var value = new EntityEmbeddedMapImpl<T>(this);
-    return (Map<String, T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
+    return (EmbeddedMap<T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
 
-  public @Nonnull <T> Map<String, T> newEmbeddedMap(@Nonnull String name,
+  public @Nonnull <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
     var value = new EntityEmbeddedMapImpl<T>(this);
     setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
@@ -901,13 +901,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nonnull
-  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
+  public <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name, Map<String, T> source) {
     var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     return (EmbeddedMap<T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
   @Nonnull
-  public <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
+  public <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
       @Nonnull PropertyType linkedType) {
     var value = (EmbeddedMap<T>) PropertyTypeInternal.EMBEDDEDMAP.copy(source, session);
     setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
@@ -1418,7 +1418,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (RET) oldValue;
   }
 
-  private static void validatePropertiesSecurity(@Nonnull DatabaseSessionInternal session,
+  private static void validatePropertiesSecurity(@Nonnull DatabaseSessionEmbedded session,
       EntityImpl iRecord)
       throws ValidationException {
     iRecord.checkForBinding();
@@ -3656,7 +3656,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     if (recordSerializer == null) {
-      recordSerializer = DatabaseSessionAbstract.getDefaultSerializer();
+      recordSerializer = session.getSerializer();
     }
   }
 

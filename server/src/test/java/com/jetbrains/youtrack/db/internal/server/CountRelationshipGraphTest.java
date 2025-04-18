@@ -6,12 +6,12 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import org.junit.Test;
 
 public class CountRelationshipGraphTest extends AbstractRemoteTest {
 
-  private YouTrackDBImpl youTrackDB;
+  private YouTrackDBAbstract youTrackDB;
   private int old;
 
   public void setup() throws Exception {
@@ -19,7 +19,7 @@ public class CountRelationshipGraphTest extends AbstractRemoteTest {
     GlobalConfiguration.INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD.setValue(-1);
     super.setup();
     youTrackDB =
-        new YouTrackDBImpl(
+        new YouTrackDBAbstract(
             "remote:localhost",
             "root",
             "root",

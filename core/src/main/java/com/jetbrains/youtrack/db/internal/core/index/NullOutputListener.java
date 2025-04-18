@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Progress listener with no output.
@@ -39,6 +39,6 @@ public class NullOutputListener implements ProgressListener {
   }
 
   @Override
-  public void onCompletition(DatabaseSessionInternal session, Object iTask, boolean iSucceed) {
+  public void onCompletition(DatabaseSessionEmbedded session, Object iTask, boolean iSucceed) {
   }
 }

@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -36,7 +36,7 @@ public class SessionPoolRemoteTest {
   @Test
   public void testPoolCloseTx() {
     var youTrackDb =
-        new YouTrackDBImpl(
+        new YouTrackDBAbstract(
             "remote:localhost:",
             "root",
             "root",
@@ -64,7 +64,7 @@ public class SessionPoolRemoteTest {
   @Test
   public void testPoolDoubleClose() {
     var youTrackDb =
-        new YouTrackDBImpl(
+        new YouTrackDBAbstract(
             DbTestBase.embeddedDBUrl(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1).build());

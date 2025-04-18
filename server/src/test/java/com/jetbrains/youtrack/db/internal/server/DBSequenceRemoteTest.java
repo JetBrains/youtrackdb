@@ -2,10 +2,10 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import org.junit.Test;
 
 /**
@@ -18,8 +18,8 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   @Override
   public void setup() throws Exception {
     super.setup();
-    YouTrackDB factory =
-        new YouTrackDBImpl("remote:localhost", "root", "root",
+    BasicYouTrackDB factory =
+        new YouTrackDBAbstract("remote:localhost", "root", "root",
             YouTrackDBConfig.defaultConfig());
     db = (DatabaseSessionInternal) factory.open(name.getMethodName(), "admin", "admin");
   }

@@ -4,7 +4,7 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CO
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote.CONNECTION_STRATEGY;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl.CONNECTION_STRATEGY;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
@@ -113,7 +113,7 @@ public class RemoteURLs {
       addresses.add(url);
     } else {
       Collections.addAll(
-          addresses, url.substring(0, dbPos).split(StorageRemote.ADDRESS_SEPARATOR));
+          addresses, url.substring(0, dbPos).split(RemoteCommandsOrchestratorImpl.ADDRESS_SEPARATOR));
     }
     return addresses;
   }

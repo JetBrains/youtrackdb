@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -59,7 +60,7 @@ public interface FrontendTransaction extends Transaction {
   void rollbackInternal(boolean force, int commitLevelDiff);
 
   @Nonnull
-  DatabaseSessionInternal getDatabaseSession();
+  DatabaseSessionEmbedded getDatabaseSession();
 
   @Deprecated
   void clearRecordEntries();
@@ -200,7 +201,7 @@ public interface FrontendTransaction extends Transaction {
    */
   void setStatus(final FrontendTransaction.TXSTATUS iStatus);
 
-  void setSession(DatabaseSessionInternal session);
+  void setSession(DatabaseSessionEmbedded session);
 
   @Nullable
   default byte[] getMetadata() {

@@ -1,11 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -38,8 +42,9 @@ import org.junit.Test;
  */
 public class LocalPaginatedStorageRestoreTx {
 
-  private DatabaseSessionInternal testDocumentTx;
-  private DatabaseSessionInternal baseDocumentTx;
+  private static YouTrackDB youTrackDB;
+  private DatabaseSessionEmbedded testDocumentTx;
+  private DatabaseSessionEmbedded baseDocumentTx;
   private File buildDir;
 
   private final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -75,28 +80,24 @@ public class LocalPaginatedStorageRestoreTx {
 
     buildDir.mkdir();
 
-    baseDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromTx");
-    if (baseDocumentTx.exists()) {
-      baseDocumentTx.open("admin", "admin");
-      baseDocumentTx.drop();
+    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
+
+    if (youTrackDB.exists("localPaginatedStorageRestoreFromTx")) {
+      youTrackDB.drop("localPaginatedStorageRestoreFromTx");
     }
 
-    baseDocumentTx.create();
-
+    youTrackDB.create("localPaginatedStorageRestoreFromTx", DatabaseType.DISK,
+        YouTrackDBConfig.defaultConfig(), "admin", "admin", "admin");
+    baseDocumentTx =
+        (DatabaseSessionEmbedded) youTrackDB.open("localPaginatedStorageRestoreFromTx", "admin",
+            "admin");
     createSchema(baseDocumentTx);
   }
 
   @After
   public void afterMethod() {
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.drop();
-
-    baseDocumentTx.open("admin", "admin");
-    baseDocumentTx.drop();
-
-    buildDir.delete();
+    youTrackDB.drop("localPaginatedStorageRestoreFromTx");
+    youTrackDB.drop("basePaginatedStorageRestoreFromTx");
   }
 
   @Test
@@ -114,16 +115,9 @@ public class LocalPaginatedStorageRestoreTx {
 
     Thread.sleep(1500);
     copyDataFromTestWithoutClose();
-    var storage = baseDocumentTx.getStorage();
-    baseDocumentTx.close();
-    storage.close(baseDocumentTx);
 
-    testDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromTx");
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.close();
-
+    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "testLocalPaginatedStorageRestoreFromTx", "admin", "admin");
     var databaseCompare =
         new DatabaseCompare(
             testDocumentTx,

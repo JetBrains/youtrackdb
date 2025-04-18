@@ -20,185 +20,69 @@
 
 package com.jetbrains.youtrack.db.internal.client.remote.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
-import com.jetbrains.youtrack.db.internal.client.remote.metadata.schema.SchemaRemote;
+import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
+import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendClientServerTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Set;
-import javax.annotation.Nonnull;
+import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
+public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
-public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerRemote> {
+  private final ThreadLocal<DatabaseSessionRemote> activeSession = new ThreadLocal<>();
+  private final ConcurrentHashMap<String, QueryDatabaseState<RemoteResultSet>>
+      activeQueries = new ConcurrentHashMap<>();
 
-  protected StorageRemoteSession sessionMetadata;
-  private YouTrackDBConfigImpl config;
-  private StorageRemote storage;
+  private String url;
+  protected STATUS status;
 
-  public DatabaseSessionRemote(final StorageRemote storage,
-      SharedContext<IndexManagerRemote> sharedContext) {
+  private String userName;
+
+  private boolean initialized = false;
+
+  private StorageRemoteSession sessionMetadata;
+  private final RemoteCommandsOrchestratorImpl commandsOrchestrator;
+
+  @Nullable
+  private TimeZone serverTimeZone;
+
+  public DatabaseSessionRemote(final RemoteCommandsOrchestratorImpl commandsOrchestrator) {
     activateOnCurrentThread();
-
     try {
       status = STATUS.CLOSED;
 
       // OVERWRITE THE URL
-      url = storage.getURL();
-      this.storage = storage;
-      this.sharedContext = sharedContext;
-      this.componentsFactory = storage.getComponentsFactory();
-
-      init();
-
-      databaseOwner = this;
+      url = commandsOrchestrator.getURL();
+      this.commandsOrchestrator = commandsOrchestrator;
     } catch (Exception t) {
       activeSession.remove();
+
       throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(), "Error on opening database "), t, this);
+          new DatabaseException(url, "Error on opening database "), t, this);
     }
-  }
-
-
-  public DatabaseSession open(final String iUserName, final String iUserPassword) {
-    throw new UnsupportedOperationException("Use YouTrackDB");
-  }
-
-  @Deprecated
-  public DatabaseSession open(final Token iToken) {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create() {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create(String incrementalBackupPath) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public DatabaseSession create(final Map<GlobalConfiguration, Object> iInitialSettings) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public void drop() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public void set(ATTRIBUTES iAttribute, Object iValue) {
-    assert assertIfNotActive();
-    var query = "alter database " + iAttribute.name() + " ? ";
-    // Bypass the database command for avoid transaction management
-    var result = storage.command(this, query, new Object[]{iValue});
-    result.getResult().close();
-    storage.reload(this);
-  }
-
-  @Override
-  public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
-    assert assertIfNotActive();
-    var query = "alter database " + attribute.name() + " ? ";
-    // Bypass the database command for avoid transaction management
-    var result = storage.command(this, query, new Object[]{value});
-    result.getResult().close();
-    storage.reload(this);
-  }
-
-  @Override
-  public DatabaseSession setCustom(String name, Object iValue) {
-    assert assertIfNotActive();
-    if ("clear".equals(name) && iValue == null) {
-      var query = "alter database CUSTOM 'clear'";
-      // Bypass the database command for avoid transaction management
-      var result = storage.command(this, query, new Object[]{});
-      result.getResult().close();
-    } else {
-      var query = "alter database CUSTOM  " + name + " = ?";
-      // Bypass the database command for avoid transaction management
-      var result = storage.command(this, query, new Object[]{iValue});
-      result.getResult().close();
-      storage.reload(this);
-    }
-    return this;
-  }
-
-  public DatabaseSessionInternal copy() {
-    assertIfNotActive();
-    var database = new DatabaseSessionRemote(storage, this.sharedContext);
-    database.storage = storage.copy(this, database);
-
-    database.storage.addUser();
-    database.status = STATUS.OPEN;
-    database.applyAttributes(config);
-    database.initAtFirstOpen();
-    database.user = this.user;
-
-    this.activateOnCurrentThread();
-    return database;
-  }
-
-  @Override
-  public boolean exists() {
-    throw new UnsupportedOperationException("use YouTrackDB");
   }
 
   public void internalOpen(String user, String password, YouTrackDBConfigImpl config) {
-    this.config = config;
-    applyAttributes(config);
-    applyListeners(config);
     try {
-
-      storage.open(this, user, password, config.getConfiguration());
-
+      serverTimeZone = commandsOrchestrator.open(this, user, password, config.getConfiguration());
       status = STATUS.OPEN;
 
       initAtFirstOpen();
-      this.user = new ImmutableUser(this, user, password, SecurityUserImpl.DATABASE_USER, null);
 
-      // WAKE UP LISTENERS
-      callOnOpenListeners();
-
+      this.userName = user;
     } catch (BaseException e) {
       close();
       activeSession.remove();
@@ -207,45 +91,29 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
       close();
       activeSession.remove();
       throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(), "Cannot open database url=" + getURL()), e,
+          new DatabaseException(url, "Cannot open database url=" + url), e,
           this);
     }
   }
 
-  private void applyAttributes(YouTrackDBConfigImpl config) {
-    for (var attrs : config.getAttributes().entrySet()) {
-      this.set(attrs.getKey(), attrs.getValue());
-    }
-  }
 
   private void initAtFirstOpen() {
     if (initialized) {
       return;
     }
 
-    var serializerFactory = RecordSerializerFactory.instance();
-    serializer = serializerFactory.getFormat(RecordSerializerNetworkV37Client.NAME);
-    localCache.startup(this);
-    componentsFactory = storage.getComponentsFactory();
-    user = null;
-
-    loadMetadata();
+    this.userName = null;
 
     initialized = true;
   }
 
-  @Override
-  protected void loadMetadata() {
-    metadata = new MetadataDefault(this);
-    metadata.init(sharedContext);
-    sharedContext.load(this);
-  }
 
-  private void applyListeners(YouTrackDBConfigImpl config) {
-    for (var listener : config.getListeners()) {
-      registerListener(listener);
+  private void checkOpenness() {
+    if (status == STATUS.CLOSED) {
+      throw new DatabaseException(url, "Database '" + url + "' is closed");
     }
   }
+
 
   public StorageRemoteSession getSessionMetadata() {
     return sessionMetadata;
@@ -256,554 +124,128 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     this.sessionMetadata = sessionMetadata;
   }
 
-  @Override
-  public RecordSerializerNetwork getSerializer() {
-    return (RecordSerializerNetwork) super.getSerializer();
+  public void activateOnCurrentThread() {
+    activeSession.set(this);
   }
 
-  @Override
-  public Storage getStorage() {
-    return storage;
-  }
+  public boolean assertIfNotActive() {
+    var currentDatabase = activeSession.get();
 
-  public StorageRemote getStorageRemote() {
-    assert assertIfNotActive();
-    return storage;
-  }
-
-  @Override
-  public StorageInfo getStorageInfo() {
-    return storage;
-  }
-
-  private void checkAndSendTransaction() {
-    if (this.currentTx != null && this.currentTx.isActive()) {
-      var optimistic = (FrontendClientServerTransaction) this.currentTx;
-      optimistic.preProcessRecordsAndExecuteCallCallbacks();
-
-      var operationsToSend = optimistic.getOperationsToSendOnClient();
-      var dirtyCountersToSend = optimistic.getReceivedDirtyCounters();
-
-      if (!operationsToSend.isEmpty() || !dirtyCountersToSend.isEmpty()) {
-        storage.sendTransactionState(optimistic);
-      }
+    if (currentDatabase != this) {
+      throw new SessionNotActivatedException(url);
     }
+
+    return true;
   }
 
-  @Override
-  public ResultSet query(String query, Object... args) {
+  public RemoteCommandsOrchestratorImpl getCommandOrchestrator() {
+    assert assertIfNotActive();
+    return commandsOrchestrator;
+  }
+
+  public com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet query(String query,
+      Object... args) {
     checkOpenness();
     assert assertIfNotActive();
-    beginReadOnly();
 
-    try {
-      checkAndSendTransaction();
-
-      var result = storage.query(this, query, args);
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.query(this, query, args);
+    return result.getResult();
   }
 
-  @Override
-  public ResultSet query(String query, @SuppressWarnings("rawtypes") Map args) {
-    return query(query, true, args);
-  }
-
-  @Override
-  public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
+  public RemoteResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
     assert assertIfNotActive();
-    beginReadOnly();
 
-    try {
-      if (syncTx) {
-        checkAndSendTransaction();
-      }
-
-      var result = storage.query(this, query, args);
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.query(this, query, args);
+    return result.getResult();
   }
 
-  @Override
-  public ResultSet execute(String query, Object... args) {
+  public RemoteResultSet execute(String query, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
 
-    try {
-      checkAndSendTransaction();
-
-      var result = storage.command(this, query, args);
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.command(this, query, args);
+    return result.getResult();
   }
 
-  @Override
-  public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
+  public RemoteResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
     assert assertIfNotActive();
 
-    checkAndSendTransaction();
-    try {
-      var result = storage.command(this, query, args);
-
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.command(this, query, args);
+    return result.getResult();
   }
 
   @Override
-  public int begin(FrontendTransactionImpl transaction) {
-    var result = super.begin(transaction);
-
-    if (result == 1) {
-      storage.beginTransaction((FrontendClientServerTransaction) transaction);
-    }
-
-    return result;
-  }
-
-  @Override
-  protected FrontendTransactionImpl newTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendClientServerTransaction(this, txId);
-  }
-
-
-  @Override
-  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendClientServerTransaction(this, txId, true);
-  }
-
-  @Override
-  public ResultSet runScript(String language, String script, Object... args)
+  public RemoteResultSet runScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
 
-    try {
-      checkAndSendTransaction();
-      var result = storage.execute(this, language, script, args);
-
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.execute(this, language, script, args);
+    return result.getResult();
   }
 
   @Override
-  public ResultSet runScript(String language, String script, Map<String, ?> args)
+  public RemoteResultSet runScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
 
-    try {
-      checkAndSendTransaction();
-
-      var result = storage.execute(this, language, script, args);
-
-      if (result.isReloadMetadata()) {
-        reload();
-      }
-
-      return result.getResult();
-    } catch (Exception e) {
-      rollback(true);
-      throw e;
-    }
+    var result = commandsOrchestrator.execute(this, language, script, args);
+    return result.getResult();
   }
+
+  public synchronized void queryStarted(String id, QueryDatabaseState<RemoteResultSet> state) {
+    assert assertIfNotActive();
+
+    if (this.activeQueries.size() > 1 && this.activeQueries.size() % 10 == 0) {
+      var msg =
+          "This database instance has "
+              + activeQueries.size()
+              + " open command/query result sets, please make sure you close them with"
+              + " ResultSet.close()";
+      LogManager.instance().warn(this, msg);
+    }
+
+    this.activeQueries.put(id, state);
+  }
+
 
   public void closeQuery(String queryId) {
     assert assertIfNotActive();
-    storage.closeQuery(this, queryId);
+    commandsOrchestrator.closeQuery(this, queryId);
+
     queryClosed(queryId);
   }
 
-  public void fetchNextPage(RemoteResultSet rs) {
-    checkOpenness();
-    assert assertIfNotActive();
-    checkAndSendTransaction();
-    storage.fetchNextPage(this, rs);
-  }
-
-  @Override
-  public void recycle(DBRecord record) {
-    throw new UnsupportedOperationException();
-  }
-
-  public static void updateSchema(StorageRemote storage) {
-    //    storage.get
-    var shared = storage.getSharedContext();
-    if (shared != null) {
-      ((SchemaRemote) shared.getSchema()).requestUpdate();
-    }
-  }
-
-  public static void updateFunction(StorageRemote storage) {
-    var shared = storage.getSharedContext();
-    if (shared != null) {
-      (shared.getFunctionLibrary()).update();
-    }
-  }
-
-  public static void updateSequences(StorageRemote storage) {
-    var shared = storage.getSharedContext();
-    if (shared != null) {
-      (shared.getSequenceLibrary()).update();
-    }
-  }
-
-  public static void updateIndexManager(StorageRemote storage) {
-    var shared = storage.getSharedContext();
-    if (shared != null) {
-      ((IndexManagerRemote) shared.getIndexManager()).requestUpdate();
-    }
-  }
-
-  @Override
-  public int addBlobCollection(final String iCollectionName, final Object... iParameters) {
-    int id;
-    assert assertIfNotActive();
-    try (var resultSet = execute("create blob collection :1", iCollectionName)) {
-      assert resultSet.hasNext();
-      var result = resultSet.next();
-      assert result.getProperty("value") != null;
-      id = result.getProperty("value");
-      return id;
-    }
-  }
-
-  public void beforeUpdateOperations(final RecordAbstract recordAbstract,
-      java.lang.String collectionName) {
+  public void queryClosed(String id) {
     assert assertIfNotActive();
 
-    callbackHooks(TYPE.BEFORE_UPDATE, recordAbstract);
+    this.activeQueries.remove(id);
   }
 
-  @Override
-  public void afterUpdateOperations(RecordAbstract recordAbstract) {
-    assert assertIfNotActive();
-
-    callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
-
-  }
-
-  public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
-    assert assertIfNotActive();
-
-    callbackHooks(TYPE.BEFORE_CREATE, recordAbstract);
-  }
-
-  @Override
-  public void afterCreateOperations(RecordAbstract recordAbstract) {
-    assert assertIfNotActive();
-
-    callbackHooks(TYPE.AFTER_CREATE, recordAbstract);
-  }
-
-  public void beforeDeleteOperations(final RecordAbstract recordAbstract, String collectionName) {
-    assert assertIfNotActive();
-
-    callbackHooks(TYPE.BEFORE_DELETE, recordAbstract);
-  }
-
-  @Override
-  public void afterDeleteOperations(RecordAbstract recordAbstract) {
-    assert assertIfNotActive();
-
-    callbackHooks(TYPE.AFTER_DELETE, recordAbstract);
-  }
-
-  @Override
-  public boolean beforeReadOperations(RecordAbstract identifiable) {
-    assert assertIfNotActive();
-    return false;
-  }
-
-  @Override
-  public void afterReadOperations(RecordAbstract identifiable) {
-    assert assertIfNotActive();
-    callbackHooks(RecordHook.TYPE.READ, identifiable);
-  }
-
-  @Override
-  public boolean executeExists(@Nonnull RID rid) {
+  public void fetchNextPage(PaginatedResultSet rs) {
     checkOpenness();
     assert assertIfNotActive();
 
-    try {
-      if (getTransactionInternal().isDeletedInTx(rid)) {
-        return false;
-      }
-      DBRecord record = getTransactionInternal().getRecord(rid);
-      if (record != null) {
-        return true;
-      }
-
-      if (!rid.isPersistent()) {
-        return false;
-      }
-
-      if (localCache.findRecord(rid) != null) {
-        return true;
-      }
-
-      return storage.recordExists(this, rid);
-    } catch (Exception t) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on retrieving record "
-                  + rid
-                  + " (collection: "
-                  + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
-                  + ")"),
-          t, this);
-    }
+    commandsOrchestrator.fetchNextPage(this, rs);
   }
 
-  public String getCollectionName(final @Nonnull DBRecord record) {
-    throw new UnsupportedOperationException();
-  }
-
-  public void delete(final @Nonnull DBRecord record) {
-    checkOpenness();
-    assert assertIfNotActive();
-
-    record.delete();
-  }
-
-  @Override
-  public int addCollection(final String iCollectionName, final Object... iParameters) {
-    assert assertIfNotActive();
-    return storage.addCollection(this, iCollectionName, iParameters);
-  }
-
-  @Override
-  public int addCollection(final String iCollectionName, final int iRequestedId) {
-    assert assertIfNotActive();
-    return storage.addCollection(this, iCollectionName, iRequestedId);
-  }
-
-  public RecordConflictStrategy getConflictStrategy() {
-    assert assertIfNotActive();
-    return getStorageInfo().getRecordConflictStrategy();
-  }
-
-  public DatabaseSessionRemote setConflictStrategy(final String iStrategyName) {
-    assert assertIfNotActive();
-    storage.setConflictStrategy(
-        YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
-    return this;
-  }
-
-  public DatabaseSessionRemote setConflictStrategy(final RecordConflictStrategy iResolver) {
-    assert assertIfNotActive();
-    storage.setConflictStrategy(iResolver);
-    return this;
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countCollectionElements(int iCollectionId, boolean countTombstones) {
-    assert assertIfNotActive();
-    return storage.count(this, iCollectionId, countTombstones);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
-    assert assertIfNotActive();
-    return storage.count(this, iCollectionIds, countTombstones);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countCollectionElements(final String iCollectionName) {
-    assert assertIfNotActive();
-
-    final var collectionId = getCollectionIdByName(iCollectionName);
-    if (collectionId < 0) {
-      throw new IllegalArgumentException("Collection '" + iCollectionName + "' was not found");
-    }
-    return storage.count(this, collectionId);
-  }
-
-  @Override
-  public long getCollectionRecordSizeByName(final String collectionName) {
-    assert assertIfNotActive();
-    try {
-      return storage.getCollectionRecordsSizeByName(collectionName);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection '" + collectionName + "'"),
-          e, this);
-    }
-  }
-
-  @Override
-  public boolean dropCollection(final String iCollectionName) {
-    assert assertIfNotActive();
-    final var collectionId = getCollectionIdByName(iCollectionName);
-    var schema = metadata.getSchema();
-    var clazz = schema.getClassByCollectionId(collectionId);
-
-    if (clazz != null) {
-      throw new DatabaseException(this,
-          "Cannot drop collection '" + getCollectionNameById(collectionId)
-              + "' because it is mapped to class '" + clazz.getName() + "'");
-    }
-
-    if (schema.getBlobCollections().contains(collectionId)) {
-      schema.removeBlobCollection(iCollectionName);
-    }
-    getLocalCache().freeCollection(collectionId);
-    return storage.dropCollection(this, iCollectionName);
-  }
-
-  @Override
-  public boolean dropCollection(final int collectionId) {
-    assert assertIfNotActive();
-
-    var schema = metadata.getSchema();
-    final var clazz = schema.getClassByCollectionId(collectionId);
-    if (clazz != null) {
-      throw new DatabaseException(this,
-          "Cannot drop collection '" + getCollectionNameById(collectionId)
-              + "' because it is mapped to class '" + clazz.getName() + "'");
-    }
-
-    getLocalCache().freeCollection(collectionId);
-    if (schema.getBlobCollections().contains(collectionId)) {
-      schema.removeBlobCollection(getCollectionNameById(collectionId));
-    }
-
-    final var collectionName = getCollectionNameById(collectionId);
-    if (collectionName == null) {
-      return false;
-    }
-
-    final var iteratorCollection = browseCollection(collectionName);
-    if (iteratorCollection == null) {
-      return false;
-    }
-
-    executeInTxBatches(iteratorCollection,
-        (session, record) -> record.delete());
-
-    return storage.dropCollection(this, collectionId);
-  }
-
-  public boolean dropCollectionInternal(int collectionId) {
-    assert assertIfNotActive();
-    return storage.dropCollection(this, collectionId);
-  }
-
-  @Override
-  public long getCollectionRecordSizeById(final int collectionId) {
-    assert assertIfNotActive();
-    try {
-      return storage.getCollectionRecordsSizeById(collectionId);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(getDatabaseName(),
-              "Error on reading records size for collection with id '" + collectionId + "'"),
-          e, this);
-    }
-  }
-
-  @Override
-  public long getSize() {
-    assert assertIfNotActive();
-    return storage.getSize(this);
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric resourceGeneric, String resourceSpecific, int iOperation) {
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric iResourceGeneric, int iOperation, Object iResourceSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric iResourceGeneric, int iOperation, Object... iResourcesSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(String iResource, int iOperation) {
-  }
-
-  @Override
-  public void checkSecurity(String iResourceGeneric, int iOperation, Object iResourceSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(
-      String iResourceGeneric, int iOperation, Object... iResourcesSpecific) {
-  }
-
-  @Override
-  public boolean isRemote() {
-    return true;
-  }
 
   @Override
   public String incrementalBackup(final Path path) throws UnsupportedOperationException {
     checkOpenness();
     assert assertIfNotActive();
-    checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
+    return commandsOrchestrator.incrementalBackup(this, path.toAbsolutePath().toString());
   }
 
+  @Nullable
   @Override
-  public RecordMetadata getRecordMetadata(final RID rid) {
-    assert assertIfNotActive();
-    return storage.getRecordMetadata(this, rid);
+  public TimeZone getDatabaseTimeZone() {
+    return serverTimeZone;
   }
 
   /**
@@ -818,6 +260,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
             "Only local paginated storage supports freeze. If you are using remote client please"
                 + " use YouTrackDB instance instead",
             null);
+  }
+
+  @Nullable
+  @Override
+  public String getCurrentUserName() {
+    return userName;
   }
 
   /**
@@ -842,35 +290,34 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
             null);
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public BTreeCollectionManager getBTreeCollectionManager() {
-    assert assertIfNotActive();
-    return storage.getSBtreeCollectionManager();
+  @Override
+  public boolean isPooled() {
+    return false;
   }
 
   @Override
-  public void reload() {
-    assert assertIfNotActive();
-
-    if (this.isClosed()) {
-      throw new DatabaseException(getDatabaseName(), "Cannot reload a closed db");
-    }
-
-    metadata.reload();
-    storage.reload(this);
+  public void close() {
+    internalClose(false);
   }
 
   @Override
-  public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
-    assert assertIfNotActive();
-    this.storage.commit(transaction);
+  public STATUS getStatus() {
+    return status;
+  }
+
+  @Override
+  public String getURL() {
+    return url;
+  }
+
+  @Override
+  public String getDatabaseName() {
+    return url;
   }
 
   @Override
   public boolean isClosed() {
-    return status == STATUS.CLOSED || storage.isClosed(this);
+    return status == STATUS.CLOSED || commandsOrchestrator.isClosed(this);
   }
 
   public void internalClose(boolean recycle) {
@@ -880,29 +327,17 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
 
     try {
       closeActiveQueries();
-      localCache.shutdown();
 
       if (isClosed()) {
         status = STATUS.CLOSED;
         return;
       }
 
-      try {
-        if (currentTx != null && currentTx.isActive()) {
-          rollback(true);
-        }
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Exception during rollback of active transaction", e);
-      }
-
-      callOnCloseListeners();
-
       status = STATUS.CLOSED;
       if (!recycle) {
-        sharedContext = null;
 
-        if (storage != null) {
-          storage.close(this);
+        if (commandsOrchestrator != null) {
+          commandsOrchestrator.close(this);
         }
       }
 
@@ -912,64 +347,14 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract<IndexManagerR
     }
   }
 
-  @Override
-  public String getCollectionRecordConflictStrategy(int collectionId) {
-    throw new UnsupportedOperationException();
-  }
 
-  public FrontendClientServerTransaction getActiveTx() {
-    assert assertIfNotActive();
-    if (currentTx != null && currentTx.isActive()) {
-      return (FrontendClientServerTransaction) currentTx;
-    } else {
-      throw new DatabaseException(getDatabaseName(), "No active transaction found");
+  public synchronized void closeActiveQueries() {
+    while (!activeQueries.isEmpty()) {
+      this.activeQueries
+          .values()
+          .iterator()
+          .next()
+          .close(); // the query automatically unregisters itself
     }
-  }
-
-  @Override
-  public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
-    assert assertIfNotActive();
-    return filterCollections.stream().map(this::getCollectionIdByName).mapToInt(i -> i).toArray();
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void truncateCollection(String collectionName) {
-    assert assertIfNotActive();
-    execute("truncate collection " + collectionName).close();
-  }
-
-  @Override
-  public void truncateClass(String name) {
-    assert assertIfNotActive();
-    execute("truncate class " + name).close();
-  }
-
-  @Override
-  public long truncateCollectionInternal(String name) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public long truncateClass(String name, boolean polimorfic) {
-    assert assertIfNotActive();
-
-    long count = 0;
-    if (polimorfic) {
-      try (var result = execute("truncate class " + name + " polymorphic ")) {
-        while (result.hasNext()) {
-          count += result.next().<Long>getProperty("count");
-        }
-      }
-    } else {
-      try (var result = execute("truncate class " + name)) {
-        while (result.hasNext()) {
-          count += result.next().<Long>getProperty("count");
-        }
-      }
-    }
-    return count;
   }
 }

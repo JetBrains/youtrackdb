@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -47,10 +48,10 @@ public class ResultBinary implements Result {
   private final int offset;
   private final int fieldLength;
   private final ImmutableSchema schema;
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
 
   public ResultBinary(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       ImmutableSchema schema,
       byte[] bytes,
       int offset,
@@ -67,7 +68,7 @@ public class ResultBinary implements Result {
   }
 
   public ResultBinary(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       byte[] bytes,
       int offset,
       int fieldLength,

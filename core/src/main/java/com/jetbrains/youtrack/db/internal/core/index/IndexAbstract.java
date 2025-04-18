@@ -269,7 +269,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
-  public long rebuild(DatabaseSessionInternal session) {
+  public long rebuild(DatabaseSessionEmbedded session) {
     return rebuild(session, new IndexRebuildOutputListener(this));
   }
 
@@ -281,7 +281,7 @@ public abstract class IndexAbstract implements Index {
    * @return number of entries in the index.
    */
   @Deprecated
-  public long getSize(DatabaseSessionInternal session) {
+  public long getSize(DatabaseSessionEmbedded session) {
     return size(session);
   }
 
@@ -289,7 +289,7 @@ public abstract class IndexAbstract implements Index {
    * Counts the entries for the key.
    */
   @Deprecated
-  public long count(DatabaseSessionInternal session, Object iKey) {
+  public long count(DatabaseSessionEmbedded session, Object iKey) {
     try (var stream =
         streamEntriesBetween(session, iKey, true, iKey, true, true)) {
       return stream.count();
@@ -343,7 +343,7 @@ public abstract class IndexAbstract implements Index {
 
   @Deprecated
   @Nullable
-  public Object getLastKey(DatabaseSessionInternal session) {
+  public Object getLastKey(DatabaseSessionEmbedded session) {
     try (final var stream = descStream(session)) {
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
@@ -355,13 +355,13 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Deprecated
-  public IndexCursor cursor(DatabaseSessionInternal session) {
+  public IndexCursor cursor(DatabaseSessionEmbedded session) {
     return new IndexCursorStream(stream(session));
   }
 
   @Deprecated
   @Override
-  public IndexCursor descCursor(DatabaseSessionInternal session) {
+  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
     return new IndexCursorStream(descStream(session));
   }
 
@@ -385,7 +385,7 @@ public abstract class IndexAbstract implements Index {
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
+  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
       boolean ascSortOrder) {
     return new IndexCursorStream(streamEntries(session, keys, ascSortOrder));
   }
@@ -393,7 +393,7 @@ public abstract class IndexAbstract implements Index {
   @Deprecated
   @Override
   public IndexCursor iterateEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     return new IndexCursorStream(
         streamEntriesBetween(session, fromKey, fromInclusive, toKey, toInclusive, ascOrder));
@@ -401,14 +401,14 @@ public abstract class IndexAbstract implements Index {
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
+  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
       boolean fromInclusive, boolean ascOrder) {
     return new IndexCursorStream(streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
   }
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
+  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     return new IndexCursorStream(streamEntriesMajor(session, toKey, toInclusive, ascOrder));
   }
@@ -416,7 +416,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
-  public long rebuild(DatabaseSessionInternal session,
+  public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
     long entitiesIndexed;
 
@@ -458,7 +458,7 @@ public abstract class IndexAbstract implements Index {
     return entitiesIndexed;
   }
 
-  public long fillIndex(DatabaseSessionInternal session,
+  public long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener) {
     long entitiesIndexed;
     acquireSharedLock();
@@ -486,7 +486,7 @@ public abstract class IndexAbstract implements Index {
     return entitiesIndexed;
   }
 
-  private long doFillIndex(DatabaseSessionInternal session,
+  private long doFillIndex(DatabaseSessionEmbedded session,
       final ProgressListener iProgressListener) {
     long entitiesIndexed = 0;
     try {
@@ -590,7 +590,7 @@ public abstract class IndexAbstract implements Index {
     entity.delete();
   }
 
-  private void clearAllEntries(DatabaseSessionInternal session) {
+  private void clearAllEntries(DatabaseSessionEmbedded session) {
     FrontendTransaction transaction = null;
     if (session.isTxActive()) {
       transaction = session.getTransactionInternal();

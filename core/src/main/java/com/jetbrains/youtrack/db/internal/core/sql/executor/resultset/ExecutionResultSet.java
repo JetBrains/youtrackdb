@@ -47,7 +47,7 @@ public class ExecutionResultSet implements ResultSet {
   }
 
   @Override
-  public ExecutionPlan getExecutionPlan() {
+  public @Nonnull ExecutionPlan getExecutionPlan() {
     assert session == null || session.assertIfNotActive();
     return plan;
   }

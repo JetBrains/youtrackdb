@@ -2,9 +2,9 @@ package com.jetbrains.youtrack.db.internal.server.security;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -34,8 +34,8 @@ public class RemoteBasicSecurityTest {
       MalformedObjectNameException {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
 
-    YouTrackDB youTrackDB =
-        new YouTrackDBImpl("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
+    BasicYouTrackDB youTrackDB =
+        new YouTrackDBAbstract("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin, reader"
             + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
@@ -51,7 +51,7 @@ public class RemoteBasicSecurityTest {
   @Test
   public void testCreateAndConnectWriter() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH
-    try (YouTrackDB writerOrient = new YouTrackDBImpl("remote:localhost",
+    try (BasicYouTrackDB writerOrient = new YouTrackDBAbstract("remote:localhost",
         YouTrackDBConfig.defaultConfig())) {
       try (var db = writerOrient.open("test", "writer", "writer")) {
         var tx = db.begin();
@@ -69,7 +69,7 @@ public class RemoteBasicSecurityTest {
   @Test
   public void testCreateAndConnectReader() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH
-    try (YouTrackDB writerOrient = new YouTrackDBImpl("remote:localhost",
+    try (BasicYouTrackDB writerOrient = new YouTrackDBAbstract("remote:localhost",
         YouTrackDBConfig.defaultConfig())) {
       try (var writer = writerOrient.open("test", "reader", "reader")) {
         writer.executeInTx(transaction -> {

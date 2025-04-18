@@ -1,32 +1,30 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.ResultSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.tx.NetworkRecordOperation;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Locale;
 import javax.annotation.Nullable;
@@ -34,7 +32,7 @@ import javax.annotation.Nullable;
 public class MessageHelper {
 
   public static void writeIdentifiable(
-      DatabaseSessionInternal session, ChannelDataOutput channel, final Identifiable o)
+      DatabaseSessionEmbedded session, ChannelDataOutput channel, final Identifiable o)
       throws IOException {
     if (o == null) {
       channel.writeShort(ChannelBinaryProtocol.RECORD_NULL);
@@ -156,123 +154,9 @@ public class MessageHelper {
     }
   }
 
-  public static void writeTransactionEntry(
-      final DataOutput iNetwork, final NetworkRecordOperation txEntry) throws IOException {
-    iNetwork.writeByte(txEntry.getType());
-    iNetwork.writeInt(txEntry.getId().getCollectionId());
-    iNetwork.writeLong(txEntry.getId().getCollectionPosition());
-    iNetwork.writeLong(txEntry.getDirtyCounter());
-    iNetwork.writeByte(txEntry.getRecordType());
-
-    switch (txEntry.getType()) {
-      case RecordOperation.CREATED:
-        var record = txEntry.getRecord();
-        iNetwork.writeInt(record.length);
-        iNetwork.write(record);
-        break;
-
-      case RecordOperation.UPDATED:
-        iNetwork.writeInt(txEntry.getVersion());
-        var record2 = txEntry.getRecord();
-        iNetwork.writeInt(record2.length);
-        iNetwork.write(record2);
-        iNetwork.writeBoolean(txEntry.isContentChanged());
-        break;
-
-      case RecordOperation.DELETED:
-        iNetwork.writeInt(txEntry.getVersion());
-        break;
-    }
-  }
-
-  static void writeTransactionEntry(
-      final ChannelDataOutput iNetwork,
-      final NetworkRecordOperation txEntry)
-      throws IOException {
-    iNetwork.writeByte(txEntry.getType());
-    iNetwork.writeRID(txEntry.getId());
-    iNetwork.writeLong(txEntry.getDirtyCounter());
-    iNetwork.writeByte(txEntry.getRecordType());
-
-    switch (txEntry.getType()) {
-      case RecordOperation.CREATED:
-        iNetwork.writeBytes(txEntry.getRecord());
-        break;
-
-      case RecordOperation.UPDATED:
-        iNetwork.writeVersion(txEntry.getVersion());
-        iNetwork.writeBytes(txEntry.getRecord());
-        iNetwork.writeBoolean(txEntry.isContentChanged());
-        break;
-
-      case RecordOperation.DELETED:
-        iNetwork.writeVersion(txEntry.getVersion());
-        break;
-    }
-  }
-
-  public static NetworkRecordOperation readTransactionEntry(final DataInput iNetwork)
-      throws IOException {
-    var result = new NetworkRecordOperation();
-    result.setType(iNetwork.readByte());
-    var collectionId = iNetwork.readInt();
-    var collectionPosition = iNetwork.readLong();
-    result.setId(new RecordId(collectionId, collectionPosition));
-    result.setDirtyCounter(iNetwork.readLong());
-    result.setRecordType(iNetwork.readByte());
-
-    switch (result.getType()) {
-      case RecordOperation.CREATED:
-        var length = iNetwork.readInt();
-        var record = new byte[length];
-        iNetwork.readFully(record);
-        result.setRecord(record);
-        break;
-
-      case RecordOperation.UPDATED:
-        result.setVersion(iNetwork.readInt());
-        var length2 = iNetwork.readInt();
-        var record2 = new byte[length2];
-        iNetwork.readFully(record2);
-        result.setRecord(record2);
-        result.setContentChanged(iNetwork.readBoolean());
-        break;
-
-      case RecordOperation.DELETED:
-        result.setVersion(iNetwork.readInt());
-        break;
-    }
-    return result;
-  }
-
-  static NetworkRecordOperation readTransactionEntry(
-      ChannelDataInput channel) throws IOException {
-    var entry = new NetworkRecordOperation();
-    entry.setType(channel.readByte());
-    entry.setId(channel.readRID());
-    entry.setDirtyCounter(channel.readLong());
-    entry.setRecordType(channel.readByte());
-    switch (entry.getType()) {
-      case RecordOperation.CREATED:
-        entry.setRecord(channel.readBytes());
-        break;
-      case RecordOperation.UPDATED:
-        entry.setVersion(channel.readVersion());
-        entry.setRecord(channel.readBytes());
-        entry.setContentChanged(channel.readBoolean());
-        break;
-      case RecordOperation.DELETED:
-        entry.setVersion(channel.readVersion());
-        break;
-      default:
-        break;
-    }
-    return entry;
-  }
-
   @Nullable
   public static Identifiable readIdentifiable(
-      DatabaseSessionInternal session, final ChannelDataInput network, RecordSerializer serializer)
+      DatabaseSessionEmbedded session, final ChannelDataInput network, RecordSerializer serializer)
       throws IOException {
     final int classId = network.readShort();
     if (classId == ChannelBinaryProtocol.RECORD_NULL) {
@@ -287,7 +171,7 @@ public class MessageHelper {
   }
 
   private static DBRecord readRecordFromBytes(
-      DatabaseSessionInternal session, ChannelDataInput network, RecordSerializer serializer)
+      DatabaseSessionEmbedded session, ChannelDataInput network, RecordSerializer serializer)
       throws IOException {
     var rec = network.readByte();
     final var rid = network.readRID();
@@ -318,7 +202,7 @@ public class MessageHelper {
     return record;
   }
 
-  private static void writeProjection(DatabaseSessionInternal session, Result item,
+  public static void writeProjection(DatabaseSessionEmbedded session, BasicResult item,
       ChannelDataOutput channel)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_PROJECTION);
@@ -327,7 +211,7 @@ public class MessageHelper {
   }
 
   public static void writeResult(
-      DatabaseSessionInternal session, Result row, ChannelDataOutput channel)
+      DatabaseSessionEmbedded session, Result row, ChannelDataOutput channel)
       throws IOException {
     if (row.isBlob()) {
       channel.writeByte(QueryResponse.RECORD_TYPE_RID);
@@ -351,20 +235,33 @@ public class MessageHelper {
     }
   }
 
-
-  public static ResultInternal readResult(DatabaseSessionInternal session, ChannelDataInput channel)
+  public static RemoteResult readResult(DatabaseSessionRemote session, ChannelDataInput channel)
       throws IOException {
     var type = channel.readByte();
-    return switch (type) {
-      case QueryResponse.RECORD_TYPE_PROJECTION -> readProjection(session, channel);
-      case QueryResponse.RECORD_TYPE_RID ->
-          new ResultInternal(session, readIdentifiable(session, channel,
-              RecordSerializerNetworkV37.INSTANCE));
-      default -> throw new IllegalStateException("Unknown record type: " + type);
-    };
+    if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
+      return readProjection(session, channel);
+    }
+
+    throw new IllegalStateException("Unknown record type: " + type);
   }
 
-  private static ResultInternal readProjection(DatabaseSessionInternal session,
+  public static Result readResult(DatabaseSessionEmbedded session, ChannelDataInput channel)
+      throws IOException {
+    var type = channel.readByte();
+    if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
+      return readProjection(session, channel);
+    }
+
+    throw new IllegalStateException("Unknown record type: " + type);
+  }
+
+  private static RemoteResult readProjection(DatabaseSessionRemote session,
+      ChannelDataInput channel) throws IOException {
+    var ser = new ResultSerializerNetwork();
+    return ser.fromStream(session, channel);
+  }
+
+  public static Result readProjection(DatabaseSessionEmbedded session,
       ChannelDataInput channel) throws IOException {
     var ser = new ResultSerializerNetwork();
     return ser.fromStream(session, channel);

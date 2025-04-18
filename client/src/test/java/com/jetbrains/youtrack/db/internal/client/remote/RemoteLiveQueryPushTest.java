@@ -4,9 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -28,7 +28,7 @@ import org.mockito.MockitoAnnotations;
  */
 public class RemoteLiveQueryPushTest {
 
-  private static class MockLiveListener implements LiveQueryResultListener {
+  private static class MockLiveListener implements BasicLiveQueryResultListener {
 
     public int countCreate = 0;
     public int countUpdate = 0;
@@ -36,18 +36,18 @@ public class RemoteLiveQueryPushTest {
     public boolean end;
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
       countCreate++;
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-        @Nonnull Result after) {
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull BasicResult before,
+        @Nonnull BasicResult after) {
       countUpdate++;
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
       countDelete++;
     }
 
@@ -62,7 +62,7 @@ public class RemoteLiveQueryPushTest {
     }
   }
 
-  private StorageRemote storage;
+  private RemoteCommandsOrchestratorImpl storage;
 
   @Mock
   private RemoteConnectionManager connectionManager;
@@ -79,7 +79,7 @@ public class RemoteLiveQueryPushTest {
     Mockito.when(pool.acquire()).thenReturn(session);
     Mockito.when(session.assertIfNotActive()).thenReturn(true);
     storage =
-        new StorageRemote(
+        new RemoteCommandsOrchestratorImpl(
             new RemoteURLs(new String[]{}, new ContextConfiguration()),
             "none",
             null,

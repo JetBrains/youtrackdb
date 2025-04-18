@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashSet;
@@ -20,11 +21,11 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   public static final byte RECORD_TYPE = 'e';
 
-  public StatefullEdgeEntityImpl(@Nonnull DatabaseSessionInternal session, String iClassName) {
+  public StatefullEdgeEntityImpl(@Nonnull DatabaseSessionEmbedded session, String iClassName) {
     super(session, iClassName);
   }
 
-  public StatefullEdgeEntityImpl(DatabaseSessionInternal database, RecordId rid) {
+  public StatefullEdgeEntityImpl(DatabaseSessionEmbedded database, RecordId rid) {
     super(database, rid);
   }
 

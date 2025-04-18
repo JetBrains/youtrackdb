@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -47,21 +48,22 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   private static final byte[] EMPTY_SOURCE = new byte[]{};
 
-  public RecordBytes(DatabaseSessionInternal session) {
+  public RecordBytes(DatabaseSessionEmbedded session) {
     super(session);
     source = EMPTY_SOURCE;
   }
 
-  public RecordBytes(final DatabaseSessionInternal iDatabase, final byte[] iSource) {
+  public RecordBytes(final DatabaseSessionEmbedded iDatabase, final byte[] iSource) {
     super(iDatabase, iSource);
     Objects.requireNonNull(iSource);
   }
 
-  public RecordBytes(DatabaseSessionInternal session, final RecordId iRecordId) {
+  public RecordBytes(DatabaseSessionEmbedded session, final RecordId iRecordId) {
     super(session);
     assert assertIfAlreadyLoaded(recordId);
 
-    recordId.setCollectionAndPosition(iRecordId.getCollectionId(), iRecordId.getCollectionPosition());
+    recordId.setCollectionAndPosition(iRecordId.getCollectionId(),
+        iRecordId.getCollectionPosition());
   }
 
   @Override

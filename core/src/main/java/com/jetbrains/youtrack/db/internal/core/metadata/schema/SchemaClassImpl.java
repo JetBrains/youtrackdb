@@ -34,6 +34,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
@@ -958,19 +959,19 @@ public abstract class SchemaClassImpl {
     return !s.isEmpty() && s.charAt(0) == '`' && s.charAt(s.length() - 1) == '`';
   }
 
-  public void createIndex(DatabaseSessionInternal session, final String iName,
+  public void createIndex(DatabaseSessionEmbedded session, final String iName,
       final INDEX_TYPE iType,
       final String... fields) {
     createIndex(session, iName, iType.name(), fields);
   }
 
-  public void createIndex(DatabaseSessionInternal session, final String iName, final String iType,
+  public void createIndex(DatabaseSessionEmbedded session, final String iName, final String iType,
       final String... fields) {
     createIndex(session, iName, iType, null, null, fields);
   }
 
   public void createIndex(
-      DatabaseSessionInternal session, final String iName,
+      DatabaseSessionEmbedded session, final String iName,
       final INDEX_TYPE iType,
       final ProgressListener iProgressListener,
       final String... fields) {
@@ -978,7 +979,7 @@ public abstract class SchemaClassImpl {
   }
 
   public void createIndex(
-      DatabaseSessionInternal session, String iName,
+      DatabaseSessionEmbedded session, String iName,
       String iType,
       ProgressListener iProgressListener,
       Map<String, Object> metadata,
@@ -987,7 +988,7 @@ public abstract class SchemaClassImpl {
   }
 
   public void createIndex(
-      DatabaseSessionInternal session, final String name,
+      DatabaseSessionEmbedded session, final String name,
       String type,
       final ProgressListener progressListener,
       Map<String, Object> metadata,

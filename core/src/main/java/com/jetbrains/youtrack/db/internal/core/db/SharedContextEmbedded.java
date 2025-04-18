@@ -27,7 +27,7 @@ public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  public SharedContextEmbedded(Storage storage, YouTrackDBEmbedded youtrackDB) {
+  public SharedContextEmbedded(Storage storage, YouTrackDBInternalEmbedded youtrackDB) {
     this.youtrackDB = youtrackDB;
     this.storage = storage;
     init(storage);
@@ -138,7 +138,7 @@ public class SharedContextEmbedded extends SharedContext<IndexManagerEmbedded> {
     }
   }
 
-  public void create(DatabaseSessionInternal session) {
+  public void create(DatabaseSessionEmbedded session) {
     lock.lock();
     try {
       schema.create(session);

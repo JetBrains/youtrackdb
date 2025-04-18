@@ -5,6 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.CreateEdgeExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
@@ -36,7 +37,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -62,7 +63,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {

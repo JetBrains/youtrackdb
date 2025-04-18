@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
@@ -27,7 +28,7 @@ import java.util.concurrent.Callable;
 public abstract class SharedContext<IM extends IndexManagerAbstract> extends
     ListenerManger<MetadataUpdateListener> {
 
-  protected YouTrackDBInternal youtrackDB;
+  protected YouTrackDBInternalEmbedded youtrackDB;
   protected Storage storage;
   protected SchemaShared schema;
   protected SecurityInternal security;
@@ -99,7 +100,7 @@ public abstract class SharedContext<IM extends IndexManagerAbstract> extends
     return storage;
   }
 
-  public YouTrackDBInternal getYouTrackDB() {
+  public YouTrackDBInternalEmbedded getYouTrackDB() {
     return youtrackDB;
   }
 

@@ -3,12 +3,11 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,7 +38,7 @@ public class RemotePushMessagesTest extends DbTestBase {
 
   @Test
   public void testIndexManager() throws IOException {
-    try (YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (BasicYouTrackDB youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       youTrackDB.execute(
           "create database test memory users (admin identified by 'admin' role admin)");
@@ -60,7 +59,7 @@ public class RemotePushMessagesTest extends DbTestBase {
 
   @Test
   public void testSchema() throws IOException {
-    YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    BasicYouTrackDB youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
@@ -78,7 +77,7 @@ public class RemotePushMessagesTest extends DbTestBase {
 
   @Test
   public void testStorageConfiguration() throws IOException {
-    YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    BasicYouTrackDB youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
@@ -149,7 +148,7 @@ public class RemotePushMessagesTest extends DbTestBase {
     channel.close();
 
     var requestRead = new SubscribeRequest();
-    requestRead.read(session, channel, 1, RecordSerializerNetworkV37.INSTANCE);
+    requestRead.read(session, channel, 1);
 
     assertEquals(request.getPushMessage(), requestRead.getPushMessage());
     assertTrue(requestRead.getPushRequest() instanceof SubscribeLiveQueryRequest);
@@ -160,7 +159,7 @@ public class RemotePushMessagesTest extends DbTestBase {
     var channel = new MockChannel();
 
     var response = new SubscribeResponse(new SubscribeLiveQueryResponse(10));
-    response.write(null, channel, 1, RecordSerializerNetworkV37.INSTANCE);
+    response.write(null, channel, 1);
     channel.close();
 
     var responseRead = new SubscribeResponse(new SubscribeLiveQueryResponse());
@@ -177,7 +176,7 @@ public class RemotePushMessagesTest extends DbTestBase {
     request.write(null, channel, null);
     channel.close();
     var readRequest = new UnsubscribeRequest();
-    readRequest.read(session, channel, 0, null);
+    readRequest.read(session, channel, 0);
     assertEquals(
         10, ((UnsubscribeLiveQueryRequest) readRequest.getUnsubscribeRequest()).getMonitorId());
   }

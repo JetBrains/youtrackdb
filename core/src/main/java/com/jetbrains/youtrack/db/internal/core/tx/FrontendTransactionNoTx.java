@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -63,9 +64,9 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
           + " Please start transaction";
 
   @Nonnull
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
-  public FrontendTransactionNoTx(DatabaseSessionInternal session) {
+  public FrontendTransactionNoTx(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -324,7 +325,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void setSession(DatabaseSessionInternal session) {
+  public void setSession(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -411,7 +412,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nonnull
   @Override
-  public DatabaseSessionInternal getDatabaseSession() {
+  public DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 

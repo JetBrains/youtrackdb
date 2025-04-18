@@ -144,7 +144,7 @@ public class StorageRemoteSession {
       SocketChannelBinaryAsynchClient network = null;
       try {
         network =
-            StorageRemote.getNetwork(
+            RemoteCommandsOrchestratorImpl.getNetwork(
                 nodeSession.getServerURL(), connectionManager, clientConfiguration);
         var request = new CloseRequest();
         network.beginRequest(request.getCommand(), this);

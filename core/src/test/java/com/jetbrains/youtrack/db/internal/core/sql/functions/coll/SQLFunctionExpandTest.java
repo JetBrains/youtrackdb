@@ -3,8 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
@@ -148,7 +148,7 @@ public class SQLFunctionExpandTest extends DbTestBase {
                           condition.key
                   )
                   .stream()
-                  .map(Result::toMap)
+                  .map(BasicResult::toMap)
                   .collect(Collectors.toSet())
           );
 

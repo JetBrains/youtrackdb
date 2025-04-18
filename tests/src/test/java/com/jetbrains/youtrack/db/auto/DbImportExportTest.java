@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
@@ -42,7 +42,6 @@ import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.testng.Assert;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -150,7 +149,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         new YouTrackDBConfigBuilderImpl()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build();
-    try (final YouTrackDB youTrackDB = new YouTrackDBImpl(
+    try (final YouTrackDB youTrackDB = new YouTrackDBAbstract(
         "embedded:" + localTesPath.getPath(),
         config)) {
       youTrackDB.create("original", DatabaseType.DISK);

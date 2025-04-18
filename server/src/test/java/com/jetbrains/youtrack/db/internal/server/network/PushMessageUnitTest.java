@@ -5,9 +5,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemotePushThread;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -44,7 +46,7 @@ public class PushMessageUnitTest {
   public class MockPushRequest implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
     }
@@ -55,7 +57,7 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+    public void read(DatabaseSessionRemote session, ChannelDataInput network) throws IOException {
     }
 
     @Override
@@ -74,7 +76,7 @@ public class PushMessageUnitTest {
   public class MockPushRequestNoResponse implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
     }
@@ -85,7 +87,7 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+    public void read(DatabaseSessionRemote session, ChannelDataInput network) throws IOException {
     }
 
     @Override

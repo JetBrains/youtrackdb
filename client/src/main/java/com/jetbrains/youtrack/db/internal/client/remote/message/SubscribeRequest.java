@@ -5,8 +5,8 @@ import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -29,36 +29,25 @@ public class SubscribeRequest implements BinaryRequest<SubscribeResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
+  public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
       StorageRemoteSession session) throws IOException {
     network.writeByte(pushMessage);
     pushRequest.write(databaseSession, network, session);
   }
 
   @Override
-  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
-      int protocolVersion,
-      RecordSerializerNetwork serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     pushMessage = channel.readByte();
     pushRequest = createBinaryRequest(pushMessage);
-    pushRequest.read(databaseSession, channel, protocolVersion, serializer);
+    pushRequest.read(databaseSession, channel, protocolVersion);
   }
 
   private BinaryRequest<? extends BinaryResponse> createBinaryRequest(byte message) {
     switch (message) {
       case ChannelBinaryProtocol.SUBSCRIBE_PUSH_LIVE_QUERY:
         return new SubscribeLiveQueryRequest();
-      case ChannelBinaryProtocol.SUBSCRIBE_PUSH_STORAGE_CONFIG:
-        return new SubscribeStorageConfigurationRequest();
-      case ChannelBinaryProtocol.SUBSCRIBE_PUSH_SCHEMA:
-        return new SubscribeSchemaRequest();
-      case ChannelBinaryProtocol.SUBSCRIBE_PUSH_INDEX_MANAGER:
-        return new SubscribeIndexManagerRequest();
-      case ChannelBinaryProtocol.SUBSCRIBE_PUSH_FUNCTIONS:
-        return new SubscribeFunctionsRequest();
-      case ChannelBinaryProtocol.SUBSCRIBE_PUSH_SEQUENCES:
-        return new SubscribeSequencesRequest();
     }
 
     throw new DatabaseException("Unknown message response for code:" + message);

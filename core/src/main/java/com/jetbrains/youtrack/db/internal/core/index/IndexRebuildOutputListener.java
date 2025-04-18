@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Progress listener for index rebuild.
@@ -95,7 +95,7 @@ public class IndexRebuildOutputListener implements ProgressListener {
   }
 
   @Override
-  public void onCompletition(DatabaseSessionInternal session, final Object iTask,
+  public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
       final boolean iSucceed) {
     final var idxSize = idx.size(session);
 

@@ -13,8 +13,6 @@ import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import org.junit.Test;
 
 public class SchemaClassImplTest extends BaseMemoryInternalDatabase {

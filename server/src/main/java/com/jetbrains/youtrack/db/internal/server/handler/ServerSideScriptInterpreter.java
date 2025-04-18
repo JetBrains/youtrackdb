@@ -24,7 +24,9 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.ScriptInterceptor;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorScript;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
@@ -59,7 +61,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
         allowedLanguages =
             new HashSet<>(Arrays.asList(param.value.toLowerCase(Locale.ENGLISH).split(",")));
       } else if (param.name.equalsIgnoreCase("allowedPackages")) {
-        YouTrackDBInternal.extract(iServer.getContext())
+        ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(iServer.getContext()))
             .getScriptManager()
             .addAllowedPackages(new HashSet<>(Arrays.asList(param.value.split(","))));
       }
@@ -78,7 +80,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
       return;
     }
 
-    YouTrackDBInternal.extract(server.getContext())
+    ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(server.getContext()))
         .getScriptManager()
         .getCommandManager()
         .registerExecutor(
@@ -97,12 +99,11 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
           checkLanguage(language);
         };
 
-    YouTrackDBInternal.extract(server.getContext())
+    ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(server.getContext()))
         .getScriptManager()
         .getCommandManager()
         .getScriptExecutors()
-        .entrySet()
-        .forEach(e -> e.getValue().registerInterceptor(interceptor));
+        .forEach((key, value) -> value.registerInterceptor(interceptor));
     LogManager.instance()
         .warn(
             this,
@@ -118,15 +119,14 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
     }
 
     if (interceptor != null) {
-      YouTrackDBInternal.extract(server.getContext())
+      ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(server.getContext()))
           .getScriptManager()
           .getCommandManager()
           .getScriptExecutors()
-          .entrySet()
-          .forEach(e -> e.getValue().unregisterInterceptor(interceptor));
+          .forEach((key, value) -> value.unregisterInterceptor(interceptor));
     }
 
-    YouTrackDBInternal.extract(server.getContext())
+    ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(server.getContext()))
         .getScriptManager()
         .getCommandManager()
         .unregisterExecutor(CommandScript.class);

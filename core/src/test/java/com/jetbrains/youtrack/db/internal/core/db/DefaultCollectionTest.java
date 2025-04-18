@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
@@ -12,8 +11,8 @@ public class DefaultCollectionTest {
 
   @Test
   public void defaultCollectionTest() {
-    final YouTrackDB context =
-        CreateDatabaseUtil.createDatabase("test",
+    final var context =
+        (YouTrackDBImpl)CreateDatabaseUtil.createDatabase("test",
             DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     try (final var session =

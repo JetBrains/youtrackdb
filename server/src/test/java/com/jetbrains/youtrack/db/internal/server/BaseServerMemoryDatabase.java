@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -14,7 +14,7 @@ import org.junit.rules.TestName;
 public class BaseServerMemoryDatabase {
 
   protected DatabaseSessionInternal session;
-  protected YouTrackDB context;
+  protected BasicYouTrackDB context;
   @Rule
   public TestName name = new TestName();
   protected YouTrackDBServer server;
@@ -29,7 +29,7 @@ public class BaseServerMemoryDatabase {
       throw new RuntimeException(e);
     }
 
-    context = new YouTrackDBImpl("remote:localhost", "root", "root",
+    context = new YouTrackDBAbstract("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     context
         .execute(

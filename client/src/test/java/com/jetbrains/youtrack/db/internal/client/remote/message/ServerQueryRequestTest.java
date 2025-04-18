@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,7 +28,7 @@ public class ServerQueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new ServerQueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
 
@@ -59,7 +58,7 @@ public class ServerQueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new ServerQueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
@@ -85,7 +84,7 @@ public class ServerQueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new ServerQueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());

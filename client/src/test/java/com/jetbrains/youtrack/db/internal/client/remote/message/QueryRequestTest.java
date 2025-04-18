@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,11 +16,11 @@ public class QueryRequestTest extends DbTestBase {
   public void testWithPositionalParams() throws IOException {
     var params = new Object[]{1, "Foo"};
     var request =
-        new QueryRequest(session,
+        new QueryRequest(
             "sql",
             "select from Foo where a = ?",
             params,
-            QueryRequest.QUERY, RecordSerializerNetworkFactory.current(), 123);
+            QueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);
@@ -29,7 +28,7 @@ public class QueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new QueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
 
@@ -47,12 +46,12 @@ public class QueryRequestTest extends DbTestBase {
     params.put("foo", "bar");
     params.put("baz", 12);
     var request =
-        new QueryRequest(session,
+        new QueryRequest(
             "sql",
             "select from Foo where a = ?",
             params,
             QueryRequest.QUERY,
-            RecordSerializerNetworkFactory.current(), 123);
+            123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);
@@ -60,7 +59,7 @@ public class QueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new QueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());
@@ -73,12 +72,12 @@ public class QueryRequestTest extends DbTestBase {
   public void testWithNoParams() throws IOException {
     Map<String, Object> params = null;
     var request =
-        new QueryRequest(session,
+        new QueryRequest(
             "sql",
             "select from Foo where a = ?",
             params,
             QueryRequest.QUERY,
-            RecordSerializerNetworkFactory.current(), 123);
+            123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);
@@ -86,7 +85,7 @@ public class QueryRequestTest extends DbTestBase {
     channel.close();
 
     var other = new QueryRequest();
-    other.read(session, channel, -1, RecordSerializerNetworkFactory.current());
+    other.read(session, channel, -1);
 
     Assert.assertEquals(request.getCommand(), other.getCommand());
     Assert.assertTrue(other.isNamedParams());

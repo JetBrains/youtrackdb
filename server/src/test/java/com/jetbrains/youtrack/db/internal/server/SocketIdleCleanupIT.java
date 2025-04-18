@@ -5,8 +5,8 @@ import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBRemote;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBInternalRemote;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -48,7 +48,7 @@ public class SocketIdleCleanupIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLIENT_CHANNEL_IDLE_CLOSE, true)
             .addGlobalConfigurationParameter(GlobalConfiguration.CLIENT_CHANNEL_IDLE_TIMEOUT, 1)
             .build();
-    var youTrackDb = new YouTrackDBImpl("remote:localhost", "root", "root",
+    var youTrackDb = new YouTrackDBAbstract("remote:localhost", "root", "root",
         config);
     youTrackDb.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
@@ -58,7 +58,7 @@ public class SocketIdleCleanupIT {
     tx.commit();
 
     Thread.sleep(2000);
-    var remote = (YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDb);
+    var remote = (YouTrackDBInternalRemote) YouTrackDBInternal.extract(youTrackDb);
     var connectionManager = remote.getConnectionManager();
     var pool =
         connectionManager.getPool(connectionManager.getURLs().iterator().next());

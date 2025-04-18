@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -97,7 +98,7 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public long count(DatabaseSessionInternal session, final Object iKey) {
+  public long count(DatabaseSessionEmbedded session, final Object iKey) {
     throw new UnsupportedOperationException();
   }
 
@@ -120,7 +121,7 @@ public class IndexRemote implements Index {
     return -1;
   }
 
-  public long rebuild(DatabaseSessionInternal session) {
+  public long rebuild(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -128,7 +129,7 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public long getSize(DatabaseSessionInternal session) {
+  public long getSize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -186,22 +187,22 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public long size(DatabaseSessionInternal session) {
+  public long size(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -211,25 +212,25 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesBetween(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntriesBetween(DatabaseSessionEmbedded session,
       Object fromKey, boolean fromInclusive, Object toKey, boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMajor(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntriesMajor(DatabaseSessionEmbedded session,
       Object fromKey, boolean fromInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMinor(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntriesMinor(DatabaseSessionEmbedded session,
       Object toKey, boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException();
   }
@@ -260,7 +261,7 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
     throw new UnsupportedOperationException();
   }
 
@@ -308,7 +309,7 @@ public class IndexRemote implements Index {
     return rid;
   }
 
-  public long rebuild(DatabaseSessionInternal session,
+  public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
     return rebuild(session);
   }
@@ -322,7 +323,7 @@ public class IndexRemote implements Index {
 
   @Nullable
   @Override
-  public Object get(DatabaseSessionInternal session, Object key) {
+  public Object get(DatabaseSessionEmbedded session, Object key) {
     return null;
   }
 
@@ -364,42 +365,42 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Object getLastKey(DatabaseSessionInternal session) {
+  public Object getLastKey(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException("getLastKey");
   }
 
   @Override
   public IndexCursor iterateEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesBetween");
   }
 
   @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
+  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
       boolean fromInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesMajor");
   }
 
   @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
+  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesMinor");
   }
 
   @Override
-  public IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
+  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
       boolean ascSortOrder) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public IndexCursor cursor(DatabaseSessionInternal session) {
+  public IndexCursor cursor(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public IndexCursor descCursor(DatabaseSessionInternal session) {
+  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 

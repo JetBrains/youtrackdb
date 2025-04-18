@@ -5,9 +5,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -149,7 +149,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
     var resEmb = res.next();
     assertEquals("value", resEmb.getProperty("one"));
-    assertEquals("value", ((Result) resEmb.getProperty("secEmb")).getProperty("two"));
+    assertEquals("value", ((BasicResult) resEmb.getProperty("secEmb")).getProperty("two"));
     tx.commit();
   }
 
@@ -171,8 +171,8 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
     var item = res.next();
     assertNotNull(item.getProperty("list"));
-    assertEquals(1, ((List<Result>) item.getProperty("list")).size());
-    assertEquals("value", ((List<Result>) item.getProperty("list")).get(0).getProperty("one"));
+    assertEquals(1, ((List<BasicResult>) item.getProperty("list")).size());
+    assertEquals("value", ((List<BasicResult>) item.getProperty("list")).get(0).getProperty("one"));
     tx.commit();
   }
 
@@ -193,9 +193,9 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
     var item = res.next();
     assertNotNull(item.getProperty("set"));
-    assertEquals(1, ((Set<Result>) item.getProperty("set")).size());
+    assertEquals(1, ((Set<BasicResult>) item.getProperty("set")).size());
     assertEquals(
-        "value", ((Set<Result>) item.getProperty("set")).iterator().next().getProperty("one"));
+        "value", ((Set<BasicResult>) item.getProperty("set")).iterator().next().getProperty("one"));
     tx.commit();
   }
 
@@ -217,9 +217,9 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
     var item = res.next();
     assertNotNull(item.getProperty("map"));
-    assertEquals(1, ((Map<String, Result>) item.getProperty("map")).size());
+    assertEquals(1, ((Map<String, BasicResult>) item.getProperty("map")).size());
     assertEquals(
-        "value", ((Map<String, Result>) item.getProperty("map")).get("key").getProperty("one"));
+        "value", ((Map<String, BasicResult>) item.getProperty("map")).get("key").getProperty("one"));
     tx.commit();
   }
 

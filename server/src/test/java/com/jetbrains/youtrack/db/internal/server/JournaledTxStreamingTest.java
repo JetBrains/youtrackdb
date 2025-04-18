@@ -22,11 +22,11 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -44,7 +44,7 @@ public class JournaledTxStreamingTest {
 
   private File buildDir;
   private Process serverProcess;
-  private YouTrackDB ctx;
+  private BasicYouTrackDB ctx;
   private DatabaseSessionInternal db;
   private DataInputStream stream;
 
@@ -66,7 +66,7 @@ public class JournaledTxStreamingTest {
 
     spawnServer();
 
-    ctx = new YouTrackDBImpl("remote:localhost:3500", "root", "root",
+    ctx = new YouTrackDBAbstract("remote:localhost:3500", "root", "root",
         YouTrackDBConfig.defaultConfig());
     ctx.execute("create database " + JournaledTxStreamingTest.class.getSimpleName() + " disk ")
         .close();

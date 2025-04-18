@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
@@ -35,10 +36,10 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
   }
 
   protected abstract Object move(
-      final DatabaseSessionInternal db, final Identifiable record, final String[] labels);
+      final DatabaseSessionEmbedded db, final Identifiable record, final String[] labels);
 
   protected abstract Object move(
-      final DatabaseSessionInternal db, final Relation<?> bidirectionalLink,
+      final DatabaseSessionEmbedded db, final Relation<?> bidirectionalLink,
       final String[] labels);
 
   public String getSyntax(DatabaseSession session) {

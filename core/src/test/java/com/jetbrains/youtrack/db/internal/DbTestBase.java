@@ -2,10 +2,10 @@ package com.jetbrains.youtrack.db.internal;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.File;
@@ -22,8 +22,8 @@ public class DbTestBase {
   private static final AtomicLong counter = new AtomicLong();
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
-  protected DatabaseSessionInternal session;
-  protected SessionPool pool;
+  protected DatabaseSessionEmbedded session;
+  protected SessionPool<DatabaseSession> pool;
   protected YouTrackDBImpl context;
 
   @Rule
@@ -67,7 +67,7 @@ public class DbTestBase {
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
     pool = context.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
-    session = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd",
+    session = (DatabaseSessionEmbedded) context.open(this.databaseName, "admin", "adminpwd",
         config);
   }
 
@@ -80,7 +80,7 @@ public class DbTestBase {
   }
 
   public static String getBaseDirectoryPath(Class<?> testClass) {
-    final String buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
+    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
     return
         buildDirectory + File.separator + "databases" + File.separator + testClass
@@ -120,16 +120,16 @@ public class DbTestBase {
     if (!session.isClosed()) {
       session.activateOnCurrentThread();
       session.close();
-      this.session = (DatabaseSessionInternal) context.open(this.databaseName, user, password);
+      this.session = (DatabaseSessionEmbedded) context.open(this.databaseName, user, password);
     }
   }
 
-  public DatabaseSessionInternal openDatabase() {
-    return (DatabaseSessionInternal) context.open(this.databaseName, adminUser, adminPassword);
+  public DatabaseSessionEmbedded openDatabase() {
+    return (DatabaseSessionEmbedded) context.open(this.databaseName, adminUser, adminPassword);
   }
 
-  public DatabaseSessionInternal openDatabase(String user, String password) {
-    return (DatabaseSessionInternal) context.open(this.databaseName, user, password);
+  public DatabaseSessionEmbedded openDatabase(String user, String password) {
+    return (DatabaseSessionEmbedded) context.open(this.databaseName, user, password);
   }
 
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {

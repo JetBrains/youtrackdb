@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -62,7 +62,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
 
       var result = resultSet.next();
 
-      Collection<Result> addresses = result.getProperty("addresses");
+      Collection<BasicResult> addresses = result.getProperty("addresses");
       Assert.assertEquals(4, addresses.size());
 
       for (var a : addresses) {

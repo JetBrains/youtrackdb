@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.schema.IndexDefinition;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -45,7 +46,7 @@ import javax.annotation.Nullable;
  */
 public final class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaInternal {
 
-  public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionInternal iDatabase) {
+  public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 

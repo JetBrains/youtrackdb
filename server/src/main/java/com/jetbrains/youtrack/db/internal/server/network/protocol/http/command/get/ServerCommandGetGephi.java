@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
@@ -195,7 +195,7 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
   }
 
   protected static ResultSet executeStatement(
-      String language, String text, Object params, DatabaseSession db) {
+      String language, String text, Object params, DatabaseSessionEmbedded db) {
     ResultSet result;
     if (params instanceof Map) {
       result = db.runScript("sql", text, (Map) params);

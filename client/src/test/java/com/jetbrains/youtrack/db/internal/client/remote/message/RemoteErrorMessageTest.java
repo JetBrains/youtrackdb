@@ -22,7 +22,7 @@ public class RemoteErrorMessageTest extends DbTestBase {
     messages.put("one", "two");
     var response =
         new Error37Response(ErrorCode.GENERIC_ERROR, 10, messages, "some".getBytes());
-    response.write(null, channel, 0, null);
+    response.write(null, channel, 0);
     channel.close();
     var readResponse = new Error37Response();
     readResponse.read(session, channel, null);

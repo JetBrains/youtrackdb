@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.security;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.Test;
 
@@ -20,7 +20,7 @@ public class SystemUsersTest {
         .info(this, "YOUTRACKDB_HOME: " + System.getProperty("YOUTRACKDB_HOME"));
 
     YouTrackDB youTrackDB =
-        new YouTrackDBImpl(
+        new YouTrackDBAbstract(
             "disk:target/" + SystemUsersTest.class.getSimpleName(),
             YouTrackDBConfig.defaultConfig());
 

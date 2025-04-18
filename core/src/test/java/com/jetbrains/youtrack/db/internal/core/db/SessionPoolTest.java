@@ -2,9 +2,12 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import org.junit.Test;
@@ -13,11 +16,15 @@ public class SessionPoolTest {
 
   @Test
   public void testPool() {
+    var config =
+        YouTrackDBConfig.builder()
+            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+            .build();
     final var youTrackDb =
-        CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_MEMORY);
-    final SessionPool pool =
-        new SessionPoolImpl(youTrackDb, "test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    @SuppressWarnings("unchecked") final SessionPool<DatabaseSession> pool =
+        new SessionPoolImpl<>((YouTrackDBAbstract<?, DatabaseSession>) youTrackDb, "test", "admin",
+            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionInternal) pool.acquire();
     db.executeInTx(
         transaction -> db.newEntity());
@@ -29,8 +36,8 @@ public class SessionPoolTest {
   @Test
   public void testPoolCloseTx() {
     final var youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
@@ -47,14 +54,17 @@ public class SessionPoolTest {
               + "' role admin)");
     }
 
-    final SessionPool pool =
-        new SessionPoolImpl(youTrackDb, "test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var db = (DatabaseSessionInternal) pool.acquire();
+    @SuppressWarnings("unchecked") final var pool =
+        new SessionPoolImpl<>(
+            (YouTrackDBAbstract<Result, DatabaseSession>) youTrackDb, "test", "admin",
+
+            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    var db = (DatabaseSessionEmbedded) pool.acquire();
     db.createClass("Test");
     db.begin();
     db.newEntity("Test");
     db.close();
-    db = (DatabaseSessionInternal) pool.acquire();
+    db = (DatabaseSessionEmbedded) pool.acquire();
     assertEquals(db.countClass("Test"), 0);
     db.close();
     pool.close();
@@ -64,8 +74,8 @@ public class SessionPoolTest {
   @Test
   public void testPoolDoubleClose() {
     final var youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
@@ -82,8 +92,9 @@ public class SessionPoolTest {
               + "' role admin)");
     }
 
-    final SessionPool pool =
-        new SessionPoolImpl(youTrackDb, "test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    @SuppressWarnings("unchecked") final SessionPool<DatabaseSession> pool =
+        new SessionPoolImpl<>((YouTrackDBAbstract<?, DatabaseSession>) youTrackDb, "test", "admin",
+            CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = pool.acquire();
     db.close();
     pool.close();

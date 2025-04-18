@@ -21,6 +21,9 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 
 import com.google.common.util.concurrent.Striped;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CollectionDoesNotExistException;
@@ -35,8 +38,7 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ScalableRWLock;
@@ -62,8 +64,9 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDeleter;
@@ -283,7 +286,7 @@ public abstract class AbstractStorage
   protected volatile STATUS status = STATUS.CLOSED;
 
   protected AtomicReference<Throwable> error = new AtomicReference<>(null);
-  protected YouTrackDBInternal context;
+  protected YouTrackDBInternalEmbedded context;
   private volatile CountDownLatch migration = new CountDownLatch(1);
 
   private volatile int backupRunning = 0;
@@ -297,7 +300,8 @@ public abstract class AbstractStorage
   private final Stopwatch shutdownDuration;
 
   public AbstractStorage(
-      final String name, final String filePath, final int id, YouTrackDBInternal context) {
+      final String name, final String filePath, final int id,
+      YouTrackDBInternalEmbedded context) {
     this.context = context;
     this.name = checkName(name);
 
@@ -1147,7 +1151,8 @@ public abstract class AbstractStorage
 
       } catch (final IOException e) {
         throw BaseException.wrapException(
-            new StorageException(name, "Error in creation of new collection '" + collectionName + "'"), e,
+            new StorageException(name,
+                "Error in creation of new collection '" + collectionName + "'"), e,
             name);
       } finally {
         stateLock.writeLock().unlock();
@@ -2069,7 +2074,8 @@ public abstract class AbstractStorage
                 }
                 positions.put(recordOperation, physicalPosition);
 
-                rid.setCollectionAndPosition(collection.getId(), physicalPosition.collectionPosition);
+                rid.setCollectionAndPosition(collection.getId(),
+                    physicalPosition.collectionPosition);
                 assert transaction.assertIdentityChangedAfterCommit(oldRID, rid);
               }
             }
@@ -2597,7 +2603,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public Object getIndexValue(DatabaseSessionInternal db, int indexId, final Object key)
+  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
     try {
@@ -2622,7 +2628,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Object doGetIndexValue(DatabaseSessionInternal db, final int indexId,
+  private Object doGetIndexValue(DatabaseSessionEmbedded db, final int indexId,
       final Object key)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
@@ -2895,7 +2901,7 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
-      DatabaseSessionInternal db, int indexId,
+      DatabaseSessionEmbedded db, int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
@@ -2933,7 +2939,7 @@ public abstract class AbstractStorage
   }
 
   private Stream<RawPair<Object, RID>> doIterateIndexEntriesBetween(
-      DatabaseSessionInternal db, final int indexId,
+      DatabaseSessionEmbedded db, final int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
@@ -3339,7 +3345,8 @@ public abstract class AbstractStorage
           return null;
         }
 
-        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName() : null;
+        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
+            : null;
       } finally {
         stateLock.readLock().unlock();
       }
@@ -4212,7 +4219,8 @@ public abstract class AbstractStorage
     collection.meters().create().record();
     PhysicalPosition ppos;
     try {
-      ppos = collection.createRecord(content, recordVersion, recordType, allocated, atomicOperation);
+      ppos = collection.createRecord(content, recordVersion, recordType, allocated,
+          atomicOperation);
       rid.setCollectionPosition(ppos.collectionPosition);
 
       final var context = RecordSerializationContext.getContext();
@@ -4378,14 +4386,16 @@ public abstract class AbstractStorage
       RecordId nextRid = null;
 
       if (fetchNextRid) {
-        var positions = collection.higherPositions(new PhysicalPosition(rid.getCollectionPosition()), 1);
+        var positions = collection.higherPositions(
+            new PhysicalPosition(rid.getCollectionPosition()), 1);
         if (positions != null && positions.length > 0) {
           nextRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
         }
       }
 
       if (fetchPreviousRid) {
-        var positions = collection.lowerPositions(new PhysicalPosition(rid.getCollectionPosition()), 1);
+        var positions = collection.lowerPositions(new PhysicalPosition(rid.getCollectionPosition()),
+            1);
         if (positions != null && positions.length > 0) {
           prevRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
         }
@@ -4452,7 +4462,8 @@ public abstract class AbstractStorage
    * Register the collection internally.
    *
    * @param collection SQLCollection implementation
-   * @return The id (physical position into the array) of the new collection just created. First is 0.
+   * @return The id (physical position into the array) of the new collection just created. First is
+   * 0.
    */
   private int registerCollection(final StorageCollection collection) {
     final int id;
@@ -4529,7 +4540,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean setCollectionAttribute(final int id, final ATTRIBUTES attribute, final Object value) {
+  public void setCollectionAttribute(final int id, final ATTRIBUTES attribute, final Object value) {
     checkBackupRunning();
     stateLock.writeLock().lock();
     try {
@@ -4537,20 +4548,21 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       if (id >= collections.size()) {
-        return false;
+        return;
       }
 
       final var collection = collections.get(id);
 
       if (collection == null) {
-        return false;
+        return;
       }
 
       makeStorageDirty();
 
-      return atomicOperationsManager.calculateInsideAtomicOperation(
+      atomicOperationsManager.calculateInsideAtomicOperation(
           null,
-          atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value, collection));
+          atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
+              collection));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -4586,11 +4598,13 @@ public abstract class AbstractStorage
     }
 
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, ((PaginatedCollection) collection).generateCollectionConfig());
+        .updateCollection(atomicOperation,
+            ((PaginatedCollection) collection).generateCollectionConfig());
     return true;
   }
 
-  private boolean dropCollectionInternal(final AtomicOperation atomicOperation, final int collectionId)
+  private boolean dropCollectionInternal(final AtomicOperation atomicOperation,
+      final int collectionId)
       throws IOException {
     final var collection = collections.get(collectionId);
 
@@ -5274,7 +5288,8 @@ public abstract class AbstractStorage
     final var ridsPerCollection = new Int2ObjectOpenHashMap<List<RecordId>>(8);
     for (final var rid : rids) {
       final var group =
-          ridsPerCollection.computeIfAbsent(rid.getCollectionId(), k -> new ArrayList<>(rids.size()));
+          ridsPerCollection.computeIfAbsent(rid.getCollectionId(),
+              k -> new ArrayList<>(rids.size()));
       group.add(rid);
     }
     return ridsPerCollection;
@@ -5895,7 +5910,7 @@ public abstract class AbstractStorage
   }
 
   private void waitBackup() {
-    while (isIcrementalBackupRunning()) {
+    while (isIncrementalBackupRunning()) {
       try {
         backupIsDone.await();
       } catch (java.lang.InterruptedException e) {
@@ -5906,16 +5921,16 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener, Map<String, ?> args) {
-    @SuppressWarnings({"rawtypes", "unchecked"})
+  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
     var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, (Map) args);
     return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
 
   @Override
-  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener, Object... args) {
+  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Object... args) {
     var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, args);
     return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
@@ -5925,7 +5940,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public YouTrackDBInternal getContext() {
+  public YouTrackDBInternalEmbedded getContext() {
     return this.context;
   }
 
@@ -5949,7 +5964,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public boolean isIcrementalBackupRunning() {
+  public boolean isIncrementalBackupRunning() {
     return this.backupRunning > 0;
   }
 

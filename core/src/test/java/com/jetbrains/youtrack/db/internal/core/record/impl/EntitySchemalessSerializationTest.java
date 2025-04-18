@@ -25,19 +25,12 @@ import org.junit.Test;
 public class EntitySchemalessSerializationTest extends DbTestBase {
 
   protected RecordSerializer serializer;
-  private RecordSerializer defaultSerializer;
 
   @Before
   public void before() {
     serializer = new RecordSerializerBinary();
-    defaultSerializer = DatabaseSessionAbstract.getDefaultSerializer();
-    DatabaseSessionAbstract.setDefaultSerializer(serializer);
   }
 
-  @After
-  public void after() {
-    DatabaseSessionAbstract.setDefaultSerializer(defaultSerializer);
-  }
 
   @Test
   public void testSimpleSerialization() {
@@ -289,7 +282,6 @@ public class EntitySchemalessSerializationTest extends DbTestBase {
     var res = serializer.toStream(session, entity);
     var extr = (EntityImpl) session.newEntity();
     serializer.fromStream(session, res, extr, new String[]{});
-
 
     List<Identifiable> ser = extr.getProperty("embeddedList");
     assertEquals(1, ser.size());

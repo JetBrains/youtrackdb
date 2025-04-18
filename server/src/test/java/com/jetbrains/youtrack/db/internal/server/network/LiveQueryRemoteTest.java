@@ -1,18 +1,18 @@
 package com.jetbrains.youtrack.db.internal.server.network;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
@@ -35,7 +35,7 @@ import org.junit.Test;
 public class LiveQueryRemoteTest {
 
   private YouTrackDBServer server;
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private DatabaseSessionInternal db;
 
   @Before
@@ -47,7 +47,7 @@ public class LiveQueryRemoteTest {
             .getResourceAsStream(
                 "com/jetbrains/youtrack/db/internal/server/network/youtrackdb-server-config.xml"));
     server.activate();
-    youTrackDB = new YouTrackDBImpl("remote:localhost:", "root", "root",
+    youTrackDB = new YouTrackDBAbstract("remote:localhost:", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
@@ -67,7 +67,7 @@ public class LiveQueryRemoteTest {
     YouTrackDBEnginesManager.instance().startup();
   }
 
-  static class MyLiveQueryListener implements LiveQueryResultListener {
+  static class MyLiveQueryListener implements BasicLiveQueryResultListener {
 
     public CountDownLatch latch;
     public CountDownLatch ended = new CountDownLatch(1);
@@ -76,23 +76,23 @@ public class LiveQueryRemoteTest {
       this.latch = latch;
     }
 
-    public List<Result> ops = new ArrayList<Result>();
+    public List<BasicResult> ops = new ArrayList<BasicResult>();
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
       ops.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-        @Nonnull Result after) {
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull BasicResult before,
+        @Nonnull BasicResult after) {
       ops.add(after);
       latch.countDown();
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
       ops.add(data);
       latch.countDown();
     }
@@ -185,26 +185,26 @@ public class LiveQueryRemoteTest {
               final var integer = new AtomicInteger(0);
               youTrackDB.live(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader",
                   "live select from test",
-                  new LiveQueryResultListener() {
+                  new BasicLiveQueryResultListener() {
 
                     @Override
-                    public void onCreate(@Nonnull DatabaseSessionInternal session,
-                        @Nonnull Result data) {
+                    public void onCreate(@Nonnull DatabaseSession session,
+                        @Nonnull BasicResult data) {
                       integer.incrementAndGet();
                       dataArrived.countDown();
                     }
 
                     @Override
                     public void onUpdate(
-                        @Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-                        @Nonnull Result after) {
+                        @Nonnull DatabaseSession session, @Nonnull BasicResult before,
+                        @Nonnull BasicResult after) {
                       integer.incrementAndGet();
                       dataArrived.countDown();
                     }
 
                     @Override
-                    public void onDelete(@Nonnull DatabaseSessionInternal session,
-                        @Nonnull Result data) {
+                    public void onDelete(@Nonnull DatabaseSession session,
+                        @Nonnull BasicResult data) {
                       integer.incrementAndGet();
                       dataArrived.countDown();
                     }

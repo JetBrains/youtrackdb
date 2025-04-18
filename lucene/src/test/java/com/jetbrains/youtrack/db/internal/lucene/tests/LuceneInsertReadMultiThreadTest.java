@@ -20,9 +20,11 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -64,7 +66,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
     futures.forEach(cf -> cf.join());
 
-    var db1 = (DatabaseSessionInternal) pool.acquire();
+    var db1 = (DatabaseSessionEmbedded) pool.acquire();
     db1.getMetadata().reload();
     var schema = db1.getMetadata().getSchema();
 
@@ -77,11 +79,11 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
   public class LuceneInsert implements Runnable {
 
-    private final SessionPool pool;
+    private final SessionPool<DatabaseSession> pool;
     private final int cycle;
     private final int commitBuf;
 
-    public LuceneInsert(SessionPool pool, int cycle) {
+    public LuceneInsert(SessionPool<DatabaseSession> pool, int cycle) {
       this.pool = pool;
       this.cycle = cycle;
 
@@ -112,9 +114,9 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
   public class LuceneReader implements Runnable {
 
     private final int cycle;
-    private final SessionPool pool;
+    private final SessionPool<DatabaseSession> pool;
 
-    public LuceneReader(SessionPool pool, int cycle) {
+    public LuceneReader(SessionPool<DatabaseSession> pool, int cycle) {
       this.pool = pool;
       this.cycle = cycle;
     }

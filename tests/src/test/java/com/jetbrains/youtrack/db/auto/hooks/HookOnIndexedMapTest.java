@@ -2,14 +2,14 @@ package com.jetbrains.youtrack.db.auto.hooks;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import org.junit.Test;
 
 public class HookOnIndexedMapTest {
 
   @Test
   public void test() {
-    YouTrackDB youTrackDb = new YouTrackDBImpl("disk:.", "root", "root",
+    YouTrackDB youTrackDb = new YouTrackDBAbstract("disk:.", "root", "root",
         YouTrackDBConfig.defaultConfig());
 
     youTrackDb.execute(

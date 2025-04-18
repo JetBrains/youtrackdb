@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -40,8 +41,8 @@ import java.util.stream.Stream;
 
 public class DatabaseCompare extends DatabaseImpExpAbstract {
 
-  private final DatabaseSessionInternal sessionOne;
-  private final DatabaseSessionInternal sessionTwo;
+  private final DatabaseSessionEmbedded sessionOne;
+  private final DatabaseSessionEmbedded sessionTwo;
 
   private boolean compareEntriesForAutomaticIndexes = false;
   private boolean autoDetectExportImportMap = true;
@@ -54,8 +55,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private int collectionDifference = 0;
 
   public DatabaseCompare(
-      DatabaseSessionInternal sessionOne,
-      DatabaseSessionInternal sessionTwo,
+      DatabaseSessionEmbedded sessionOne,
+      DatabaseSessionEmbedded sessionTwo,
       final CommandOutputListener iListener) {
     super(null, null, iListener);
 

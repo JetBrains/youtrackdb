@@ -9,9 +9,6 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public interface ExecutionStep {
   @Nonnull
   String getName();
@@ -35,8 +32,8 @@ public interface ExecutionStep {
   }
 
   @Nonnull
-  default Result toResult(@Nullable DatabaseSession db) {
-    var result = new ResultInternal((DatabaseSessionInternal) db);
+  default Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
     result.setProperty("name", getName());
     result.setProperty("type", getType());
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, getClass().getName());
@@ -44,7 +41,7 @@ public interface ExecutionStep {
     getSubSteps();
     result.setProperty(
         "subSteps",
-        getSubSteps().stream().map(x -> x.toResult(db)).collect(Collectors.toList()));
+        getSubSteps().stream().map(x -> x.toResult(session)).collect(Collectors.toList()));
     result.setProperty("description", getDescription());
     return result;
   }
