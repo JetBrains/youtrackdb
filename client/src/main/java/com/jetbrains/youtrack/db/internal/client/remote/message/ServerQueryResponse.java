@@ -4,10 +4,10 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +47,7 @@ public class ServerQueryResponse implements BinaryResponse {
   }
 
   @Override
-  public void read(DatabaseSessionRemote db, ChannelDataInput network,
+  public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
       StorageRemoteSession session) throws IOException {
     queryId = network.readString();
     // THIS IS A PREFETCHED COLLECTION NOT YET HERE

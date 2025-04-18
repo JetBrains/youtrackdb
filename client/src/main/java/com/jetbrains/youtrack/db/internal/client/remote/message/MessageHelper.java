@@ -3,17 +3,13 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -25,6 +21,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Locale;
 import javax.annotation.Nullable;
@@ -154,53 +151,6 @@ public class MessageHelper {
     }
   }
 
-  @Nullable
-  public static Identifiable readIdentifiable(
-      DatabaseSessionEmbedded session, final ChannelDataInput network, RecordSerializer serializer)
-      throws IOException {
-    final int classId = network.readShort();
-    if (classId == ChannelBinaryProtocol.RECORD_NULL) {
-      return null;
-    }
-
-    if (classId == ChannelBinaryProtocol.RECORD_RID) {
-      return network.readRID();
-    } else {
-      return readRecordFromBytes(session, network, serializer);
-    }
-  }
-
-  private static DBRecord readRecordFromBytes(
-      DatabaseSessionEmbedded session, ChannelDataInput network, RecordSerializer serializer)
-      throws IOException {
-    var rec = network.readByte();
-    final var rid = network.readRID();
-    final var version = network.readVersion();
-    final var content = network.readBytes();
-
-    var record =
-        YouTrackDBEnginesManager.instance()
-            .getRecordFactoryManager()
-            .newInstance(rec, rid, session);
-    record.setVersion(version);
-
-    var ok = false;
-    record.setInternalStatus(STATUS.UNMARSHALLING);
-    try {
-      serializer.fromStream(session, content, record, null);
-      ok = true;
-    } finally {
-      if (ok) {
-        record.setInternalStatus(STATUS.LOADED);
-      } else {
-        record.setInternalStatus(STATUS.NOT_LOADED);
-      }
-    }
-
-    record.unsetDirty();
-    record.recordSerializer = session.getSerializer();
-    return record;
-  }
 
   public static void writeProjection(DatabaseSessionEmbedded session, BasicResult item,
       ChannelDataOutput channel)
@@ -235,7 +185,7 @@ public class MessageHelper {
     }
   }
 
-  public static RemoteResult readResult(DatabaseSessionRemote session, ChannelDataInput channel)
+  public static RemoteResult readResult(RemoteDatabaseSessionInternal session, ChannelDataInput channel)
       throws IOException {
     var type = channel.readByte();
     if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
@@ -255,7 +205,7 @@ public class MessageHelper {
     throw new IllegalStateException("Unknown record type: " + type);
   }
 
-  private static RemoteResult readProjection(DatabaseSessionRemote session,
+  private static RemoteResult readProjection(RemoteDatabaseSessionInternal session,
       ChannelDataInput channel) throws IOException {
     var ser = new ResultSerializerNetwork();
     return ser.fromStream(session, channel);

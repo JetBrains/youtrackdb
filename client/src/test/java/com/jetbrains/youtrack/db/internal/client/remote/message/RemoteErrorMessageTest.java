@@ -4,16 +4,28 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 /**
  *
  */
 public class RemoteErrorMessageTest extends DbTestBase {
+
+  @Mock
+  private DatabaseSessionRemote remoteSession;
+
+  @Override
+  public void beforeTest() throws Exception {
+    super.beforeTest();
+    MockitoAnnotations.initMocks(this);
+  }
 
   @Test
   public void testReadWriteErrorMessage() throws IOException {
@@ -25,12 +37,12 @@ public class RemoteErrorMessageTest extends DbTestBase {
     response.write(null, channel, 0);
     channel.close();
     var readResponse = new Error37Response();
-    readResponse.read(session, channel, null);
+    readResponse.read(remoteSession, channel, null);
 
-    assertEquals(readResponse.getCode(), ErrorCode.GENERIC_ERROR);
-    assertEquals(readResponse.getErrorIdentifier(), 10);
+    assertEquals(ErrorCode.GENERIC_ERROR, readResponse.getCode());
+    assertEquals(10, readResponse.getErrorIdentifier());
     assertNotNull(readResponse.getMessages());
-    assertEquals(readResponse.getMessages().get("one"), "two");
-    assertEquals(new String(readResponse.getVerbose()), "some");
+    assertEquals("two", readResponse.getMessages().get("one"));
+    assertEquals("some", new String(readResponse.getVerbose()));
   }
 }

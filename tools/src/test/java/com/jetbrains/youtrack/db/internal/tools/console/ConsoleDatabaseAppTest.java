@@ -33,10 +33,10 @@ public class ConsoleDatabaseAppTest {
           }
         };
     try {
-
-      app.executeServerCommand("connect env embedded:./target/ root root");
-      app.executeServerCommand(
-          "create database test memory users (admin identified by 'admin' role admin)");
+//
+//      app.executeServerCommand("connect env embedded:./target/ root root");
+//      app.executeServerCommand(
+//          "create database test memory users (admin identified by 'admin' role admin)");
       app.open("test", "admin", "admin");
 
       var db = (DatabaseSessionInternal) app.getCurrentDatabaseSession();
@@ -123,11 +123,11 @@ public class ConsoleDatabaseAppTest {
     var c = new ConsoleTest();
     try {
 
-      c.console().executeServerCommand("connect env embedded:./target/ root root");
-      c.console()
-          .executeServerCommand(
-              "create database ConsoleDatabaseAppTestDumpRecordDetails memory users (admin"
-                  + " identified by 'admin' role admin)");
+//      c.console().executeServerCommand("connect env embedded:./target/ root root");
+//      c.console()
+//          .executeServerCommand(
+//              "create database ConsoleDatabaseAppTestDumpRecordDetails memory users (admin"
+//                  + " identified by 'admin' role admin)");
       c.console().open("ConsoleDatabaseAppTestDumpRecordDetails", "admin", "admin");
 
       c.console().createClass("class foo");

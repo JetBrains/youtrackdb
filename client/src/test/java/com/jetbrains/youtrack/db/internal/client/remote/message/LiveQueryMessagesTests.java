@@ -3,15 +3,27 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
-/**
- *
- */
+
 public class LiveQueryMessagesTests extends DbTestBase {
+  @Mock
+  private RemoteDatabaseSessionInternal remoteSession;
+
+  @Before
+  @Override
+  public void beforeTest() throws Exception {
+    super.beforeTest();
+
+    MockitoAnnotations.initMocks(this);
+  }
 
   @Test
   public void testRequestWriteRead() throws IOException {
@@ -34,7 +46,7 @@ public class LiveQueryMessagesTests extends DbTestBase {
     response.write(null, channel, 0);
     channel.close();
     var responseRead = new SubscribeLiveQueryResponse();
-    responseRead.read(session, channel, null);
+    responseRead.read(remoteSession, channel, null);
     assertEquals(20, responseRead.getMonitorId());
   }
 }

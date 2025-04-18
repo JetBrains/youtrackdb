@@ -7,6 +7,10 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -28,7 +32,7 @@ import org.mockito.MockitoAnnotations;
  */
 public class RemoteLiveQueryPushTest {
 
-  private static class MockLiveListener implements BasicLiveQueryResultListener {
+  private static class MockLiveListener implements RemoteLiveQueryResultListener {
 
     public int countCreate = 0;
     public int countUpdate = 0;
@@ -36,27 +40,27 @@ public class RemoteLiveQueryPushTest {
     public boolean end;
 
     @Override
-    public void onCreate(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
+    public void onCreate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
       countCreate++;
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull BasicResult before,
-        @Nonnull BasicResult after) {
+    public void onUpdate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult before,
+        @Nonnull RemoteResult after) {
       countUpdate++;
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSession session, @Nonnull BasicResult data) {
+    public void onDelete(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
       countDelete++;
     }
 
     @Override
-    public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
+    public void onError(@Nonnull RemoteDatabaseSession session, @Nonnull BaseException exception) {
     }
 
     @Override
-    public void onEnd(@Nonnull DatabaseSession session) {
+    public void onEnd(@Nonnull RemoteDatabaseSession session) {
       assertFalse(end);
       end = true;
     }

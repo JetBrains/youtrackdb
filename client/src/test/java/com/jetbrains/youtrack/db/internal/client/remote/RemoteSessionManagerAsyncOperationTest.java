@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -23,11 +24,8 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
-/**
- *
- */
-public class RemoteSessionManagerAsyncOperationTest {
 
+public class RemoteSessionManagerAsyncOperationTest {
   private RemoteCommandsOrchestratorImpl storage;
 
   @Mock
@@ -41,7 +39,6 @@ public class RemoteSessionManagerAsyncOperationTest {
   private StorageRemoteNodeSession nodeSession;
 
   private class CallStatus {
-
     public String status;
   }
 
@@ -120,7 +117,7 @@ public class RemoteSessionManagerAsyncOperationTest {
           public BinaryResponse createResponse() {
             return new BinaryResponse() {
               @Override
-              public void read(DatabaseSessionRemote db, ChannelDataInput network,
+              public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
                   StorageRemoteSession session)
                   throws IOException {
                 assertEquals(status.status, "write");
@@ -193,7 +190,7 @@ public class RemoteSessionManagerAsyncOperationTest {
 
             return new BinaryResponse() {
               @Override
-              public void read(DatabaseSessionRemote db, ChannelDataInput network,
+              public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
                   StorageRemoteSession session)
                   throws IOException {
                 fail();
@@ -268,7 +265,7 @@ public class RemoteSessionManagerAsyncOperationTest {
           public BinaryResponse createResponse() {
             return new BinaryResponse() {
               @Override
-              public void read(DatabaseSessionRemote db, ChannelDataInput network,
+              public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
                   StorageRemoteSession session)
                   throws IOException {
                 try {

@@ -20,7 +20,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             "sql",
             "some random statement",
             params,
-            ServerQueryRequest.QUERY, RecordSerializerNetworkFactory.current(), 123);
+            ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);
@@ -49,8 +49,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             "sql",
             "some random statement",
             params,
-            ServerQueryRequest.QUERY,
-            RecordSerializerNetworkFactory.current(), 123);
+            ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);
@@ -75,8 +74,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             "sql",
             "some random statement",
             params,
-            ServerQueryRequest.QUERY,
-            RecordSerializerNetworkFactory.current(), 123);
+            ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
     request.write(null, channel, null);

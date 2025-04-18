@@ -39,7 +39,6 @@ public class LiveCommandResultListenerTest extends BaseMemoryInternalDatabase {
   private ClientConnection connection;
 
   private static class TestResultListener implements CommandResultListener {
-
     @Override
     public boolean result(@Nonnull DatabaseSessionInternal session, Object iRecord) {
       return false;
