@@ -898,22 +898,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return currentTx.beginInternal();
   }
 
-  protected FrontendTransactionImpl newTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendTransactionImpl(this);
-  }
 
-  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
-    assert assertIfNotActive();
-    return new FrontendTransactionImpl(this, true);
-  }
-
-
-  public void setDefaultTransactionMode() {
-    if (!(currentTx instanceof FrontendTransactionNoTx)) {
-      currentTx = new FrontendTransactionNoTx(this);
-    }
-  }
   /**
    * Creates a new EntityImpl.
    */

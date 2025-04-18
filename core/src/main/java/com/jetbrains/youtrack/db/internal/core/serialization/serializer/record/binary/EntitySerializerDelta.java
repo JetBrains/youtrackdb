@@ -1452,7 +1452,7 @@ public class EntitySerializerDelta {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);
     if (b == 1) {
-      var bag = new RidBag(session);
+      var bag = new LinkBag(session);
       // enable tracking due to timeline issue, which must not be NULL (i.e. tracker.isEnabled()).
       bag.enableTracking(null);
 
@@ -1474,7 +1474,7 @@ public class EntitySerializerDelta {
       if (!pointer.isValid()) {
         throw new IllegalStateException("LinkBag with invalid pointer was found");
       }
-      return new RidBag(session,
+      return new LinkBag(session,
           new BTreeBasedLinkBag(session, pointer, linkBagSize, Integer.MAX_VALUE));
     }
   }

@@ -77,6 +77,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This object is bound to each remote ODatabase instances.
@@ -84,6 +86,8 @@ import javax.annotation.Nullable;
 public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     RemoteCommandsOrchestrator {
 
+  private static final Logger logger = LoggerFactory.getLogger(
+      RemoteCommandsOrchestratorImpl.class);
   public static final String DRIVER_NAME = "YouTrackDB Java";
 
   private static final AtomicInteger sessionSerialId = new AtomicInteger(-1);
@@ -96,8 +100,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
   private CONNECTION_STRATEGY connectionStrategy = CONNECTION_STRATEGY.STICKY;
 
-  private final BTreeCollectionManagerRemote sbTreeCollectionManager =
-      new BTreeCollectionManagerRemote();
   private final RemoteURLs serverURLs;
 
   private final ExecutorService asynchExecutor;
@@ -409,6 +411,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
             .debug(
                 this,
                 "Redirecting the request from server '%s' to the server '%s' because %s",
+                logger,
                 e,
                 e.getFromServer(),
                 e.toString(),
@@ -436,7 +439,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
                 "Caught Network I/O errors on %s, trying an automatic reconnection... (error: %s)",
                 network.getServerURL(),
                 e.getMessage());
-        LogManager.instance().debug(this, "I/O error stack: ", e);
+        LogManager.instance().debug(this, "I/O error stack: ", logger, e);
         connectionManager.remove(network);
         if (--retry <= 0) {
           throw BaseException.wrapException(new YTIOException(e.getMessage()), e, name);
@@ -905,6 +908,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
                   .debug(
                       this,
                       "Client connected to %s with session id=%d",
+                      logger,
                       network.getServerURL(),
                       response.getSessionId());
               return response.getTimeZone();
@@ -926,9 +930,10 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
             connectionManager.remove(network);
           }
 
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
         } catch (SecurityException ex) {
-          LogManager.instance().debug(this, "Invalidate token for url=%s", ex, currentURL);
+          LogManager.instance().debug(this, "Invalidate token for url=%s", logger, ex, currentURL);
           var session = getCurrentSession(database);
           session.removeServerSession(currentURL);
 
@@ -939,7 +944,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
             } catch (Exception e) {
               // IGNORE ANY EXCEPTION
               LogManager.instance()
-                  .debug(this, "Cannot remove connection or database url=" + currentURL, e);
+                  .debug(this, "Cannot remove connection or database url=" + currentURL, logger, e);
             }
           }
         } catch (BaseException e) {
@@ -948,7 +953,8 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
           throw e;
 
         } catch (Exception e) {
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
           if (network != null) {
             // REMOVE THE NETWORK CONNECTION IF ANY
             try {
@@ -956,7 +962,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
             } catch (Exception ex) {
               // IGNORE ANY EXCEPTION
               LogManager.instance()
-                  .debug(this, "Cannot remove connection or database url=" + currentURL, e);
+                  .debug(this, "Cannot remove connection or database url=" + currentURL, logger, e);
             }
           }
         }
@@ -1013,7 +1019,9 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
     LogManager.instance()
         .debug(
-            this, "Client connected to %s with session id=%d", network.getServerURL(), sessionId);
+            this, "Client connected to %s with session id=%d", logger,
+            network.getServerURL(),
+            sessionId);
 
     // READ COLLECTION CONFIGURATION
     // updateCollectionConfiguration(network.getServerURL(),
@@ -1075,7 +1083,8 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
             connectionManager.remove(network);
           }
 
-          LogManager.instance().debug(this, "Cannot open database with url " + currentURL, e);
+          LogManager.instance()
+              .debug(this, "Cannot open database with url " + currentURL, logger, e);
 
         } catch (BaseException e) {
           connectionManager.release(network);

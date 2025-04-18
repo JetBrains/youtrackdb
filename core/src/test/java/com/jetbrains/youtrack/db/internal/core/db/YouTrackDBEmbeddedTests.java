@@ -148,14 +148,14 @@ public class YouTrackDBEmbeddedTests {
           (YouTrackDBAbstract<?, ?>) youtrack);
       assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
       youtrackEmbedded.initCustomStorage("database1", DbTestBase.getBaseDirectoryPath(getClass()) +
-              "testRegisterDatabase/database1",
-          "", "");
+              "testRegisterDatabase/database1"
+      );
       try (final var db = youtrackEmbedded.open("database1", "admin", "admin")) {
         assertEquals("database1", db.getDatabaseName());
       }
       youtrackEmbedded.initCustomStorage("database2", DbTestBase.getBaseDirectoryPath(getClass()) +
-              "testRegisterDatabase/database2",
-          "", "");
+              "testRegisterDatabase/database2"
+      );
 
       try (final var db = youtrackEmbedded.open("database2", "admin", "admin")) {
         assertEquals("database2", db.getDatabaseName());

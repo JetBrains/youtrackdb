@@ -30,6 +30,7 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet> {
+
   /**
    * Executes the passed in code in a transaction. Starts a transaction if not already started, in
    * this case the transaction is committed after the code is executed or rolled back if an
@@ -275,16 +276,8 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    * @return <code>true</code> if database is obtained from the pool and <code>false</code>
    * otherwise.
    */
+  @Override
   boolean isPooled();
-
-  /**
-   * Returns the database configuration settings. If defined, any database configuration overwrites
-   * the global one.
-   *
-   * @return ContextConfiguration
-   */
-  @Nullable
-  ContextConfiguration getConfiguration();
 
   /**
    * Closes an opened database, if the database is already closed does nothing, if a transaction is
@@ -296,20 +289,15 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   /**
    * Returns the current status of database.
    */
+  @Override
   STATUS getStatus();
-
-  /**
-   * Returns the database name.
-   *
-   * @return Name of the database
-   */
-  String getDatabaseName();
 
   /**
    * Returns the database URL.
    *
    * @return URL of the database
    */
+  @Override
   String getURL();
 
   /**
@@ -317,6 +305,7 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    *
    * @return true if is closed, otherwise false.
    */
+  @Override
   boolean isClosed();
 
 
@@ -333,6 +322,7 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    *
    * @see #release()
    */
+  @Override
   void freeze();
 
   /**
@@ -340,6 +330,7 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    *
    * @see #freeze()
    */
+  @Override
   void release();
 
   /**
@@ -351,11 +342,15 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    *
    * <p>IMPORTANT: This command is not reentrant.
    *
-   * @param throwException If <code>true</code> {@link ModificationOperationProhibitedException}
+   * @param throwException If <code>true</code>
+   *                       {@link
+   *                       com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException}
    *                       exception will be thrown in case of write command will be performed.
    */
+  @Override
   void freeze(boolean throwException);
 
+  @Override
   @Nullable
   String getCurrentUserName();
 
@@ -426,6 +421,7 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    *
    * @return Name of the database
    */
+  @Override
   String getDatabaseName();
 
   <T> EmbeddedList<T> newEmbeddedList();

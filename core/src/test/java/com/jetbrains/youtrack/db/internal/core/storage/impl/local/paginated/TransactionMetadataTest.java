@@ -4,11 +4,14 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransacationMetadataHolder;
@@ -22,14 +25,14 @@ import org.junit.Test;
 
 public class TransactionMetadataTest {
 
-  private YouTrackDBAbstract youTrackDB;
+  private YouTrackDB youTrackDB;
   private DatabaseSessionInternal db;
   private static final String DB_NAME = TransactionMetadataTest.class.getSimpleName();
 
   @Before
   public void before() {
 
-    youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
@@ -47,7 +50,7 @@ public class TransactionMetadataTest {
     db.commit();
     db.incrementalBackup(Path.of("target/backup_metadata"));
     db.close();
-    YouTrackDBInternal.extract(youTrackDB)
+    YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDB)
         .restore(
             DB_NAME + "_re",
             null,

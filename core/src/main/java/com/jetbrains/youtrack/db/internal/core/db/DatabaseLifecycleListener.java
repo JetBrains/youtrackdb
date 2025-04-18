@@ -47,10 +47,10 @@ public interface DatabaseLifecycleListener {
   void onDrop(@Nonnull DatabaseSessionInternal session);
 
   @Deprecated
-  default void onCreateClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
+  default void onCreateClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
   }
 
   @Deprecated
-  default void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
+  default void onDropClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
   }
 }

@@ -128,6 +128,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     activeSession.set(this);
   }
 
+  @Override
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 
@@ -138,6 +139,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return true;
   }
 
+  @Override
   public RemoteCommandsOrchestratorImpl getCommandOrchestrator() {
     assert assertIfNotActive();
     return commandsOrchestrator;
@@ -320,7 +322,6 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return status == STATUS.CLOSED || commandsOrchestrator.isClosed(this);
   }
 
-  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;

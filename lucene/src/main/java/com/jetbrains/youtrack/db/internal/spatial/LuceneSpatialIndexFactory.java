@@ -157,7 +157,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   }
 
   @Override
-  public void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
+  public void onDropClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
   }
 
 }

@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.Map;
@@ -30,14 +31,15 @@ public class SystemDBImporter extends Thread {
   private final String auditingClass = "AuditingLog";
   private int limit = 1000; // How many records to import during each iteration.
   private int sleepPeriod = 1000; // How long to sleep (in ms) after importing 'limit' records.
-  private final YouTrackDBInternal context;
+  private final YouTrackDBInternalEmbedded context;
   private boolean isRunning = true;
 
   public boolean isEnabled() {
     return enabled;
   }
 
-  public SystemDBImporter(final YouTrackDBInternal context, final Map<String, Object> jsonConfig) {
+  public SystemDBImporter(final YouTrackDBInternalEmbedded context,
+      final Map<String, Object> jsonConfig) {
     super(YouTrackDBEnginesManager.instance().getThreadGroup(),
         "YouTrackDB Auditing Log Importer Thread");
 
@@ -123,9 +125,9 @@ public class SystemDBImporter extends Thread {
         String lastRID = null;
 
         while (result.hasNext()) {
-          var entity = result.next();
+          var entity = result.next().asEntity();
           try {
-            Entity copy = new EntityImpl(db);
+            var copy = db.newEntity(entity.getSchemaClassName());
 
             if (entity.hasProperty("date")) {
               copy.setProperty("date", entity.getProperty("date"), PropertyType.DATETIME);

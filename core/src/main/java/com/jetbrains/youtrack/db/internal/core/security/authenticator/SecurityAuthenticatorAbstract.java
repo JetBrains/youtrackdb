@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityAuthenticator;
@@ -56,7 +57,7 @@ public abstract class SecurityAuthenticatorAbstract implements SecurityAuthentic
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     this.security = security;
     if (jsonConfig != null) {

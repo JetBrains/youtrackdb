@@ -15,6 +15,7 @@ package com.jetbrains.youtrack.db.internal.security.kerberos;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
@@ -196,7 +197,7 @@ public class KerberosAuthenticator extends SecurityAuthenticatorAbstract {
   }
 
   // SecurityAuthenticator
-  public void config(DatabaseSessionInternal session, final Map<String, Object> kerbConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> kerbConfig,
       SecuritySystem security) {
     super.config(session, kerbConfig, security);
 

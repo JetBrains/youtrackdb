@@ -33,7 +33,6 @@ import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
@@ -867,7 +866,7 @@ public class YouTrackDBServer {
         } else {
           baseUrl = "./";
         }
-        databases.initCustomStorage(stg.name, baseUrl, stg.userName, stg.userPassword);
+        databases.initCustomStorage(stg.name, baseUrl);
       }
     }
   }

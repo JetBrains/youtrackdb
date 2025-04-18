@@ -1115,6 +1115,109 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
 
   @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var firstPosition = storage.ceilingPhysicalPositions(this, collectionId,
+        new PhysicalPosition(0), 1);
+    var firstTxRid = currentTx.getFirstRid(collectionId);
+
+    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
+      return null;
+    }
+
+    RecordId firstRid;
+    if (firstPosition == null || firstPosition.length == 0) {
+      firstRid = firstTxRid;
+    } else if (firstTxRid == null) {
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
+    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
+    } else {
+      firstRid = firstTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(firstRid)) {
+      firstRid = fetchNextRid(firstRid);
+    }
+
+    if (firstRid == null) {
+      return null;
+    }
+
+    var recordId = firstRid;
+    while (true) {
+      var result = executeReadRecord(recordId, false, true, false);
+
+      if (result.recordAbstract() == null) {
+        if (result.nextRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.nextRecordId();
+          continue;
+        }
+      }
+
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
+    }
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var lastPosition = storage.floorPhysicalPositions(this, collectionId,
+        new PhysicalPosition(Long.MAX_VALUE), 1);
+    var lastTxRid = currentTx.getLastRid(collectionId);
+
+    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
+      return null;
+    }
+
+    RecordId lastRid;
+    if (lastPosition == null || lastPosition.length == 0) {
+      lastRid = lastTxRid;
+    } else if (lastTxRid == null) {
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
+    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
+    } else {
+      lastRid = lastTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(lastRid)) {
+      lastRid = fetchPreviousRid(lastRid);
+    }
+
+    if (lastRid == null) {
+      return null;
+    }
+
+    var recordId = lastRid;
+    while (true) {
+      var result = executeReadRecord(recordId, true, false, false);
+      if (result.recordAbstract() == null) {
+        if (result.previousRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.previousRecordId();
+          continue;
+        }
+      }
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
+    }
+  }
+
+  @Override
+  @Nullable
   public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
       boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
     checkOpenness();
@@ -1177,28 +1280,28 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
       final RawBuffer recordBuffer;
       if (!rid.isValidPosition()) {
-        recordBuffer = null;
-      } else {
-        try {
-          var readRecordResult =
-              getStorage().readRecord(this, rid, fetchPreviousRid, fetchNextRid);
-          recordBuffer = readRecordResult.buffer();
+        throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
+      }
 
-          previousRid = readRecordResult.previousRecordId();
-          nextRid = readRecordResult.nextRecordId();
-        } catch (RecordNotFoundException e) {
-          if (throwExceptionIfRecordNotFound) {
-            throw e;
-          } else {
-            if (fetchNextRid) {
-              nextRid = fetchNextRid(rid);
-            }
-            if (fetchPreviousRid) {
-              previousRid = fetchPreviousRid(rid);
-            }
+      try {
+        var readRecordResult =
+            storage.readRecord(this, rid, fetchPreviousRid, fetchNextRid);
+        recordBuffer = readRecordResult.buffer();
 
-            return new LoadRecordResult(null, previousRid, nextRid);
+        previousRid = readRecordResult.previousRecordId();
+        nextRid = readRecordResult.nextRecordId();
+      } catch (RecordNotFoundException e) {
+        if (throwExceptionIfRecordNotFound) {
+          throw e;
+        } else {
+          if (fetchNextRid) {
+            nextRid = fetchNextRid(rid);
           }
+          if (fetchPreviousRid) {
+            previousRid = fetchPreviousRid(rid);
+          }
+
+          return new LoadRecordResult(null, previousRid, nextRid);
         }
       }
 
@@ -1280,7 +1383,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
                 "Error on retrieving record "
                     + rid
                     + " (collection: "
-                    + getStorage().getPhysicalCollectionNameById(rid.getCollectionId())
+                    + storage.getPhysicalCollectionNameById(rid.getCollectionId())
                     + ")"),
             t, getDatabaseName());
       }
@@ -1289,11 +1392,29 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
+    RecordId previousRid = null;
+    RecordId nextRid = null;
+    if (throwExceptionIfRecordNotFound) {
+      throw new RecordNotFoundException(getDatabaseName(), rid);
+    } else {
+      if (fetchNextRid) {
+        nextRid = fetchNextRid(rid);
+      }
+      if (fetchPreviousRid) {
+        previousRid = fetchPreviousRid(rid);
+      }
+
+      return new LoadRecordResult(null, previousRid, nextRid);
+    }
+  }
+
   @Nullable
   private RecordId fetchNextRid(RecordId rid) {
     RecordId nextRid;
     while (true) {
-      var higherPositions = getStorage().higherPhysicalPositions(this, rid.getCollectionId(),
+      var higherPositions = storage.higherPhysicalPositions(this, rid.getCollectionId(),
           new PhysicalPosition(rid.getCollectionPosition()), 1);
       var txNextRid = currentTx.getNextRidInCollection(rid);
 
@@ -1329,7 +1450,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     RecordId previousRid;
 
     while (true) {
-      var lowerPositions = getStorage().lowerPhysicalPositions(this, rid.getCollectionId(),
+      var lowerPositions = storage.lowerPhysicalPositions(this, rid.getCollectionId(),
           new PhysicalPosition(rid.getCollectionPosition()), 1);
       var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
       if (lowerPositions != null && lowerPositions.length > 0) {
@@ -1358,126 +1479,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return previousRid;
   }
 
-  @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-    checkOpenness();
-
-    var firstPosition = getStorage().ceilingPhysicalPositions(this, collectionId,
-        new PhysicalPosition(0), 1);
-    var firstTxRid = currentTx.getFirstRid(collectionId);
-
-    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
-      return null;
-    }
-
-    RecordId firstRid;
-    if (firstPosition == null || firstPosition.length == 0) {
-      firstRid = firstTxRid;
-    } else if (firstTxRid == null) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
-      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
-    } else {
-      firstRid = firstTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(firstRid)) {
-      firstRid = fetchNextRid(firstRid);
-    }
-
-    if (firstRid == null) {
-      return null;
-    }
-
-    var recordId = firstRid;
-    while (true) {
-      var result = executeReadRecord(recordId, false, true, false);
-
-      if (result.recordAbstract() == null) {
-        if (result.nextRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.nextRecordId();
-          continue;
-        }
-      }
-
-      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
-    }
-  }
-
-
-  @Nullable
-  @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
-      int collectionId) {
-    assert assertIfNotActive();
-    checkOpenness();
-
-    var lastPosition = getStorage().floorPhysicalPositions(this, collectionId,
-        new PhysicalPosition(Long.MAX_VALUE), 1);
-    var lastTxRid = currentTx.getLastRid(collectionId);
-
-    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
-      return null;
-    }
-
-    RecordId lastRid;
-    if (lastPosition == null || lastPosition.length == 0) {
-      lastRid = lastTxRid;
-    } else if (lastTxRid == null) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
-      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
-    } else {
-      lastRid = lastTxRid;
-    }
-
-    if (currentTx.isDeletedInTx(lastRid)) {
-      lastRid = fetchPreviousRid(lastRid);
-    }
-
-    if (lastRid == null) {
-      return null;
-    }
-
-    var recordId = lastRid;
-    while (true) {
-      var result = executeReadRecord(recordId, true, false, false);
-      if (result.recordAbstract() == null) {
-        if (result.previousRecordId() == null) {
-          return null;
-        } else {
-          recordId = result.previousRecordId();
-          continue;
-        }
-      }
-      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
-    }
-  }
-
-
-  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
-      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    RecordId previousRid = null;
-    RecordId nextRid = null;
-    if (throwExceptionIfRecordNotFound) {
-      throw new RecordNotFoundException(getDatabaseName(), rid);
-    } else {
-      if (fetchNextRid) {
-        nextRid = fetchNextRid(rid);
-      }
-      if (fetchPreviousRid) {
-        previousRid = fetchPreviousRid(rid);
-      }
-
-      return new LoadRecordResult(null, previousRid, nextRid);
-    }
-  }
-
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
@@ -1495,6 +1497,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
   }
 
+  @Override
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
 
@@ -1531,21 +1534,23 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   protected FrontendTransactionImpl newTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionImpl(this);
+    return new FrontendTransactionImpl(this, txId, false);
   }
 
   protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
     assert assertIfNotActive();
-    return new FrontendTransactionImpl(this, true);
+    return new FrontendTransactionImpl(this, txId, true);
   }
 
 
+  @Override
   public void setDefaultTransactionMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {
       currentTx = new FrontendTransactionNoTx(this);
     }
   }
 
+  @Override
   public FrontendTransaction begin() {
     assert assertIfNotActive();
 

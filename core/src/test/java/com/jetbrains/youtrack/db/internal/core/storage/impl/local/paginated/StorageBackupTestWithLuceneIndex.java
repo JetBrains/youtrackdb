@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -36,32 +37,29 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(dbDirectory));
     youTrackDB = YourTracks.embedded(dbDirectory, YouTrackDBConfig.defaultConfig());
 
-    db = new DatabaseDocumentTx("disk:" + dbDirectory);
-    db.create();
+    youTrackDB = YourTracks.embedded(dbDirectory);
+    if (youTrackDB.exists(StorageBackupTestWithLuceneIndex.class.getSimpleName())) {
+      youTrackDB.drop(StorageBackupTestWithLuceneIndex.class.getSimpleName());
+    }
+
+    youTrackDB.create(StorageBackupTestWithLuceneIndex.class.getSimpleName(), DatabaseType.DISK,
+        "admin", "admin", "admin");
 
     backedUpDbDirectory =
         buildDirectory
             + File.separator
             + StorageBackupTestWithLuceneIndex.class.getSimpleName()
-            + "BackUp";
+            + "BackUpDir";
   }
 
   @After
   public void after() {
-    if (db.exists()) {
-      if (db.isClosed()) {
-        db.open("admin", "admin");
-      }
-      db.drop();
+    if (youTrackDB.exists(StorageBackupTestWithLuceneIndex.class.getSimpleName())) {
+      youTrackDB.drop(StorageBackupTestWithLuceneIndex.class.getSimpleName());
     }
 
-    final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
-    if (backedUpDb.exists()) {
-      if (backedUpDb.isClosed()) {
-        backedUpDb.open("admin", "admin");
-        backedUpDb.drop();
-      }
+    if (youTrackDB.exists(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup")) {
+      youTrackDB.drop(StorageBackupTestWithLuceneIndex.class.getSimpleName());
     }
 
     FileUtils.deleteRecursively(new File(dbDirectory));
@@ -104,27 +102,17 @@ public class StorageBackupTestWithLuceneIndex {
 
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
-    final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
-    backedUpDb.create(backupDir.getAbsolutePath());
+    youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
+        "admin", "admin", backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
+    final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
+        StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 
-    final var backupStorage = backedUpDb.getStorage();
-    backedUpDb.close();
-
-    backupStorage.close(db, true);
-
-    var youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
-        YouTrackDBConfig.defaultConfig());
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionInternal)
+            (DatabaseSessionEmbedded)
                 youTrackDB.open(
                     StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
-            (DatabaseSessionInternal)
-                youTrackDB.open(
-                    StorageBackupTestWithLuceneIndex.class.getSimpleName() + "BackUp",
-                    "admin",
-                    "admin"),
+            backedUpDb,
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -182,27 +170,17 @@ public class StorageBackupTestWithLuceneIndex {
             + "BackUp";
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
-    final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
-    backedUpDb.create(backupDir.getAbsolutePath());
+    youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
+        "admin", "admin", backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
+    final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
+        StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 
-    final var backupStorage = backedUpDb.getStorage();
-    backedUpDb.close();
-
-    backupStorage.close(db, true);
-
-    var youTrackDB = new YouTrackDBAbstract(DbTestBase.embeddedDBUrl(getClass()),
-        YouTrackDBConfig.defaultConfig());
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionInternal)
+            (DatabaseSessionEmbedded)
                 youTrackDB.open(
                     StorageBackupTestWithLuceneIndex.class.getSimpleName(), "admin", "admin"),
-            (DatabaseSessionInternal)
-                youTrackDB.open(
-                    StorageBackupTestWithLuceneIndex.class.getSimpleName() + "BackUp",
-                    "admin",
-                    "admin"),
+            backedUpDb,
             System.out::println);
     Assert.assertTrue(compare.compare());
   }

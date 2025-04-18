@@ -437,7 +437,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return open(name, user, password, null);
   }
 
-  @Override
   public DatabaseSessionEmbedded openNoAuthenticate(String name, String user) {
     checkDatabaseName(name);
     try {
@@ -474,7 +473,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return embedded;
   }
 
-  @Override
   public DatabaseSessionEmbedded openNoAuthorization(String name) {
     checkDatabaseName(name);
     try {
@@ -946,7 +944,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return databases;
   }
 
-  @Override
   public synchronized void loadAllDatabases() {
     if (basePath != null) {
       scanDatabaseDirectory(
@@ -1110,9 +1107,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     }
   }
 
-  @Override
-  public synchronized void initCustomStorage(
-      String name, String path, String userName, String userPassword) {
+  public synchronized void initCustomStorage(String name, String path) {
     DatabaseSessionEmbedded embedded = null;
     synchronized (this) {
       var exists = LocalStorage.exists(Paths.get(path));
@@ -1136,7 +1131,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     youTrack.removeYouTrackDB(this);
   }
 
-  @Override
   public synchronized Collection<Storage> getStorages() {
     return storages.values().stream().map((x) -> (Storage) x).collect(Collectors.toSet());
   }
@@ -1228,7 +1222,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     return executor.submit(callable);
   }
 
-  @Override
   public ScriptManager getScriptManager() {
     return scriptManager;
   }
@@ -1305,7 +1298,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     timeoutChecker.startCommand(timeout);
   }
 
-  @Override
   public void endCommand() {
     timeoutChecker.endCommand();
   }

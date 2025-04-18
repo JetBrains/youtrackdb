@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityShared;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -18,7 +19,7 @@ public class DatabaseUserAuthenticator extends SecurityAuthenticatorAbstract {
   private TokenSign tokenSign;
 
   @Override
-  public void config(DatabaseSessionInternal session, Map<String, Object> jsonConfig,
+  public void config(DatabaseSessionEmbedded session, Map<String, Object> jsonConfig,
       SecuritySystem security) {
     super.config(session, jsonConfig, security);
     tokenSign = security.getTokenSign();
