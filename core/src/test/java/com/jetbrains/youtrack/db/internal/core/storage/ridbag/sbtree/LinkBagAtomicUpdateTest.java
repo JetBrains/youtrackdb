@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,7 +20,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class RidBagAtomicUpdateTest extends DbTestBase {
+public class LinkBagAtomicUpdateTest extends DbTestBase {
 
   private int topThreshold;
   private int bottomThreshold;
@@ -47,7 +47,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -85,7 +85,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -135,7 +135,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -183,7 +183,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -218,7 +218,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -260,7 +260,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -320,7 +320,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -341,7 +341,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -397,7 +397,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -459,7 +459,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -489,7 +489,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var docThreeTwo = (EntityImpl) session.newEntity();
 
-    var ridBagThree = new RidBag(session);
+    var ridBagThree = new LinkBag(session);
     ridBagThree.add(docThreeOne.getIdentity());
     ridBagThree.add(docThreeTwo.getIdentity());
     docThree.setProperty("ridBag", ridBagThree);
@@ -498,7 +498,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var docFourTwo = (EntityImpl) session.newEntity();
 
-    var ridBagFour = new RidBag(session);
+    var ridBagFour = new LinkBag(session);
     ridBagFour.add(docFourOne.getIdentity());
     ridBagFour.add(docFourTwo.getIdentity());
 
@@ -530,7 +530,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var rootDoc = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     var docOne = (EntityImpl) session.newEntity();
@@ -564,7 +564,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var docThreeTwo = (EntityImpl) session.newEntity();
 
-    var ridBagThree = new RidBag(session);
+    var ridBagThree = new LinkBag(session);
     ridBagThree.add(docThreeOne.getIdentity());
     ridBagThree.add(docThreeTwo.getIdentity());
     docThree.setProperty("ridBag", ridBagThree);
@@ -573,7 +573,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var docFourTwo = (EntityImpl) session.newEntity();
 
-    var ridBagFour = new RidBag(session);
+    var ridBagFour = new LinkBag(session);
     ridBagFour.add(docFourOne.getIdentity());
     ridBagFour.add(docFourTwo.getIdentity());
 
@@ -714,7 +714,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     document.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -784,7 +784,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var document = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     document.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -857,7 +857,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     document.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -941,7 +941,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     session.begin();
     var document = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     document.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -1010,7 +1010,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
 
     var document = (EntityImpl) session.newEntity();
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     document.setProperty("ridBag", ridBag);
 
     session.commit();
@@ -1083,7 +1083,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     List<Identifiable> addedDocs = new ArrayList<>();
     addedDocPerLevel.put(new LevelKey(rootDoc.getIdentity(), level), addedDocs);
 
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
     rootDoc.setProperty("ridBag", ridBag);
 
     for (var i = 0; i < docs; i++) {
@@ -1109,8 +1109,8 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       Random rnd) {
     var activeTx = db.getActiveTransaction();
     rootDoc = activeTx.load(rootDoc);
-    RidBag ridBag = rootDoc.getProperty("ridBag");
-    for (Identifiable identifiable : ridBag) {
+    LinkBag linkBag = rootDoc.getProperty("ridBag");
+    for (Identifiable identifiable : linkBag) {
       var transaction = db.getActiveTransaction();
       EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
@@ -1121,7 +1121,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     int docs = amountOfDeletedDocsPerLevel.get(level);
 
     var k = 0;
-    var iterator = ridBag.iterator();
+    var iterator = linkBag.iterator();
     while (k < docs && iterator.hasNext()) {
       iterator.next();
 
@@ -1131,7 +1131,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       }
 
       if (!iterator.hasNext()) {
-        iterator = ridBag.iterator();
+        iterator = linkBag.iterator();
       }
     }
 
@@ -1145,9 +1145,9 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       EntityImpl rootDoc) {
     var activeTx = db.getActiveTransaction();
     rootDoc = activeTx.load(rootDoc);
-    RidBag ridBag = rootDoc.getProperty("ridBag");
+    LinkBag linkBag = rootDoc.getProperty("ridBag");
 
-    for (Identifiable identifiable : ridBag) {
+    for (Identifiable identifiable : linkBag) {
       var transaction = db.getActiveTransaction();
       EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {
@@ -1159,7 +1159,7 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
     for (var i = 0; i < docs; i++) {
       var docToAdd = (EntityImpl) db.newEntity();
 
-      ridBag.add(docToAdd.getIdentity());
+      linkBag.add(docToAdd.getIdentity());
     }
 
   }
@@ -1169,12 +1169,12 @@ public class RidBagAtomicUpdateTest extends DbTestBase {
       int levels,
       Map<LevelKey, List<Identifiable>> addedDocPerLevel,
       EntityImpl rootDoc) {
-    RidBag ridBag = rootDoc.getProperty("ridBag");
+    LinkBag linkBag = rootDoc.getProperty("ridBag");
     List<Identifiable> addedDocs =
         new ArrayList<>(
             addedDocPerLevel.get(new LevelKey(rootDoc.getIdentity(), level)));
 
-    for (Identifiable identifiable : ridBag) {
+    for (Identifiable identifiable : linkBag) {
       var transaction = session.getActiveTransaction();
       EntityImpl doc = transaction.load(identifiable);
       if (level + 1 < levels) {

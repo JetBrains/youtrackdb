@@ -9,13 +9,13 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public class EmbeddedRidBagTest extends RidBagTest {
+public class EmbeddedLinkBagTest extends LinkBagTest {
 
   private int topThreshold;
   private int bottomThreshold;
 
   @Parameters(value = "remote")
-  public EmbeddedRidBagTest(@Optional Boolean remote) {
+  public EmbeddedLinkBagTest(@Optional Boolean remote) {
     super(remote != null && remote);
   }
 

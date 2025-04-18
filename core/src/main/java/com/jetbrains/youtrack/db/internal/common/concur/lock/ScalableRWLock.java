@@ -128,6 +128,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       this.state = state;
     }
 
+    @Override
     @SuppressWarnings({"checkstyle:NoFinalizer"})
     protected void finalize() throws Throwable {
       removeState(state);
@@ -140,18 +141,22 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    */
   final class InnerReadLock implements Lock {
 
+    @Override
     public void lock() {
       sharedLock();
     }
 
+    @Override
     public void unlock() {
       sharedUnlock();
     }
 
+    @Override
     public boolean tryLock() {
       return sharedTryLock();
     }
 
+    @Override
     public boolean tryLock(long timeout, TimeUnit unit) throws java.lang.InterruptedException {
       if (Thread.interrupted()) {
         throw new java.lang.InterruptedException();
@@ -159,11 +164,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       return sharedTryLockNanos(unit.toNanos(timeout));
     }
 
+    @Override
     public void lockInterruptibly() throws java.lang.InterruptedException {
       // Not supported
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Condition newCondition() {
       // Not supported
       throw new UnsupportedOperationException();
@@ -175,18 +182,22 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    */
   final class InnerWriteLock implements Lock {
 
+    @Override
     public void lock() {
       exclusiveLock();
     }
 
+    @Override
     public void unlock() {
       exclusiveUnlock();
     }
 
+    @Override
     public boolean tryLock() {
       return exclusiveTryLock();
     }
 
+    @Override
     public boolean tryLock(long timeout, TimeUnit unit) throws java.lang.InterruptedException {
       if (Thread.interrupted()) {
         throw new java.lang.InterruptedException();
@@ -194,11 +205,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       return exclusiveTryLockNanos(unit.toNanos(timeout));
     }
 
+    @Override
     public void lockInterruptibly() throws java.lang.InterruptedException {
       // Not supported
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Condition newCondition() {
       // Not supported
       throw new UnsupportedOperationException();
@@ -226,10 +239,12 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     writerLock = new ScalableRWLock.InnerWriteLock();
   }
 
+  @Override
   public Lock readLock() {
     return readerLock;
   }
 
+  @Override
   public Lock writeLock() {
     return writerLock;
   }

@@ -250,6 +250,7 @@ public class ClosableLinkedContainerTest {
       }
     }
 
+    @Override
     public void open() {
       open = true;
 

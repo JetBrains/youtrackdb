@@ -12,7 +12,7 @@ import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
@@ -78,7 +78,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     document.setProperty("dateTime", new Date());
     document.setProperty("bigNumber",
         new BigDecimal("43989872423376487952454365232141525434.32146432321442534"));
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     bag.add(new RecordId(1, 1));
     bag.add(new RecordId(2, 2));
     // document.field("ridBag", bag);

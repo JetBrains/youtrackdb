@@ -105,10 +105,12 @@ public class RecordId implements RID, SerializableStream {
     return collectionPosition != COLLECTION_POS_INVALID;
   }
 
+  @Override
   public boolean isPersistent() {
     return collectionId > -1 && collectionPosition > COLLECTION_POS_INVALID;
   }
 
+  @Override
   public boolean isNew() {
     return collectionPosition < 0;
   }
@@ -155,6 +157,7 @@ public class RecordId implements RID, SerializableStream {
     return 31 * collectionId + 103 * (int) collectionPosition;
   }
 
+  @Override
   public int compareTo(@Nonnull final Identifiable other) {
     if (other == this) {
       return 0;
@@ -210,6 +213,7 @@ public class RecordId implements RID, SerializableStream {
     return this;
   }
 
+  @Override
   public RecordId fromStream(final byte[] iBuffer) {
     if (iBuffer != null) {
       collectionId = BinaryProtocol.bytes2short(iBuffer, 0);
@@ -230,6 +234,7 @@ public class RecordId implements RID, SerializableStream {
     return beginOffset;
   }
 
+  @Override
   public byte[] toStream() {
     final var buffer = new byte[BinaryProtocol.SIZE_SHORT + BinaryProtocol.SIZE_LONG];
 
@@ -239,10 +244,12 @@ public class RecordId implements RID, SerializableStream {
     return buffer;
   }
 
+  @Override
   public int getCollectionId() {
     return collectionId;
   }
 
+  @Override
   public long getCollectionPosition() {
     return collectionPosition;
   }
@@ -286,6 +293,7 @@ public class RecordId implements RID, SerializableStream {
   }
 
 
+  @Override
   @Nonnull
   public RID getIdentity() {
     return this;

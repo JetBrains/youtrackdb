@@ -60,8 +60,12 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener> {
+
+  private static final Logger logger = LoggerFactory.getLogger(YouTrackDBEnginesManager.class);
 
   public static final String YOUTRACKDB_HOME = "YOUTRACKDB_HOME";
   public static final String URL_SYNTAX =
@@ -353,7 +357,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         registerEngine(engine);
       } catch (IllegalArgumentException e) {
         if (engine != null) {
-          LogManager.instance().debug(this, "Failed to replace engine " + engine.getName(), e);
+          LogManager.instance().debug(this, "Failed to replace engine " + engine.getName(), logger,
+              e);
         }
       }
     }
@@ -371,9 +376,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       LogManager.instance().info(this, "YouTrackDB Engine is shutting down...");
       for (var handler : shutdownHandlers) {
         try {
-          LogManager.instance().debug(this, "Shutdown handler %s is going to be called", handler);
+          LogManager.instance().debug(this, "Shutdown handler %s is going to be called", logger,
+              handler);
           handler.shutdown();
-          LogManager.instance().debug(this, "Shutdown handler %s completed", handler);
+          LogManager.instance().debug(this, "Shutdown handler %s completed", logger, handler);
         } catch (Exception e) {
           LogManager.instance()
               .error(this, "Exception during calling of shutdown handler %s", e, handler);
@@ -391,7 +397,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       DirectMemoryAllocator.instance().checkMemoryLeaks();
 
       LogManager.instance().info(this, "YouTrackDB Engine shutdown complete");
-      LogManager.instance().flush();
+      LogManager.flush();
     } finally {
       try {
         removeShutdownHook();

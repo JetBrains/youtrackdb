@@ -34,11 +34,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
  */
 public class StorageRemoteSession {
+
+  private static final Logger logger = LoggerFactory.getLogger(StorageRemoteSession.class);
 
   public boolean commandExecuting = false;
   protected int serverURLIndex = -1;
@@ -154,12 +158,12 @@ public class StorageRemoteSession {
       } catch (YTIOException ex) {
         // IGNORING IF THE SERVER IS DOWN OR NOT REACHABLE THE SESSION IS AUTOMATICALLY CLOSED.
         LogManager.instance()
-            .debug(this, "Impossible to comunicate to the server for close: %s", ex);
+            .debug(this, "Impossible to comunicate to the server for close: %s", logger, ex);
         connectionManager.remove(network);
       } catch (IOException ex) {
         // IGNORING IF THE SERVER IS DOWN OR NOT REACHABLE THE SESSION IS AUTOMATICALLY CLOSED.
         LogManager.instance()
-            .debug(this, "Impossible to comunicate to the server for close: %s", ex);
+            .debug(this, "Impossible to comunicate to the server for close: %s", logger, ex);
         connectionManager.remove(network);
       }
     }

@@ -19,7 +19,7 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -500,7 +500,6 @@ public class JSONTest extends BaseDBTest {
           entity2.setProperty("blabla", j);
           entity1.getOrCreateLinkMap("out").put("" + j, entity2);
           final var doc3 = session.newEntity();
-          ;
           doc3.setProperty("blubli", "0");
           entity2.setProperty("out", doc3);
         }
@@ -689,7 +688,7 @@ public class JSONTest extends BaseDBTest {
                 "foo":{
                   "bar":{
                     "P357":[{
-                      "datavalue":{ "value":"\\\"\\\"" }
+                      "datavalue":{ "value":"\\"\\"" }
                     }]
                   },
                   "three": "a"
@@ -970,7 +969,7 @@ public class JSONTest extends BaseDBTest {
               }""".formatted(eid)
       );
 
-      final var bag = entity.<RidBag>getProperty("in_EHasGoodStudents");
+      final var bag = entity.<LinkBag>getProperty("in_EHasGoodStudents");
       Assert.assertEquals(bag.size(), 1);
       final var rid = bag.iterator().next();
       Assert.assertEquals(rid, eid);

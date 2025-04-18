@@ -42,9 +42,7 @@ public class ServerDatabaseOperationsTest {
       InvocationTargetException,
       IllegalAccessException,
       InstantiationException {
-    LogManager.instance().setConsoleLevel(Level.OFF.getName());
     var conf = new ServerConfiguration();
-
     conf.handlers = new ArrayList<>();
     var rootUser = new ServerUserConfiguration();
     rootUser.name = "root";

@@ -26,14 +26,11 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.HashSet;
-import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
-
   @Nonnull
   private final SchemaImmutableClass lightweightEdgeType;
 
@@ -44,28 +41,17 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     this.lightweightEdgeType = lightweightEdgeType;
   }
 
-  @Nullable
-  @Override
-  public Vertex getFrom() {
-    return fromEntity();
-  }
 
   @Nullable
   @Override
   public Identifiable getFromLink() {
-    return fromEntity();
-  }
-
-  @Nullable
-  @Override
-  public Vertex getTo() {
-    return toEntity();
+    return this.getFrom();
   }
 
   @Nullable
   @Override
   public Identifiable getToLink() {
-    return toEntity();
+    return this.getTo();
   }
 
   @Override
@@ -73,6 +59,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     return true;
   }
 
+  @Override
   public void delete() {
     StatefullEdgeEntityImpl.deleteLinks(session, this);
   }
@@ -89,6 +76,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     return lightweightEdgeType.getName();
   }
 
+  @Override
   public boolean isLabeled(@Nonnull String[] labels) {
     if (super.isLabeled(labels)) {
       return true;
@@ -109,30 +97,6 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     }
 
     return false;
-  }
-
-
-  @Nonnull
-  @Override
-  public Map<String, Object> toMap() {
-    return Map.of(DIRECTION_OUT, getToLink(), DIRECTION_IN, getFromLink());
-  }
-
-  @Nonnull
-  @Override
-  public String toJSON() {
-    return "{\"out\":\""
-        + fromEntity().getIdentity()
-        + "\", \"in\":\""
-        + toEntity().getIdentity()
-        + "\", \"@class\":\""
-        + StringSerializerHelper.encode(lightweightEdgeType.getName())
-        + "\"}";
-  }
-
-  @Override
-  public String label() {
-    return lightweightEdgeType.getName();
   }
 
   @Nonnull

@@ -50,8 +50,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
   }
 
   @Override
-  public RidBagBucketPointer getRootBucketPointer() {
-    return new RidBagBucketPointer(linkBagId, 0);
+  public LinkBagBucketPointer getRootBucketPointer() {
+    return new LinkBagBucketPointer(linkBagId, 0);
   }
 
   @Nullable

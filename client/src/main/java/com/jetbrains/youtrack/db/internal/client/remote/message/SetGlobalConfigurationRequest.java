@@ -58,6 +58,7 @@ public class SetGlobalConfigurationRequest
     return value;
   }
 
+  @Override
   public SetGlobalConfigurationResponse createResponse() {
     return new SetGlobalConfigurationResponse();
   }

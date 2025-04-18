@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -36,11 +37,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class ResultBinary implements Result {
-
   private final EntitySerializer serializer;
   @Nullable
   private final RecordId id;
@@ -208,6 +205,21 @@ public class ResultBinary implements Result {
     return false;
   }
 
+  @Override
+  public boolean isRelation() {
+    return false;
+  }
+
+  @Override
+  public Relation<?> asRelation() {
+    throw new IllegalStateException("Not a relation");
+  }
+
+  @Nullable
+  @Override
+  public Relation<?> asRelationOrNull() {
+    return null;
+  }
 
   @Override
   public boolean isBlob() {

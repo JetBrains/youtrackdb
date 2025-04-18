@@ -47,6 +47,7 @@ public final class CloseQueryRequest implements BinaryRequest<CloseQueryResponse
     network.writeString(queryId);
   }
 
+  @Override
   public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
       int protocolVersion)
       throws IOException {

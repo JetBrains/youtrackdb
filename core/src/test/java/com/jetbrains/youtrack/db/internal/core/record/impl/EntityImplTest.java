@@ -15,7 +15,7 @@ import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Map;
@@ -170,7 +170,7 @@ public class EntityImplTest extends DbTestBase {
     doc = (EntityImpl) session.newEntity();
     ser.fromStream(session, bytes, doc, null);
     assertEquals(PropertyType.LINK, doc.getPropertyType("link"));
-    doc.setProperty("link", new RidBag(session));
+    doc.setProperty("link", new LinkBag(session));
     assertNotEquals(PropertyType.LINK, doc.getPropertyType("link"));
     session.rollback();
   }

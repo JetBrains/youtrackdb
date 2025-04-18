@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 public interface DatabasePoolInternal<S extends BasicDatabaseSession<?, ?>> extends AutoCloseable {
   S acquire();
 
+  @Override
   void close();
 
   void release(S database);

@@ -106,13 +106,11 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
-import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -126,12 +124,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Entity API entrypoint.
@@ -139,6 +138,8 @@ import javax.annotation.Nullable;
 @SuppressWarnings("unchecked")
 public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> extends
     ListenerManger<SessionListener> implements DatabaseSessionInternal {
+
+  private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionAbstract.class);
 
   protected final HashMap<String, Object> properties = new HashMap<>();
   protected final HashSet<Identifiable> inHook = new HashSet<>();
@@ -163,7 +164,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected ConcurrentHashMap<String, QueryDatabaseState<ResultSet>> activeQueries = new ConcurrentHashMap<>();
   protected LinkedList<QueryDatabaseState<ResultSet>> queryState = new LinkedList<>();
-  private Map<UUID, ObjectIntPair<LinkBagPointer>> collectionsChanges;
 
   // database stats!
   protected long loadedRecordsCount;
@@ -175,7 +175,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   protected long minRidbagPrefetchMs;
   protected long maxRidbagPrefetchMs;
 
-  protected final ThreadLocal<DatabaseSessionInternal> activeSession = new ThreadLocal<>();
+  protected final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
 
   protected DatabaseSessionAbstract() {
@@ -190,6 +190,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected abstract void loadMetadata();
 
+  @Override
   public void callOnCloseListeners() {
     assert assertIfNotActive();
     wakeupOnCloseDbLifecycleListeners();
@@ -269,6 +270,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public byte getRecordType() {
     return recordType;
   }
@@ -294,6 +296,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
@@ -303,6 +306,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isRetainRecords() {
     assert assertIfNotActive();
     return retainRecords;
@@ -311,6 +315,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setRetainRecords(boolean retainRecords) {
     assert assertIfNotActive();
     this.retainRecords = retainRecords;
@@ -320,6 +325,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setStatus(final STATUS status) {
     assert assertIfNotActive();
     this.status = status;
@@ -329,6 +335,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setInternal(final ATTRIBUTES iAttribute, final Object iValue) {
     set(iAttribute, iValue);
   }
@@ -336,6 +343,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
     return user;
@@ -354,6 +362,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setUser(final SecurityUser user) {
     assert assertIfNotActive();
     if (user instanceof SecurityUserImpl) {
@@ -369,6 +378,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public void reloadUser() {
     assert assertIfNotActive();
 
@@ -396,6 +406,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isMVCC() {
     assert assertIfNotActive();
     return true;
@@ -404,6 +415,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public DatabaseSession setMVCC(boolean mvcc) {
     throw new UnsupportedOperationException();
   }
@@ -413,6 +425,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    *
    * @return
    */
+  @Override
   public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
     checkOpenness();
     assert assertIfNotActive();
@@ -427,6 +440,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
     if (hooks.remove(iHookImpl)) {
@@ -463,25 +477,27 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
     return Collections.unmodifiableList(hooks);
   }
 
   @Override
-  public void deleteInternal(@Nonnull DBRecord record) {
+  public void deleteInternal(@Nonnull RecordAbstract record) {
     checkOpenness();
     assert assertIfNotActive();
 
     if (record instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(this);
-      if (clazz != null) {
-        ensureEdgeConsistencyOnDeletion(entity, clazz);
-      }
+      ensureEdgeConsistencyOnDeletion(entity);
     }
+
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
+    record.dirty++;
+
     try {
       checkTxActive();
-      currentTx.deleteRecord((RecordAbstract) record);
+      currentTx.deleteRecord(record);
     } catch (BaseException e) {
       throw e;
     } catch (Exception e) {
@@ -509,6 +525,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    * @param type   Hook type. Define when hook is called.
    * @param record Record received in the callback
    */
+  @Override
   public void callbackHooks(final TYPE type, final RecordAbstract record) {
     assert assertIfNotActive();
     if (record == null || hooks.isEmpty() || record.getIdentity().getCollectionId() == 0) {
@@ -532,6 +549,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public boolean isValidationEnabled() {
     assert assertIfNotActive();
     return (Boolean) get(ATTRIBUTES_INTERNAL.VALIDATION);
@@ -540,6 +558,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public void setValidationEnabled(final boolean iEnabled) {
     assert assertIfNotActive();
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
@@ -561,7 +580,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   @Override
   public STATUS getStatus() {
-    assert assertIfNotActive();
     return status;
   }
 
@@ -671,6 +689,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public FrontendTransaction getTransactionInternal() {
     assert assertIfNotActive();
     return currentTx;
@@ -849,6 +868,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public int begin(FrontendTransactionImpl transaction) {
     checkOpenness();
     assert assertIfNotActive();
@@ -878,10 +898,26 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return currentTx.beginInternal();
   }
 
+  protected FrontendTransactionImpl newTxInstance(long txId) {
+    assert assertIfNotActive();
+    return new FrontendTransactionImpl(this);
+  }
 
+  protected FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
+    assert assertIfNotActive();
+    return new FrontendTransactionImpl(this, true);
+  }
+
+
+  public void setDefaultTransactionMode() {
+    if (!(currentTx instanceof FrontendTransactionNoTx)) {
+      currentTx = new FrontendTransactionNoTx(this);
+    }
+  }
   /**
    * Creates a new EntityImpl.
    */
+  @Override
   public EntityImpl newInstance() {
     assert assertIfNotActive();
     return newInstance(Entity.DEFAULT_CLASS_NAME);
@@ -953,6 +989,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
     return browseClass(className, true);
@@ -961,6 +998,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * {@inheritDoc}
    */
+  @Override
   public RecordIteratorClass browseClass(
       final @Nonnull String className, final boolean iPolymorphic) {
     return browseClass(className, iPolymorphic, true);
@@ -1012,6 +1050,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   /**
    * Returns the number of the records of the class iClassName.
    */
+  @Override
   public long countClass(final String iClassName) {
     assert assertIfNotActive();
     return countClass(iClassName, true);
@@ -1021,6 +1060,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    * Returns the number of the records of the class iClassName considering also sub classes if
    * polymorphic is true.
    */
+  @Override
   public long countClass(final String iClassName, final boolean iPolymorphic) {
     assert assertIfNotActive();
     final var cls =
@@ -1122,8 +1162,11 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     } catch (RuntimeException e) {
 
       if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
-        LogManager.instance()
-            .debug(this, "Error on transaction commit `%08X`", e, System.identityHashCode(e));
+        if (logger.isDebugEnabled()) {
+          LogManager.instance()
+              .debug(this, "Error on transaction commit `%08X`", logger, e,
+                  System.identityHashCode(e));
+        }
       } else {
         LogManager.instance()
             .error(this, "Error on transaction commit `%08X`", e, System.identityHashCode(e));
@@ -1173,6 +1216,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public void afterCommitOperations() {
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
@@ -1254,6 +1298,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return componentsFactory;
   }
 
+  @Override
   public RecordSerializer getSerializer() {
     assert assertIfNotActive();
     return serializer;
@@ -1264,6 +1309,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    *
    * @param serializer the serializer to set.
    */
+  @Override
   public void setSerializer(RecordSerializer serializer) {
     assert assertIfNotActive();
     this.serializer = serializer;
@@ -1282,6 +1328,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     initialized = false;
   }
 
+  @Override
   public void checkSecurity(final int operation, final Identifiable record, String collection) {
     assert assertIfNotActive();
     if (collection == null) {
@@ -1319,12 +1366,13 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    */
   @Override
   public void activateOnCurrentThread() {
-    activeSession.set(this);
+    activeSession.set(true);
   }
 
   @Override
   public boolean isActiveOnCurrentThread() {
-    return activeSession.get() == this;
+    var isActive = activeSession.get();
+    return isActive != null && isActive;
   }
 
   protected void checkOpenness() {
@@ -1365,13 +1413,14 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   public boolean assertIfNotActive() {
     var currentDatabase = activeSession.get();
 
-    if (currentDatabase != this) {
+    if (currentDatabase == null || !currentDatabase) {
       throw new SessionNotActivatedException(getDatabaseName());
     }
 
     return true;
   }
 
+  @Override
   public int[] getBlobCollectionIds() {
     assert assertIfNotActive();
     return getMetadata().getSchema().getBlobCollections().toIntArray();
@@ -1385,6 +1434,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
     var clazz =
@@ -1404,10 +1454,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
               + " open command/query result sets, please make sure you close them with"
               + " ResultSet.close()";
       LogManager.instance().warn(this, msg);
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         activeQueries.values().stream()
             .map(pendingQuery -> pendingQuery.getResultSet().getExecutionPlan())
-            .forEach(plan -> LogManager.instance().debug(this, plan.toString()));
+            .forEach(plan -> LogManager.instance().debug(this, plan.toString(), logger));
       }
     }
     this.activeQueries.put(id, state);
@@ -1423,6 +1473,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   }
 
+  @Override
   public synchronized void closeActiveQueries() {
     while (!activeQueries.isEmpty()) {
       this.activeQueries
@@ -1433,6 +1484,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
+  @Override
   public Map<String, QueryDatabaseState<?>> getActiveQueries() {
     assert assertIfNotActive();
 
@@ -1440,6 +1492,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return (Map) activeQueries;
   }
 
+  @Override
   public ResultSet getActiveQuery(String id) {
     assert assertIfNotActive();
 
@@ -1465,16 +1518,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return clazz != null && clazz.isVertexType();
   }
 
-
-  public Map<UUID, ObjectIntPair<LinkBagPointer>> getCollectionsChanges() {
-    assert assertIfNotActive();
-
-    if (collectionsChanges == null) {
-      collectionsChanges = new HashMap<>();
-    }
-
-    return collectionsChanges;
-  }
 
   @Override
   public <X extends Exception> void executeInTxInternal(
@@ -1888,11 +1931,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
   }
 
-  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity,
-      @Nonnull SchemaImmutableClass clazz) {
-    if (clazz.isVertexType()) {
+  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity) {
+    if (entity.isVertex()) {
       VertexEntityImpl.deleteLinks(entity.asVertex());
-    } else if (clazz.isEdgeType()) {
+    } else if (entity.isEdge()) {
       StatefullEdgeEntityImpl.deleteLinks(this, entity.asEdge());
     }
   }

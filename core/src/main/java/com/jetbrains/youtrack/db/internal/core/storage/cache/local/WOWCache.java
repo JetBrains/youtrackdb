@@ -122,6 +122,8 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Write part of disk cache which is used to collect pages which were changed on read cache and
@@ -153,6 +155,8 @@ import net.jpountz.xxhash.XXHashFactory;
  */
 public final class WOWCache extends AbstractWriteCache
     implements WriteCache, CachePointer.WritersListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(WOWCache.class);
 
   private static final XXHashFactory XX_HASH_FACTORY = XXHashFactory.fastestInstance();
   private static final XXHash64 XX_HASH_64 = XX_HASH_FACTORY.hash64();
@@ -730,7 +734,7 @@ public final class WOWCache extends AbstractWriteCache
                 "File '"
                     + fileName
                     + "' is not registered in 'file name - id' map, but exists in file system."
-                    + " Registering it");
+                    + " Registering it", logger);
 
         openFile(storageName, fileClassic);
 

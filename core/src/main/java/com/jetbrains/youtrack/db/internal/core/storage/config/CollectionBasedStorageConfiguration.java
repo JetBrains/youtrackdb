@@ -314,6 +314,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  @Override
   public int getMinimumCollections() {
     lock.readLock().lock();
     try {
@@ -706,6 +707,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  @Override
   public void setUuid(AtomicOperation atomicOperation, final String uuid) {
     lock.writeLock().lock();
     try {
@@ -715,6 +717,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  @Override
   public String getUuid() {
     lock.readLock().lock();
     try {
@@ -1127,6 +1130,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     cache.put(PROPERTIES, properties);
   }
 
+  @Override
   public Locale getLocaleInstance() {
     lock.readLock().lock();
     try {

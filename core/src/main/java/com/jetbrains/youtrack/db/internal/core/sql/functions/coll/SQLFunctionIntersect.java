@@ -25,13 +25,11 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -55,14 +53,17 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
-    var value = iParams[0];
 
-    if (value instanceof SQLFilterItemVariable) {
-      value = ((SQLFilterItemVariable) value).getValue(iCurrentRecord, iCurrentResult, iContext);
+    for (var p : iParams) {
+      if (p == null || (p instanceof Collection<?> col && col.isEmpty())) {
+        return Set.of();
+      }
     }
 
-    if (value == null) {
-      return Collections.emptySet();
+    var value = iParams[0];
+
+    if (value instanceof SQLFilterItemVariable fi) {
+      value = fi.getValue(iCurrentRecord, iCurrentResult, iContext);
     }
 
     if (Boolean.TRUE.equals(iContext.getVariable("aggregation"))) {
@@ -91,24 +92,23 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     }
 
     // IN-LINE MODE (STATELESS)
-    Iterator iterator = MultiValue.getMultiValueIterator(value);
+    var iterator = MultiValue.getMultiValueIterator(value);
 
     for (var i = 1; i < iParams.length; ++i) {
       value = iParams[i];
 
-      if (value instanceof SQLFilterItemVariable) {
-        value = ((SQLFilterItemVariable) value).getValue(iCurrentRecord, iCurrentResult, iContext);
+      if (value instanceof SQLFilterItemVariable fi) {
+        value = fi.getValue(iCurrentRecord, iCurrentResult, iContext);
       }
 
-      if (value != null) {
-        value = intersectWith(iterator, value);
-        iterator = MultiValue.getMultiValueIterator(value);
-      } else {
-        return Collections.emptyIterator();
-      }
+      value = intersectWith(iterator, value);
+      iterator = MultiValue.getMultiValueIterator(value);
     }
 
-    List result = new ArrayList();
+    // using linked hash set because we want
+    // 1) to remove duplicates when there is a single argument to the function
+    // 2) to preserve order of the input collection
+    final Set<Object> result = new LinkedHashSet<>();
     while (iterator.hasNext()) {
       result.add(iterator.next());
     }
@@ -121,7 +121,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
   }
 
   static Collection intersectWith(final Iterator current, Object value) {
-    final var tempSet = new HashSet();
+    final var tempSet = new LinkedHashSet<>();
 
     if (!(value instanceof Set)
         && (!(value instanceof SupportsContains)
@@ -131,8 +131,8 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
 
     for (var it = current; it.hasNext(); ) {
       final var curr = it.next();
-      if (value instanceof RidBag) {
-        if (((RidBag) value).contains(((Identifiable) curr).getIdentity())) {
+      if (value instanceof LinkBag) {
+        if (((LinkBag) value).contains(((Identifiable) curr).getIdentity())) {
           tempSet.add(curr);
         }
       } else if (value instanceof Collection) {

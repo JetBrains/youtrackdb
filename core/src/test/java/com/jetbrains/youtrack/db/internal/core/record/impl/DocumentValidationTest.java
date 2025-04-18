@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -372,7 +372,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     cont1.put("two", new RecordId(30, 30));
 
     entity.setLinkMap("linkMap", cont1);
-    var bag1 = new RidBag(session);
+    var bag1 = new LinkBag(session);
     bag1.add(new RecordId(40, 30));
     bag1.add(new RecordId(40, 33));
     entity.setProperty("linkBag", bag1);
@@ -432,7 +432,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     cont3.put("three", new RecordId(30, 30));
     checkField(entity, "linkMap", cont3);
 
-    var bag2 = new RidBag(session);
+    var bag2 = new LinkBag(session);
     bag2.add(new RecordId(40, 30));
     bag2.add(new RecordId(40, 33));
     bag2.add(new RecordId(40, 31));
@@ -509,7 +509,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     map1.put("some", new RecordId(40, 50));
     entity.setLinkMap("linkMap", map1);
 
-    var bag1 = new RidBag(session);
+    var bag1 = new LinkBag(session);
     bag1.add(new RecordId(40, 50));
     ((EntityImpl) entity).setPropertyInternal("linkBag", bag1);
     ((EntityImpl) entity).validate();
@@ -534,7 +534,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "linkList", session.newLinkList());
     checkField(entity, "linkSet", session.newLinkSet());
     checkField(entity, "linkMap", session.newLinkMap());
-    checkField(entity, "linkBag", new RidBag(session));
+    checkField(entity, "linkBag", new LinkBag(session));
     session.rollback();
   }
 
@@ -753,7 +753,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     checkField(entity, "embeddedSet", newEmbeddedSet);
 
-    var bag = new RidBag(session);
+    var bag = new LinkBag(session);
     bag.add(session.newEntity(clazz).getIdentity());
     checkField(entity, "linkBag", bag);
     var map2 = session.newLinkMap();
@@ -782,7 +782,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     list.add(session.newEntity(clazz1));
 
     entity.newLinkSet("linkSet");
-    ((EntityImpl) entity).setPropertyInternal("linkBag", new RidBag(session));
+    ((EntityImpl) entity).setPropertyInternal("linkBag", new LinkBag(session));
 
     var map = session.newLinkMap();
     map.put("a", session.newEntity(clazz1));
@@ -815,7 +815,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       session.begin();
       var activeTx = session.getActiveTransaction();
       entity = activeTx.load(entity);
-      ((RidBag) entity.getProperty("linkBag")).add(session.newEntity(clazz).getIdentity());
+      ((LinkBag) entity.getProperty("linkBag")).add(session.newEntity(clazz).getIdentity());
       session.commit();
       fail();
     } catch (ValidationException v) {

@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import org.junit.Assert;
@@ -109,7 +109,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
     var res = list.next();
     Assert.assertEquals(
-        ((RidBag) ((EntityImpl) res.asEntity()).getPropertyInternal("in_link")).size(), 19);
+        ((LinkBag) ((EntityImpl) res.asEntity()).getPropertyInternal("in_link")).size(), 19);
     Assert.assertFalse(list.hasNext());
     session.commit();
   }

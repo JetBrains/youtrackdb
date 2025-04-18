@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent.ChangeType;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -21,14 +21,14 @@ import org.junit.Test;
 /**
  * @since 1/30/14
  */
-public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTestBase {
+public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTestBase {
 
-  private PropertyRidBagIndexDefinition propertyIndex;
+  private PropertyLinkBagIndexDefinition propertyIndex;
 
   @Before
   public void beforeMethod() {
     session.begin();
-    propertyIndex = new PropertyRidBagIndexDefinition("testClass", "fOne");
+    propertyIndex = new PropertyLinkBagIndexDefinition("testClass", "fOne");
   }
 
   @After
@@ -38,7 +38,7 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueSingleParameter() {
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
@@ -59,7 +59,7 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueTwoParameters() {
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
@@ -86,7 +86,7 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueSingleParameterArrayParams() {
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
@@ -107,7 +107,7 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testCreateValueTwoParametersArrayParams() {
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
@@ -132,7 +132,7 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
 
   @Test
   public void testGetDocumentValueToIndex() {
-    var ridBag = new RidBag(session);
+    var ridBag = new LinkBag(session);
 
     ridBag.add(new RecordId("#1:12"));
     ridBag.add(new RecordId("#1:23"));
@@ -491,5 +491,5 @@ public abstract class SchemaPropertyRidBagAbstractIndexDefinition extends DbTest
     Assert.assertEquals(keysToRemove, removedKeys);
   }
 
-  abstract void assertEmbedded(RidBag ridBag);
+  abstract void assertEmbedded(LinkBag linkBag);
 }

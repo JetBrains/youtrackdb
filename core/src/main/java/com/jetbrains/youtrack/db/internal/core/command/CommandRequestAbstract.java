@@ -56,14 +56,17 @@ public abstract class CommandRequestAbstract
   protected CommandRequestAbstract() {
   }
 
+  @Override
   public CommandResultListener getResultListener() {
     return resultListener;
   }
 
+  @Override
   public void setResultListener(CommandResultListener iListener) {
     resultListener = iListener;
   }
 
+  @Override
   public Map<Object, Object> getParameters() {
     return parameters;
   }
@@ -105,31 +108,38 @@ public abstract class CommandRequestAbstract
     return params;
   }
 
+  @Override
   public ProgressListener getProgressListener() {
     return progressListener;
   }
 
+  @Override
   public CommandRequestAbstract setProgressListener(ProgressListener progressListener) {
     this.progressListener = progressListener;
     return this;
   }
 
+  @Override
   public void reset() {
   }
 
+  @Override
   public int getLimit() {
     return limit;
   }
 
+  @Override
   public CommandRequestAbstract setLimit(final int limit) {
     this.limit = limit;
     return this;
   }
 
+  @Override
   public String getFetchPlan() {
     return fetchPlan;
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public <RET extends CommandRequest> RET setFetchPlan(String fetchPlan) {
     this.fetchPlan = fetchPlan;
@@ -140,6 +150,7 @@ public abstract class CommandRequestAbstract
     return useCache;
   }
 
+  @Override
   public void setUseCache(boolean useCache) {
     this.useCache = useCache;
   }
@@ -162,20 +173,24 @@ public abstract class CommandRequestAbstract
     return context;
   }
 
+  @Override
   public CommandRequestAbstract setContext(final CommandContext iContext) {
     context = iContext;
     return this;
   }
 
+  @Override
   public long getTimeoutTime() {
     return timeoutMs;
   }
 
+  @Override
   public void setTimeout(final long timeout, final TIMEOUT_STRATEGY strategy) {
     this.timeoutMs = timeout;
     this.timeoutStrategy = strategy;
   }
 
+  @Override
   public TIMEOUT_STRATEGY getTimeoutStrategy() {
     return timeoutStrategy;
   }
@@ -185,6 +200,7 @@ public abstract class CommandRequestAbstract
     this.recordResultSet = recordResultSet;
   }
 
+  @Override
   public boolean isRecordResultSet() {
     return recordResultSet;
   }

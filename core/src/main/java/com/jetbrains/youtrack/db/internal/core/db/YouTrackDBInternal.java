@@ -268,6 +268,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   /**
    * Close the factory with all related databases and pools.
    */
+  @Override
   void close();
 
   /**

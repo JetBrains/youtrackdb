@@ -36,7 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.Backupable;
 import java.io.IOException;
@@ -169,8 +169,6 @@ public interface Storage extends Backupable, StorageInfo {
 
   String getPhysicalCollectionNameById(int iCollectionId);
 
-  boolean checkForRecordValidity(PhysicalPosition ppos);
-
   String getName();
 
   long getVersion();
@@ -210,7 +208,7 @@ public interface Storage extends Backupable, StorageInfo {
 
   boolean isAssigningCollectionIds();
 
-  BTreeCollectionManager getSBtreeCollectionManager();
+  LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 

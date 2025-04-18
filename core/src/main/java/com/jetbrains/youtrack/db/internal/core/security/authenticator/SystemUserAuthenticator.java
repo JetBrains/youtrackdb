@@ -26,16 +26,20 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides a default password authenticator.
  */
 public class SystemUserAuthenticator extends SecurityAuthenticatorAbstract {
 
+  private static final Logger logger = LoggerFactory.getLogger(SystemUserAuthenticator.class);
+
   // SecurityComponent
   // Called once the Server is running.
   public void active() {
-    LogManager.instance().debug(this, "SystemUserAuthenticator is active");
+    LogManager.instance().debug(this, "SystemUserAuthenticator is active", logger);
   }
 
   // SecurityComponent

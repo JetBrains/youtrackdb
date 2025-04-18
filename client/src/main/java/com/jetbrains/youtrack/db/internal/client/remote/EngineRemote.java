@@ -32,6 +32,7 @@ public class EngineRemote extends EngineAbstract {
   public EngineRemote() {
   }
 
+  @Override
   public Storage createStorage(
       final String iURL,
       long maxWalSegSize,
@@ -56,6 +57,7 @@ public class EngineRemote extends EngineAbstract {
     return dbPath;
   }
 
+  @Override
   public String getName() {
     return NAME;
   }

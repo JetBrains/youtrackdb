@@ -55,15 +55,18 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
   }
 
 
+  @Override
   public String getText() {
     return text;
   }
 
+  @Override
   public CommandRequestText setText(final String iText) {
     this.text = iText;
     return this;
   }
 
+  @Override
   public CommandRequestText fromStream(DatabaseSessionEmbedded session, final byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
@@ -72,6 +75,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return this;
   }
 
+  @Override
   public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream();

@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
@@ -61,7 +62,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
@@ -104,7 +105,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
@@ -122,12 +123,16 @@ import java.util.Set;
 import java.util.TimeZone;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
  */
 public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManagerEmbedded>
     implements QueryLifecycleListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
   private YouTrackDBConfigImpl config;
   private final Storage storage; // todo: make this final when "removeStorage" is removed
@@ -173,6 +178,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public DatabaseSession open(final String iUserName, final String iUserPassword) {
     throw new UnsupportedOperationException("Use YouTrackDB");
   }
@@ -306,6 +312,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    * @return The Database instance itself giving a "fluent interface". Useful to call multiple
    * methods in chain.
    */
+  @Override
   @Deprecated
   public DatabaseSession open(final Token iToken) {
     throw new UnsupportedOperationException("Deprecated Method");
@@ -455,6 +462,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public DatabaseSession setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
@@ -497,6 +505,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    * Returns a copy of current database if it's open. The returned instance can be used by another
    * thread without affecting current instance. The database copy is not set in thread local.
    */
+  @Override
   public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
     var storage = (Storage) getSharedContext().getStorage();
@@ -1578,6 +1587,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    *
    * @param record record to delete
    */
+  @Override
   public void delete(@Nonnull DBRecord record) {
     checkOpenness();
     assert assertIfNotActive();
@@ -1585,6 +1595,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     record.delete();
   }
 
+  @Override
   public void beforeCreateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -1599,7 +1610,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       }
 
       var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyBeforeModification(entity, clazz);
+      ensureLinksConsistencyBeforeModification(entity);
 
       if (clazz != null) {
         checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, clazz.getName());
@@ -1639,6 +1650,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     callbackHooks(RecordHook.TYPE.AFTER_CREATE, recordAbstract);
   }
 
+  @Override
   public void beforeUpdateOperations(final RecordAbstract recordAbstract, String collectionName) {
     assert assertIfNotActive();
 
@@ -1647,7 +1659,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     if (recordAbstract instanceof EntityImpl entity) {
 
       var clazz = entity.getImmutableSchemaClass(this);
-      ensureLinksConsistencyBeforeModification(entity, clazz);
+      ensureLinksConsistencyBeforeModification(entity);
 
       if (clazz != null) {
         if (clazz.isScheduler()) {
@@ -1689,6 +1701,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
   }
 
+  @Override
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
       java.lang.String collectionName) {
     assert assertIfNotActive();
@@ -1857,6 +1870,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     LiveQueryHookV2.removePendingDatabaseOps(this);
   }
 
+  @Override
   public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
@@ -1936,6 +1950,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric resourceGeneric,
       final String resourceSpecific,
@@ -1947,12 +1962,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         user.allow(this, resourceGeneric, resourceSpecific, iOperation);
       } catch (SecurityAccessException e) {
 
-        if (LogManager.instance().isDebugEnabled()) {
+        if (logger.isDebugEnabled()) {
           LogManager.instance()
               .debug(
                   this,
                   "User '%s' tried to access the reserved resource '%s.%s', operation '%s'",
-                  getCurrentUser(),
+                  logger, getCurrentUser(),
                   resourceGeneric,
                   resourceSpecific,
                   iOperation);
@@ -1966,6 +1981,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -1984,6 +2000,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
+  @Override
   public void checkSecurity(
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
@@ -2048,11 +2065,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
+  @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
     return getStorageInfo().getRecordConflictStrategy();
   }
 
+  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
     storage.setConflictStrategy(
@@ -2060,6 +2079,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return this;
   }
 
+  @Override
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
     storage.setConflictStrategy(iResolver);
@@ -2196,6 +2216,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return dropCollectionInternal(collectionId);
   }
 
+  @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
     return storage.dropCollection(this, collectionId);
@@ -2207,6 +2228,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.getSize(this);
   }
 
+  @Override
   public DatabaseStats getStats() {
     assert assertIfNotActive();
     var stats = new DatabaseStats();
@@ -2223,6 +2245,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return stats;
   }
 
+  @Override
   public void addRidbagPrefetchStats(long execTimeMs) {
     assert assertIfNotActive();
     this.ridbagPrefetchCount++;
@@ -2236,6 +2259,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
+  @Override
   public void resetRecordLoadStats() {
     assert assertIfNotActive();
     this.loadedRecordsCount = 0L;
@@ -2347,9 +2371,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   /**
    * {@inheritDoc}
    */
-  public BTreeCollectionManager getBTreeCollectionManager() {
+  @Override
+  public LinkCollectionsBTreeManager getBTreeCollectionManager() {
     assert assertIfNotActive();
-    return storage.getSBtreeCollectionManager();
+    return storage.getLinkCollectionsBtreeCollectionManager();
   }
 
   @Override
@@ -2369,6 +2394,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     this.storage.commit(transaction);
   }
 
+  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;
@@ -2420,11 +2446,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     return storage.getCollectionsIds(filterCollections);
   }
 
+  @Override
   public void startExclusiveMetadataChange() {
     assert assertIfNotActive();
     ((AbstractStorage) storage).startDDL();
   }
 
+  @Override
   public void endExclusiveMetadataChange() {
     assert assertIfNotActive();
     ((AbstractStorage) storage).endDDL();
@@ -2503,15 +2531,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     if (!ensureLinkConsistency) {
       return;
     }
-    var properties = entity.getPropertyNamesInternal(true, false);
-    var clazz = entity.getImmutableSchemaClass(this);
 
+    var properties = entity.getPropertyNamesInternal(true, false);
     var linksToUpdateMap = new HashMap<RecordId, int[]>();
     for (var propertyName : properties) {
       linksToUpdateMap.clear();
 
       if (propertyName.charAt(0) == EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX) {
-        var oppositeLinksContainer = (RidBag) entity.getPropertyInternal(propertyName, false);
+        var oppositeLinksContainer = (LinkBag) entity.getPropertyInternal(propertyName, false);
 
         for (var link : oppositeLinksContainer) {
           var transaction = getActiveTransaction();
@@ -2525,7 +2552,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var oppositeLinkProperty = oppositeEntity.getPropertyInternal(linkName, false);
 
           if (oppositeLinkProperty == null) {
-            throw new IllegalStateException("Cannot remove link " + entity.getIdentity()
+            throw new LinksConsistencyException(this, "Cannot remove link " + entity.getIdentity()
                 + " from opposite entity because system property "
                 + linkName + " does not exist");
           }
@@ -2534,7 +2561,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               if (identifiable.getIdentity().equals(entity.getIdentity())) {
                 oppositeEntity.setPropertyInternal(linkName, null);
               } else {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link" + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist");
               }
@@ -2542,7 +2569,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
             case EntityLinkListImpl linkList -> {
               var removed = linkList.remove(entity);
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the list");
               }
@@ -2550,7 +2577,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
             case EntityLinkSetImpl linkSet -> {
               var removed = linkSet.remove(entity);
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the set");
               }
@@ -2569,16 +2596,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               }
 
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in the map");
               }
             }
-            case RidBag ridBag -> {
-              assert ridBag.contains(entity.getIdentity());
-              var removed = ridBag.remove(entity.getIdentity());
+            case LinkBag linkBag -> {
+              var removed = linkBag.remove(entity.getIdentity());
               if (!removed) {
-                throw new IllegalStateException(
+                throw new LinksConsistencyException(this,
                     "Cannot remove link " + linkName + ":" + entity.getIdentity()
                         + " from opposite entity because it does not exist in link bag");
               }
@@ -2590,15 +2616,13 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           }
         }
       } else {
-        if (clazz != null) {
-          if (clazz.isVertexType()) {
-            if (VertexEntityImpl.isEdgeProperty(propertyName)) {
-              continue;
-            }
-          } else if (clazz.isEdgeType()) {
-            if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
-              continue;
-            }
+        if (entity.isVertex()) {
+          if (VertexEntityImpl.isEdgeProperty(propertyName)) {
+            continue;
+          }
+        } else if (entity.isEdge()) {
+          if (EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+            continue;
           }
         }
 
@@ -2609,19 +2633,17 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
-  private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity,
-      @Nullable SchemaImmutableClass clazz) {
+  private void ensureLinksConsistencyBeforeModification(@Nonnull final EntityImpl entity) {
     if (!ensureLinkConsistency) {
       return;
     }
+
     var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false,
         false);
-    if (clazz != null) {
-      if (clazz.isVertexType()) {
-        dirtyProperties = filterVertexProperties(dirtyProperties);
-      } else if (clazz.isEdgeType()) {
-        dirtyProperties = filterEdgeProperties(dirtyProperties);
-      }
+    if (entity.isVertex()) {
+      dirtyProperties = filterVertexProperties(dirtyProperties);
+    } else if (entity.isEdge()) {
+      dirtyProperties = filterEdgeProperties(dirtyProperties);
     }
 
     var linksToUpdateMap = new HashMap<RecordId, int[]>();
@@ -2636,7 +2658,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         if (timeLine != null) {
           if (currentPropertyValue instanceof EntityLinkListImpl
               || currentPropertyValue instanceof EntityLinkSetImpl ||
-              currentPropertyValue instanceof RidBag
+              currentPropertyValue instanceof LinkBag
               || currentPropertyValue instanceof EntityLinkMapIml) {
             for (var event : timeLine.getMultiValueChangeEvents()) {
               switch (event.getChangeType()) {
@@ -2679,7 +2701,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
       if (currentTx.isDeletedInTx(oppositeLink)) {
         if (diff > 0) {
-          throw new IllegalStateException("Cannot add link " + entity.getIdentity()
+          throw new LinksConsistencyException(this, "Cannot add link " + entity.getIdentity()
               + " to opposite entity because it was deleted in transaction");
         }
         continue;
@@ -2695,14 +2717,16 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       if (oppositeEntity.equals(entity)) {
         continue;
       }
-      var linkBag = (RidBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
+      var linkBag = (LinkBag) oppositeEntity.getPropertyInternal(oppositeLinkBagPropertyName);
 
       if (linkBag == null) {
         if (diff < 0) {
-          throw new IllegalStateException("Cannot remove link " + propertyName + " for " + entity
-              + " from opposite entity " + oppositeEntity + " because it does not exist");
+          throw new LinksConsistencyException(this,
+              "Cannot remove link " + propertyName + " for " + entity
+                  + " from opposite entity " + oppositeEntity
+                  + " because required property does not exist");
         }
-        linkBag = new RidBag(this);
+        linkBag = new LinkBag(this);
         oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
       }
 
@@ -2714,8 +2738,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         } else {
           var removed = linkBag.remove(entity.getIdentity());
           if (!removed) {
-            throw new IllegalStateException("Cannot remove link " + rid
-                + " from opposite entity because it does not exist");
+            throw new LinksConsistencyException(this, "Cannot remove link " + rid
+                + " from opposite entity because it does not exist in opposite link bag : "
+                + oppositeLinkBagPropertyName);
           }
         }
       }
@@ -2788,8 +2813,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           incrementLinkCounter((RecordId) link, links);
         }
       }
-      case RidBag ridBag -> {
-        for (var link : ridBag) {
+      case LinkBag linkBag -> {
+        for (var link : linkBag) {
           incrementLinkCounter((RecordId) link, links);
         }
       }
@@ -2829,8 +2854,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           decrementLinkCounter((RecordId) link, links);
         }
       }
-      case RidBag ridBag -> {
-        for (var link : ridBag) {
+      case LinkBag linkBag -> {
+        for (var link : linkBag) {
           decrementLinkCounter((RecordId) link, links);
         }
       }

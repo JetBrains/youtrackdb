@@ -41,8 +41,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPOutputStream;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(ServerCommandGetStaticContent.class);
 
   private static final String[] DEF_PATTERN = {
       "GET|www",
@@ -323,7 +327,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
     if (staticContent.is == null) {
       var inputFile = new File(path);
       if (!inputFile.exists()) {
-        LogManager.instance().debug(this, "Static resource not found: %s", path);
+        LogManager.instance().debug(this, "Static resource not found: %s", logger, path);
 
         iResponse.sendStream(404, "File not found", null, null, 0);
         return;

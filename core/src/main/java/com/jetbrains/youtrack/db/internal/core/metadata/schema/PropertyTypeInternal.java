@@ -38,7 +38,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -1215,17 +1215,17 @@ public enum PropertyTypeInternal {
     }
   },
 
-  LINKBAG("LinkBag", 22, RidBag.class, new Class<?>[]{RidBag.class}) {
+  LINKBAG("LinkBag", 22, LinkBag.class, new Class<?>[]{LinkBag.class}) {
     @Override
-    public RidBag convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
+    public LinkBag convert(Object value, PropertyTypeInternal linkedType, SchemaClass linkedClass,
         DatabaseSessionInternal session) {
       if (value == null) {
         return null;
-      } else if (value instanceof RidBag ridBag) {
-        return ridBag;
+      } else if (value instanceof LinkBag linkBag) {
+        return linkBag;
       }
 
-      var ridBag = new RidBag(session);
+      var ridBag = new LinkBag(session);
       if (value instanceof Iterable<?> iterable) {
         for (var item : iterable) {
           ridBag.add(((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
@@ -1245,8 +1245,8 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      var ridBag = (RidBag) value;
-      var copy = new RidBag(session);
+      var ridBag = (LinkBag) value;
+      var copy = new LinkBag(session);
       for (var item : ridBag) {
         copy.add(item);
       }
@@ -1298,7 +1298,7 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(RecordId.class, LINK);
     TYPES_BY_CLASS.put(BigDecimal.class, DECIMAL);
     TYPES_BY_CLASS.put(BigInteger.class, DECIMAL);
-    TYPES_BY_CLASS.put(RidBag.class, LINKBAG);
+    TYPES_BY_CLASS.put(LinkBag.class, LINKBAG);
     TYPES_BY_CLASS.put(EntityEmbeddedSetImpl.class, EMBEDDEDSET);
     TYPES_BY_CLASS.put(EntityLinkSetImpl.class, LINKSET);
     TYPES_BY_CLASS.put(EntityEmbeddedListImpl.class, EMBEDDEDLIST);
@@ -1651,7 +1651,7 @@ public enum PropertyTypeInternal {
         return (T) STRING.convert(value, null, null, session);
       } else if (Identifiable.class.isAssignableFrom(targetClass)) {
         return (T) LINK.convert(value, null, null, session);
-      } else if (targetClass.equals(RidBag.class)) {
+      } else if (targetClass.equals(LinkBag.class)) {
         return (T) LINKBAG.convert(value, null, null, session);
       }
     } catch (

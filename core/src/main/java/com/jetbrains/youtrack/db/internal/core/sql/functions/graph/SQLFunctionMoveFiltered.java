@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.record.impl.Relation;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFiltered;
 

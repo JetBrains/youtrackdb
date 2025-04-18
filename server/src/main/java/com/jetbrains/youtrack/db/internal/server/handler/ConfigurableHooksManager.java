@@ -73,6 +73,7 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
     onOpen(session);
   }
 
+  @Override
   public void onOpen(@Nonnull DatabaseSessionInternal session) {
     if (!session.isRemote()) {
       var db = session;

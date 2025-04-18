@@ -38,6 +38,7 @@ public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<
     this.parentPath = parentPath;
   }
 
+  @Override
   @Nullable
   public Identifiable process() {
     while (target.hasNext()) {

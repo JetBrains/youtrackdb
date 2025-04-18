@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.auto;
 
-import static org.junit.Assert.assertEquals;
+import static org.testng.Assert.assertEquals;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -259,6 +260,36 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     runEdgeInlineTest(FunctionDefinition.DIFFERENCE);
   }
 
+  @Test
+  public void unionAllOrderTest() {
+    runOrderTest(FunctionDefinition.UNION_ALL);
+  }
+
+  @Test
+  public void intersectOrderTest() {
+    runOrderTest(FunctionDefinition.INTERSECT);
+  }
+
+  @Test
+  public void differenceOrderTest() {
+    runOrderTest(FunctionDefinition.DIFFERENCE);
+  }
+
+  @Test
+  public void unionAllOneArgumentTest() {
+    runOneArgumentTest(FunctionDefinition.UNION_ALL);
+  }
+
+  @Test
+  public void intersectOneArgumentTest() {
+    runOneArgumentTest(FunctionDefinition.INTERSECT);
+  }
+
+  @Test
+  public void differenceOneArgumentTest() {
+    runOneArgumentTest(FunctionDefinition.DIFFERENCE);
+  }
+
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
     session.begin();
@@ -268,8 +299,8 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         r -> r.<RecordId>getProperty("@rid"),
         r -> {
 
-          final var ins = ((EntityImpl) r).<RidBag>getPropertyInternal("in_");
-          final var outs = ((EntityImpl) r).<RidBag>getPropertyInternal("out_");
+          final var ins = ((EntityImpl) r).<LinkBag>getPropertyInternal("in_");
+          final var outs = ((EntityImpl) r).<LinkBag>getPropertyInternal("out_");
 
           return new RawPair<>(ins, outs);
         }
@@ -286,7 +317,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         r -> r.<RecordId>getProperty("@rid"),
         r -> r.<Collection<Identifiable>>getProperty("edges")
     ));
-    assertEquals(insAndOuts.keySet(), result.keySet());
+    assertEquals(result.keySet(), insAndOuts.keySet());
 
     for (var e : insAndOuts.entrySet()) {
       final var rid = e.getKey();
@@ -306,6 +337,61 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       assertListsEqualsIgnoreOrder(edges, expectedEdges);
     }
     session.commit();
+  }
+
+  private void runOrderTest(FunctionDefinition fDef) {
+
+    session.executeInTx(tx -> {
+
+      final var rand = new Random();
+      final var randomNumbers1 = rand.ints(35, 0, 10).boxed().toList();
+      final var randomNumbers2 = rand.ints(10, 0, 10).boxed().toList();
+
+      final var query =
+          "SELECT FROM $var3 LET "
+              + "$var1 = :someNumbers1, "
+              + "$var2 = :someNumbers2, "
+              + "$var3 = " + fDef.name + "($var1, $var2)";
+
+      var result =
+          tx.query(query, Map.of("someNumbers1", randomNumbers1, "someNumbers2", randomNumbers2))
+              .stream()
+              .map(r -> r.getInt("value"))
+              .toList();
+
+      var expected = fDef.impl(List.of(randomNumbers1, randomNumbers2));
+
+      assertEquals(
+          result, expected,
+          "Order was not preserved for " + fDef.name + " function. "
+              + "list1: " + randomNumbers1 + ",\n"
+              + "list2: " + randomNumbers2 + ",\n"
+              + "result: " + result + ",\n"
+              + "expected: " + expected
+      );
+    });
+  }
+
+  private void runOneArgumentTest(FunctionDefinition fDef) {
+    session.executeInTx(tx -> {
+      final var rand = new Random();
+      final var randomNumbers = rand.ints(35, 0, 10).boxed().toList();
+
+      final var query =
+          "SELECT FROM $var2 LET "
+              + "$var1 = :someNumbers, "
+              + "$var2 = " + fDef.name + "($var1);";
+
+       var result =
+          tx.query(query, Map.of("someNumbers", randomNumbers))
+              .stream()
+              .map(r -> r.getInt("value"))
+              .toList();
+
+      var expected = fDef.impl(List.of(randomNumbers));
+
+      assertEquals(result, expected);
+    });
   }
 
   private void generateGraphRandomData() {
@@ -455,7 +541,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
   private static void assertListsEqualsIgnoreOrder(List<?> list1, List<?> list2, String message) {
     final var l1Sorted = list1.stream().sorted().toList();
     final var l2Sorted = list2.stream().sorted().toList();
-    Assert.assertEquals(l1Sorted, l2Sorted, message);
+    assertEquals(l1Sorted, l2Sorted, message);
   }
 
   private static Set<Set<String>> combinations(int minLength, int maxLength, Set<String> values) {
@@ -486,7 +572,9 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         final var first = collections.getFirst();
         final var rest = collections.stream().skip(1).toList();
 
-        return first.stream().filter(l -> rest.stream().allMatch(r -> r.contains(l))).toList();
+        return first.stream()
+            .distinct()
+            .filter(l -> rest.stream().allMatch(r -> r.contains(l))).toList();
       }
     },
     DIFFERENCE("difference", false, 1) {
@@ -499,7 +587,9 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         final var first = collections.getFirst();
         final var rest = collections.stream().skip(1).toList();
 
-        return first.stream().filter(l -> rest.stream().noneMatch(r -> r.contains(l))).toList();
+        return first.stream()
+            .distinct()
+            .filter(l -> rest.stream().noneMatch(r -> r.contains(l))).toList();
       }
     };
 

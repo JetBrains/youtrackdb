@@ -39,11 +39,13 @@ public class ByteSerializer implements BinarySerializer<Byte> {
   public static final byte ID = 2;
   public static final ByteSerializer INSTANCE = new ByteSerializer();
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, Byte object,
       Object... hints) {
     return BYTE_SIZE;
   }
 
+  @Override
   public void serialize(
       final Byte object, BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition, final Object... hints) {
@@ -54,6 +56,7 @@ public class ByteSerializer implements BinarySerializer<Byte> {
     stream[startPosition] = value;
   }
 
+  @Override
   public Byte deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
       final int startPosition) {
     return stream[startPosition];
@@ -63,15 +66,18 @@ public class ByteSerializer implements BinarySerializer<Byte> {
     return stream[startPosition];
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return BYTE_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return getObjectSize(serializerFactory, stream, startPosition);
@@ -98,10 +104,12 @@ public class ByteSerializer implements BinarySerializer<Byte> {
     return stream[startPosition];
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return BYTE_SIZE;
   }

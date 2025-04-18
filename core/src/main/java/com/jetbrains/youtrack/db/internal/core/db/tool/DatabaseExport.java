@@ -68,6 +68,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private final String tempFileName;
 
+  // these classes will be exported first. import tool relies on this order.
+  private static final Set<String> PRIORITY_EXPORT_CLASSES =
+      Set.of(SchemaClass.VERTEX_CLASS_NAME, SchemaClass.EDGE_CLASS_NAME);
+
   public DatabaseExport(
       final DatabaseSessionEmbedded iDatabase,
       final String iFileName,
@@ -473,7 +477,14 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       jsonGenerator.writeArrayFieldStart("classes");
 
       final List<SchemaClass> classes = new ArrayList<>(schema.getClasses());
-      classes.sort(Comparator.comparing(SchemaClass::getName));
+      classes.sort(Comparator.comparing(SchemaClass::getName, (n1, n2) -> {
+        final var n1priority = PRIORITY_EXPORT_CLASSES.contains(n1);
+        final var n2priority = PRIORITY_EXPORT_CLASSES.contains(n2);
+        if (n1priority == n2priority) {
+          return n1.compareTo(n2);
+        } else
+          return n1priority ? -1 : 1;
+      }));
 
       for (var cls : classes) {
         // CHECK TO FILTER CLASS

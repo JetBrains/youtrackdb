@@ -29,6 +29,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     tempId = tempIdCounter++;
   }
 
+  @Override
   public void setCollectionId(int collectionId) {
     if (collectionId == this.collectionId) {
       return;
@@ -41,6 +42,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     fireAfterIdentityChange();
   }
 
+  @Override
   public void setCollectionPosition(long collectionPosition) {
     if (collectionPosition == this.collectionPosition) {
       return;
@@ -65,6 +67,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     fireAfterIdentityChange();
   }
 
+  @Override
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
     if (!canChangeIdentity()) {
       return;
@@ -77,6 +80,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     this.identityChangeListeners.add(identityChangeListeners);
   }
 
+  @Override
   public void removeIdentityChangeListener(IdentityChangeListener identityChangeListener) {
     if (this.identityChangeListeners != null) {
       this.identityChangeListeners.remove(identityChangeListener);
@@ -139,12 +143,13 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
   @Override
   public int hashCode() {
     if (collectionPosition != COLLECTION_POS_INVALID || collectionId != COLLECTION_ID_INVALID) {
-      return 31 * collectionId + 103 * (int) collectionPosition;
+      return super.hashCode();
     }
 
-    return 31 * collectionId + 103 * (int) collectionPosition + 17 * tempId;
+    return super.hashCode() + 17 * tempId;
   }
 
+  @Override
   public int compareTo(@Nonnull final Identifiable other) {
     if (other == this) {
       return 0;
@@ -172,6 +177,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     return -1;
   }
 
+  @Override
   public RecordId copy() {
     if (collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID) {
       var recordId = new ChangeableRecordId();

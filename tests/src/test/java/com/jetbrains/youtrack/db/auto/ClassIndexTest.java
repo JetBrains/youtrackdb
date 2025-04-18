@@ -17,9 +17,9 @@ import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.index.PropertyLinkBagIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.PropertyRidBagIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import java.util.Arrays;
@@ -1873,7 +1873,7 @@ public class ClassIndexTest extends BaseDBTest {
         new PropertyIndexDefinition("ClassIndexTestClass", "fFourteen",
             PropertyTypeInternal.INTEGER));
     compositeIndexEleven.addIndex(
-        new PropertyRidBagIndexDefinition("ClassIndexTestClass", "fRidBag"));
+        new PropertyLinkBagIndexDefinition("ClassIndexTestClass", "fRidBag"));
     expectedIndexDefinitions.add(compositeIndexEleven);
 
     final var propertyIndex =
@@ -2060,7 +2060,7 @@ public class ClassIndexTest extends BaseDBTest {
         new PropertyIndexDefinition("ClassIndexTestClass", "fFourteen",
             PropertyTypeInternal.INTEGER));
     compositeIndexEleven.addIndex(
-        new PropertyRidBagIndexDefinition("ClassIndexTestClass", "fRidBag"));
+        new PropertyLinkBagIndexDefinition("ClassIndexTestClass", "fRidBag"));
     expectedIndexDefinitions.add(compositeIndexEleven);
 
     final var propertyIndex =

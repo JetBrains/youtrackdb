@@ -58,14 +58,17 @@ public interface ExecutionStepInternal extends ExecutionStep {
     return spaces + getClass().getSimpleName();
   }
 
+  @Override
   default @Nonnull String getName() {
     return getClass().getSimpleName();
   }
 
+  @Override
   default @Nonnull String getType() {
     return getClass().getSimpleName();
   }
 
+  @Override
   default String getDescription() {
     return prettyPrint(0, 3);
   }
@@ -74,6 +77,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
     return "<local>";
   }
 
+  @Override
   @Nonnull
   default List<ExecutionStep> getSubSteps() {
     return Collections.emptyList();

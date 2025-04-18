@@ -32,9 +32,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.Reader;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -130,10 +128,12 @@ public class TTYConsoleReader implements ConsoleReader {
     }
   }
 
+  @Override
   public String readPassword() throws IOException {
     return readLine();
   }
 
+  @Override
   public String readLine() throws IOException {
     var consoleInput = "";
 
@@ -296,6 +296,7 @@ public class TTYConsoleReader implements ConsoleReader {
     }
   }
 
+  @Override
   public void setConsole(ConsoleApplication iConsole) {
     console = iConsole;
   }

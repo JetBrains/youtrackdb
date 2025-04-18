@@ -6,6 +6,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -510,5 +512,26 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
 
     oClass.setCustom("custom.attribute", "value2");
     assertEquals("value2", oClass.getCustom("custom.attribute"));
+  }
+
+  @Test
+  public void testCreateVertexLinkProperty() {
+    final Schema oSchema = session.getMetadata().getSchema();
+    var vertexClass =
+        oSchema.createVertexClass("MyVertex" + SchemaClassImplTest.class.getSimpleName());
+
+    var edgeClass =
+        oSchema.createEdgeClass("MyEdge" + SchemaClassImplTest.class.getSimpleName());
+
+    // creating edge
+    session.executeInTx(tx -> {
+      final var vertex1 = tx.newVertex(vertexClass);
+      final var vertex2 = tx.newVertex(vertexClass);
+
+      vertex1.addEdge(vertex2, edgeClass);
+    });
+
+    final var propName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
+    vertexClass.createProperty(propName, PropertyType.LINKBAG);
   }
 }

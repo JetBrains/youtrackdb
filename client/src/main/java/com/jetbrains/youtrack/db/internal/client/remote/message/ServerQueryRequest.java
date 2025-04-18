@@ -105,6 +105,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     network.writeBoolean(namedParams);
   }
 
+  @Override
   public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
       int protocolVersion)
       throws IOException {
@@ -194,6 +195,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     this.language = language;
   }
 
+  @Override
   public boolean requireDatabaseSession() {
     return false;
   }

@@ -320,6 +320,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return status == STATUS.CLOSED || commandsOrchestrator.isClosed(this);
   }
 
+  @Override
   public void internalClose(boolean recycle) {
     if (status != STATUS.OPEN) {
       return;

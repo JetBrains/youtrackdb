@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
@@ -69,23 +69,23 @@ public class BonsaiTreeRepair {
           var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
           var outVertexes = processedVertexes.computeIfAbsent(outVertexName, k -> new HashSet<>());
 
-          if (inVertex.getProperty(inVertexName) instanceof RidBag) {
+          if (inVertex.getProperty(inVertexName) instanceof LinkBag) {
             if (inVertexes.add(inVertex.getIdentity())) {
-              inVertex.setProperty(inVertexName, new RidBag(db));
+              inVertex.setProperty(inVertexName, new LinkBag(db));
             }
 
-            final RidBag inRidBag = inVertex.getProperty(inVertexName);
-            inRidBag.add(edge.getIdentity());
+            final LinkBag inLinkBag = inVertex.getProperty(inVertexName);
+            inLinkBag.add(edge.getIdentity());
 
           }
 
-          if (outVertex.getProperty(outVertexName) instanceof RidBag) {
+          if (outVertex.getProperty(outVertexName) instanceof LinkBag) {
             if (outVertexes.add(outVertex.getIdentity())) {
-              outVertex.setProperty(outVertexName, new RidBag(db));
+              outVertex.setProperty(outVertexName, new LinkBag(db));
             }
 
-            final RidBag outRidBag = outVertex.getProperty(outVertexName);
-            outRidBag.add(edge.getIdentity());
+            final LinkBag outLinkBag = outVertex.getProperty(outVertexName);
+            outLinkBag.add(edge.getIdentity());
 
           }
 

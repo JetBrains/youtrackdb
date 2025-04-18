@@ -19,6 +19,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
   public BrokenMapHook() {
   }
 
+  @Override
   public void onAfterRecordCreate(DBRecord record) {
     var now = new Date();
     var element = (Entity) record;
@@ -34,6 +35,7 @@ public class BrokenMapHook extends RecordHookAbstract implements RecordHook {
     }
   }
 
+  @Override
   public void onBeforeRecordUpdate(DBRecord newRecord) {
     var newElement = (Entity) newRecord;
 

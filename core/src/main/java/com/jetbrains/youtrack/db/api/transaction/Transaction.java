@@ -367,7 +367,7 @@ public interface Transaction {
    * Sample usage:
    *
    * <p><code>
-   * ResultSet rs = db.command("INSERT INTO Person SET name = ?", "John");
+   * db.command("INSERT INTO Person SET name = ?", "John");
    * </code>
    *
    * @param args query arguments
@@ -383,7 +383,7 @@ public interface Transaction {
    * Sample usage:
    *
    * <p><code>
-   * ResultSet rs = db.command("INSERT INTO Person SET name = :name", Map.of("name", "John");
+   * db.command("INSERT INTO Person SET name = :name", Map.of("name", "John");
    * </code>
    *
    * @param args query arguments

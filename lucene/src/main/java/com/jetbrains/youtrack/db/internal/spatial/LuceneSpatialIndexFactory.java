@@ -38,8 +38,12 @@ import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycleListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(LuceneSpatialIndexFactory.class);
 
   private static final Set<String> TYPES;
   private static final Set<String> ALGORITHMS;
@@ -139,11 +143,11 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
 
       var embeddedSession = (DatabaseSessionEmbedded) session;
       var indexManager = embeddedSession.getSharedContext().getIndexManager();
-      LogManager.instance().debug(this, "Dropping spatial indexes...");
+      LogManager.instance().debug(this, "Dropping spatial indexes...", logger);
       for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
 
         if (idx instanceof LuceneSpatialIndex) {
-          LogManager.instance().debug(this, "- index '%s'", idx.getName());
+          LogManager.instance().debug(this, "- index '%s'", logger, idx.getName());
           indexManager.dropIndex(embeddedSession, idx.getName());
         }
       }

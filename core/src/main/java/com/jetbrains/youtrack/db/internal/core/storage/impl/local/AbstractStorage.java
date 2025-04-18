@@ -69,7 +69,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBagDeleter;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDeleter;
 import com.jetbrains.youtrack.db.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
@@ -92,7 +92,6 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeSingleValueI
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.query.live.YTLiveQueryMonitorEmbedded;
-import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
@@ -106,14 +105,12 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageOperationResult;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.StorageTransaction;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -136,8 +133,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManagerShared;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
@@ -186,6 +183,8 @@ import java.util.stream.Stream;
 import java.util.zip.ZipOutputStream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @since 28.03.13
@@ -198,6 +197,7 @@ public abstract class AbstractStorage
     PageIsBrokenListener,
     Storage {
 
+  private static final Logger logger = LoggerFactory.getLogger(AbstractStorage.class);
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
 
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
@@ -234,12 +234,7 @@ public abstract class AbstractStorage
         ThreadPoolExecutors.newSingleThreadScheduledPool("Fuzzy Checkpoint", storageThreadGroup);
   }
 
-  protected volatile BTreeCollectionManagerShared sbTreeCollectionManager;
-
-  /**
-   * Lock is used to atomically update record versions.
-   */
-  private final Striped<Lock> recordVersionManager = Striped.lazyWeakLock(1024);
+  protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
@@ -310,7 +305,7 @@ public abstract class AbstractStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
-    sbTreeCollectionManager = new BTreeCollectionManagerShared(this);
+    linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
     dropDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
         .databaseMetric(CoreMetrics.DATABASE_DROP_DURATION, this.name);
@@ -583,7 +578,7 @@ public abstract class AbstractStorage
 
           componentsFactory = new CurrentStorageComponentsFactory(configuration);
 
-          sbTreeCollectionManager.load();
+          linkCollectionsBTreeManager.load();
 
           atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
           openIndexes();
@@ -782,13 +777,13 @@ public abstract class AbstractStorage
       if (collection != null) {
         final var collectionId = collection.getId();
 
-        if (!BTreeCollectionManagerShared.isComponentPresent(operation, collectionId)) {
+        if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
           LogManager.instance()
               .info(
                   this,
                   "Collection with id %d does not have associated rid bag, fixing ...",
                   collectionId);
-          sbTreeCollectionManager.createComponent(operation, collectionId);
+          linkCollectionsBTreeManager.createComponent(operation, collectionId);
         }
       }
     }
@@ -891,11 +886,11 @@ public abstract class AbstractStorage
 
           componentsFactory = new CurrentStorageComponentsFactory(configuration);
 
-          sbTreeCollectionManager.load();
+          linkCollectionsBTreeManager.load();
 
           status = STATUS.OPEN;
 
-          sbTreeCollectionManager = new BTreeCollectionManagerShared(this);
+          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
 
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
@@ -1049,7 +1044,7 @@ public abstract class AbstractStorage
 
       stateLock.readLock().lock();
       try {
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
 
           checkOpennessAndMigration();
@@ -1197,7 +1192,8 @@ public abstract class AbstractStorage
 
               ((CollectionBasedStorageConfiguration) configuration)
                   .dropCollection(atomicOperation, collectionId);
-              sbTreeCollectionManager.deleteComponentByCollectionId(atomicOperation, collectionId);
+              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                  collectionId);
 
               return true;
             });
@@ -1389,8 +1385,8 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final BTreeCollectionManager getSBtreeCollectionManager() {
-    return sbTreeCollectionManager;
+  public final LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
+    return linkCollectionsBTreeManager;
   }
 
   public ReadCache getReadCache() {
@@ -1517,7 +1513,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public final StorageOperationResult<PhysicalPosition> createRecord(
+  public final void createRecord(
       final RecordId rid,
       final byte[] content,
       final int recordVersion,
@@ -1528,8 +1524,10 @@ public abstract class AbstractStorage
       final var collection = doGetAndCheckCollection(rid.getCollectionId());
       if (transaction.get() != null) {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        return doCreateRecord(
-            atomicOperation, rid, content, recordVersion, recordType, callback, collection, null);
+        doCreateRecord(
+            atomicOperation, rid, content, recordVersion, recordType, callback,
+            collection, null);
+        return;
       }
 
       stateLock.readLock().lock();
@@ -1538,7 +1536,7 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
 
-        return atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperationsManager.calculateInsideAtomicOperation(
             null,
             atomicOperation ->
                 doCreateRecord(
@@ -1548,8 +1546,7 @@ public abstract class AbstractStorage
                     recordVersion,
                     recordType,
                     callback,
-                    collection,
-                    null));
+                    collection, null));
       } finally {
         stateLock.readLock().unlock();
       }
@@ -1697,57 +1694,6 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee, false);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  public final void updateRecord(
-      final RecordId rid,
-      final boolean updateContent,
-      final byte[] content,
-      final int version,
-      final byte recordType,
-      @SuppressWarnings("unused") final int mode,
-      final RecordCallback<Integer> callback) {
-    try {
-      assert transaction.get() == null;
-
-      stateLock.readLock().lock();
-      try {
-        checkOpennessAndMigration();
-
-        // GET THE SHARED LOCK AND GET AN EXCLUSIVE LOCK AGAINST THE RECORD
-        final var lock = recordVersionManager.get(rid);
-        lock.lock();
-        try {
-          checkOpennessAndMigration();
-
-          makeStorageDirty();
-
-          final var collection = doGetAndCheckCollection(rid.getCollectionId());
-          atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
-              atomicOperation ->
-                  doUpdateRecord(
-                      atomicOperation,
-                      rid,
-                      updateContent,
-                      content,
-                      version,
-                      recordType,
-                      callback,
-                      collection));
-        } finally {
-          lock.unlock();
-        }
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
     }
   }
 
@@ -1945,12 +1891,12 @@ public abstract class AbstractStorage
    * <bold>other node commit</bold> is the commit that happen when a node execute a transaction of
    * another node where all the rids are already allocated in the other node.
    *
-   * @param transaction the transaction to commit
-   * @param allocated   true if the operation is pre-allocated commit
+   * @param frontendTransaction the transaction to commit
+   * @param allocated           true if the operation is pre-allocated commit
    * @return The list of operations applied by the transaction
    */
   protected List<RecordOperation> commit(
-      final FrontendTransactionImpl transaction, final boolean allocated) {
+      final FrontendTransactionImpl frontendTransaction, final boolean allocated) {
     // XXX: At this moment, there are two implementations of the commit method. One for regular
     // client transactions and one for
     // implicit micro-transactions. The implementations are quite identical, but operate on slightly
@@ -1959,13 +1905,13 @@ public abstract class AbstractStorage
     //
     //
     try {
-      final var session = transaction.getDatabaseSession();
+      final var session = frontendTransaction.getDatabaseSession();
       final var indexOperations =
-          getSortedIndexOperations(transaction);
+          getSortedIndexOperations(frontendTransaction);
 
       session.getMetadata().makeThreadLocalSchemaSnapshot();
 
-      final var recordOperations = transaction.getRecordOperationsInternal();
+      final var recordOperations = frontendTransaction.getRecordOperationsInternal();
       final var collectionsToLock = new TreeMap<Integer, StorageCollection>();
       final Map<RecordOperation, Integer> collectionOverrides = new IdentityHashMap<>(8);
 
@@ -2020,10 +1966,12 @@ public abstract class AbstractStorage
           makeStorageDirty();
 
           Throwable error = null;
-          startStorageTx(transaction);
+          startStorageTx(frontendTransaction);
           try {
             final var atomicOperation = atomicOperationsManager.getCurrentOperation();
             lockCollections(collectionsToLock);
+            lockLinkBags(collectionsToLock);
+            lockIndexes(indexOperations);
 
             final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
             for (final var recordOperation : newRecords) {
@@ -2076,23 +2024,25 @@ public abstract class AbstractStorage
 
                 rid.setCollectionAndPosition(collection.getId(),
                     physicalPosition.collectionPosition);
-                assert transaction.assertIdentityChangedAfterCommit(oldRID, rid);
+                assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
               }
             }
-            lockRidBags(collectionsToLock);
 
             for (final var recordOperation : recordOperations) {
               commitEntry(
-                  transaction,
+                  frontendTransaction,
                   atomicOperation,
                   recordOperation,
                   positions.get(recordOperation),
                   session.getSerializer());
               result.add(recordOperation);
             }
-            lockIndexes(indexOperations);
 
-            commitIndexes(transaction.getDatabaseSession(), indexOperations);
+            //update of b-tree based link bags
+            var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
+            recordSerializationContext.executeOperations(atomicOperation, this);
+
+            commitIndexes(frontendTransaction.getDatabaseSession(), indexOperations);
           } catch (final IOException | RuntimeException e) {
             error = e;
             if (e instanceof RuntimeException) {
@@ -2117,13 +2067,13 @@ public abstract class AbstractStorage
         stateLock.readLock().unlock();
       }
 
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "%d Committed transaction %d on database '%s' (result=%s)",
-                Thread.currentThread().getId(),
-                transaction.getId(),
+                logger, Thread.currentThread().getId(),
+                frontendTransaction.getId(),
                 session.getDatabaseName(),
                 result);
       }
@@ -3267,26 +3217,13 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public final boolean checkForRecordValidity(final PhysicalPosition ppos) {
-    try {
-      return ppos != null && !RecordVersionHelper.isTombstone(ppos.recordVersion);
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  @Override
   public final void synch() {
     try {
       stateLock.readLock().lock();
       try {
 
         final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeAtomicOperations(null, null);
+        final var lockId = atomicOperationsManager.freezeAtomicOperations(null);
         try {
           checkOpennessAndMigration();
 
@@ -3481,10 +3418,10 @@ public abstract class AbstractStorage
 
         if (throwException) {
           atomicOperationsManager.freezeAtomicOperations(
-              ModificationOperationProhibitedException.class,
-              "Modification requests are prohibited");
+              () -> new ModificationOperationProhibitedException(name,
+                  "Modification requests are prohibited"));
         } else {
-          atomicOperationsManager.freezeAtomicOperations(null, null);
+          atomicOperationsManager.freezeAtomicOperations(null);
         }
 
         final List<FreezableStorageComponent> frozenIndexes = new ArrayList<>(indexEngines.size());
@@ -3901,22 +3838,23 @@ public abstract class AbstractStorage
               this,
               "Before fuzzy checkpoint: min LSN segment is %s, "
                   + "WAL begin is %s, WAL end is %s fuzzy segment is %d",
-              minLSNSegment,
+              logger, minLSNSegment,
               beginLSN,
               endLSN,
               fuzzySegment);
 
       if (fuzzySegment > beginLSN.getSegment() && beginLSN.getSegment() < endLSN.getSegment()) {
-        LogManager.instance().debug(this, "Making fuzzy checkpoint");
+        LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
         writeCache.syncDataFiles(fuzzySegment, lastMetadata);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
 
         LogManager.instance()
-            .debug(this, "After fuzzy checkpoint: WAL begin is %s WAL end is %s", beginLSN, endLSN);
+            .debug(this, "After fuzzy checkpoint: WAL begin is %s WAL end is %s", logger, beginLSN,
+                endLSN);
       } else {
-        LogManager.instance().debug(this, "No reason to make fuzzy checkpoint");
+        LogManager.instance().debug(this, "No reason to make fuzzy checkpoint", logger);
       }
     } catch (final IOException ioe) {
       throw BaseException.wrapException(new YTIOException("Error during fuzzy checkpoint"), ioe,
@@ -3926,12 +3864,12 @@ public abstract class AbstractStorage
     }
   }
 
-  public void deleteTreeRidBag(final BTreeBasedLinkBag ridBag) {
+  public void deleteTreeLinkBag(final BTreeBasedLinkBag ridBag) {
     try {
       checkOpennessAndMigration();
 
       assert transaction.get() != null;
-      deleteTreeRidBag(ridBag, atomicOperationsManager.getCurrentOperation());
+      deleteTreeLinkBag(ridBag, atomicOperationsManager.getCurrentOperation());
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3941,13 +3879,13 @@ public abstract class AbstractStorage
     }
   }
 
-  private void deleteTreeRidBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
+  private void deleteTreeLinkBag(BTreeBasedLinkBag ridBag, AtomicOperation atomicOperation) {
     final var collectionPointer = ridBag.getCollectionPointer();
     checkOpennessAndMigration();
 
     try {
       makeStorageDirty();
-      sbTreeCollectionManager.delete(atomicOperation, collectionPointer, name);
+      linkCollectionsBTreeManager.delete(atomicOperation, collectionPointer, name);
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during deletion of rid bag", e);
       throw BaseException.wrapException(
@@ -4196,7 +4134,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private StorageOperationResult<PhysicalPosition> doCreateRecord(
+  private PhysicalPosition doCreateRecord(
       final AtomicOperation atomicOperation,
       final RecordId rid,
       @Nonnull final byte[] content,
@@ -4222,11 +4160,6 @@ public abstract class AbstractStorage
       ppos = collection.createRecord(content, recordVersion, recordType, allocated,
           atomicOperation);
       rid.setCollectionPosition(ppos.collectionPosition);
-
-      final var context = RecordSerializationContext.getContext();
-      if (context != null) {
-        context.executeOperations(atomicOperation, this);
-      }
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error on creating record in collection: " + collection, e);
       throw DatabaseException.wrapException(
@@ -4237,90 +4170,59 @@ public abstract class AbstractStorage
       callback.call(rid, ppos.collectionPosition);
     }
 
-    if (LogManager.instance().isDebugEnabled()) {
+    if (logger.isDebugEnabled()) {
       LogManager.instance()
-          .debug(this, "Created record %s v.%s size=%d bytes", rid, recordVersion, content.length);
+          .debug(this, "Created record %s v.%s size=%d bytes", logger, rid, recordVersion,
+              content.length);
     }
 
-    return new StorageOperationResult<>(ppos);
+    return ppos;
   }
 
-  private StorageOperationResult<Integer> doUpdateRecord(
+  private int doUpdateRecord(
       final AtomicOperation atomicOperation,
       final RecordId rid,
       final boolean updateContent,
       byte[] content,
       final int version,
       final byte recordType,
-      final RecordCallback<Integer> callback,
       final StorageCollection collection) {
 
     collection.meters().update().record();
     try {
-
       final var ppos =
           collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
-      if (!checkForRecordValidity(ppos)) {
-        final var recordVersion = -1;
-        if (callback != null) {
-          callback.call(rid, recordVersion);
-        }
-
-        return new StorageOperationResult<>(recordVersion);
+      if (ppos == null) {
+        throw new RecordNotFoundException(name,
+            rid, "Cannot update record "
+            + rid
+            + " since the position is invalid in database '"
+            + name
+            + '\'');
       }
 
-      var contentModified = false;
-      if (updateContent) {
-        final var recVersion = new AtomicInteger(version);
-        final var dbVersion = new AtomicInteger(ppos.recordVersion);
-
-        final var newContent = checkAndIncrementVersion(rid, recVersion, dbVersion, name);
-
-        ppos.recordVersion = dbVersion.get();
-
-        // REMOVED BECAUSE DISTRIBUTED COULD UNDO AN OPERATION RESTORING A LOWER VERSION
-        // assert ppos.recordVersion >= oldVersion;
-
-        if (newContent != null) {
-          contentModified = true;
-          content = newContent;
-        }
+      if (version != ppos.recordVersion) {
+        throw new ConcurrentModificationException(name, rid, ppos.recordVersion, version,
+            RecordOperation.UPDATED);
       }
 
+      ppos.recordVersion = version + 1;
       if (updateContent) {
         collection.updateRecord(
             rid.getCollectionPosition(), content, ppos.recordVersion, recordType, atomicOperation);
-      }
-
-      final var context = RecordSerializationContext.getContext();
-      if (context != null) {
-        context.executeOperations(atomicOperation, this);
-      }
-
-      // if we do not update content of the record we should keep version of the record the same
-      // otherwise we would have issues when two records may have the same version but different
-      // content
-      final int newRecordVersion;
-      if (updateContent) {
-        newRecordVersion = ppos.recordVersion;
       } else {
-        newRecordVersion = version;
+        collection.updateRecordVersion(rid.getCollectionPosition(), ppos.recordVersion,
+            atomicOperation);
       }
 
-      if (callback != null) {
-        callback.call(rid, newRecordVersion);
-      }
-
-      if (LogManager.instance().isDebugEnabled()) {
+      final var newRecordVersion = ppos.recordVersion;
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
-            .debug(this, "Updated record %s v.%s size=%d", rid, newRecordVersion, content.length);
+            .debug(this, "Updated record %s v.%s size=%d", logger, rid, newRecordVersion,
+                content.length);
       }
 
-      if (contentModified) {
-        return new StorageOperationResult<>(newRecordVersion, content, false);
-      } else {
-        return new StorageOperationResult<>(newRecordVersion);
-      }
+      return newRecordVersion;
     } catch (final ConcurrentModificationException e) {
       collection.meters().conflict().record();
       throw e;
@@ -4357,13 +4259,8 @@ public abstract class AbstractStorage
 
       collection.deleteRecord(atomicOperation, ppos.collectionPosition);
 
-      final var context = RecordSerializationContext.getContext();
-      if (context != null) {
-        context.executeOperations(atomicOperation, this);
-      }
-
-      if (LogManager.instance().isDebugEnabled()) {
-        LogManager.instance().debug(this, "Deleted record %s v.%s", rid, version);
+      if (logger.isDebugEnabled()) {
+        LogManager.instance().debug(this, "Deleted record %s v.%s", logger, rid, version);
       }
 
     } catch (final IOException ioe) {
@@ -4401,12 +4298,12 @@ public abstract class AbstractStorage
         }
       }
 
-      if (LogManager.instance().isDebugEnabled()) {
+      if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
                 "Read record %s v.%s size=%d bytes",
-                rid,
+                logger, rid,
                 buff.version,
                 buff.buffer != null ? buff.buffer.length : 0);
       }
@@ -4533,14 +4430,15 @@ public abstract class AbstractStorage
       ((CollectionBasedStorageConfiguration) configuration)
           .updateCollection(atomicOperation, collection.generateCollectionConfig());
 
-      sbTreeCollectionManager.createComponent(atomicOperation, createdCollectionId);
+      linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
     }
 
     return createdCollectionId;
   }
 
   @Override
-  public void setCollectionAttribute(final int id, final ATTRIBUTES attribute, final Object value) {
+  public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
+      final Object value) {
     checkBackupRunning();
     stateLock.writeLock().lock();
     try {
@@ -4654,7 +4552,7 @@ public abstract class AbstractStorage
               ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
             });
 
-        sbTreeCollectionManager.close();
+        linkCollectionsBTreeManager.close();
 
         // we close all files inside cache system so we only clear collection metadata
         collections.clear();
@@ -4716,7 +4614,7 @@ public abstract class AbstractStorage
           }
         }
 
-        sbTreeCollectionManager.close();
+        linkCollectionsBTreeManager.close();
 
         // we close all files inside cache system so we only clear collection metadata
         collections.clear();
@@ -4779,42 +4677,9 @@ public abstract class AbstractStorage
     indexEngineNameMap.clear();
   }
 
-  @Nullable
-  private static byte[] checkAndIncrementVersion(
-      final RecordId rid, final AtomicInteger version, final AtomicInteger iDatabaseVersion,
-      String dbName) {
-    final var v = version.get();
-    switch (v) {
-      // DOCUMENT UPDATE, NO VERSION CONTROL
-      case -1:
-        iDatabaseVersion.incrementAndGet();
-        break;
-
-      // DOCUMENT UPDATE, NO VERSION CONTROL, NO VERSION UPDATE
-      case -2:
-        break;
-
-      default:
-        // MVCC CONTROL AND RECORD UPDATE OR WRONG VERSION VALUE
-        // MVCC TRANSACTION: CHECK IF VERSION IS THE SAME
-        if (v < -2) {
-          // OVERWRITE VERSION: THIS IS USED IN CASE OF FIX OF RECORDS IN DISTRIBUTED MODE
-          version.set(RecordVersionHelper.clearRollbackMode(v));
-          iDatabaseVersion.set(version.get());
-        } else if (v != iDatabaseVersion.get()) {
-          throw new ConcurrentModificationException(dbName
-              , rid, iDatabaseVersion.get(), v, RecordOperation.UPDATED);
-        } else
-        // OK, INCREMENT DB VERSION
-        {
-          iDatabaseVersion.incrementAndGet();
-        }
-    }
-    return null;
-  }
 
   private void commitEntry(
-      FrontendTransactionImpl transcation,
+      FrontendTransactionImpl frontendTransaction,
       final AtomicOperation atomicOperation,
       final RecordOperation txEntry,
       final PhysicalPosition allocated,
@@ -4833,105 +4698,84 @@ public abstract class AbstractStorage
       txEntry.type = RecordOperation.CREATED;
     }
 
-    RecordSerializationContext.pushContext();
-    try {
-      final var collection = doGetAndCheckCollection(rid.getCollectionId());
+    final var collection = doGetAndCheckCollection(rid.getCollectionId());
 
-      var db = transcation.getDatabaseSession();
-      switch (txEntry.type) {
-        case RecordOperation.CREATED: {
-          final byte[] stream;
-          try {
-            stream = serializer.toStream(transcation.getDatabaseSession(), rec);
-            if (stream == null) {
-              throw new IllegalArgumentException("Record content is null");
-            }
-          } catch (RuntimeException e) {
-            throw BaseException.wrapException(
-                new CommitSerializationException(db.getDatabaseName(),
-                    "Error During Record Serialization"),
-                e, name);
+    var db = frontendTransaction.getDatabaseSession();
+    switch (txEntry.type) {
+      case RecordOperation.CREATED: {
+        final byte[] stream;
+        try {
+          stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
+          if (stream == null) {
+            throw new IllegalArgumentException("Record content is null");
           }
-          if (allocated != null) {
-            final PhysicalPosition ppos;
-            final var recordType = rec.getRecordType();
-            ppos =
-                doCreateRecord(
-                    atomicOperation,
-                    rid,
-                    stream,
-                    rec.getVersion(),
-                    recordType,
-                    null,
-                    collection,
-                    allocated)
-                    .getResult();
-
-            rec.setVersion(ppos.recordVersion);
-          } else {
-            final var updateRes =
-                doUpdateRecord(
-                    atomicOperation,
-                    rid,
-                    rec.isContentChanged(),
-                    stream,
-                    -2,
-                    rec.getRecordType(),
-                    null,
-                    collection);
-            final int iVersion = updateRes.getResult();
-            rec.setVersion(iVersion);
-            if (updateRes.getModifiedRecordContent() != null) {
-              final int iVersion1 = updateRes.getResult();
-              final var iBuffer = updateRes.getModifiedRecordContent();
-              rec.fill(rid, iVersion1, iBuffer, false);
-            }
-          }
-          break;
+        } catch (RuntimeException e) {
+          throw BaseException.wrapException(
+              new CommitSerializationException(db.getDatabaseName(),
+                  "Error During Record Serialization"),
+              e, name);
         }
-        case RecordOperation.UPDATED: {
-          final byte[] stream;
-          try {
-            stream = serializer.toStream(transcation.getDatabaseSession(), rec);
-          } catch (RuntimeException e) {
-            throw BaseException.wrapException(
-                new CommitSerializationException(db.getDatabaseName(),
-                    "Error During Record Serialization"),
-                e, name);
-          }
+        if (allocated != null) {
+          final PhysicalPosition ppos;
+          final var recordType = rec.getRecordType();
+          ppos =
+              doCreateRecord(
+                  atomicOperation,
+                  rid,
+                  stream,
+                  rec.getVersion(),
+                  recordType,
+                  null,
+                  collection, allocated);
 
-          final var updateRes =
+          rec.setVersion(ppos.recordVersion);
+        } else {
+          final var updatedVersion =
               doUpdateRecord(
                   atomicOperation,
                   rid,
                   rec.isContentChanged(),
                   stream,
-                  rec.getVersion(),
+                  -2,
                   rec.getRecordType(),
-                  null,
                   collection);
-          final int iVersion = updateRes.getResult();
-          rec.setVersion(iVersion);
-          if (updateRes.getModifiedRecordContent() != null) {
-            final int iVersion1 = updateRes.getResult();
-            final var iBuffer = updateRes.getModifiedRecordContent();
-            rec.fill(rid, iVersion1, iBuffer, false);
-          }
-
-          break;
+          rec.setVersion(updatedVersion);
         }
-        case RecordOperation.DELETED: {
-          if (rec instanceof EntityImpl entity) {
-            RidBagDeleter.deleteAllRidBags(entity);
-          }
-          doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(), collection);
-          break;
-        }
-        default:
-          throw new StorageException(name, "Unknown record operation " + txEntry.type);
+        break;
       }
-    } finally {
-      RecordSerializationContext.pullContext();
+      case RecordOperation.UPDATED: {
+        final byte[] stream;
+        try {
+          stream = serializer.toStream(frontendTransaction.getDatabaseSession(), rec);
+        } catch (RuntimeException e) {
+          throw BaseException.wrapException(
+              new CommitSerializationException(db.getDatabaseName(),
+                  "Error During Record Serialization"),
+              e, name);
+        }
+
+        final var version =
+            doUpdateRecord(
+                atomicOperation,
+                rid,
+                rec.isContentChanged(),
+                stream,
+                rec.getVersion(),
+                rec.getRecordType(),
+                collection);
+        rec.setVersion(version);
+        break;
+      }
+      case RecordOperation.DELETED: {
+        if (rec instanceof EntityImpl entity) {
+          LinkBagDeleter.deleteAllRidBags(entity, frontendTransaction);
+        }
+        doDeleteRecord(atomicOperation, rid, rec.getVersionNoLoad(),
+            collection);
+        break;
+      }
+      default:
+        throw new StorageException(name, "Unknown record operation " + txEntry.type);
     }
 
     // RESET TRACKING
@@ -4940,7 +4784,6 @@ public abstract class AbstractStorage
       ((EntityImpl) rec).clearTransactionTrackData();
     }
 
-    rec.txEntry = null;
     rec.unsetDirty();
   }
 
@@ -5307,13 +5150,13 @@ public abstract class AbstractStorage
     }
   }
 
-  private void lockRidBags(
+  private void lockLinkBags(
       final TreeMap<Integer, StorageCollection> collections) {
     final var atomicOperation = atomicOperationsManager.getCurrentOperation();
 
     for (final var collectionId : collections.keySet()) {
       atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
-          atomicOperation, BTreeCollectionManagerShared.generateLockName(collectionId));
+          atomicOperation, LinkCollectionsBTreeManagerShared.generateLockName(collectionId));
     }
   }
 

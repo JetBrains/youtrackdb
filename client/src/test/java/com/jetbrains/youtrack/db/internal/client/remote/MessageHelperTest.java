@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.MockChannel;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayInputStream;
@@ -45,7 +45,7 @@ public class MessageHelperTest {
       var channel = new MockChannel();
       db.begin();
       var doc = ((EntityImpl) db.newEntity("Test"));
-      var bags = new RidBag(db);
+      var bags = new LinkBag(db);
       bags.add(firstRecord.getIdentity());
       doc.setProperty("bag", bags);
       db.commit();

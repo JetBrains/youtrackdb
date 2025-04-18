@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinkToEntityIterator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinksIterable;
@@ -140,9 +140,9 @@ public class SQLProjectionItem extends SimpleNode {
   }
 
   public static Object convert(Object value, CommandContext context) {
-    if (value instanceof RidBag) {
+    if (value instanceof LinkBag) {
       List result = new ArrayList();
-      ((RidBag) value).iterator().forEachRemaining(result::add);
+      ((LinkBag) value).iterator().forEachRemaining(result::add);
       return result;
     }
     if (value instanceof BidirectionalLinksIterable) {

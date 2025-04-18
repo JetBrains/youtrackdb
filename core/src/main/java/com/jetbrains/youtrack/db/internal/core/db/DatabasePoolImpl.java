@@ -148,6 +148,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     }
   }
 
+  @Override
   public void release(S database) {
     ResourcePool<Void, S> p;
     synchronized (this) {
@@ -161,6 +162,7 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     lastCloseTime = System.currentTimeMillis();
   }
 
+  @Override
   public boolean isUnused() {
     if (pool == null) {
       return true;
@@ -169,10 +171,12 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     }
   }
 
+  @Override
   public long getLastCloseTime() {
     return lastCloseTime;
   }
 
+  @Override
   public YouTrackDBConfigImpl getConfig() {
     return config;
   }

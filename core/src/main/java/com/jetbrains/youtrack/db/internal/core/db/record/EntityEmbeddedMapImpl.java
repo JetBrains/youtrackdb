@@ -190,6 +190,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     }
   }
 
+  @Override
   public void setDirty() {
     this.dirty = true;
     this.transactionDirty = true;
@@ -208,6 +209,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     }
   }
 
+  @Override
   public Map<Object, T> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<String, T>> multiValueChangeEvents) {
@@ -360,6 +362,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     }
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     if (!tracker.isEnabled()) {
       tracker.enable();
@@ -372,6 +375,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
 
   }
 
+  @Override
   public void disableTracking(RecordElement parent) {
     if (tracker.isEnabled()) {
       this.tracker.disable();
@@ -407,6 +411,7 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
     return tracker.getTimeLine();
   }
 
+  @Override
   public MultiValueChangeTimeLine<String, T> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
   }

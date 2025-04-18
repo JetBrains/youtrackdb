@@ -42,6 +42,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
   public static final CompositeKeySerializer INSTANCE = new CompositeKeySerializer();
   public static final byte ID = 14;
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, CompositeKey compositeKey,
       Object... hints) {
     final var types = getKeyTypes(hints);
@@ -74,6 +75,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return size;
   }
 
+  @Override
   public void serialize(
       CompositeKey compositeKey, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -118,6 +120,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
         (startPosition - oldStartPosition), stream, oldStartPosition);
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public CompositeKey deserialize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
@@ -143,20 +146,24 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return compositeKey;
   }
 
+  @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return IntegerSerializer.deserializeLiteral(stream, startPosition);
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
+  @Override
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     return IntegerSerializer.deserializeNative(stream, startPosition);
   }
 
+  @Override
   public void serializeNativeObject(
       CompositeKey compositeKey, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
@@ -200,6 +207,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
         (startPosition - oldStartPosition), stream, oldStartPosition);
   }
 
+  @Override
   public CompositeKey deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
     final var compositeKey = new CompositeKey();
@@ -237,10 +245,12 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return types;
   }
 
+  @Override
   public boolean isFixedLength() {
     return false;
   }
 
+  @Override
   public int getFixedLength() {
     return 0;
   }

@@ -49,6 +49,7 @@ public class ReloadResponse implements BinaryResponse {
     collectionIds = collections.second();
   }
 
+  @Override
   public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel,
       int protocolVersion)
       throws IOException {

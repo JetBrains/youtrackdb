@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -122,6 +123,7 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    */
   <T, X extends Exception> void executeInTxBatches(Stream<T> stream,
       TxBiConsumer<Transaction, T, X> consumer) throws X;
+
   /**
    * Executes the given code in a transaction. Starts a transaction if not already started, in this
    * case the transaction is committed after the code is executed or rolled back if an exception is
@@ -133,6 +135,24 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    */
   @Nullable
   <R, X extends Exception> R computeInTx(TxFunction<Transaction, R, X> supplier) throws X;
+
+  /**
+   * Executes the given code in a transaction. Starts a transaction if not already started, in this
+   * case the transaction is committed after the code is executed or rolled back if an exception is
+   * thrown.
+   * <p>
+   * This method is very similar to {@link DatabaseSession#computeInTx(TxFunction)} and exists
+   * primarily for Kotlin compatibility, allowing callers to avoid specifying generic exception
+   * types.
+   *
+   * @param action Code to execute in transaction
+   * @param <R>    the type of the returned result
+   * @return the result of the code execution
+   */
+  @Nullable
+  default <R> R transaction(Function<Transaction, R> action) throws Exception {
+    return computeInTx(action::apply);
+  }
 
   /**
    * Executes the given code for each element in the iterator in a transaction. Starts a transaction
@@ -250,6 +270,94 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   default boolean isTxActive() {
     return activeTxCount() > 0;
   }
+
+  /**
+   * @return <code>true</code> if database is obtained from the pool and <code>false</code>
+   * otherwise.
+   */
+  boolean isPooled();
+
+  /**
+   * Returns the database configuration settings. If defined, any database configuration overwrites
+   * the global one.
+   *
+   * @return ContextConfiguration
+   */
+  @Nullable
+  ContextConfiguration getConfiguration();
+
+  /**
+   * Closes an opened database, if the database is already closed does nothing, if a transaction is
+   * active will be rollback.
+   */
+  @Override
+  void close();
+
+  /**
+   * Returns the current status of database.
+   */
+  STATUS getStatus();
+
+  /**
+   * Returns the database name.
+   *
+   * @return Name of the database
+   */
+  String getDatabaseName();
+
+  /**
+   * Returns the database URL.
+   *
+   * @return URL of the database
+   */
+  String getURL();
+
+  /**
+   * Checks if the database is closed.
+   *
+   * @return true if is closed, otherwise false.
+   */
+  boolean isClosed();
+
+
+  /**
+   * Flush cached storage content to the disk.
+   *
+   * <p>After this call users can perform only idempotent calls like read records and
+   * select/traverse queries. All write-related operations will queued till {@link #release()}
+   * command will be called.
+   *
+   * <p>Given command waits till all on going modifications in indexes or DB will be finished.
+   *
+   * <p>IMPORTANT: This command is not reentrant.
+   *
+   * @see #release()
+   */
+  void freeze();
+
+  /**
+   * Allows to execute write-related commands on DB. Called after {@link #freeze()} command.
+   *
+   * @see #freeze()
+   */
+  void release();
+
+  /**
+   * Flush cached storage content to the disk.
+   *
+   * <p>After this call users can perform only select queries. All write-related commands will
+   * queued till {@link #release()} command will be called or exception will be thrown on attempt to
+   * modify DB data. Concrete behaviour depends on <code>throwException</code> parameter.
+   *
+   * <p>IMPORTANT: This command is not reentrant.
+   *
+   * @param throwException If <code>true</code> {@link ModificationOperationProhibitedException}
+   *                       exception will be thrown in case of write command will be performed.
+   */
+  void freeze(boolean throwException);
+
+  @Nullable
+  String getCurrentUserName();
 
   /**
    * Begins a new transaction.If a previous transaction is running a nested call counter is

@@ -117,6 +117,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     network.writeBoolean(namedParams);
   }
 
+  @Override
   public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
       int protocolVersion)
       throws IOException {

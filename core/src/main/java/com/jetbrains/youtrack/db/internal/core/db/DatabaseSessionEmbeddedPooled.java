@@ -46,6 +46,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
     pool.release(this);
   }
 
+  @Override
   public void reuse() {
     activateOnCurrentThread();
     setStatus(STATUS.OPEN);
@@ -57,6 +58,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
     return (DatabaseSessionEmbedded) pool.acquire();
   }
 
+  @Override
   public void realClose() {
     activateOnCurrentThread();
     super.close();

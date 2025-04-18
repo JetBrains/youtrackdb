@@ -115,10 +115,12 @@ public class BasicCommandContext implements CommandContext {
     return null;
   }
 
+  @Override
   public Object getVariable(String iName) {
     return getVariable(iName, null);
   }
 
+  @Override
   public Object getVariable(String iName, final Object iDefault) {
     if (iName == null) {
       return iDefault;
@@ -220,6 +222,7 @@ public class BasicCommandContext implements CommandContext {
     return setVariable(iName, iValue);
   }
 
+  @Override
   @Nullable
   public CommandContext setVariable(String iName, final Object iValue) {
     if (iName == null) {
@@ -300,6 +303,7 @@ public class BasicCommandContext implements CommandContext {
     return this;
   }
 
+  @Override
   public long updateMetric(final String iName, final long iValue) {
     if (!recordMetrics) {
       return -1;
@@ -319,6 +323,7 @@ public class BasicCommandContext implements CommandContext {
   /**
    * Returns a read-only map with all the variables.
    */
+  @Override
   public Map<String, Object> getVariables() {
     final var map = new HashMap<String, Object>();
     if (child != null) {
@@ -337,6 +342,7 @@ public class BasicCommandContext implements CommandContext {
    *
    * @return
    */
+  @Override
   public CommandContext setChild(final CommandContext iContext) {
     if (iContext == null) {
       if (child != null) {
@@ -356,10 +362,12 @@ public class BasicCommandContext implements CommandContext {
     return this;
   }
 
+  @Override
   public CommandContext getParent() {
     return parent;
   }
 
+  @Override
   public CommandContext setParent(final CommandContext iParentContext) {
     if (parent != iParentContext) {
       parent = iParentContext;
@@ -382,10 +390,12 @@ public class BasicCommandContext implements CommandContext {
     return getVariables().toString();
   }
 
+  @Override
   public boolean isRecordingMetrics() {
     return recordMetrics;
   }
 
+  @Override
   public CommandContext setRecordingMetrics(final boolean recordMetrics) {
     this.recordMetrics = recordMetrics;
     return this;
@@ -400,6 +410,7 @@ public class BasicCommandContext implements CommandContext {
     }
   }
 
+  @Override
   public boolean checkTimeout() {
     if (timeoutMs > 0) {
       if (System.currentTimeMillis() - executionStartedOn > timeoutMs) {
@@ -453,6 +464,7 @@ public class BasicCommandContext implements CommandContext {
     }
   }
 
+  @Override
   @Nullable
   public Map<Object, Object> getInputParameters() {
     if (inputParameters != null) {
@@ -462,6 +474,7 @@ public class BasicCommandContext implements CommandContext {
     return parent == null ? null : parent.getInputParameters();
   }
 
+  @Override
   public void setInputParameters(Map<Object, Object> inputParameters) {
     this.inputParameters = inputParameters;
   }
@@ -491,6 +504,7 @@ public class BasicCommandContext implements CommandContext {
     return this.uniqueResult.add(toAdd);
   }
 
+  @Override
   public DatabaseSessionEmbedded getDatabaseSession() {
     if (session != null) {
       return session;
@@ -508,6 +522,7 @@ public class BasicCommandContext implements CommandContext {
   }
 
 
+  @Override
   public void setDatabaseSession(DatabaseSessionEmbedded session) {
     this.session = session;
 
@@ -539,6 +554,7 @@ public class BasicCommandContext implements CommandContext {
         || (parent != null && parent.isScriptVariableDeclared(varName));
   }
 
+  @Override
   public void startProfiling(ExecutionStep step) {
     var stats = stepStats.get(step);
     if (stats == null) {
@@ -552,6 +568,7 @@ public class BasicCommandContext implements CommandContext {
     this.currentStepStats.push(stats);
   }
 
+  @Override
   public void endProfiling(ExecutionStep step) {
     if (!this.currentStepStats.isEmpty()) {
       this.currentStepStats.pop().end();

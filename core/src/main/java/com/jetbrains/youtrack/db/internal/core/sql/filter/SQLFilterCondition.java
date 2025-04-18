@@ -51,12 +51,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Run-time query condition evaluator.
  */
 public class SQLFilterCondition {
 
+  private static final Logger logger = LoggerFactory.getLogger(SQLFilterCondition.class);
   private static final String NULL_VALUE = "null";
   protected Object left;
   protected QueryOperator operator;
@@ -189,8 +192,9 @@ public class SQLFilterCondition {
     } catch (CommandExecutionException e) {
       throw e;
     } catch (Exception e) {
-      if (LogManager.instance().isDebugEnabled()) {
-        LogManager.instance().debug(this, "Error on evaluating expression (%s)", e, toString());
+      if (logger.isDebugEnabled()) {
+        LogManager.instance()
+            .debug(this, "Error on evaluating expression (%s)", logger, e, toString());
       }
       result = Boolean.FALSE;
     }
@@ -452,7 +456,7 @@ public class SQLFilterCondition {
       if (binaryEvaluation
           && iValue instanceof SQLFilterItemField
           && !entity.isDirty()
-          && !((RecordId)entity.getIdentity()).isTemporary()) {
+          && !((RecordId) entity.getIdentity()).isTemporary()) {
         final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
         if (bField != null) {
           return bField;

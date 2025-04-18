@@ -16,8 +16,12 @@ import javax.annotation.Nullable;
 import javax.naming.NamingException;
 import javax.naming.directory.DirContext;
 import javax.naming.directory.InitialDirContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RemoteURLs {
+
+  private static final Logger logger = LoggerFactory.getLogger(RemoteURLs.class);
 
   private static final int DEFAULT_PORT = 2424;
   private static final int DEFAULT_SSL_PORT = 2434;
@@ -46,7 +50,7 @@ public class RemoteURLs {
   @Nullable
   public synchronized String removeAndGet(String url) {
     remove(url);
-    LogManager.instance().debug(this, "Updated server list: %s...", serverURLs);
+    LogManager.instance().debug(this, "Updated server list: %s...", logger, serverURLs);
 
     if (!serverURLs.isEmpty()) {
       return serverURLs.get(0);
@@ -91,7 +95,7 @@ public class RemoteURLs {
 
     if (!serverURLs.contains(host)) {
       serverURLs.add(host);
-      LogManager.instance().debug(this, "Registered the new available server '%s'", host);
+      LogManager.instance().debug(this, "Registered the new available server '%s'", logger, host);
     }
 
     return host;
@@ -156,7 +160,7 @@ public class RemoteURLs {
         .debug(
             this,
             "Retrieving URLs from DNS '%s' (timeout=%d)...",
-            primaryServer,
+            logger, primaryServer,
             contextConfiguration.getValueAsInteger(
                 GlobalConfiguration.NETWORK_BINARY_DNS_LOADBALANCING_TIMEOUT));
 
@@ -294,7 +298,7 @@ public class RemoteURLs {
                 this,
                 "ROUND_ROBIN_CONNECT: Next remote operation will be executed on server: %s"
                     + " (isConnectOperation=%s)",
-                url,
+                logger, url,
                 iIsConnectOperation);
         break;
 
@@ -305,7 +309,7 @@ public class RemoteURLs {
                 this,
                 "ROUND_ROBIN_REQUEST: Next remote operation will be executed on server: %s"
                     + " (isConnectOperation=%s)",
-                url,
+                logger, url,
                 iIsConnectOperation);
         break;
 

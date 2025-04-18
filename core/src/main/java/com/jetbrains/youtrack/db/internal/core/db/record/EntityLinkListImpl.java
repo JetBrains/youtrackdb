@@ -153,6 +153,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     return true;
   }
 
+  @Override
   public void addInternal(Identifiable element) {
     checkValue(element);
     var rid = convertToRid(element);
@@ -258,6 +259,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     list.clear();
   }
 
+  @Override
   public void setDirty() {
     this.dirty = true;
     this.transactionDirty = true;
@@ -276,6 +278,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     }
   }
 
+  @Override
   public List<Identifiable> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Integer, Identifiable>> multiValueChangeEvents) {
@@ -303,6 +306,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     return reverted;
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     if (!tracker.isEnabled()) {
       tracker.enable();
@@ -314,6 +318,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     }
   }
 
+  @Override
   public void disableTracking(RecordElement parent) {
     if (tracker.isEnabled()) {
       tracker.disable();
@@ -348,6 +353,7 @@ public class EntityLinkListImpl extends AbstractList<Identifiable> implements
     return tracker.getTimeLine();
   }
 
+  @Override
   public MultiValueChangeTimeLine<Integer, Identifiable> getTransactionTimeLine() {
     return tracker.getTransactionTimeLine();
   }

@@ -86,6 +86,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
     return source;
   }
 
+  @Override
   public byte getRecordType() {
     return RECORD_TYPE;
   }
@@ -98,6 +99,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
    * @param in Input Stream, use buffered input stream wrapper to speed up reading
    * @return Buffer read from the stream. It's also the internal buffer size in bytes
    */
+  @Override
   public int fromInputStream(final @Nonnull InputStream in) throws IOException {
     try (var out = new MemoryStream()) {
       final var buffer = new byte[MemoryStream.DEF_SIZE];
@@ -126,6 +128,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
    * in bytes
    * @throws IOException if an I/O error occurs.
    */
+  @Override
   public int fromInputStream(final @Nonnull InputStream in, final int maxSize) throws IOException {
 
     final var buffer = new byte[maxSize];
@@ -153,6 +156,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
     return size;
   }
 
+  @Override
   public void toOutputStream(final @Nonnull OutputStream out) throws IOException {
     checkForBinding();
 

@@ -103,6 +103,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
 
   }
 
+  @Override
   public boolean remove(Object o) {
     if (o == null) {
       return false;
@@ -143,11 +144,13 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     return delegate.size();
   }
 
+  @Override
   public boolean add(@Nullable final Identifiable e) {
     return delegate.add(e.getIdentity());
   }
 
 
+  @Override
   public void setDirty() {
     delegate.setDirty();
   }
@@ -157,6 +160,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     delegate.setDirtyNoChanged();
   }
 
+  @Override
   public Set<Identifiable> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Identifiable, Identifiable>> multiValueChangeEvents) {
@@ -182,10 +186,12 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     return reverted;
   }
 
+  @Override
   public void enableTracking(RecordElement parent) {
     delegate.enableTracking(parent);
   }
 
+  @Override
   public void disableTracking(RecordElement parent) {
     delegate.disableTracking(parent);
   }
@@ -210,6 +216,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     return delegate.getTimeLine();
   }
 
+  @Override
   public MultiValueChangeTimeLine<? extends Identifiable, ? extends Identifiable> getTransactionTimeLine() {
     return delegate.getTransactionTimeLine();
   }
@@ -261,19 +268,19 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     return pointer == null || !pointer.isValid();
   }
 
-  public void checkAndConvert() {
+  public void checkAndConvert(FrontendTransaction transaction) {
     if (!session.isRemote()) {
       if (isEmbedded()
           && session.getBTreeCollectionManager() != null
           && delegate.size() >= topThreshold) {
-        convertToTree();
+        convertToTree(transaction);
       } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
-        convertToEmbedded();
+        convertToEmbedded(transaction);
       }
     }
   }
 
-  private void convertToEmbedded() {
+  private void convertToEmbedded(FrontendTransaction transaction) {
     var oldDelegate = (AbstractLinkBag) delegate;
     var isTransactionModified = oldDelegate.isTransactionModified();
 
@@ -295,10 +302,10 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(transaction);
   }
 
-  private void convertToTree() {
+  private void convertToTree(FrontendTransaction transaction) {
     var oldDelegate = (AbstractLinkBag) delegate;
     var isTransactionModified = oldDelegate.isTransactionModified();
 
@@ -319,7 +326,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(transaction);
   }
 
   public LinkBagPointer getPointer() {
@@ -337,6 +344,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
 
+  @Override
   public void setOwnerFieldName(String fieldName) {
     if (this.delegate instanceof RemoteTreeLinkBag) {
       ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);

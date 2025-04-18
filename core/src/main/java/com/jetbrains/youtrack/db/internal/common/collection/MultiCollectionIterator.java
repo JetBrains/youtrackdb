@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
@@ -160,6 +160,7 @@ public class MultiCollectionIterator<T>
     return sources.getFirst() instanceof Map<?, ?> || sources.getFirst() instanceof Entry<?, ?>;
   }
 
+  @Override
   public int size() {
     // SUM ALL THE COLLECTION SIZES
     var size = 0;
@@ -242,7 +243,7 @@ public class MultiCollectionIterator<T>
       final var o = sources.get(i);
 
       if (o != null) {
-        if (o instanceof Set<?> || o instanceof RidBag) {
+        if (o instanceof Set<?> || o instanceof LinkBag) {
           // OK
         } else
           return o instanceof RelationsIteratorAbstract<?, ?>;
@@ -264,8 +265,8 @@ public class MultiCollectionIterator<T>
           if (((Collection<?>) o).contains(value)) {
             return true;
           }
-        } else if (o instanceof RidBag) {
-          if (((RidBag) o).contains(((Identifiable) value).getIdentity())) {
+        } else if (o instanceof LinkBag) {
+          if (((LinkBag) o).contains(((Identifiable) value).getIdentity())) {
             return true;
           }
         }

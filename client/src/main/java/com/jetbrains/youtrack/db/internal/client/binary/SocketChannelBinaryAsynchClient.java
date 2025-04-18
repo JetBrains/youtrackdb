@@ -48,8 +48,13 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
+
+  private static final Logger logger = LoggerFactory.getLogger(
+      SocketChannelBinaryAsynchClient.class);
 
   private int socketTimeout; // IN MS
   protected final short srvProtocolVersion;
@@ -202,7 +207,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
               .debug(
                   this,
                   "%s - Read response: %d-%d",
-                  socket.getLocalAddress(),
+                  logger, socket.getLocalAddress(),
                   (int) currentStatus,
                   currentSessionId);
         }
@@ -215,7 +220,8 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
       if (debug) {
         LogManager.instance()
-            .debug(this, "%s - Session %d handle response", socket.getLocalAddress(), iRequesterId);
+            .debug(this, "%s - Session %d handle response", logger, socket.getLocalAddress(),
+                iRequesterId);
       }
       byte[] tokenBytes;
       if (token) {
@@ -243,7 +249,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     } catch (IllegalMonitorStateException e) {
       // IGNORE IT
       LogManager.instance()
-          .debug(this, "Error on unlocking network channel after reading response");
+          .debug(this, "Error on unlocking network channel after reading response", logger);
     }
   }
 

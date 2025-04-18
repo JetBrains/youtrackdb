@@ -13,8 +13,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class HttpResponseImpl extends HttpResponseAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(HttpResponseImpl.class);
 
   public HttpResponseImpl(
       OutputStream iOutStream,
@@ -235,7 +239,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
           .debug(
               this,
               "[HttpResponse] found and removed pending closed channel %d (%s)",
-              getConnection(),
+              logger, getConnection(),
               socket);
       throw new IOException("Connection is closed");
     }

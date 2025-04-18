@@ -50,6 +50,7 @@ public final class QueryNextPageRequest implements BinaryRequest<QueryResponse> 
     network.writeInt(recordsPerPage);
   }
 
+  @Override
   public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
       int protocolVersion)
       throws IOException {

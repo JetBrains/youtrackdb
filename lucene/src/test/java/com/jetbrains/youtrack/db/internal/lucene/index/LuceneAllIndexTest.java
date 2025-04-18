@@ -20,8 +20,7 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
 
   @Before
   public void init() throws IOException {
-    LogManager.instance().installCustomFormatter();
-    LogManager.instance().setConsoleLevel(Level.INFO.getName());
+    LogManager.installCustomFormatter();
 
     System.setProperty("youtrackdb.test.env", "ci");
 

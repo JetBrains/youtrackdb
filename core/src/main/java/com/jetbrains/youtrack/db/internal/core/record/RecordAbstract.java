@@ -61,7 +61,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected int size;
 
   public RecordSerializer recordSerializer;
-  protected long dirty = 1;
+  public long dirty = 1;
   protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
 
@@ -89,6 +89,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return dirty;
   }
 
+  @Override
   @Nonnull
   public final RecordId getIdentity() {
     return recordId;
@@ -118,6 +119,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return this;
   }
 
+  @Override
   public byte[] toStream() {
     checkForBinding();
 
@@ -128,6 +130,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return source;
   }
 
+  @Override
   public RecordAbstract fromStream(final byte[] iRecordBuffer) {
     var session = getSession();
     if (dirty > 0) {
@@ -148,6 +151,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return false;
   }
 
+  @Override
   public void setDirty() {
     assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
     checkForBinding();
@@ -212,6 +216,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
   }
 
+  @Override
   public final boolean isDirty() {
     return dirty != 0;
   }
@@ -224,6 +229,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return (RET) this;
   }
 
+  @Override
   public void updateFromJSON(final @Nonnull String iSource) {
     JSONSerializerJackson.fromString(getSession(), iSource, this);
   }
@@ -241,11 +247,13 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return (RET) this;
   }
 
+  @Override
   public @Nonnull String toJSON() {
     checkForBinding();
     return toJSON(DEFAULT_FORMAT);
   }
 
+  @Override
   @Nonnull
   public String toJSON(final @Nonnull String format) {
     checkForBinding();
@@ -274,6 +282,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         + recordVersion;
   }
 
+  @Override
   public final int getVersion() {
     return recordVersion;
   }
@@ -307,6 +316,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return this.session == null || this.session != session || this.status != STATUS.LOADED;
   }
 
+  @Override
   @Nonnull
   public DatabaseSessionInternal getSession() {
     if (session == null) {
@@ -317,6 +327,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return session;
   }
 
+  @Override
   public void delete() {
     checkForBinding();
     var tx = session.getTransactionInternal();
@@ -325,10 +336,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
           + " If called this method in beforeCallbackXXX method, please move this call "
           + "to afterCallbackXX method.");
     }
-    //preprocess any creation, deletion operations
-    tx.preProcessRecordsAndExecuteCallCallbacks();
 
-    dirty++;
     session.deleteInternal(this);
     internalReset();
 
@@ -396,6 +404,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
   }
 
+  @Override
   public int compareTo(@Nonnull final Identifiable iOther) {
     return recordId.compareTo(iOther.getIdentity());
   }
@@ -475,9 +484,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public void unsetDirty() {
-//    if (txEntry != null) {
-//      throw new IllegalStateException("txEntry is not null during unsetDirty");
-//    }
     contentChanged = false;
     dirty = 0;
   }

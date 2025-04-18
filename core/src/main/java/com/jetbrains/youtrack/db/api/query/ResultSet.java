@@ -75,6 +75,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
+  @Nonnull
   default Vertex findFirstVertex() {
     try {
       if (hasNext()) {
@@ -105,6 +106,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
+  @Nonnull
   default Edge findFirstEdge() {
     try {
       if (hasNext()) {
@@ -238,6 +240,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     entityStream().forEach(action);
   }
 
+  @Nonnull
   default List<Entity> toEntityList() {
     return entityStream().toList();
   }
@@ -288,6 +291,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     vertexStream().forEach(action);
   }
 
+  @Nonnull
   default List<Vertex> vertexList() {
     return vertexStream().toList();
   }
@@ -385,10 +389,12 @@ public interface ResultSet extends BasicResultSet<Result> {
     statefulEdgeStream().forEach(action);
   }
 
+  @Nonnull
   default List<StatefulEdge> toStatefulEdgeList() {
     return statefulEdgeStream().toList();
   }
 
+  @Nonnull
   default Stream<Edge> edgeStream() {
     return StreamSupport.stream(
             new Spliterator<Edge>() {
@@ -428,6 +434,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     edgeStream().forEach(action);
   }
 
+  @Nonnull
   default List<Edge> toEdgeList() {
     return edgeStream().toList();
   }

@@ -41,7 +41,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -423,11 +423,6 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean checkForRecordValidity(PhysicalPosition ppos) {
-          return false;
-        }
-
-        @Override
         public String getName() {
           return null;
         }
@@ -500,7 +495,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public BTreeCollectionManager getSBtreeCollectionManager() {
+        public LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
           return null;
         }
 

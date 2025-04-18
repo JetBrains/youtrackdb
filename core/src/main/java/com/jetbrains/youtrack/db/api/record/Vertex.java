@@ -233,6 +233,7 @@ public interface Vertex extends Entity {
   /**
    * Deletes the current vertex.
    */
+  @Override
   void delete();
 
 

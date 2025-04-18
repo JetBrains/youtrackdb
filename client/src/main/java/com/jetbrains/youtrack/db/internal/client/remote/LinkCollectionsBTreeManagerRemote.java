@@ -23,13 +23,13 @@ package com.jetbrains.youtrack.db.internal.client.remote;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeCollectionManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 
-public class BTreeCollectionManagerRemote implements BTreeCollectionManager {
+public class LinkCollectionsBTreeManagerRemote implements LinkCollectionsBTreeManager {
 
-  public BTreeCollectionManagerRemote() {
+  public LinkCollectionsBTreeManagerRemote() {
   }
 
 

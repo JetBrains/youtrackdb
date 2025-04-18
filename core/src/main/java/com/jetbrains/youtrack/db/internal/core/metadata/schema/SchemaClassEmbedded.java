@@ -121,54 +121,46 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   public void addSuperClass(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
+
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkParametersConflict(session, superClass);
-    acquireSchemaWriteLock(session);
-    try {
-      addSuperClassInternal(session, superClass);
-    } finally {
-      releaseSchemaWriteLock(session);
-    }
+    addSuperClassInternal(session, superClass);
   }
 
-  protected void addSuperClassInternal(DatabaseSessionInternal session,
+  public void addSuperClassInternal(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
+
     acquireSchemaWriteLock(session);
     try {
-      final SchemaClassImpl cls;
-      cls = superClass;
 
-      if (cls != null) {
-
-        if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
-            superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
-          throw new SchemaException(session.getDatabaseName(),
-              "Cannot add the class '"
-                  + superClass.getName(session)
-                  + "' as superclass of the class '"
-                  + this.getName(session)
-                  + "'. Addition of graph classes is not allowed");
-        }
-
-        // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
-        final var user = session.getCurrentUser();
-        if (user != null) {
-          user.allow(session, Rule.ResourceGeneric.CLASS, cls.getName(session),
-              Role.PERMISSION_UPDATE);
-        }
-
-        if (superClasses.contains(superClass)) {
-          throw new SchemaException(session.getDatabaseName(),
-              "Class: '"
-                  + this.getName(session)
-                  + "' already has the class '"
-                  + superClass.getName(session)
-                  + "' as superclass");
-        }
-
-        cls.addBaseClass(session, this);
-        superClasses.add(cls);
+      if (superClass.getName(session).equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName(session).equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot add the class '"
+                + superClass.getName(session)
+                + "' as superclass of the class '"
+                + this.getName(session)
+                + "'. Addition of graph classes is not allowed");
       }
+
+      // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
+      final var user = session.getCurrentUser();
+      if (user != null) {
+        user.allow(session, Rule.ResourceGeneric.CLASS, superClass.getName(session),
+            Role.PERMISSION_UPDATE);
+      }
+
+      if (superClasses.contains(superClass)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Class: '"
+                + this.getName(session)
+                + "' already has the class '"
+                + superClass.getName(session)
+                + "' as superclass");
+      }
+
+      superClass.addBaseClass(session, this);
+      superClasses.add(superClass);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -203,9 +195,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       cls = superClass;
 
       if (superClasses.contains(cls)) {
-        if (cls != null) {
-          cls.removeBaseClassInternal(session, this);
-        }
+        cls.removeBaseClassInternal(session, this);
 
         superClasses.remove(superClass);
       }
@@ -250,7 +240,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
     }
 
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
+    List<SchemaClassImpl> newSuperClasses = new ArrayList<>();
     SchemaClassImpl cls;
     for (var superClass : classes) {
       cls = superClass;
@@ -262,9 +252,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       newSuperClasses.add(cls);
     }
 
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
+    List<SchemaClassImpl> toAddList = new ArrayList<>(newSuperClasses);
     toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
+    List<SchemaClassImpl> toRemoveList = new ArrayList<>(superClasses);
     toRemoveList.removeAll(newSuperClasses);
 
     for (var toRemove : toRemoveList) {
@@ -520,7 +510,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       checkEmbedded(session);
 
       if (customFields == null) {
-        customFields = new HashMap<String, String>();
+        customFields = new HashMap<>();
       }
       if (value == null || "null".equalsIgnoreCase(value)) {
         customFields.remove(name);
@@ -645,7 +635,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
     var collectionName = session.getCollectionNameById(iId);
-    final List<String> indexesToAdd = new ArrayList<String>();
+    final List<String> indexesToAdd = new ArrayList<>();
 
     for (var index : getIndexesInternal(session)) {
       indexesToAdd.add(index.getName());

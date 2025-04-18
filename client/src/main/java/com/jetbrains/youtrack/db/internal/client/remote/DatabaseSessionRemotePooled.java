@@ -29,11 +29,13 @@ public class DatabaseSessionRemotePooled extends DatabaseSessionRemote implement
     return getCommandOrchestrator().isClosed(this);
   }
 
+  @Override
   public void reuse() {
     activateOnCurrentThread();
     this.status = STATUS.OPEN;
   }
 
+  @Override
   public void realClose() {
     activateOnCurrentThread();
     super.close();

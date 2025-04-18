@@ -42,8 +42,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 import javax.net.ssl.SSLSocket;
 import jdk.jfr.FlightRecorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ClientConnectionManager {
+
+  private static final Logger logger = LoggerFactory.getLogger(ClientConnectionManager.class);
 
   private static final long TIMEOUT_PUSH = 3000;
 
@@ -66,7 +70,8 @@ public class ClientConnectionManager {
                   try {
                     cleanExpiredConnections();
                   } catch (Exception e) {
-                    LogManager.instance().debug(this, "Error on client connection purge task", e);
+                    LogManager.instance().debug(this, "Error on client connection purge task",
+                        logger, e);
                   }
                 },
                 delay,
@@ -100,7 +105,7 @@ public class ClientConnectionManager {
                 .debug(
                     this,
                     "[ClientConnectionManager] found and removed pending closed channel %d (%s)",
-                    entry.getKey(),
+                    logger, entry.getKey(),
                     socket);
             try {
               var command = entry.getValue().getData().command;
@@ -150,7 +155,7 @@ public class ClientConnectionManager {
     connection = new ClientConnection(connectionSerial.incrementAndGet(), iProtocol);
 
     connections.put(connection.getId(), connection);
-    LogManager.instance().debug(this, "Remote client connected from: " + connection);
+    LogManager.instance().debug(this, "Remote client connected from: " + connection, logger);
     ServerPluginHelper.invokeHandlerCallbackOnClientConnection(iProtocol.getServer(), connection);
     return connection;
   }
@@ -185,7 +190,7 @@ public class ClientConnectionManager {
     }
     connection.setToken(parsedToken, tokenBytes);
     session.addConnection(connection);
-    LogManager.instance().debug(this, "Remote client connected from: " + connection);
+    LogManager.instance().debug(this, "Remote client connected from: " + connection, logger);
     ServerPluginHelper.invokeHandlerCallbackOnClientConnection(iProtocol.getServer(), connection);
     return connection;
   }
@@ -314,7 +319,7 @@ public class ClientConnectionManager {
    * @param iChannelId id of connection
    */
   public void disconnect(final int iChannelId) {
-    LogManager.instance().debug(this, "Disconnecting connection with id=%d", iChannelId);
+    LogManager.instance().debug(this, "Disconnecting connection with id=%d", logger, iChannelId);
 
     final var connection = connections.remove(iChannelId);
 
@@ -330,7 +335,7 @@ public class ClientConnectionManager {
               .debug(
                   this,
                   "Disconnected connection with id=%d but are present other active channels",
-                  iChannelId);
+                  logger, iChannelId);
           return;
         }
       }
@@ -339,11 +344,11 @@ public class ClientConnectionManager {
           .debug(
               this,
               "Disconnected connection with id=%d, no other active channels found",
-              iChannelId);
+              logger, iChannelId);
       return;
     }
 
-    LogManager.instance().debug(this, "Cannot find connection with id=%d", iChannelId);
+    LogManager.instance().debug(this, "Cannot find connection with id=%d", logger, iChannelId);
   }
 
   private void removeConnectionFromSession(ClientConnection connection) {
@@ -363,7 +368,7 @@ public class ClientConnectionManager {
   }
 
   public void disconnect(final ClientConnection iConnection) {
-    LogManager.instance().debug(this, "Disconnecting connection %s...", iConnection);
+    LogManager.instance().debug(this, "Disconnecting connection %s...", logger, iConnection);
     ServerPluginHelper.invokeHandlerCallbackOnClientDisconnection(server, iConnection);
     removeConnectionFromSession(iConnection);
     iConnection.close();
@@ -379,7 +384,8 @@ public class ClientConnectionManager {
     }
 
     LogManager.instance()
-        .debug(this, "Disconnected connection %s found %d channels", iConnection, totalRemoved);
+        .debug(this, "Disconnected connection %s found %d channels", logger, iConnection,
+            totalRemoved);
   }
 
   public List<ClientConnection> getConnections() {
@@ -402,7 +408,7 @@ public class ClientConnectionManager {
         protocol.sendShutdown();
       }
 
-      LogManager.instance().debug(this, "Sending shutdown to thread %s", protocol);
+      LogManager.instance().debug(this, "Sending shutdown to thread %s", logger, protocol);
 
       var command = entry.getValue().getData().command;
       if (command != null && command.isIdempotent()) {
@@ -423,7 +429,8 @@ public class ClientConnectionManager {
 
         if (socket != null && !socket.isClosed() && !socket.isInputShutdown()) {
           try {
-            LogManager.instance().debug(this, "Closing input socket of thread %s", protocol);
+            LogManager.instance()
+                .debug(this, "Closing input socket of thread %s", logger, protocol);
             if (!(socket
                 instanceof SSLSocket)) // An SSLSocket will throw an UnsupportedOperationException.
             {
@@ -434,7 +441,7 @@ public class ClientConnectionManager {
                 .debug(
                     this,
                     "Error on closing connection of %s client during shutdown",
-                    e,
+                    logger, e,
                     entry.getValue().getRemoteAddress());
           }
         }
@@ -442,12 +449,13 @@ public class ClientConnectionManager {
           if (protocol instanceof NetworkProtocolBinary
               && ((NetworkProtocolBinary) protocol).getRequestType() == -1) {
             try {
-              LogManager.instance().debug(this, "Closing socket of thread %s", protocol);
+              LogManager.instance().debug(this, "Closing socket of thread %s", logger, protocol);
               protocol.getChannel().close();
             } catch (Exception e) {
-              LogManager.instance().debug(this, "Error during chanel close at shutdown", e);
+              LogManager.instance().debug(this, "Error during chanel close at shutdown", logger, e);
             }
-            LogManager.instance().debug(this, "Sending interrupt signal to thread %s", protocol);
+            LogManager.instance().debug(this, "Sending interrupt signal to thread %s", logger,
+                protocol);
             protocol.interrupt();
           }
           toWait.add(protocol);

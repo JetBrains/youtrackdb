@@ -61,6 +61,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
    * Executes a traverse collecting all the result in the returning List<Identifiable>. This could be memory expensive because for
    * large results the list could be huge. it's always better to use it as an Iterable and lazy fetch each result on next() call.
    */
+  @Override
   public List<Identifiable> execute(DatabaseSessionEmbedded session) {
     context.setDatabaseSession(session);
     final List<Identifiable> result = new ArrayList<>();
@@ -76,6 +77,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
     return context.next();
   }
 
+  @Override
   public boolean hasNext() {
     if (limit > 0 && resultCount >= limit) {
       return false;
@@ -99,6 +101,7 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
     return lastTraversed != null;
   }
 
+  @Override
   @Nullable
   public Identifiable next() {
     if (Thread.interrupted()) {
@@ -131,14 +134,17 @@ public class Traverse implements Command, Iterable<Identifiable>, Iterator<Ident
     return null;
   }
 
+  @Override
   public void remove() {
     throw new UnsupportedOperationException("remove()");
   }
 
+  @Override
   public Iterator<Identifiable> iterator() {
     return this;
   }
 
+  @Override
   public TraverseContext getContext() {
     return context;
   }

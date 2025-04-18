@@ -45,7 +45,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -60,7 +60,6 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.RecordInfo;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses.Tuple;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -794,7 +793,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   protected static int writeLinkSet(DatabaseSessionInternal session, BytesContainer bytes,
       EntityLinkSetImpl linkSet) {
     var positionOffset = bytes.offset;
-    linkSet.checkAndConvert();
+    linkSet.checkAndConvert(session.getTransactionInternal());
+
     byte configByte = 0;
 
     if (linkSet.isEmbedded()) {
@@ -818,7 +818,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected static int writeLinkBag(DatabaseSessionInternal session, BytesContainer bytes,
-      RidBag ridbag) {
+      LinkBag ridbag) {
     var positionOffset = bytes.offset;
     ridbag.checkAndConvert();
     byte configByte = 0;
@@ -847,7 +847,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       BTreeBasedLinkBag btreeLinkBag) {
     var pointer = btreeLinkBag.getCollectionPointer();
 
-    final var context = RecordSerializationContext.peekContext();
+    var currentTx = session.getActiveTransaction();
+    final var context = currentTx.getRecordSerializationContext();
+
     if (pointer == null) {
       final var collectionId = btreeLinkBag.getOwnerEntity().getIdentity().getCollectionId();
       assert collectionId > -1;
@@ -872,7 +874,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     VarIntSerializer.write(bytes, pointer.fileId());
     VarIntSerializer.write(bytes, pointer.linkBagId());
 
-    btreeLinkBag.handleContextSBTree(context, pointer);
+    btreeLinkBag.handleContextBTree(context, pointer);
   }
 
   private static void writeEmbeddedLinkBagDelegate(BytesContainer bytes, AbstractLinkBag delegate) {
@@ -909,18 +911,18 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return ridbag;
   }
 
-  protected static RidBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
+  protected static LinkBag readLinkBag(DatabaseSessionInternal session, BytesContainer bytes) {
     var configByte = bytes.bytes[bytes.offset++];
     var isEmbedded = (configByte & 1) != 0;
 
-    RidBag ridbag;
+    LinkBag ridbag;
     var linkBagSize = VarIntSerializer.readAsInteger(bytes);
     if (isEmbedded) {
       var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
-      ridbag = new RidBag(session, embeddedBagDelegate);
+      ridbag = new LinkBag(session, embeddedBagDelegate);
     } else {
       var btreeLinkBag = readBTreeBasedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
-      ridbag = new RidBag(session, btreeLinkBag);
+      ridbag = new LinkBag(session, btreeLinkBag);
     }
 
     return ridbag;
@@ -1224,7 +1226,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
         break;
       case LINKBAG:
-        pointer = writeLinkBag(session, bytes, (RidBag) value);
+        pointer = writeLinkBag(session, bytes, (LinkBag) value);
         break;
     }
     return pointer;

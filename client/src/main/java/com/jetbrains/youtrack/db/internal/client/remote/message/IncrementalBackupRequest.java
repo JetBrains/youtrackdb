@@ -47,6 +47,7 @@ public class IncrementalBackupRequest implements BinaryRequest<IncrementalBackup
     network.writeString(backupDirectory);
   }
 
+  @Override
   public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
       int protocolVersion)
       throws IOException {

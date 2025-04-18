@@ -76,7 +76,7 @@ import javax.annotation.Nonnull;
  *
  * @since 1.7rc1
  */
-public class RidBag
+public class LinkBag
     implements
     Iterable<RID>,
     Sizeable,
@@ -91,23 +91,23 @@ public class RidBag
   @Nonnull
   private final DatabaseSessionInternal session;
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, final RidBag ridBag) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag linkBag) {
     initThresholds(session);
     init();
-    for (var identifiable : ridBag) {
+    for (var identifiable : linkBag) {
       add(identifiable);
     }
     this.session = session;
   }
 
-  public RidBag(@Nonnull DatabaseSessionInternal session) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session) {
     this.session = session;
     initThresholds(session);
     init();
   }
 
 
-  public RidBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
+  public LinkBag(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
     this.session = session;
     initThresholds(session);
     this.delegate = delegate;
@@ -216,7 +216,7 @@ public class RidBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   private void convertToTree() {
@@ -239,7 +239,7 @@ public class RidBag
     delegate.setTransactionModified(isTransactionModified);
     delegate.enableTracking(owner);
 
-    oldDelegate.requestDelete();
+    oldDelegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override
@@ -248,18 +248,19 @@ public class RidBag
   }
 
   public void delete() {
-    delegate.requestDelete();
+    delegate.requestDelete(session.getTransactionInternal());
   }
 
   @Override
   public Object returnOriginalState(
       FrontendTransaction transaction,
       List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents) {
-    return new RidBag(transaction.getDatabaseSession(),
+    return new LinkBag(transaction.getDatabaseSession(),
         (LinkBagDelegate) delegate.returnOriginalState(transaction, multiValueChangeEvents));
   }
 
 
+  @Override
   public void setOwner(RecordElement owner) {
     if ((!(owner instanceof EntityImpl) && owner != null)
         || (owner != null && ((EntityImpl) owner).isEmbedded())) {
@@ -302,7 +303,7 @@ public class RidBag
 
   @Override
   public boolean equals(Object other) {
-    if (!(other instanceof RidBag otherRidbag)) {
+    if (!(other instanceof LinkBag otherRidbag)) {
       return false;
     }
 
@@ -331,6 +332,7 @@ public class RidBag
     delegate.enableTracking(parent);
   }
 
+  @Override
   public void disableTracking(RecordElement entity) {
     delegate.disableTracking(entity);
   }
@@ -375,6 +377,7 @@ public class RidBag
     return delegate.getTransactionTimeLine();
   }
 
+  @Override
   public void setOwnerFieldName(String fieldName) {
     if (this.delegate instanceof RemoteTreeLinkBag) {
       ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);

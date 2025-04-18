@@ -16,6 +16,8 @@
 
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -27,6 +29,7 @@ import org.junit.Test;
 
 
 public class DBRecordBytesTest extends DbTestBase {
+
   private static final int SMALL_ARRAY = 3;
   private static final int BIG_ARRAY = 7;
   private static final int FULL_ARRAY = 5;
@@ -183,6 +186,41 @@ public class DBRecordBytesTest extends DbTestBase {
     final var source = (byte[]) getFieldValue(testedInstance, "source");
     assertArrayEquals(source, expected);
     session.rollback();
+  }
+
+  @Test
+  public void testBlobLinkSameTx() {
+
+    final var entityId = session.computeInTx(tx -> {
+      final var newBlob = tx.newBlob(new byte[]{1, 2, 3});
+      final var entity = tx.newEntity();
+      entity.setProperty("blob", newBlob);
+      return entity.getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      final var entity = tx.loadEntity(entityId);
+      assertThat(entity.getBlob("blob").toStream()).isEqualTo(new byte[]{1, 2, 3});
+    });
+  }
+
+  @Test
+  public void testBlobLinkDifferentTx() {
+    final var blobId =
+        session.computeInTx(tx -> tx.newBlob(new byte[]{1, 2, 3}).getIdentity());
+
+    final var entityId =
+        session.computeInTx(tx -> {
+          final var entity = tx.newEntity();
+          entity.setLink("blob", tx.loadBlob(blobId));
+          return entity.getIdentity();
+        });
+
+    session.executeInTx(tx -> {
+      final var entity = tx.loadEntity(entityId);
+      assertThat(entity.getLink("blob")).isEqualTo(blobId);
+      assertThat(entity.getBlob("blob").toStream()).isEqualTo(new byte[]{1, 2, 3});
+    });
   }
 
   private static final class NotFullyAvailableAtTheTimeInputStream extends InputStream {

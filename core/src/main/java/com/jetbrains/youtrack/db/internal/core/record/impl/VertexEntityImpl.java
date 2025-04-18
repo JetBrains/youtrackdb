@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -17,7 +18,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.ArrayList;
@@ -170,7 +171,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var schemaClass = session.getClass(type);
     if (schemaClass == null) {
-      throw new IllegalArgumentException("Schema class for label" + type + " not found");
+      throw new IllegalArgumentException("Schema class for label " + type + " not found");
     }
     if (schemaClass.isAbstract()) {
       return session.newLightweightEdge(this, to, type);
@@ -337,7 +338,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           case EntityLinkListImpl list -> iterables.add(
               new EdgeIterable(this, connection, labels, session,
                   list, -1, list));
-          case RidBag bag -> iterables.add(
+          case LinkBag bag -> iterables.add(
               new EdgeIterable(
                   this, connection, labels, session, bag, -1, bag));
           default -> {
@@ -505,7 +506,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           vertex.setPropertyInternal(fieldName, newVertex);
         }
       }
-      case RidBag bag -> {
+      case LinkBag bag -> {
         // COLLECTION OF RECORDS: REMOVE THE ENTRY
         var found = false;
         final var it = bag.iterator();
@@ -661,7 +662,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       Identifiable identifiable) {
     switch (link) {
       case Collection<?> collection -> collection.remove(identifiable);
-      case RidBag bag -> bag.remove(identifiable.getIdentity());
+      case LinkBag bag -> bag.remove(identifiable.getIdentity());
       case Identifiable ignored when link.equals(vertex) ->
           vertex.removePropertyInternal(fieldName);
       case null, default -> throw new IllegalArgumentException(
@@ -698,7 +699,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
         } else if (propType == null || propType == PropertyType.LINKBAG) {
-          final var bag = new RidBag(fromVertex.getSession());
+          final var bag = new LinkBag(fromVertex.getSession());
           bag.add(to.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
@@ -728,14 +729,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
         } else {
-          final var bag = new RidBag(fromVertex.getSession());
+          final var bag = new LinkBag(fromVertex.getSession());
           bag.add(foundId.getIdentity());
           bag.add(to.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
         }
       }
-      case RidBag bag -> {
+      case LinkBag bag -> {
         // ADD THE LINK TO THE COLLECTION
         out = null;
         var transaction = session.getActiveTransaction();
@@ -801,8 +802,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       EntityImpl vertex, Edge edge, String edgeField, Identifiable edgeId, Object edgeProp) {
     if (edgeProp instanceof Collection) {
       ((Collection<?>) edgeProp).remove(edgeId);
-    } else if (edgeProp instanceof RidBag) {
-      ((RidBag) edgeProp).remove(edgeId.getIdentity());
+    } else if (edgeProp instanceof LinkBag) {
+      ((LinkBag) edgeProp).remove(edgeId.getIdentity());
     } else if (
         edgeProp instanceof Identifiable && ((Identifiable) edgeProp).getIdentity().equals(edgeId)
             || edge.isLightweight()) {

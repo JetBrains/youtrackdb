@@ -5,11 +5,15 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.binary.BinaryTokenSerializer;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
  */
 public class StorageRemoteNodeSession {
+
+  private static final Logger logger = LoggerFactory.getLogger(StorageRemoteNodeSession.class);
 
   private final String serverURL;
   private Integer sessionId = -1;
@@ -41,7 +45,7 @@ public class StorageRemoteNodeSession {
       try {
         this.tokenInstance = binarySerializer.deserialize(new ByteArrayInputStream(token));
       } catch (IOException e) {
-        LogManager.instance().debug(this, "Error deserializing binary token", e);
+        LogManager.instance().debug(this, "Error deserializing binary token", logger, e);
       }
     }
   }

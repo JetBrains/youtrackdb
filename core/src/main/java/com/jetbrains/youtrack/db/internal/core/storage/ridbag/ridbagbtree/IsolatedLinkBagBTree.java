@@ -28,7 +28,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.io.IOException;
 import java.util.Spliterator;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -44,7 +43,7 @@ public interface IsolatedLinkBagBTree<K, V> extends TreeInternal<K, V> {
   /**
    * @return the pointer to the root bucket in tree.
    */
-  RidBagBucketPointer getRootBucketPointer();
+  LinkBagBucketPointer getRootBucketPointer();
 
   /**
    * @return pointer to a collection.

@@ -31,7 +31,7 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test(groups = {"db", "import-export"})
-public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutputListener {
+public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutputListener {
 
   public static final String EXPORT_FILE_PATH = "target/db.export-ridbag.gz";
   public static final String NEW_DB_PATH = "target/test-import-ridbag";
@@ -42,7 +42,7 @@ public class DbImportExportRidbagTest extends BaseDBTest implements CommandOutpu
   private boolean dumpMode = false;
 
   @Parameters(value = {"remote", "testPath"})
-  public DbImportExportRidbagTest(@Optional Boolean remote, String testPath) {
+  public DbImportExportLinkBagTest(@Optional Boolean remote, String testPath) {
     super(remote != null && remote);
     this.testPath = testPath;
 

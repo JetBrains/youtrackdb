@@ -58,8 +58,12 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.store.Directory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(LuceneFullTextIndexEngine.class);
 
   private final LuceneDocumentBuilder builder;
   private LuceneQueryBuilder queryBuilder;
@@ -81,7 +85,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
 
     var fc = new LuceneIndexWriterFactory();
 
-    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", directory);
+    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", logger, directory);
 
     return fc.createIndexWriter(directory, metadata, indexAnalyzer());
   }

@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -1053,9 +1053,9 @@ public class EntityHelper {
             ridMapper)) {
           return false;
         }
-      } else if (myFieldValue instanceof RidBag && otherFieldValue instanceof RidBag) {
+      } else if (myFieldValue instanceof LinkBag && otherFieldValue instanceof LinkBag) {
         if (!compareBags(
-            (RidBag) myFieldValue, (RidBag) otherFieldValue, ridMapper)) {
+            (LinkBag) myFieldValue, (LinkBag) otherFieldValue, ridMapper)) {
           return false;
         }
       } else if (myFieldValue instanceof Map && otherFieldValue instanceof Map) {
@@ -1177,8 +1177,8 @@ public class EntityHelper {
   }
 
   public static boolean compareBags(
-      RidBag myFieldValue,
-      RidBag otherFieldValue,
+      LinkBag myFieldValue,
+      LinkBag otherFieldValue,
       RIDMapper ridMapper) {
     final var mySize = myFieldValue.size();
     final var otherSize = otherFieldValue.size();
