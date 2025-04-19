@@ -31,17 +31,7 @@ public class ServerDatabaseOperationsTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws ClassNotFoundException,
-      MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      NotCompliantMBeanException,
-      MBeanRegistrationException,
-      NoSuchMethodException,
-      IOException,
-      InvocationTargetException,
-      IllegalAccessException,
-      InstantiationException {
+  public void before() throws Exception {
     var conf = new ServerConfiguration();
     conf.handlers = new ArrayList<>();
     var rootUser = new ServerUserConfiguration();

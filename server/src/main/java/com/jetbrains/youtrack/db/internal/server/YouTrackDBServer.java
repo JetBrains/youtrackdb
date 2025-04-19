@@ -792,7 +792,7 @@ public class YouTrackDBServer {
     return database;
   }
 
-  public DatabaseSessionInternal openSession(String database) {
+  public DatabaseSessionEmbedded openSession(String database) {
     return databases.openNoAuthorization(database);
   }
 
