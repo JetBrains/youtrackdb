@@ -59,7 +59,6 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
   STATUS getStatus();
 
 
-
   /**
    * Returns the database URL.
    *
@@ -70,7 +69,7 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
   /**
    * Returns the database name in case of embedded database or URL in case of remote database.
    */
-  String  getDatabaseName();
+  String getDatabaseName();
 
   /**
    * Checks if the database is closed.
@@ -134,9 +133,22 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
    * rs.close();
    * </code>
    */
-  default RS runScript(String language, String script, Object... args)
+  RS computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException;
+
+  default RS computeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
-    throw new UnsupportedOperationException();
+    return computeScript("sql", script, args);
+  }
+
+  default void executeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
   }
 
   /**
@@ -155,12 +167,27 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
    * <p>
    * ResultSet rs = db.runScript("sql", script, params); ... rs.close(); </code>
    */
-  default RS runScript(String language, String script,
+  RS computeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException;
+
+  default RS computeSQLScript(String script,
       Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
-    throw new UnsupportedOperationException();
+    return computeScript("sql", script, args);
   }
 
+  default void executeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
 
   /**
    * Performs incremental backup of database content to the selected folder. This is thread safe

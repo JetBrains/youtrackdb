@@ -121,7 +121,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   protected static boolean comparesValues(Object iValue, final DBRecord iRecord) {
     if (iValue instanceof Result result) {
-      if (result.isRecord()) {
+      if (result.isIdentifiable()) {
         iValue = result.asIdentifiable();
       } else {
         return false;
@@ -133,7 +133,7 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
 
   protected static boolean comparesValues(
       final Object iValue, final Result result, final boolean iConsiderIn) {
-    if (result.isRecord() && result.getIdentity().isPersistent()) {
+    if (result.isIdentifiable() && result.getIdentity().isPersistent()) {
       return result.getIdentity().equals(iValue);
     } else {
       // ODOCUMENT AS RESULT OF SUB-QUERY: GET THE FIRST FIELD IF ANY

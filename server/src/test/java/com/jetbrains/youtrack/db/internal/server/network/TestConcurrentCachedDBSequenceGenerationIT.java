@@ -38,7 +38,7 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
     var databaseSession =
         youTrackDB.open(
             TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName(), "admin", "admin");
-    databaseSession.runScript(
+    databaseSession.executeScript(
         "sql",
         """
             CREATE CLASS TestSequence EXTENDS V;

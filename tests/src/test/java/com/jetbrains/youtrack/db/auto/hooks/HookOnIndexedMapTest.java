@@ -17,13 +17,13 @@ public class HookOnIndexedMapTest {
     var db = youTrackDb.open("test", "admin", "admin");
     db.registerHook(new BrokenMapHook());
 
-    db.runScript("sql", "CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
-    db.runScript("sql", "CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
-    db.runScript("sql", "CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
+    db.computeScript("sql", "CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
+    db.computeScript("sql", "CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
+    db.computeScript("sql", "CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
 
-    db.runScript("sql", "CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
-    db.runScript("sql", "CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
-    db.runScript("sql",
+    db.computeScript("sql", "CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
+    db.computeScript("sql", "CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
+    db.computeScript("sql",
         "CREATE INDEX MyClass.myMap IF NOT EXISTS ON MyClass(myMap by key) NOTUNIQUE;");
 
     var tx = db.begin();

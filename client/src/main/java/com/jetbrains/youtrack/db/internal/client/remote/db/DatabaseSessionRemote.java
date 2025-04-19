@@ -145,7 +145,8 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return commandsOrchestrator;
   }
 
-  public com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet query(String query,
+  @Override
+  public RemoteResultSet query(String query,
       Object... args) {
     checkOpenness();
     assert assertIfNotActive();
@@ -154,6 +155,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return result.getResult();
   }
 
+  @Override
   public RemoteResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
     checkOpenness();
@@ -179,8 +181,9 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return result.getResult();
   }
 
+
   @Override
-  public RemoteResultSet runScript(String language, String script, Object... args)
+  public RemoteResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();
@@ -190,7 +193,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
   }
 
   @Override
-  public RemoteResultSet runScript(String language, String script, Map<String, ?> args)
+  public RemoteResultSet computeScript(String language, String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     checkOpenness();
     assert assertIfNotActive();

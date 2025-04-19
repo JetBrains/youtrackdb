@@ -74,8 +74,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -434,12 +432,12 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         if (request.isNamedParams()) {
           //noinspection unchecked
           rs =
-              database.runScript(
+              database.computeScript(
                   request.getLanguage(), request.getStatement(),
                   request.getNamedParameters());
         } else {
           rs =
-              database.runScript(
+              database.computeScript(
                   request.getLanguage(), request.getStatement(),
                   request.getPositionalParameters());
         }

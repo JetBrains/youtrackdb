@@ -34,7 +34,7 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
   public void setUp() throws Exception {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.runScript("sql", getScriptFromStream(stream)).close();
+    session.computeScript("sql", getScriptFromStream(stream)).close();
 
     session.execute(
             "create index Song.title on Song (title) fulltext ENGINE LUCENE METADATA"

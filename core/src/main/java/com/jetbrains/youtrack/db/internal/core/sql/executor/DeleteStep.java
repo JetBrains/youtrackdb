@@ -24,7 +24,7 @@ public class DeleteStep extends AbstractExecutionStep {
   }
 
   private static Result mapResult(Result result, CommandContext ctx) {
-    if (result.isRecord()) {
+    if (result.isIdentifiable()) {
       ctx.getDatabaseSession().delete(result.asRecord());
     } else {
       throw new DatabaseException("Can not delete non-record result: " + result);

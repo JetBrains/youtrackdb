@@ -33,8 +33,9 @@ import javax.annotation.Nullable;
 
 public class RemoteResultImpl implements RemoteResult {
 
-  protected Map<String, Object> content;
-  protected Map<String, Object> metadata;
+  private Map<String, Object> content;
+  private Map<String, Object> metadata;
+  private RID rid;
 
   @Nullable
   protected RemoteDatabaseSessionInternal session;
@@ -42,6 +43,12 @@ public class RemoteResultImpl implements RemoteResult {
   public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session) {
     content = new HashMap<>();
     this.session = session;
+  }
+
+  public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session, @Nonnull RID rid) {
+    content = new HashMap<>();
+    this.session = session;
+    this.rid = rid;
   }
 
   public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session,
@@ -57,8 +64,12 @@ public class RemoteResultImpl implements RemoteResult {
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
 
-    value = convertPropertyValue(value);
-    content.put(name, value);
+    if (content != null) {
+      value = convertPropertyValue(value);
+      content.put(name, value);
+    } else {
+      throw new IllegalStateException("Result is not a project and it's property can not be set");
+    }
   }
 
   @Nullable
@@ -222,10 +233,16 @@ public class RemoteResultImpl implements RemoteResult {
     }
   }
 
+  @Override
   public <T> T getProperty(@Nonnull String name) {
     assert checkSession();
-    //noinspection unchecked
-    return (T) content.get(name);
+
+    if (content != null) {
+      //noinspection unchecked
+      return (T) content.get(name);
+    }
+
+    throw new IllegalStateException("Result is not a project and it's property can not be get");
   }
 
   @Nullable
@@ -233,8 +250,12 @@ public class RemoteResultImpl implements RemoteResult {
   public BasicResult getResult(@Nonnull String name) {
     assert checkSession();
 
+    if (content == null) {
+      throw new IllegalStateException("Result is not a project and it's property can not be get");
+    }
+
     Object result = null;
-    if (content != null && content.containsKey(name)) {
+    if (content.containsKey(name)) {
       result = content.get(name);
     }
 
@@ -254,8 +275,12 @@ public class RemoteResultImpl implements RemoteResult {
   public RID getLink(@Nonnull String name) {
     assert checkSession();
 
+    if (content == null) {
+      throw new IllegalStateException("Result is not a project and it's property can not be get");
+    }
+
     Object result = null;
-    if (content != null && content.containsKey(name)) {
+    if (content.containsKey(name)) {
       result = content.get(name);
     }
 
@@ -267,14 +292,35 @@ public class RemoteResultImpl implements RemoteResult {
 
   }
 
+  @Override
   public @Nonnull List<String> getPropertyNames() {
     assert checkSession();
+
+    if (content == null) {
+      throw new IllegalStateException("Result is not a project and it's property can not be get");
+    }
 
     return new ArrayList<>(content.keySet());
   }
 
+  @Override
+  public boolean isIdentifiable() {
+    return rid != null;
+  }
+
+  @Nullable
+  @Override
+  public RID getIdentity() {
+    return rid;
+  }
+
+  @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
+    if (content == null) {
+      throw new IllegalStateException("Result is not a project and it's property can not be get");
+    }
+
     return content.containsKey(propName);
   }
 
@@ -293,22 +339,20 @@ public class RemoteResultImpl implements RemoteResult {
     assert checkSession();
 
     var detached = new RemoteResultImpl(null);
-    var detachedMap = new HashMap<String, Object>(content.size());
 
-    for (var entry : content.entrySet()) {
-      detachedMap.put(entry.getKey(), ResultInternal.toMapValue(entry.getValue(), false));
+    if (content != null) {
+      var detachedMap = new HashMap<String, Object>(content.size());
+
+      for (var entry : content.entrySet()) {
+        detachedMap.put(entry.getKey(), ResultInternal.toMapValue(entry.getValue(), false));
+      }
+
+      detached.content = detachedMap;
+    } else {
+      detached.rid = rid;
     }
-
-    detached.content = detachedMap;
 
     return detached;
-  }
-
-  protected void checkSessionForRecords() {
-    if (session == null) {
-      throw new DatabaseException(
-          "There is no active session to process the record related operations.");
-    }
   }
 
 
@@ -354,6 +398,10 @@ public class RemoteResultImpl implements RemoteResult {
     return metadata == null ? Collections.emptySet() : metadata.keySet();
   }
 
+  @Override
+  public boolean isProjection() {
+    return content != null;
+  }
 
   @Nonnull
   @Override
@@ -361,51 +409,65 @@ public class RemoteResultImpl implements RemoteResult {
     assert checkSession();
 
     var map = new HashMap<String, Object>();
-    for (var prop : getPropertyNames()) {
-      var propVal = getProperty(prop);
-      map.put(prop, ResultInternal.toMapValue(propVal, false));
+    if (isProjection()) {
+      for (var prop : getPropertyNames()) {
+        var propVal = getProperty(prop);
+        map.put(prop, ResultInternal.toMapValue(propVal, false));
+      }
+    } else if (isIdentifiable()) {
+      map.put("@rid", rid);
+    } else {
+      throw new IllegalStateException("Result is not initialized");
     }
 
     return map;
   }
 
+  @Override
   public @Nonnull String toJSON() {
     assert checkSession();
 
-    var propNames = new ArrayList<>(getPropertyNames());
-    //record metadata properties has to be sorted first
-    propNames.sort((v1, v2) -> {
-      if (v1 == null) {
-        return -1;
-      }
-      if (v2 == null) {
-        return 1;
-      }
+    var result = new StringBuilder();
 
-      if (!v1.isEmpty() && v1.charAt(0) == '@') {
-        if (!v2.isEmpty() && v2.charAt(0) == '@') {
-          return v1.compareTo(v2);
+    if (isProjection()) {
+      var propNames = new ArrayList<>(getPropertyNames());
+      //record metadata properties has to be sorted first
+      propNames.sort((v1, v2) -> {
+        if (v1 == null) {
+          return -1;
+        }
+        if (v2 == null) {
+          return 1;
         }
 
-        return -1;
-      }
+        if (!v1.isEmpty() && v1.charAt(0) == '@') {
+          if (!v2.isEmpty() && v2.charAt(0) == '@') {
+            return v1.compareTo(v2);
+          }
 
-      return v1.compareTo(v2);
-    });
-    var result = new StringBuilder();
-    result.append("{");
-    var first = true;
+          return -1;
+        }
 
-    for (var prop : propNames) {
-      if (!first) {
-        result.append(", ");
+        return v1.compareTo(v2);
+      });
+
+      result.append("{");
+      var first = true;
+
+      for (var prop : propNames) {
+        if (!first) {
+          result.append(", ");
+        }
+        result.append(toJson(prop));
+        result.append(": ");
+        result.append(toJson(getProperty(prop)));
+        first = false;
       }
-      result.append(toJson(prop));
-      result.append(": ");
-      result.append(toJson(getProperty(prop)));
-      first = false;
+      result.append("}");
+    } else {
+      result.append("{").append("\"@rid\": ").append(toJson(rid)).append("}");
     }
-    result.append("}");
+
     return result.toString();
   }
 

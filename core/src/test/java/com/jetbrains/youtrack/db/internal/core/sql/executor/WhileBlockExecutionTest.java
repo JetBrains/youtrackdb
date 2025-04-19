@@ -24,7 +24,7 @@ public class WhileBlockExecutionTest extends DbTestBase {
     script += "}";
     script += "SELECT FROM " + className;
     session.begin();
-    var results = session.runScript("sql", script);
+    var results = session.computeScript("sql", script);
 
     var tot = 0;
     var sum = 0;
@@ -56,7 +56,7 @@ public class WhileBlockExecutionTest extends DbTestBase {
     script += "}";
 
     session.begin();
-    var results = session.runScript("sql", script);
+    var results = session.computeScript("sql", script);
     results.close();
     results = session.query("SELECT FROM " + className);
 

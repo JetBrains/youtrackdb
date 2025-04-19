@@ -45,7 +45,7 @@ public class BinaryProtocolAnyResultTest {
         "create database test memory users (admin identified by 'admin' role admin)");
     var db = youTrackDB.open("test", "admin", "admin");
 
-    Object res = db.runScript("SQL", " let $one = select from OUser limit 1; return [$one,1]");
+    Object res = db.computeScript("SQL", " let $one = select from OUser limit 1; return [$one,1]");
 
     assertTrue(res instanceof List);
     assertTrue(((List) res).get(0) instanceof Collection);

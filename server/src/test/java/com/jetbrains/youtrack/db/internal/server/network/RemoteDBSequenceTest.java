@@ -26,15 +26,18 @@ public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
         .close();
     database.execute("CREATE CLASS CV1 extends SV").close();
     database.execute("CREATE CLASS CV2 extends SV").close();
-    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
-    database.execute("CREATE INDEX testid ON SV (testID) UNIQUE").close();
-    database.reload();
 
-    database.begin();
-    var doc = ((EntityImpl) session.newVertex("CV1"));
-    doc.setProperty("testID", 1);
-    var doc1 = ((EntityImpl) session.newVertex("CV1"));
-    doc1.setProperty("testID", 1);
-    assertNotEquals(doc1.getProperty("uniqueID"), doc.getProperty("uniqueID"));
+    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
+    database.execute("CREATE INDEX testID ON SV (testID) UNIQUE").close();
+
+    database.executeSQLScript("""
+        begin;
+        let v1 = create vertex CV1 set testID = 1;
+        let v2 = create vertex CV2 set testID = 1;
+        commit;
+        begin;
+        select assert(v1.uniqueId ! = v2.uniqueId);
+        commit;
+        """);
   }
 }

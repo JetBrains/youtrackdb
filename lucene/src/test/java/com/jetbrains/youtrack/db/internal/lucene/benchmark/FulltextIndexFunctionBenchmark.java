@@ -58,7 +58,7 @@ public class FulltextIndexFunctionBenchmark {
     this.setupDatabase();
 
     final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    db.runScript("sql", getScriptFromStream(stream));
+    db.computeScript("sql", getScriptFromStream(stream));
     db.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
     db.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
     db.execute(

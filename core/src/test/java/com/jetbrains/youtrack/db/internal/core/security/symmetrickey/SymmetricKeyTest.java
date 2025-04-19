@@ -12,7 +12,7 @@ import org.junit.Test;
 public class SymmetricKeyTest extends DbTestBase {
 
   private void command(BasicDatabaseSession db, String sql, Object... params) {
-    db.runScript("sql", sql, params).close();
+    db.computeScript("sql", sql, params).close();
   }
 
   @Test

@@ -28,8 +28,8 @@ public class LuceneFailTest {
   @Test
   public void test() {
     try (var session = odb.open("tdb", "admin", "admpwd")) {
-      session.runScript("sql", "create property V.text string").close();
-      session.runScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
+      session.computeScript("sql", "create property V.text string").close();
+      session.computeScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
           .close();
 
       session.executeInTx(transaction -> {

@@ -27,6 +27,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   private int oldPageSize;
 
+  @Override
   public void beforeTest() {
     super.beforeTest();
     session.createClass("Some");
@@ -276,7 +277,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     script += "RETURN [$q1,$q2]";
 
     session.begin();
-    var rs = session.runScript("sql", script);
+    var rs = session.computeScript("sql", script);
 
     rs.stream().count();
     rs.close();
@@ -302,6 +303,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
     assertEquals(2, rs.stream().count());
   }
 
+  @Override
   public void afterTest() {
     super.afterTest();
     QUERY_REMOTE_RESULTSET_PAGE_SIZE.setValue(oldPageSize);

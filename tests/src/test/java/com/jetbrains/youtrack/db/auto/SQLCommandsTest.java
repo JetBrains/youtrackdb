@@ -111,7 +111,7 @@ public class SQLCommandsTest extends BaseDBTest {
     cmd += "return $a;";
 
     final var tx = session.begin();
-    var result = session.runScript("sql", cmd).findFirst(Result::asEntity);
+    var result = session.computeScript("sql", cmd).findFirst(Result::asEntity);
 
     Assert.assertTrue(tx.load(result) instanceof EntityImpl);
     EntityImpl identifiable = tx.load(result);

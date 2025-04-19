@@ -34,7 +34,7 @@ public class SQLBatchTest extends BaseDBTest {
   @Test(enabled = false)
   public void createEdgeFailIfNoSourceOrTargetVertices() {
     try {
-      session.runScript("sql",
+      session.computeScript("sql",
           """
               BEGIN;
               LET credential = INSERT INTO V SET email = '123', password = '123';
@@ -79,7 +79,7 @@ public class SQLBatchTest extends BaseDBTest {
             + " SET foos=[$a,$b,$c];"
             + "COMMIT";
 
-    session.runScript("sql", script);
+    session.computeScript("sql", script);
     session.commit();
 
     session.begin();
@@ -118,7 +118,7 @@ public class SQLBatchTest extends BaseDBTest {
             + " SET foos= $foos;\n"
             + "COMMIT;";
 
-    session.runScript("sql", script);
+    session.computeScript("sql", script);
     session.commit();
 
     session.begin();

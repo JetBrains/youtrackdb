@@ -394,7 +394,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
-      case Result result when result.isRecord() -> {
+      case Result result when result.isIdentifiable() -> {
         var resultRecord = result.asRecord();
         return equals(resultRecord);
       }

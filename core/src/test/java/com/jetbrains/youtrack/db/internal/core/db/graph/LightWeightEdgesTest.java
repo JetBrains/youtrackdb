@@ -84,7 +84,7 @@ public class LightWeightEdgesTest {
             + " where name = 'b') set name = 'foo'");
     tx.commit();
 
-    session.runScript(
+    session.computeScript(
         "sql",
         "begin;"
             + "delete edge "

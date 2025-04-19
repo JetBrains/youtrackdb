@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
@@ -85,6 +84,7 @@ public interface Result extends BasicResult {
   @Override
   Result getResult(@Nonnull String name);
 
+  @Override
   @Nullable
   default <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
     if (isEntity()) {
@@ -105,6 +105,7 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a embedded list type, but " + value.getClass().getName());
   }
 
+  @Override
   @Nullable
   default LinkList getLinkList(@Nonnull String name) {
     if (isEntity()) {
@@ -126,6 +127,7 @@ public interface Result extends BasicResult {
   }
 
 
+  @Override
   @Nullable
   default <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
     if (isEntity()) {
@@ -146,6 +148,7 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a embedded set type, but " + value.getClass().getName());
   }
 
+  @Override
   @Nullable
   default LinkSet getLinkSet(@Nonnull String name) {
     if (isEntity()) {
@@ -165,6 +168,7 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
+  @Override
   @Nullable
   default   <T> Map<String, T> getEmbeddedMap(@Nonnull String name) {
     if (isEntity()) {
@@ -185,6 +189,7 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a embedded map type, but " + value.getClass().getName());
   }
 
+  @Override
   @Nullable
   default LinkMap getLinkMap(@Nonnull String name) {
     if (isEntity()) {
@@ -204,9 +209,6 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a link map type, but " + value.getClass().getName());
   }
 
-
-  @Nullable
-  RID getIdentity();
 
   boolean isEntity();
 
@@ -278,10 +280,6 @@ public interface Result extends BasicResult {
 
   @Nullable
   DBRecord asRecordOrNull();
-
-  boolean isRecord();
-
-  boolean isProjection();
 
   @Nonnull
   Identifiable asIdentifiable();

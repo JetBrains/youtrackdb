@@ -13,6 +13,7 @@ import org.junit.Test;
 
 public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
+  @Override
   public void beforeTest() {
     super.beforeTest();
     session.createClassIfNotExist("FirstV", "V");

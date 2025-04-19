@@ -181,7 +181,7 @@ public class ResultBinary implements Result {
   }
 
   @Override
-  public boolean isRecord() {
+  public boolean isIdentifiable() {
     assert session != null && session.assertIfNotActive();
     return true;
   }

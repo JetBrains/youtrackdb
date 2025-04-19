@@ -39,10 +39,10 @@ public class UpdateSetUnionCollectionsTest {
   public void updateMapElementWithUnionMap() {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.runScript("sql", "create class example extends V").close();
-      session.runScript("sql", "create property example.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example extends V").close();
+      session.computeScript("sql", "create property example.metadata EMBEDDEDMAP").close();
       session
-          .runScript(
+          .computeScript(
               "SQL",
               """
                     begin; \
@@ -96,14 +96,14 @@ public class UpdateSetUnionCollectionsTest {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
 
-      session.runScript("sql", "create class example_schema extends V").close();
-      session.runScript("sql", "create property example_schema.metadata EMBEDDEDMAP").close();
-      session.runScript("sql", "create class example_schemaless extends V").close();
+      session.computeScript("sql", "create class example_schema extends V").close();
+      session.computeScript("sql", "create property example_schema.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example_schemaless extends V").close();
 
       for (var clazz : List.of("example_schema", "example_schemaless")) {
 
         session
-            .runScript(
+            .computeScript(
                 "SQL",
                 """
                     begin;
@@ -154,10 +154,10 @@ public class UpdateSetUnionCollectionsTest {
   public void updateMapElementWithUnionList() {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.runScript("sql", "create class example extends V").close();
-      session.runScript("sql", "create property example.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example extends V").close();
+      session.computeScript("sql", "create property example.metadata EMBEDDEDMAP").close();
       session
-          .runScript(
+          .computeScript(
               "SQL",
               """
                     begin; \
@@ -207,13 +207,13 @@ public class UpdateSetUnionCollectionsTest {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
 
-      session.runScript("sql", "create class example_schema extends V").close();
-      session.runScript("sql", "create property example_schema.metadata EMBEDDEDLIST").close();
-      session.runScript("sql", "create class example_schemaless extends V").close();
+      session.computeScript("sql", "create class example_schema extends V").close();
+      session.computeScript("sql", "create property example_schema.metadata EMBEDDEDLIST").close();
+      session.computeScript("sql", "create class example_schemaless extends V").close();
 
       for (var clazz : List.of("example_schema", "example_schemaless")) {
         session
-            .runScript(
+            .computeScript(
                 "SQL",
                 """
                     begin; \

@@ -262,7 +262,7 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     session.execute("CREATE INDEX " + className + ".name UNIQUE").close();
 
     session
-        .runScript(
+        .computeScript(
             "SQL",
             "begin;\n"
                 + "insert into "

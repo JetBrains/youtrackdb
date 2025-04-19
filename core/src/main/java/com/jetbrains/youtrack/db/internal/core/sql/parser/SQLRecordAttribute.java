@@ -101,12 +101,12 @@ public class SQLRecordAttribute extends SimpleNode {
 
       return iCurrentResult.getString(name);
     } else if (name.equalsIgnoreCase("@version")) {
-      if (iCurrentResult.isRecord()) {
+      if (iCurrentResult.isIdentifiable()) {
         return iCurrentResult.asRecord().getVersion();
       }
       return iCurrentResult.getProperty(name);
     } else if (name.equals("@type")) {
-      if (iCurrentResult.isRecord()) {
+      if (iCurrentResult.isIdentifiable()) {
         var r = iCurrentResult.asRecord();
         ctx.getDatabaseSession();
         var recordType = ((RecordAbstract) r).getRecordType();
@@ -124,17 +124,17 @@ public class SQLRecordAttribute extends SimpleNode {
       }
       return iCurrentResult.getString(name);
     } else if (name.equals("@size")) {
-      if (iCurrentResult.isRecord()) {
+      if (iCurrentResult.isIdentifiable()) {
         return ((RecordAbstract) iCurrentResult.asRecord()).toStream().length;
       }
       return iCurrentResult.getProperty(name);
     } else if (name.equals("@raw")) {
-      if (iCurrentResult.isRecord()) {
+      if (iCurrentResult.isIdentifiable()) {
         return ((RecordAbstract) iCurrentResult.asRecord()).toStream();
       }
       return iCurrentResult.getProperty(name);
     } else if (name.equals("@rid")) {
-      if (iCurrentResult.isRecord()) {
+      if (iCurrentResult.isIdentifiable()) {
         return iCurrentResult.getIdentity();
       }
       return iCurrentResult.getProperty(name);

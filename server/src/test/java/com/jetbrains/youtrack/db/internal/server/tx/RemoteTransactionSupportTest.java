@@ -20,6 +20,7 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
 
   private static final String FIELD_VALUE = "VALUE";
 
+  @Override
   public void beforeTest() {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
     super.beforeTest();

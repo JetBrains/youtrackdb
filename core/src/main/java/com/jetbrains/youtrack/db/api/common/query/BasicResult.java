@@ -17,6 +17,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface BasicResult {
+
   /**
    * @param name the property name
    * @return the property value.
@@ -303,6 +304,13 @@ public interface BasicResult {
   @Nonnull
   List<String> getPropertyNames();
 
+  boolean isIdentifiable();
+
+  @Nullable
+  RID getIdentity();
+
+  boolean isProjection();
+
   /**
    * Returns the result as <code>Map</code>. If the result has identity, then the @rid entry is
    * added. If the result is an entity that has a class, then the @class entry is added. If entity
@@ -315,6 +323,7 @@ public interface BasicResult {
   String toJSON();
 
   boolean hasProperty(@Nonnull String varName);
+
   /**
    * @return Returns session to which given record is bound or <code>null</code> if record is
    * unloaded.

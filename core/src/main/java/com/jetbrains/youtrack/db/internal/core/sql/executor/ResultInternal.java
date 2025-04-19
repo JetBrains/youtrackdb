@@ -203,7 +203,7 @@ public class ResultInternal implements Result {
   }
 
   @Override
-  public boolean isRecord() {
+  public boolean isIdentifiable() {
     assert checkSession();
 
     return identifiable != null;
@@ -1255,7 +1255,7 @@ public class ResultInternal implements Result {
 
     if (!(obj instanceof ResultInternal resultObj)) {
       if (obj instanceof Result result) {
-        if (result.isRecord() && identifiable != null) {
+        if (result.isIdentifiable() && identifiable != null) {
           return identifiable.equals(result.getIdentity());
         } else if (result.isEdge() && relation instanceof Edge edge) {
           return edge.equals(result.getIdentity());

@@ -17,7 +17,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
   public void init() {
 
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.runScript("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
   }
 
   @Test

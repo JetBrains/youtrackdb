@@ -49,7 +49,7 @@ public class RemoteScriptSecurityTest {
         YouTrackDBConfig.defaultConfig())) {
       try (var writer =
           writerOrient.open("RemoteScriptSecurityTest", "reader", "reader")) {
-        try (var rs = writer.runScript("javascript", "1+1;")) {
+        try (var rs = writer.computeScript("javascript", "1+1;")) {
         }
       }
     }
@@ -63,7 +63,7 @@ public class RemoteScriptSecurityTest {
       try (var writer =
           writerOrient.open("RemoteScriptSecurityTest", "reader", "reader")) {
 
-        try (var rs = writer.runScript("ecmascript", "1+1;")) {
+        try (var rs = writer.computeScript("ecmascript", "1+1;")) {
         }
       }
     }

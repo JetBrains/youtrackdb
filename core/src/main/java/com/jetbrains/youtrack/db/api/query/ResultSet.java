@@ -309,7 +309,7 @@ public interface ResultSet extends BasicResultSet<Result> {
                     continue;
                   }
 
-                  if (elem.isRecord()) {
+                  if (elem.isIdentifiable()) {
                     action.accept(elem.getIdentity());
                     return true;
                   } else {
@@ -439,6 +439,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     return edgeStream().toList();
   }
 
+  @Override
   @Nullable
   DatabaseSession getBoundToSession();
 

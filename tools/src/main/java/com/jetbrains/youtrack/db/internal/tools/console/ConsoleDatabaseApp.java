@@ -23,11 +23,7 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.WARNING_D
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
@@ -35,14 +31,12 @@ import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.client.remote.DatabaseImportRemote;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleApplication;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleProperties;
 import com.jetbrains.youtrack.db.internal.common.console.TTYConsoleReader;
 import com.jetbrains.youtrack.db.internal.common.console.annotation.ConsoleCommand;
 import com.jetbrains.youtrack.db.internal.common.console.annotation.ConsoleParameter;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
-import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -52,46 +46,29 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.db.tool.BonsaiTreeRepair;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImportException;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseRepair;
-import com.jetbrains.youtrack.db.internal.core.db.tool.GraphRepair;
-import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
-import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -1213,7 +1190,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     resetResultSet();
 
     var start = System.currentTimeMillis();
-    currentResultSet = currentDatabaseSession.runScript("JavaScript", iText).stream()
+    currentResultSet = currentDatabaseSession.computeScript("JavaScript", iText).stream()
         .map(result -> new RawPair<RID, Object>(result.getIdentity(), result.toMap())).toList();
     var elapsedSeconds = getElapsedSecs(start);
 
@@ -2906,7 +2883,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     resetResultSet();
     var start = System.currentTimeMillis();
-    var rs = currentDatabaseSession.runScript(iLanguage, script);
+    var rs = currentDatabaseSession.computeScript(iLanguage, script);
     currentResultSet = rs.stream().map(x -> new RawPair<RID, Object>(x.getIdentity(), x.toMap()))
         .toList();
     rs.close();

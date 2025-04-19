@@ -280,7 +280,7 @@ public class TraverseStatementExecutionTest extends DbTestBase {
     script += "commit;";
     script += "return $top";
 
-    var result = session.runScript("sql", script);
+    var result = session.computeScript("sql", script);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
 

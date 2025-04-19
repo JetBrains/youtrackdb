@@ -422,7 +422,7 @@ public interface Entity extends DBRecord, Result {
   boolean isVertex();
 
   @Override
-  default boolean isRecord() {
+  default boolean isIdentifiable() {
     return true;
   }
 

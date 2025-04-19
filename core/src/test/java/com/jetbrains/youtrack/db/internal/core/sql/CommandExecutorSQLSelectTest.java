@@ -217,14 +217,14 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initCollateOnLinked(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS CollateOnLinked");
-    db.runScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
-    db.runScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked");
+    db.computeScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
+    db.computeScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
 
-    db.runScript("sql", "CREATE CLASS CollateOnLinked2");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked2");
 
-    db.runScript("sql", "CREATE CLASS CollateOnLinked3");
-    db.runScript("sql", "CREATE CLASS CollateOnLinked4");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked3");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked4");
 
     db.executeInTx(transaction -> {
       var doc = (EntityImpl) transaction.newEntity("CollateOnLinked");
@@ -242,8 +242,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initComplexFilterInSquareBrackets(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
-    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
+    db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
+    db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
 
     var tx = db.begin();
     tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n1', value = 1");
@@ -260,10 +260,10 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initFilterAndOrderByTest(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
-    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
-    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
-    db.runScript("sql",
+    db.computeScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
+    db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
+    db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
+    db.computeScript("sql",
             "CREATE INDEX FilterAndOrderByTest.active ON FilterAndOrderByTest (active) NOTUNIQUE")
         .close();
 
@@ -287,7 +287,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMaxLongNumber(DatabaseSession db) {
-    db.runScript("sql", "CREATE class MaxLongNumberTest").close();
+    db.computeScript("sql", "CREATE class MaxLongNumberTest").close();
 
     var tx = db.begin();
     tx.execute("insert into MaxLongNumberTest set last = 1").close();
@@ -298,9 +298,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initLinkListSequence(DatabaseSession db) {
-    db.runScript("sql", "CREATE class LinkListSequence").close();
-    db.runScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
-    db.runScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
+    db.computeScript("sql", "CREATE class LinkListSequence").close();
+    db.computeScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
+    db.computeScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
         .close();
 
     var tx = db.begin();
@@ -329,7 +329,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMatchesWithRegex(DatabaseSession db) {
-    db.runScript("sql", "CREATE class matchesstuff").close();
+    db.computeScript("sql", "CREATE class matchesstuff").close();
 
     var tx = db.begin();
     tx.execute("insert into matchesstuff (name, foo) values ('admin[name]', 1)").close();
@@ -337,7 +337,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initDistinctLimit(DatabaseSession db) {
-    db.runScript("sql", "CREATE class DistinctLimit").close();
+    db.computeScript("sql", "CREATE class DistinctLimit").close();
 
     var tx = db.begin();
     tx.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
@@ -348,8 +348,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initDatesSet(DatabaseSession db) {
-    db.runScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
-    db.runScript("sql",
+    db.computeScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
+    db.computeScript("sql",
             "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
         .close();
     var tx = db.begin();
@@ -379,7 +379,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initExpandSkipLimit(DatabaseSession db) {
-    db.runScript("sql", "create class ExpandSkipLimit ").close();
+    db.computeScript("sql", "create class ExpandSkipLimit ").close();
 
     for (var i = 0; i < 5; i++) {
       var tx = db.begin();

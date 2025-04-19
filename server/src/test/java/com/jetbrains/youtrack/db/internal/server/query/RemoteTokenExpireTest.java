@@ -121,7 +121,7 @@ public class RemoteTokenExpireTest {
   public void itShouldNotFailWithScript() {
 
     waitAndClean();
-    try (var res = session.runScript("sql", "begin;insert into V set name = 'foo';commit;")) {
+    try (var res = session.computeScript("sql", "begin;insert into V set name = 'foo';commit;")) {
 
       Assert.assertEquals(1, res.stream().count());
 

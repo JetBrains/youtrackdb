@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.server.security;
 
-import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.IOException;
 import org.junit.After;
@@ -17,23 +16,24 @@ import org.junit.Test;
 public class RemoteSecurityTests {
 
   private static final String DB_NAME = RemoteSecurityTests.class.getSimpleName();
-  private BasicYouTrackDB youTrackDB;
+  private RemoteYouTrackDB youTrackDB;
   private YouTrackDBServer server;
-  private BasicDatabaseSession session;
+  private RemoteDatabaseSession session;
 
   @Before
   public void before()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException, IOException {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
-    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root",
+    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin, writer identified"
             + " by 'writer' role writer, reader identified by 'reader' role reader)",
         DB_NAME);
     this.session = youTrackDB.open(DB_NAME, "admin", "admin");
-    var person = session.getSchema().createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+
+    session.command("CREATE CLASS Person");
+    session.command("CREATE PROPERTY Person.name String");
   }
 
   @After
@@ -46,477 +46,475 @@ public class RemoteSecurityTests {
 
   @Test
   public void testCreate() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.commit();
+      filteredSession.command("BEGIN");
+      filteredSession.command("INSERT INTO Person (name) VALUES ('foo')");
+      filteredSession.command("COMMIT");
       try {
-        tx = filteredSession.begin();
-        elem = tx.newEntity("Person");
-        elem.setProperty("name", "bar");
-        tx.commit();
+        filteredSession.command("BEGIN");
+        filteredSession.command("INSERT INTO Person (name) VALUES ('bar')");
+        filteredSession.command("COMMIT");
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
     }
   }
 
   @Test
   public void testSqlCreate() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET create = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      tx.command("insert into Person SET name = 'foo'");
-      tx.commit();
+      filteredSession.command("BEGIN");
+      filteredSession.command("insert into Person SET name = 'foo'");
+      filteredSession.command("COMMIT");
       try {
-        tx = filteredSession.begin();
-        tx.command("insert into Person SET name = 'bar'");
-        tx.commit();
+        filteredSession.command("BEGIN");
+        filteredSession.command("insert into Person SET name = 'bar'");
+        filteredSession.command("COMMIT");
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
     }
   }
 
   @Test
   public void testSqlRead() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("INSERT INTO Person SET name = 'foo'");
+    session.command("INSERT INTO Person SET name = 'bar'");
+    session.command("COMMIT");
 
     session.close();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (var rs = tx.query("select from Person")) {
+      filteredSession.command("BEGIN");
+      try (var rs = session.query("select from Person")) {
         Assert.assertTrue(rs.hasNext());
         rs.next();
         Assert.assertFalse(rs.hasNext());
       }
-      tx.commit();
+      session.command("COMMIT");
     }
   }
 
   @Test
   public void testSqlReadWithIndex() {
-    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("INSERT INTO Person SET name = 'foo'");
+    session.command("INSERT INTO Person SET name = 'bar'");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (var rs = tx.query("select from Person where name = 'bar'")) {
+      filteredSession.command("BEGIN");
+      try (var rs = session.query("select from Person where name = 'bar'")) {
 
         Assert.assertFalse(rs.hasNext());
       }
-      tx.commit();
+      session.command("COMMIT");
     }
   }
 
   @Test
   public void testSqlReadWithIndex2() {
-    session.runScript("sql", "create index Person.name on Person(name)NOTUNIQUE");
+    session.computeScript("sql", "create index Person.name on Person(name)NOTUNIQUE");
 
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (surname = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (surname = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-    elem.setProperty("surname", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-    elem.setProperty("surname", "bar");
-    tx.commit();
+    session.computeScript("sql", """
+        BEGIN;
+        INSERT INTO Person SET name = 'foo', surname = 'foo'";
+        INSERT INTO Person SET name = 'foo', surname = 'bar'";
+        COMMIT;
+        """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      filteredSession.executeInTx(transaction -> {
-        try (var rs = transaction.query("select from Person where name = 'foo'")) {
-          Assert.assertTrue(rs.hasNext());
-          var item = rs.next();
-          Assert.assertEquals("foo", item.getProperty("surname"));
-          Assert.assertFalse(rs.hasNext());
-        }
-      });
+      filteredSession.command("BEGIN");
+      try (var rs = filteredSession.query("select from Person where name = 'foo'")) {
+        Assert.assertTrue(rs.hasNext());
+        var item = rs.next();
+        Assert.assertEquals("foo", item.getProperty("surname"));
+        Assert.assertFalse(rs.hasNext());
+      }
+      filteredSession.command("COMMIT");
     }
   }
 
   @Test
   public void testBeforeUpdateCreate() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.computeSQLScript("""
+        BEGIN;
+        CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar');
+        ALTER ROLE writer SET POLICY testPolicy ON database.class.Person
+        COMMIT;
+        """).close();
+    RID rid = null;
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.commit();
       try {
-        tx = filteredSession.begin();
-        elem = tx.load(elem);
-        elem.setProperty("name", "baz");
-        tx.commit();
+        rid = filteredSession.computeSQLScript("""
+            BEGIN;
+            let res = INSERT INTO Person SET name = 'foo';
+            COMMIT;
+            return $res
+            """).findFirst().getIdentity();
+
+        filteredSession.computeSQLScript("""
+            BEGIN;
+            UPDATE Person SET name = 'baz' where name = 'foo';
+            COMMIT;
+            """).close();
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
-      tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
-      tx.commit();
+
+      filteredSession.command("BEGIN");
+      Assert.assertEquals("foo",
+          session.query("select name from " + rid).findFirst().getProperty("name"));
+      filteredSession.command("COMMIT");
     }
   }
 
   @Test
   public void testBeforeUpdateCreateSQL() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.commit();
+      var rid = filteredSession.computeSQLScript("""
+          BEGIN;
+          let res = INSERT INTO Person SET name = 'foo';
+          COMMIT;
+          return $res
+          """).findFirst().getIdentity();
       try {
-        tx = filteredSession.begin();
-        tx.command("update Person set name = 'bar'");
-        tx.commit();
+        filteredSession.command("BEGIN");
+        filteredSession.command("update Person set name = 'bar'");
+        filteredSession.command("COMMIT");
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
 
-      tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
-      tx.commit();
+      filteredSession.command("BEGIN");
+      Assert.assertEquals("foo",
+          filteredSession.query("select name from " + rid).findFirst().getProperty("name"));
+      filteredSession.command("COMMIT");
     }
   }
 
   @Test
   public void testAfterUpdate() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.commit();
+      var rid = filteredSession.computeSQLScript("""
+          BEGIN;
+          let res = INSERT INTO Person SET name = 'foo';
+          COMMIT;
+          return $res
+          """).findFirst().getIdentity();
       try {
-        tx = filteredSession.begin();
-        elem = tx.load(elem);
-        elem.setProperty("name", "bar");
-        tx.commit();
+        filteredSession.command("BEGIN");
+        filteredSession.command("update Person set name = 'bar' where @rid = ?", rid);
+        filteredSession.command("COMMIT");
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
 
-      tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
-      tx.commit();
+      filteredSession.command("BEGIN");
+      Assert.assertEquals("foo",
+          filteredSession.query("select name from " + rid).findFirst().getProperty("name"));
+      filteredSession.command("COMMIT");
     }
   }
 
   @Test
   public void testAfterUpdateSQL() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET AFTER UPDATE = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.commit();
+      var rid = filteredSession.computeSQLScript("""
+          BEGIN;
+          let res = INSERT INTO Person SET name = 'foo';
+          COMMIT;
+          return $res
+          """).findFirst().getIdentity();
       try {
-        tx = filteredSession.begin();
-        tx.command("update Person set name = 'bar'");
-        tx.commit();
+        filteredSession.command("BEGIN");
+        filteredSession.command("update Person set name = 'bar'");
+        filteredSession.command("COMMIT");
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
 
-      tx = filteredSession.begin();
-      Assert.assertEquals("foo", tx.<Entity>load(elem).getProperty("name"));
-      tx.commit();
+      filteredSession.command("BEGIN");
+      Assert.assertEquals("foo",
+          filteredSession.query("select name from " + rid).findFirst().getProperty("name"));
+      filteredSession.command("COMMIT");
     }
   }
 
   @Test
   public void testDelete() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "bar");
-      tx.commit();
+      var rid = filteredSession.computeSQLScript("""
+          BEGIN;
+          let res = INSERT INTO Person SET name = 'bar';
+          COMMIT;
+          return $res
+          """).findFirst().getIdentity();
       try {
-        tx = filteredSession.begin();
-        elem = tx.load(elem);
-        tx.delete(elem);
-        tx.commit();
+        filteredSession.executeSQLScript("""
+            BEGIN;
+            DELETE FROM Person where @rid = ?;
+            COMMIT;
+            """, rid);
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
 
-      tx = filteredSession.begin();
-      elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-      tx.delete(elem);
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          BEGIN;
+          let entity = insert into Person SET name = 'foo';
+          delete from $entity;
+          COMMIT;
+          """);
     }
   }
 
   @Test
   public void testDeleteSQL() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
-    tx.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET DELETE = (name = 'foo')");
+    session.command("ALTER ROLE writer SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "writer", "writer")) {
-      tx = filteredSession.begin();
-      var elem = tx.newEntity("Person");
-      elem.setProperty("name", "foo");
-
-      elem = tx.newEntity("Person");
-      elem.setProperty("name", "bar");
-      tx.commit();
-
-      tx = filteredSession.begin();
-      tx.command("delete from Person where name = 'foo'");
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          insert into Person SET name = 'foo';
+          insert into Person SET name = 'bar';
+          commit;
+          begin;
+          delete from Person where name = 'foo';
+          commit;
+          """);
       try {
-        tx = filteredSession.begin();
-        tx.command("delete from Person where name = 'bar'");
-        tx.commit();
+        filteredSession.executeSQLScript("""
+            begin;
+            delete from Person where name = 'bar';
+            commit;
+            """);
         Assert.fail();
       } catch (SecurityException ex) {
+        //expected
       }
 
-      tx = filteredSession.begin();
-      try (var rs = tx.query("select from Person")) {
-        Assert.assertTrue(rs.hasNext());
-        Assert.assertEquals("bar", rs.next().getProperty("name"));
-        Assert.assertFalse(rs.hasNext());
-      }
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          let res = select count(*) as count from Person;
+          select assert(res[0].name = 'bar');
+          commit;
+          """);
     }
   }
 
   @Test
   public void testSqlCount() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo';
+        insert into Person SET name = 'bar';
+        commit;
+        """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (var rs = tx.query("select count(*) as count from Person")) {
-        Assert.assertEquals(1L, (long) rs.next().getProperty("count"));
-      }
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          let res = select count(*) as count from Person;
+          select assert(res[0].count = 1);
+          commit;
+          """);
     }
   }
 
   @Test
   public void testSqlCountWithIndex() {
-    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.executeSQLScript("create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
-
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo';
+        insert into Person SET name = 'bar';
+        commit;
+        """);
     session.close();
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (var rs = tx.query("select count(*) as count from Person where name = 'bar'")) {
-        Assert.assertEquals(0L, (long) rs.next().getProperty("count"));
-      }
-
-      try (var rs =
-          tx.query("select count(*) as count from Person where name = 'foo'")) {
-        Assert.assertEquals(1L, (long) rs.next().getProperty("count"));
-      }
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          let res = select count(*) as count from Person where name = 'bar';
+          select assert(res[0].count = 0);
+          let res = select count(*) as count from Person where name = 'foo';
+          select assert(res[0].count = 1);
+          commit;
+          """);
     }
   }
 
   @Test
   public void testIndexGet() {
-    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo';
+        insert into Person SET name = 'bar';
+        commit;
+        """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (final var resultSet =
-          tx.query("SELECT from Person where name = ?", "bar")) {
-        Assert.assertEquals(0, resultSet.stream().count());
-      }
-
-      try (final var resultSet =
-          tx.query("SELECT from Person where name = ?", "foo")) {
-        Assert.assertEquals(1, resultSet.stream().count());
-      }
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          let res = select count(*) from Person where name = 'bar';
+          select assert(res[0].count = 0);
+          let res = select count(*) from Person where name = 'foo';
+          select assert(res[0].count = 1);
+          commit;
+          """);
     }
   }
 
   @Test
   public void testIndexGetAndColumnSecurity() {
-    session.runScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
+    session.computeScript("sql", "create index Person.name on Person (name) NOTUNIQUE");
 
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
-    tx.commit();
+    session.command("BEGIN");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'foo')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.command("COMMIT");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-
-    elem = tx.newEntity("Person");
-    elem.setProperty("name", "bar");
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo';
+        insert into Person SET name = 'bar';
+        commit;
+        """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      tx = filteredSession.begin();
-      try (final var resultSet =
-          tx.query("SELECT from Person where name = ?", "bar")) {
-        Assert.assertEquals(0, resultSet.stream().count());
-      }
-
-      try (final var resultSet =
-          tx.query("SELECT from Person where name = ?", "foo")) {
-        Assert.assertEquals(1, resultSet.stream().count());
-      }
-      tx.commit();
+      filteredSession.executeSQLScript("""
+          begin;
+          let res = select count(*) from Person where name = 'bar';
+          select assert($res[0].count = 0);
+          let res = select count(*) from Person where name = 'foo';
+          select assert($res[0].count = 1);
+          commit;
+          """);
     }
   }
 
   @Test
   public void testReadHiddenColumn() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
-    tx.commit();
+    session.command("begin");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.command("commit");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-    elem.setProperty("surname", "foo");
-    tx.commit();
-
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo', surname = 'foo';
+        commit;
+        """);
     session.close();
 
     session = youTrackDB.open(DB_NAME, "reader", "reader");
-    tx = session.begin();
-    try (final var resultSet = tx.query("SELECT from Person")) {
-      var item = resultSet.next();
-      Assert.assertNull(item.getProperty("name"));
-    }
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        select assert(name = undefined) from select from Person limit 1;
+        commit;
+        """);
   }
 
   @Test
   public void testUpdateHiddenColumn() {
-    var tx = session.begin();
-    tx.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
-    tx.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
-    tx.commit();
+    session.command("begin");
+    session.command("CREATE SECURITY POLICY testPolicy SET read = (name = 'bar')");
+    session.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person.name");
+    session.command("commit");
 
-    tx = session.begin();
-    var elem = tx.newEntity("Person");
-    elem.setProperty("name", "foo");
-    elem.setProperty("surname", "foo");
-    tx.commit();
-
+    session.executeSQLScript("""
+        begin;
+        insert into Person SET name = 'foo', surname = 'foo';
+        commit;
+        """);
     session.close();
 
     session = youTrackDB.open(DB_NAME, "reader", "reader");
-
-    tx = session.begin();
-    try (final var resultSet = tx.query("SELECT from Person")) {
-      try {
-        var item = resultSet.next();
-        var doc = item.asEntity();
-        doc.setProperty("name", "bar");
-
-        tx.commit();
-        Assert.fail();
-      } catch (Exception e) {
-      }
+    try {
+      session.executeSQLScript("""
+          begin;
+          update Person set name = 'bar';
+          commit;
+          """);
+    } catch (Exception e) {
+      //expecte
     }
   }
 }

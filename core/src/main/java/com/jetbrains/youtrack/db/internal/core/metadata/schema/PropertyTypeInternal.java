@@ -805,7 +805,7 @@ public enum PropertyTypeInternal {
           return identifiable;
         }
         case Result result -> {
-          if (result.isRecord()) {
+          if (result.isIdentifiable()) {
             return result.asIdentifiable();
           }
           if (result.isProjection()) {
@@ -1489,7 +1489,7 @@ public enum PropertyTypeInternal {
 
     if (byType == null) {
       if (value instanceof Result result) {
-        if (result.isRecord()) {
+        if (result.isIdentifiable()) {
           if (result.isEntity()) {
             var identifable = result.asIdentifiable();
             if (identifable instanceof Entity entity && entity.isEmbedded()) {
@@ -1536,7 +1536,7 @@ public enum PropertyTypeInternal {
     }
 
     if (value instanceof Result result) {
-      if (result.isRecord()) {
+      if (result.isIdentifiable()) {
         var identifiable = result.asIdentifiable();
         if (!(identifiable instanceof Entity entity)) {
           return true;

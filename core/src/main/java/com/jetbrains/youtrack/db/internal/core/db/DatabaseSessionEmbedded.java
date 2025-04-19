@@ -729,7 +729,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   @Override
-  public ResultSet runScript(String language, String script, Object... args) {
+  public ResultSet computeScript(String language, String script, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
@@ -794,7 +794,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   @Override
-  public ResultSet runScript(String language, String script, Map<String, ?> args) {
+  public ResultSet computeScript(String language, String script, Map<String, ?> args) {
     checkOpenness();
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {

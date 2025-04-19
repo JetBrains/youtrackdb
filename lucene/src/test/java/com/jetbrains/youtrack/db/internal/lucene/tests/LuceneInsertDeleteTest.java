@@ -86,7 +86,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection EmptyTryBlock
-      try (var resultSet = session.runScript("sql", getScriptFromStream(stream))) {
+      try (var resultSet = session.computeScript("sql", getScriptFromStream(stream))) {
       }
     }
 

@@ -39,7 +39,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
   public void init() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection deprecation
-      session.runScript("sql", getScriptFromStream(stream)).close();
+      session.computeScript("sql", getScriptFromStream(stream)).close();
     }
 
     //noinspection deprecation
@@ -134,7 +134,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
             insert into Item set Title = 'test', content = 'this is a test';
             commit;
             """;
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
 
     var docs = session.query("select * from Item where Title lucene 'te*'");
     assertThat(docs).hasSize(1);

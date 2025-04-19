@@ -55,14 +55,14 @@ public class ResourceDerivedTest {
             + " after update = (true), delete = (true), execute = (true)");
     tx.commit();
 
-    db.runScript("sql", "CREATE CLASS Customer extends V ABSTRACT");
-    db.runScript("sql", "CREATE PROPERTY Customer.name String");
+    db.computeScript("sql", "CREATE CLASS Customer extends V ABSTRACT");
+    db.computeScript("sql", "CREATE PROPERTY Customer.name String");
 
-    db.runScript("sql", "CREATE CLASS Customer_t1 extends Customer");
-    db.runScript("sql", "CREATE CLASS Customer_t2 extends Customer");
+    db.computeScript("sql", "CREATE CLASS Customer_t1 extends Customer");
+    db.computeScript("sql", "CREATE CLASS Customer_t2 extends Customer");
 
-    db.runScript("sql", "CREATE CLASS Customer_u1 extends Customer_t1");
-    db.runScript("sql", "CREATE CLASS Customer_u2 extends Customer_t2");
+    db.computeScript("sql", "CREATE CLASS Customer_u1 extends Customer_t1");
+    db.computeScript("sql", "CREATE CLASS Customer_u2 extends Customer_t2");
 
     tx = db.begin();
     tx.command("INSERT INTO ORole SET name = 'tenant1', mode = 0");

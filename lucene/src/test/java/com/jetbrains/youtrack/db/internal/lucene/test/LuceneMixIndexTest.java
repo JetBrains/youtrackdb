@@ -32,7 +32,7 @@ public class LuceneMixIndexTest extends BaseLuceneTest {
 
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.runScript("sql", getScriptFromStream(stream)).close();
+    session.computeScript("sql", getScriptFromStream(stream)).close();
 
     session.execute("create index Song.author on Song (author) NOTUNIQUE").close();
 

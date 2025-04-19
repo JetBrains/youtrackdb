@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.api.common.query;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -21,10 +22,12 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
   @Override
   R next();
 
+  @Override
   default void remove() {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   void close();
 
 
@@ -57,7 +60,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
     }
   }
 
-  default BasicResult findFirst() {
+  default R findFirst() {
     try {
       if (hasNext()) {
         return next();

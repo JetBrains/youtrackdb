@@ -30,9 +30,9 @@ public class LuceneCreateIndexIntegrationTest {
     final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin", "admin");
 
-    session.runScript("sql", "create class Person");
-    session.runScript("sql", "create property Person.name STRING");
-    session.runScript("sql", "create property Person.surname STRING");
+    session.computeScript("sql", "create class Person");
+    session.computeScript("sql", "create property Person.name STRING");
+    session.computeScript("sql", "create property Person.surname STRING");
 
     session.executeInTx(transaction -> {
       final var doc = transaction.newEntity("Person");

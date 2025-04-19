@@ -11,6 +11,7 @@ import org.junit.Test;
  */
 public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
 
+  @Override
   public void beforeTest() {
     super.beforeTest();
     session.createClassIfNotExist("FirstV", "V");
