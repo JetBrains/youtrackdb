@@ -108,25 +108,31 @@ public class LiveQueryRemoteTest {
   @Test
   public void testRidSelect() throws InterruptedException {
     var listener = new MyLiveQueryListener(new CountDownLatch(1));
-    session.begin();
-    var item = session.newVertex();
-    session.commit();
+    var rid = session.computeSQLScript("""
+        begin;
+        create vertex;
+        commit;
+        """).findFirst().getIdentity();
 
     youTrackDB.live(session.getDatabaseName(), session.getCurrentUserName(), "admin",
-        "LIVE SELECT FROM " + item.getIdentity(), listener);
-    session.begin();
-    item = session.load(item.getIdentity());
-    item.setProperty("x", "z");
-    session.commit();
+        "SELECT FROM " + rid, listener);
+
+    session.executeSQLScript("""
+            begin;
+            update set name = 'foo' where @rid = ?;
+            commit;
+            """,
+        rid);
 
     Assert.assertTrue(listener.latch.await(10, TimeUnit.SECONDS));
   }
 
   @Test
   public void testLiveInsert() throws InterruptedException {
-
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("test2");
+    session.executeSQLScript("""
+        create class test;
+        create class test2;
+        """);
 
     var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
@@ -134,22 +140,22 @@ public class LiveQueryRemoteTest {
         "select from test", listener);
     Assert.assertNotNull(monitor);
 
-    session.begin();
+    session.command("begin");
     session.execute("insert into test set name = 'foo', surname = 'bar'").close();
     session.execute("insert into test set name = 'foo', surname = 'baz'").close();
     session.execute("insert into test2 set name = 'foo'").close();
-    session.commit();
+    session.command("commit");
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
 
     monitor.unSubscribe();
     Assert.assertTrue(listener.ended.await(1, TimeUnit.MINUTES));
 
-    session.begin();
+    session.command("begin");
     session.execute("insert into test set name = 'foo', surname = 'bax'");
     session.execute("insert into test2 set name = 'foo'");
     session.execute("insert into test set name = 'foo', surname = 'baz'");
-    session.commit();
+    session.command("commit");
 
     Assert.assertEquals(2, listener.ops.size());
     for (var doc : listener.ops) {
@@ -160,91 +166,13 @@ public class LiveQueryRemoteTest {
     }
   }
 
-  @Test
-  @Ignore
-  public void testRestrictedLiveInsert() throws ExecutionException, InterruptedException {
-    Schema schema = session.getMetadata().getSchema();
-    var oRestricted = schema.getClass("ORestricted");
-    schema.createClass("test", oRestricted);
-
-    var liveMatch = 1;
-    var query = session.query("select from OUSer where name = 'reader'");
-
-    final Identifiable reader = query.next().getIdentity();
-    final var current = session.getCurrentUser().getIdentity();
-
-    var executorService = Executors.newSingleThreadExecutor();
-
-    final var latch = new CountDownLatch(1);
-    final var dataArrived = new CountDownLatch(1);
-    var future =
-        executorService.submit(
-            () -> {
-              final var integer = new AtomicInteger(0);
-              youTrackDB.live(LiveQueryRemoteTest.class.getSimpleName(), "reader", "reader",
-                  "select from test",
-                  new RemoteLiveQueryResultListener() {
-
-                    @Override
-                    public void onCreate(@Nonnull RemoteDatabaseSession session,
-                        @Nonnull BasicResult data) {
-                      integer.incrementAndGet();
-                      dataArrived.countDown();
-                    }
-
-                    @Override
-                    public void onUpdate(
-                        @Nonnull DatabaseSession session, @Nonnull BasicResult before,
-                        @Nonnull BasicResult after) {
-                      integer.incrementAndGet();
-                      dataArrived.countDown();
-                    }
-
-                    @Override
-                    public void onDelete(@Nonnull DatabaseSession session,
-                        @Nonnull BasicResult data) {
-                      integer.incrementAndGet();
-                      dataArrived.countDown();
-                    }
-
-                    @Override
-                    public void onError(@Nonnull DatabaseSession session,
-                        @Nonnull BaseException exception) {
-                    }
-
-                    @Override
-                    public void onEnd(@Nonnull DatabaseSession session) {
-                    }
-                  });
-
-              latch.countDown();
-              Assert.assertTrue(dataArrived.await(2, TimeUnit.MINUTES));
-              return integer.get();
-            });
-
-    latch.await();
-
-    query.close();
-    session.execute("insert into test set name = 'foo', surname = 'bar'");
-
-    session.execute(
-        "insert into test set name = 'foo', surname = 'bar', _allow=?",
-        new ArrayList<Identifiable>() {
-          {
-            add(current);
-            add(reader);
-          }
-        });
-
-    var integer = future.get();
-    Assert.assertEquals(liveMatch, integer.intValue());
-  }
 
   @Test
   public void testBatchWithTx() throws InterruptedException {
-
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("test2");
+    session.executeSQLScript("""
+        create class test;
+        create class test2;
+        """);
 
     var txSize = 100;
 
@@ -254,13 +182,15 @@ public class LiveQueryRemoteTest {
         "select from test", listener);
     Assert.assertNotNull(monitor);
 
-    session.begin();
-    for (var i = 0; i < txSize; i++) {
-      var elem = session.newEntity("test");
-      elem.setProperty("name", "foo");
-      elem.setProperty("surname", "bar" + i);
-    }
-    session.commit();
+    session.executeSQLScript("""
+        begin;
+        let $i = 0;
+        while ($i < 100) {
+          create vertex test set name = 'foo', surname = 'bar' + i;
+          let $i = $i + 1;
+        }
+        commit;
+        """);
 
     Assert.assertTrue(listener.latch.await(1, TimeUnit.MINUTES));
 

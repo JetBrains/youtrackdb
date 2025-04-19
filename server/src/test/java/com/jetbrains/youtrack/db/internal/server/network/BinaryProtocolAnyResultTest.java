@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
@@ -34,8 +35,8 @@ public class BinaryProtocolAnyResultTest {
   @Test
   @Ignore
   public void scriptReturnValueTest() throws IOException {
-    BasicYouTrackDB youTrackDB =
-        new YouTrackDBAbstract("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
+    var youTrackDB =
+        YourTracks.remote("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
 
     if (youTrackDB.exists("test")) {
       youTrackDB.drop("test");

@@ -2,8 +2,10 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertNotNull;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -23,14 +25,14 @@ public class TestConcurrentDBSequenceGenerationIT {
   static final int THREADS = 20;
   static final int RECORDS = 100;
   private YouTrackDBServer server;
-  private BasicYouTrackDB youTrackDB;
+  private RemoteYouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
     server.activate();
-    youTrackDB = new YouTrackDBAbstract("remote:localhost", "root", "root",
+    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",

@@ -61,6 +61,20 @@ public class RemoteResultImpl implements RemoteResult {
     }
   }
 
+
+  public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session,
+      @Nonnull Map<String, ?> data, @Nonnull RID rid) {
+    content = new HashMap<>();
+    this.session = session;
+
+    for (var entry : data.entrySet()) {
+      setProperty(entry.getKey(), entry.getValue());
+    }
+
+    this.rid = rid;
+  }
+
+
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
 
@@ -413,6 +427,9 @@ public class RemoteResultImpl implements RemoteResult {
       for (var prop : getPropertyNames()) {
         var propVal = getProperty(prop);
         map.put(prop, ResultInternal.toMapValue(propVal, false));
+      }
+      if (isIdentifiable()) {
+        map.put("@rid", rid);
       }
     } else if (isIdentifiable()) {
       map.put("@rid", rid);
