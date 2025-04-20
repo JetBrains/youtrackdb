@@ -12,8 +12,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -90,7 +88,8 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j,
+                    "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
 
@@ -167,7 +166,8 @@ public class MultipleDBTest extends BaseDBTest {
                 session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getCollectionPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j,
+                    "RID was " + dummy.getIdentity());
               }
               var end = System.currentTimeMillis();
 
@@ -211,11 +211,6 @@ public class MultipleDBTest extends BaseDBTest {
   }
 
   private static String getDbId(DatabaseSessionInternal db) {
-    if (db.getStorage() instanceof StorageRemote) {
-      return db.getURL() + " - sessionId: " + ((StorageRemote) db.getStorage()).getSessionId(
-          (DatabaseSessionRemote) db);
-    } else {
-      return db.getURL();
-    }
+    return db.getURL();
   }
 }

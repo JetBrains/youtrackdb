@@ -24,14 +24,9 @@ import org.testng.annotations.Test;
 @Test
 @Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
-
   private static final Logger log = LoggerFactory.getLogger(SQLSelectIndexReuseTest.class);
 
-  @Parameters(value = "remote")
-  public SQLSelectIndexReuseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -172,6 +167,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {

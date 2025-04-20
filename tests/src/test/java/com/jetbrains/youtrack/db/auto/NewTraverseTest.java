@@ -33,16 +33,10 @@ import org.testng.annotations.Test;
 @Test
 @SuppressWarnings("unused")
 public class NewTraverseTest extends BaseDBTest {
-
   private int totalElements = 0;
   private Vertex tomCruise;
   private Vertex megRyan;
   private Vertex nicoleKidman;
-
-  @Parameters(value = "remote")
-  public NewTraverseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   public void init() {

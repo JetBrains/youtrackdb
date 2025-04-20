@@ -2,9 +2,11 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -36,7 +38,7 @@ public class SessionPoolRemoteTest {
   @Test
   public void testPoolCloseTx() {
     var youTrackDb =
-        new YouTrackDBAbstract(
+        YourTracks.remote(
             "remote:localhost:",
             "root",
             "root",
@@ -48,14 +50,18 @@ public class SessionPoolRemoteTest {
           "create database test memory users (admin identified by 'admin' role admin)");
     }
 
-    SessionPool pool = new SessionPoolImpl(youTrackDb, "test", "admin", "admin");
-    var db = (DatabaseSessionInternal) pool.acquire();
-    db.createClass("Test");
-    db.begin();
-    db.newEntity("Test");
+    var pool = youTrackDb.cachedPool("test", "admin", "admin");
+    var db = pool.acquire();
+    db.command("create class Test");
+
+    db.command("begin");
+    db.command("insert into Test");
     db.close();
-    db = (DatabaseSessionInternal) pool.acquire();
-    assertEquals(0, db.countClass("Test"));
+
+    db = pool.acquire();
+    assertEquals(0,
+        db.query("select count(*)  as count from Test").
+            findFirst(res -> res.getInt("count")).intValue());
 
     pool.close();
     youTrackDb.close();
@@ -64,8 +70,8 @@ public class SessionPoolRemoteTest {
   @Test
   public void testPoolDoubleClose() {
     var youTrackDb =
-        new YouTrackDBAbstract(
-            DbTestBase.embeddedDBUrl(getClass()),
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1).build());
 
@@ -74,7 +80,7 @@ public class SessionPoolRemoteTest {
           "create database test memory users (admin identified by 'admin' role admin)");
     }
 
-    SessionPool pool = new SessionPoolImpl(youTrackDb, "test", "admin", "admin");
+    var pool = youTrackDb.cachedPool("test", "admin", "admin");
     var db = pool.acquire();
     db.close();
     pool.close();
@@ -83,7 +89,6 @@ public class SessionPoolRemoteTest {
 
   @After
   public void after() {
-
     server.shutdown();
     YouTrackDBEnginesManager.instance().shutdown();
     FileUtils.deleteRecursively(new File(SERVER_DIRECTORY));

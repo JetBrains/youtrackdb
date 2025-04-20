@@ -13,12 +13,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SchemaIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SchemaIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

@@ -39,6 +39,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     super(remote != null && remote);
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
@@ -49,6 +50,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.execute("drop class DropPropertyIndexTestClass").close();

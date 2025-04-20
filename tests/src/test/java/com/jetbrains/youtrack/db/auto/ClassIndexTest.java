@@ -38,15 +38,10 @@ import org.testng.annotations.Test;
 
 @Test
 public class ClassIndexTest extends BaseDBTest {
-
   private SchemaClassInternal oClass;
   private SchemaClassInternal oSuperClass;
 
-  @Parameters(value = "remote")
-  public ClassIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();

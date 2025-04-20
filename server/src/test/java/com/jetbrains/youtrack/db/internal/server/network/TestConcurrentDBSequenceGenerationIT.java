@@ -64,13 +64,14 @@ public class TestConcurrentDBSequenceGenerationIT {
         var future =
             executorService.submit(
                 () -> {
-                  try (var db = (DatabaseSessionInternal) pool.acquire()) {
-                    Assert.assertTrue(db.assertIfNotActive());
+                  try (var db = pool.acquire()) {
                     for (var j = 0; j < RECORDS; j++) {
-                      db.executeInTx(transaction -> {
-                        var vert = db.newVertex("TestSequence");
-                        assertNotNull(vert.getProperty("id"));
-                      });
+                      db.executeSQLScript("""
+                          begin;
+                          let $v = create vertex TestSequence;
+                          select assert(id is not null) from $v;
+                          commit;
+                          """);
                     }
                   }
 

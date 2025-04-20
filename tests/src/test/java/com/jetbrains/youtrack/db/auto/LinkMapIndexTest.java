@@ -45,6 +45,7 @@ public class LinkMapIndexTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();

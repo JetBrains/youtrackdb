@@ -25,12 +25,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLBatchTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLBatchTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test(enabled = false)
   public void createEdgeFailIfNoSourceOrTargetVertices() {
     try {

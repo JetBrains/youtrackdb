@@ -6,11 +6,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -35,7 +38,7 @@ public class YouTrackDBRemoteTest {
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
   private YouTrackDBServer server;
 
-  private YouTrackDBAbstract factory;
+  private RemoteYouTrackDB factory;
 
   @Before
   public void before() throws Exception {
@@ -55,7 +58,7 @@ public class YouTrackDBRemoteTest {
                 300_000)
             .build();
 
-    factory = new YouTrackDBAbstract("remote:localhost", "root", "root", config);
+    factory = YourTracks.remote("remote:localhost", "root", "root", config);
   }
 
   @Test
@@ -64,11 +67,13 @@ public class YouTrackDBRemoteTest {
       factory.execute("create database test memory users (admin identified by 'admin' role admin)");
     }
 
-    var db = (DatabaseSessionInternal) factory.open("test", "admin",
+    var db = factory.open("test", "admin",
         "admin");
-    db.begin();
-    db.newEntity();
-    db.commit();
+    db.executeSQLScript("""
+        begin;
+        insert into O;
+        commit;
+        """);
     db.close();
   }
 
@@ -94,11 +99,13 @@ public class YouTrackDBRemoteTest {
       factory.execute("create database test memory users (admin identified by 'admin' role admin)");
     }
 
-    SessionPool pool = new SessionPoolImpl(factory, "test", "admin", "admin");
-    var db = (DatabaseSessionInternal) pool.acquire();
-    db.begin();
-    db.newEntity();
-    db.commit();
+    var pool = factory.cachedPool("test", "admin", "admin");
+    var db = pool.acquire();
+    db.executeSQLScript("""
+        begin;
+        insert into O;
+        commit;
+        """);
     db.close();
     pool.close();
   }
@@ -168,23 +175,14 @@ public class YouTrackDBRemoteTest {
               + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
     }
 
-    SessionPool pool = new SessionPoolImpl(factory, "test", "admin", "admin");
+    var pool = factory.cachedPool("test", "admin", "admin");
 
     // do a query and assert on other thread
     Runnable acquirer =
         () -> {
-          var db = pool.acquire();
-
-          try {
-            assertThat(((DatabaseSessionInternal) db).isActiveOnCurrentThread()).isTrue();
-            db.executeInTx(transaction -> {
-              var res = transaction.query("SELECT * FROM OUser");
-              assertEquals(3, res.stream().count());
-            });
-
-          } finally {
-
-            db.close();
+          try (var db = pool.acquire()) {
+            var res = db.query("SELECT * FROM OUser");
+            assertEquals(3, res.stream().count());
           }
         };
 
@@ -193,9 +191,9 @@ public class YouTrackDBRemoteTest {
         IntStream.range(0, 19)
             .boxed()
             .map(i -> CompletableFuture.runAsync(acquirer))
-            .collect(Collectors.toList());
+            .toList();
 
-    futures.forEach(cf -> cf.join());
+    futures.forEach(CompletableFuture::join);
 
     pool.close();
   }
@@ -218,9 +216,7 @@ public class YouTrackDBRemoteTest {
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
             .build());
     try (var session = factory.open("noUser", "root", "root")) {
-      session.executeInTx(transaction -> {
-        assertEquals(0, transaction.query("select from OUser").stream().count());
-      });
+      assertEquals(0, session.query("select from OUser").stream().count());
     }
   }
 
@@ -233,22 +229,8 @@ public class YouTrackDBRemoteTest {
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build());
     try (var session = factory.open("noUser", "root", "root")) {
-      session.executeInTx(transaction -> {
-        assertEquals(3, transaction.query("select from OUser").stream().count());
-      });
+      assertEquals(3, session.query("select from OUser").stream().count());
     }
-  }
-
-  @Test
-  public void testCopyOpenedDatabase() {
-    factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    BasicDatabaseSession db1;
-    try (var db =
-        (DatabaseSessionInternal) factory.open("test", "admin", "admin")) {
-      db1 = db.copy();
-    }
-    assertFalse(db1.isClosed());
-    db1.close();
   }
 
   @Test

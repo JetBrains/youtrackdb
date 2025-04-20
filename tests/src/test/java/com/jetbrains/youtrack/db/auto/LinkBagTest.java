@@ -1331,15 +1331,6 @@ public abstract class LinkBagTest extends BaseDBTest {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
-    if (session.getStorage() instanceof StorageProxy) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
     session.begin();
     var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
@@ -1456,15 +1447,6 @@ public abstract class LinkBagTest extends BaseDBTest {
   public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
-
-    if (session.isRemote()) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
 
     session.begin();
     var ridBag = new LinkBag(session);

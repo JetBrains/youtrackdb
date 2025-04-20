@@ -170,10 +170,6 @@ public class YouTrackDBServer {
     return server;
   }
 
-  public static YouTrackDBServer getInstance(final String iServerId) {
-    return distributedServers.get(iServerId);
-  }
-
   public SecuritySystem getSecurity() {
     return databases.getSecuritySystem();
   }

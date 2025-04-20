@@ -21,12 +21,6 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class SQLCreateClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLCreateClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testSimpleCreate() {
     Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleCreate"));

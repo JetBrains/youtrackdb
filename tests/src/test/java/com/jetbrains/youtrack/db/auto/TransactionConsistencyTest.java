@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -38,15 +39,10 @@ import org.testng.annotations.Test;
 @Test
 public class TransactionConsistencyTest extends BaseDBTest {
 
-  protected DatabaseSessionInternal database1;
-  protected DatabaseSessionInternal database2;
+  protected DatabaseSessionEmbedded database1;
+  protected DatabaseSessionEmbedded database2;
 
   public static final String NAME = "name";
-
-  @Parameters(value = "remote")
-  public TransactionConsistencyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void test1RollbackOnConcurrentException() {

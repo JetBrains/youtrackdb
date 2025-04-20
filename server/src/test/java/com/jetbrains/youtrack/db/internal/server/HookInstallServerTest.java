@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.server;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -41,20 +42,7 @@ public class HookInstallServerTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      MBeanRegistrationException,
-      NotCompliantMBeanException,
-      ClassNotFoundException,
-      NullPointerException,
-      IOException,
-      IllegalArgumentException,
-      SecurityException,
-      InvocationTargetException,
-      NoSuchMethodException,
-      InstantiationException,
-      IllegalAccessException {
+  public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
 
@@ -71,18 +59,16 @@ public class HookInstallServerTest {
     server.startup(ret.getConfiguration());
     server.activate();
 
-    var admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.createDatabase("test", "nothign", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localost", "root", "root")) {
+      youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+    }
   }
 
   @After
   public void after() throws IOException {
-    var admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.dropDatabase("test", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localost", "root", "root")) {
+      youTrackDB.drop("test");
+    }
     server.shutdown();
 
     YouTrackDBEnginesManager.instance().shutdown();
@@ -98,14 +84,13 @@ public class HookInstallServerTest {
         YourTracks.remote("remote:localhost", "root", "root")) {
       for (var i = 0; i < 10; i++) {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
-        var id = i;
         try (var db = poolInstance.acquire()) {
-          db.getSchema().getOrCreateClass("Test");
-
-          db.executeInTx(transaction -> {
-            var entity = transaction.newEntity("Test");
-            entity.setProperty("entry", id);
-          });
+          db.command("create class Test if not exists");
+          db.executeSQLScript("""
+              begin;
+              insert into Test set entry = ?;
+              commit;
+              """, i);
         }
       }
     }

@@ -29,14 +29,9 @@ import org.testng.annotations.Test;
 
 @Test
 public class IndexManagerTest extends BaseDBTest {
-
   private static final String CLASS_NAME = "classForIndexManagerTest";
 
-  @Parameters(value = "remote")
-  public IndexManagerTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();

@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
@@ -22,29 +23,23 @@ import java.util.stream.Collectors;
 import org.apache.commons.collections4.CollectionUtils;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
  * @since 7/3/14
  */
 @Test
-public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
+public abstract class BaseDBTest extends BaseTest {
 
   protected static final int TOT_COMPANY_RECORDS = 10;
   protected static final int TOT_RECORDS_ACCOUNT = 100;
 
   protected BaseDBTest() {
+    super();
   }
 
-  @Parameters(value = "remote")
-  protected BaseDBTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  public BaseDBTest(boolean remote, String prefix) {
-    super(remote, prefix);
+  public BaseDBTest(String prefix) {
+    super(prefix);
   }
 
   @BeforeClass
@@ -56,10 +51,9 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
   }
 
   @Override
-  protected DatabaseSessionInternal createSessionInstance(
+  protected DatabaseSessionEmbedded createSessionInstance(
       YouTrackDB youTrackDB, String dbName, String user, String password) {
-    var session = youTrackDB.open(dbName, user, password);
-    return (DatabaseSessionInternal) session;
+    return (DatabaseSessionEmbedded) youTrackDB.open(dbName, user, password);
   }
 
   protected List<Result> executeQuery(String sql, DatabaseSessionInternal db,
@@ -164,9 +158,8 @@ public abstract class BaseDBTest extends BaseTest<DatabaseSessionInternal> {
           binary[b] = (byte) b;
         }
         element.setProperty("binary", binary);
-        if (!remoteDB) {
-          Assert.assertTrue(accountCollectionIds.contains(element.getIdentity().getCollectionId()));
-        }
+        Assert.assertTrue(accountCollectionIds.contains(element.getIdentity().getCollectionId()));
+
         session.commit();
       }
     }

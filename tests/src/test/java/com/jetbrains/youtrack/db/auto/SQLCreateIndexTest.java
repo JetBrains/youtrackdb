@@ -30,6 +30,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     super(remote != null && remote);
   }
 
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -46,6 +47,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     oClass.createProperty("prop9", PropertyType.LINKBAG);
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {

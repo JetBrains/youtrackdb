@@ -128,6 +128,7 @@ public class HookTxTest extends BaseDBTest {
     super(remote != null ? remote : false);
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

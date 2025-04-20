@@ -22,11 +22,6 @@ import org.testng.annotations.Parameters;
 @SuppressWarnings("deprecation")
 public class LinkSetIndexTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public LinkSetIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     final var ridBagIndexTestClass =
@@ -39,11 +34,13 @@ public class LinkSetIndexTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() {
     session = createSessionInstance();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() {
     checkEmbeddedDB();

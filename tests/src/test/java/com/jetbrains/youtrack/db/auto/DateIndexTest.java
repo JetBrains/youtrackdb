@@ -24,6 +24,7 @@ public class DateIndexTest extends BaseDBTest {
     super(remote != null && remote);
   }
 
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();

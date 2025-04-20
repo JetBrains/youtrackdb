@@ -36,12 +36,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SchemaTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SchemaTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void checkSchema() {
     Schema schema = session.getMetadata().getSchema();

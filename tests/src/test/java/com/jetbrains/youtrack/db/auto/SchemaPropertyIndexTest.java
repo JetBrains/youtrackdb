@@ -33,12 +33,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SchemaPropertyIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SchemaPropertyIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -53,6 +48,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     oClass.createProperty("prop5", PropertyType.STRING);
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {

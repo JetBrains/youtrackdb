@@ -60,6 +60,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     super.beforeClass();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     topThreshold =
@@ -83,6 +84,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     super.beforeMethod();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     super.afterMethod();

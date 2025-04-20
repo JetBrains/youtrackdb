@@ -763,17 +763,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return currentTx.exists(rid);
   }
 
-  /**
-   * Deletes the record without checking the version.
-   */
-  public void delete(final RID iRecord) {
-    checkOpenness();
-    assert assertIfNotActive();
-
-    final var rec = load(iRecord);
-    delete(rec);
-  }
-
   @Override
   public BinarySerializerFactory getSerializerFactory() {
     assert assertIfNotActive();

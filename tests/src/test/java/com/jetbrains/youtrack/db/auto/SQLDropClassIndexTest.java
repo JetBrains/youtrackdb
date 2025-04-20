@@ -25,14 +25,9 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLDropClassIndexTest extends BaseDBTest {
-
   private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
   private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
-  @Parameters(value = "remote")
-  public SQLDropClassIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   public void beforeClass() throws Exception {

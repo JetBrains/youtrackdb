@@ -9,12 +9,6 @@ import org.testng.annotations.Test;
  *
  */
 public class SQLDropClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLDropClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testSimpleDrop() {
     Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleDrop"));

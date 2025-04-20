@@ -36,14 +36,8 @@ import org.testng.annotations.Test;
 
 @Test
 public class JSONTest extends BaseDBTest {
-
   public static final String FORMAT_WITHOUT_RID =
       "version,class,type,keepTypes";
-
-  @Parameters(value = "remote")
-  public JSONTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override

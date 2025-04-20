@@ -31,12 +31,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class FunctionsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public FunctionsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void createFunctionBug2415() {
     session.begin();

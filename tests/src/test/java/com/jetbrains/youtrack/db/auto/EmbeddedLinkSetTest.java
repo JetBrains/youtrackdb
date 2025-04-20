@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.auto;
 
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
@@ -25,6 +26,7 @@ public class EmbeddedLinkSetTest extends AbstractLinkSetTest {
     super(remote != null && remote);
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     topThreshold =
@@ -35,46 +37,21 @@ public class EmbeddedLinkSetTest extends AbstractLinkSetTest {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(Integer.MAX_VALUE);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(Integer.MAX_VALUE);
 
-    if (session.isRemote()) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, Integer.MAX_VALUE);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, Integer.MAX_VALUE);
-      server.close();
-    }
     super.beforeMethod();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
-
-    if (session.isRemote()) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
-      server.close();
-    }
   }
 
   @Test
   public void testFromEmbeddedToBTreeAndBack() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
-
-    if (session.getStorage() instanceof StorageProxy) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
 
     session.begin();
     var linkSet = (EntityLinkSetImpl) session.newLinkSet();

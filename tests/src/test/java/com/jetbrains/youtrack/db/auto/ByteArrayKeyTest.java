@@ -15,12 +15,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class ByteArrayKeyTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public ByteArrayKeyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();

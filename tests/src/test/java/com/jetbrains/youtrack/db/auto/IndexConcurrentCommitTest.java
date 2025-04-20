@@ -10,12 +10,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class IndexConcurrentCommitTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public IndexConcurrentCommitTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testConcurrentUpdate() {
     var personClass = session.getMetadata().getSchema().createClass("Person");
     personClass.createProperty("ssn", PropertyType.STRING)

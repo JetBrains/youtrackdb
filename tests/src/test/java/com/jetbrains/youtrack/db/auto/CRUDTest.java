@@ -55,15 +55,9 @@ import org.testng.annotations.Test;
 
 @Test
 public class CRUDTest extends BaseDBTest {
-
   protected long startRecordNumber;
 
   private Entity rome;
-
-  @Parameters(value = "remote")
-  public CRUDTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override

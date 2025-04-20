@@ -32,12 +32,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SecurityTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SecurityTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeMethod
   @Override
   public void beforeMethod() throws Exception {

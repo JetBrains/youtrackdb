@@ -45,6 +45,7 @@ public class LinkListIndexTest extends BaseDBTest {
     session.getMetadata().getSchema().dropClass("LinkListIndexTestClass");
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();

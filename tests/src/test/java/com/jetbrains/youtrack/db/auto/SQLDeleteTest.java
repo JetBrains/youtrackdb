@@ -20,21 +20,14 @@ import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "sql-delete")
 public class SQLDeleteTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLDeleteTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void deleteWithWhereOperator() {
     session.begin();
     session.execute("insert into Profile (sex, salary) values ('female', 2100)").close();
     session.commit();
 
-    final Long total = session.countClass("Profile");
+    final var total = session.countClass("Profile");
 
     var resultset =
         session.query("select from Profile where sex = 'female' and salary = 2100");

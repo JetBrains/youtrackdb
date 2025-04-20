@@ -15,12 +15,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLCreateVertexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLCreateVertexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testCreateVertexByContent() {
     session.close();
 

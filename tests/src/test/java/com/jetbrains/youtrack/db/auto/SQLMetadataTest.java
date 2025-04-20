@@ -26,11 +26,6 @@ import org.testng.annotations.Test;
 @Test
 public class SQLMetadataTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public SQLMetadataTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void querySchemaClasses() {
     var result =

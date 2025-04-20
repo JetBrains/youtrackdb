@@ -47,12 +47,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLInsertTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLInsertTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void insertOperator() {
     if (!session.getMetadata().getSchema().existsClass("Account")) {

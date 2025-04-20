@@ -35,12 +35,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class TruncateClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public TruncateClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @SuppressWarnings("unchecked")
   @Test
   public void testTruncateClass() {

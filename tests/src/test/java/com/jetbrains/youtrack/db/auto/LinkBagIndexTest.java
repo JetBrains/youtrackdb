@@ -50,6 +50,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() {
     session.begin();

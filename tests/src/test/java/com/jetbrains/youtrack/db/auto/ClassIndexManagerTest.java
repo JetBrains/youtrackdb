@@ -22,12 +22,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class ClassIndexManagerTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public ClassIndexManagerTest(@Optional Boolean remote) {
-    super(remote != null ? remote : false);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -121,6 +116,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();
