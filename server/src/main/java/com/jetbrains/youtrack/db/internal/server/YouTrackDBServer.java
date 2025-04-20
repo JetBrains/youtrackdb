@@ -74,14 +74,13 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
-
   private static final String ROOT_PASSWORD_VAR = "YOUTRACKDB_ROOT_PASSWORD";
+
   private static ThreadGroup threadGroup;
-  private static final Map<String, YouTrackDBServer> distributedServers =
-      new ConcurrentHashMap<String, YouTrackDBServer>();
   private CountDownLatch startupLatch;
   private CountDownLatch shutdownLatch;
   private final boolean shutdownEngineOnExit;
+
   protected ReentrantLock lock = new ReentrantLock();
   protected volatile boolean running = false;
   protected volatile boolean rejectRequests = true;
@@ -105,8 +104,10 @@ public class YouTrackDBServer {
   private PushManager pushManager;
   private ClassLoader extensionClassLoader;
   private TokenHandler tokenHandler;
+
   private YouTrackDBImpl context;
   private YouTrackDBInternalEmbedded databases;
+
   protected Date startedOn = new Date();
 
   public YouTrackDBServer() {

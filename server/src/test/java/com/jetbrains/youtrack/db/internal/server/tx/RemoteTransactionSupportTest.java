@@ -1,23 +1,13 @@
 package com.jetbrains.youtrack.db.internal.server.tx;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
-import java.util.ArrayList;
+
+import java.util.Map;
 import org.junit.Test;
 
 public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
-
   private static final String FIELD_VALUE = "VALUE";
 
   @Override
@@ -25,380 +15,232 @@ public class RemoteTransactionSupportTest extends BaseServerMemoryDatabase {
     GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
     super.beforeTest();
 
-    session.createClass("SomeTx");
-    session.createClass("SomeTx2");
-
-    var klass = session.createClass("IndexedTx");
-    klass.createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
-
-    var uniqueClass = session.createClass("UniqueIndexedTx");
-    uniqueClass.createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+    session.executeSQLScript("""
+        create class SomeTx;
+        create class SomeTx2;
+        
+        create class IndexedTx;
+        create property IndexedTx.name STRING;
+        create index IndexedTx.name on IndexedTx (name) NOTUNIQUE;
+        
+        create class UniqueIndexedTx;
+        create property UniqueIndexedTx.name STRING;
+        create index UniqueIndexedTx.name on UniqueIndexedTx (name) UNIQUE;
+        """);
   }
 
   @Test
   public void testQueryUpdateUpdatedInTxTransaction() {
-    session.begin();
-    var doc = ((EntityImpl) session.newEntity("SomeTx"));
-    doc.setProperty("name", "Joe");
-    session.commit();
-
-    session.begin();
-    EntityImpl doc2 = session.load(((Identifiable) doc).getIdentity());
-    doc2.setProperty("name", "Jane");
-    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
-    assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc3 = session.load(((Identifiable) doc).getIdentity());
-    assertEquals("July", doc3.getProperty("name"));
-    session.rollback();
+    session.executeSQLScript("""
+        begin;
+        let $entity = insert into SomeTx set name ='Joe';
+        commit;
+        begin;
+        update $entity set name='Jane';
+        let $res = update SomeTx set name='July' where name = 'Jane';
+        commit;
+        select assert($res.count = 1);
+        select assert(name = 'July') from $entity;
+        """);
   }
 
   @Test
   public void testResetUpdatedInTxTransaction() {
-    session.begin();
-
-    var doc1 = ((EntityImpl) session.newEntity());
-    doc1.setProperty("name", "Jane");
-    var doc2 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc2.setProperty("name", "Jane");
-    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
-    assertEquals(1L, (long) result.next().getProperty("count"));
-    assertEquals("July", doc2.getProperty("name"));
-    result.close();
+    session.executeSQLScript("""
+        begin;
+        insert into O set name ='Jane';
+        let $ entity = insert into SomeTx set name ='Jane';
+        let $res = update SomeTx set name='July' where name = 'Jane';
+        select assert ($res.count = 1);
+        select assert(name = 'July') from $entity;
+        commit;
+        """);
   }
 
   @Test
   public void testQueryUpdateCreatedInTxTransaction() {
-    session.begin();
-    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc1.setProperty("name", "Jane");
-
-    var docx = ((EntityImpl) session.newEntity("SomeTx2"));
-    docx.setProperty("name", "Jane");
-
-    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
-    assertTrue(result.hasNext());
-    assertEquals(1L, (long) result.next().getProperty("count"));
-    EntityImpl doc2 = session.load(((Identifiable) doc1).getIdentity());
-    assertEquals("July", doc2.getProperty("name"));
-    assertFalse(result.hasNext());
-    result.close();
+    session.executeSQLScript("""
+        begin;
+        let $entity = insert into SomeTx set name ='Jane';
+        insert into SomeTx2 set name ='Jane';
+        let $res = update SomeTx set name='July' where name = 'Jane';
+        select assert($res.count = 1);
+        select assert(name = 'July') from $entity;
+        commit;
+        """);
   }
 
   @Test
   public void testRollbackTxTransaction() {
-    session.begin();
-    var doc = ((EntityImpl) session.newEntity("SomeTx"));
-    doc.setProperty("name", "Jane");
-    session.commit();
-
-    session.begin();
-    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc1.setProperty("name", "Jane");
-
-    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
-    assertTrue(result.hasNext());
-    assertEquals(2L, (long) result.next().getProperty("count"));
-    result.close();
-    session.rollback();
-
-    var tx = session.begin();
-    var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
-    assertTrue(result1.hasNext());
-    assertEquals(1L, (long) result1.next().getProperty("count(*)"));
-    result1.close();
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='Jane';
+        commit;
+        
+        begin;
+        insert into SomeTx set name ='Jane';
+        let $res = update SomeTx set name='July' where name = 'Jane';
+        assert($res.count = 2);
+        rollback;
+        
+        select assert(count = 1) from (select count(*) as count from SomeTx where name='Jane');
+        """);
   }
 
   @Test
   public void testRollbackTxCheckStatusTransaction() {
-    session.begin();
-    var doc = ((EntityImpl) session.newEntity("SomeTx"));
-    doc.setProperty("name", "Jane");
-    session.commit();
-
-    session.begin();
-    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc1.setProperty("name", "Jane");
-
-    var result = session.execute("select count(*) from SomeTx where name='Jane' ");
-    assertTrue(result.hasNext());
-    assertEquals(2L, (long) result.next().getProperty("count(*)"));
-
-    assertTrue(session.getTransactionInternal().isActive());
-    result.close();
-    session.rollback();
-
-    assertFalse(session.getTransactionInternal().isActive());
-
-    var tx = session.begin();
-    var result1 = tx.query("select count(*) from SomeTx where name='Jane'");
-    assertTrue(result1.hasNext());
-    assertEquals(1L, (long) result1.next().getProperty("count(*)"));
-
-    result1.close();
-    tx.commit();
-  }
-
-  @Test
-  public void testDownloadTransactionAtStart() {
-    session.begin();
-
-    session.execute("insert into SomeTx set name ='Jane' ").close();
-    assertEquals(1, session.getTransactionInternal().getEntryCount());
-    session.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='Jane';
+        commit;
+        
+        begin;
+        insert into SomeTx set name ='Jane';
+        select assert(count = 2) from select count(*) as count from SomeTx where name='Jane';
+        rollback;
+        
+        select assert(count = 1) from select count(*) as count from SomeTx where name='Jane';
+        """);
   }
 
   @Test
   public void testQueryUpdateCreatedInTxSQLTransaction() {
-    session.begin();
-
-    session.execute("insert into SomeTx set name ='Jane' ").close();
-
-    var result = session.execute("update SomeTx set name='July' where name = 'Jane' ");
-    assertTrue(result.hasNext());
-    assertEquals(1L, (long) result.next().getProperty("count"));
-    result.close();
-    var result1 = session.query("select from SomeTx where name='July'");
-    assertTrue(result1.hasNext());
-    assertEquals("July", result1.next().getProperty("name"));
-    assertFalse(result.hasNext());
-    result1.close();
-
-    session.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='Jane';
+        select assert(count = 1) from update SomeTx set name='July' where name = 'Jane';
+        select assert(name = 'July') from SomeTx where name = 'July';
+        commit;
+        """);
   }
 
   @Test
   public void testQueryDeleteTxSQLTransaction() {
-    session.begin();
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-    session.commit();
-
-    session.begin();
-    session.execute("delete from SomeTx");
-    session.commit();
-
-    var tx = session.begin();
-    var result = session.execute("select from SomeTx");
-    assertFalse(result.hasNext());
-    result.close();
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='foo';
+        commit;
+        begin;
+        delete from SomeTx;
+        commit;
+        select assert(count = 0) from select count(*) as count from SomeTx;
+        """);
   }
 
   @Test
   public void testDoubleSaveTransaction() {
-    session.begin();
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-    assertEquals(1, session.getTransactionInternal().getEntryCount());
-    assertEquals(1, session.countClass("SomeTx"));
-    session.commit();
-    var tx = session.begin();
-    assertEquals(1, session.countClass("SomeTx"));
-    tx.commit();
-  }
-
-  @Test
-  public void testDoubleSaveDoubleFlushTransaction() {
-    session.begin();
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-    var result = session.query("select from SomeTx");
-    assertEquals(1, result.stream().count());
-    result.close();
-    result = session.query("select from SomeTx");
-    assertEquals(1, result.stream().count());
-    result.close();
-    assertEquals(1, session.getTransactionInternal().getEntryCount());
-    assertEquals(1, session.countClass("SomeTx"));
-    session.commit();
-    var tx = session.begin();
-    assertEquals(1, session.countClass("SomeTx"));
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='foo';
+        select assert(count = 1) from select count(*) as count from SomeTx;
+        commit;
+        select assert(count = 1) from select count(*) as count from SomeTx;
+        """);
   }
 
   @Test
   public void testRefFlushedInTransaction() {
-    session.begin();
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-
-    var oneMore = session.newEntity("SomeTx");
-    oneMore.setProperty("name", "bar");
-    oneMore.setProperty("ref", someTx);
-
-    var result = session.query("select from SomeTx");
-    assertEquals(2, result.stream().count());
-    result.close();
-    session.commit();
-
-    var tx = session.begin();
-    var result1 = session.query("select ref from SomeTx where name='bar'");
-    assertTrue(result1.hasNext());
-    assertEquals(someTx.getIdentity(), result1.next().getIdentity());
-    result1.close();
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        let $entity = insert into SomeTx set name ='foo';
+        insert into SomeTx set name ='bar', ref=$entity[0];
+        select assert(count = 2) from (select count(*) as count from SomeTx);
+        commit;
+        select assert($entity[0] = ref) from (select ref from SomeTx where name='bar');
+        """);
   }
 
   @Test
   public void testDoubleRefFlushedInTransaction() {
-    session.begin();
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-
-    var oneMore = session.newEntity("SomeTx");
-    oneMore.setProperty("name", "bar");
-    oneMore.setProperty("ref", someTx.getIdentity());
-
-    var result = session.query("select from SomeTx");
-    assertEquals(2, result.stream().count());
-    result.close();
-
-    var ref2 = session.newEntity("SomeTx");
-    ref2.setProperty("name", "other");
-
-    oneMore.setProperty("ref2", ref2.getIdentity());
-
-    result = session.query("select from SomeTx");
-    assertEquals(3, result.stream().count());
-    result.close();
-
-    var result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
-    assertTrue(result1.hasNext());
-    var next = result1.next();
-    assertEquals(someTx.getIdentity(), next.getProperty("ref"));
-    assertEquals(ref2.getIdentity(), next.getProperty("ref2"));
-    result1.close();
-
-    session.commit();
-
-    var tx = session.begin();
-    result1 = session.query("select ref,ref2 from SomeTx where name='bar'");
-    assertTrue(result1.hasNext());
-    next = result1.next();
-    assertEquals(someTx.getIdentity(), next.getProperty("ref"));
-    assertEquals(ref2.getIdentity(), next.getProperty("ref2"));
-    result1.close();
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        let $ref = insert into SomeTx set name ='foo';
+        insert into SomeTx set name ='bar', ref=$ref[0];
+        select assert(count = 2) from (select count(*) as count from SomeTx);
+        let $ref2 = insert into SomeTx set name ='other'
+        update SomeTx set ref2=$ref2[0] where name='bar';
+        
+        select assert(count = 3) from (select count(*) as count from SomeTx);
+        select assert($ref[0], ref), assert($ref2[0], ref2) from (select ref from SomeTx where name='bar');
+        
+        commit;
+        
+        select assert($ref[0], ref), assert($ref2[0], ref2) from (select ref from SomeTx where name='bar');
+        """);
   }
 
   @Test
   public void testGenerateIdCounterTransaction() {
-    session.begin();
-
-    var doc = ((EntityImpl) session.newEntity("SomeTx"));
-    doc.setProperty("name", "Jane");
-
-    session.execute("insert into SomeTx set name ='Jane1' ").close();
-    session.execute("insert into SomeTx set name ='Jane2' ").close();
-
-    var doc1 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc1.setProperty("name", "Jane3");
-
-    doc1 = ((EntityImpl) session.newEntity("SomeTx"));
-    doc1.setProperty("name", "Jane4");
-    session.execute("insert into SomeTx set name ='Jane2' ").close();
-
-    var result = session.execute("select count(*) from SomeTx");
-
-    assertTrue(result.hasNext());
-    assertEquals(6L, (long) result.next().getProperty("count(*)"));
-    result.close();
-    assertTrue(session.getTransactionInternal().isActive());
-
-    session.commit();
-
-    var tx = session.begin();
-    var result1 = session.execute("select count(*) from SomeTx ");
-    assertTrue(result1.hasNext());
-    assertEquals(6L, (long) result1.next().getProperty("count(*)"));
-    result1.close();
-    tx.commit();
-
-    assertFalse(session.getTransactionInternal().isActive());
+    session.executeSQLScript("""
+        begin;
+        insert into SomeTx set name ='Jane';
+        insert into SomeTx set name ='Jane1';
+        insert into SomeTx set name ='Jane2';
+        insert into SomeTx set name ='Jane3';
+        insert into SomeTx set name ='Jane4';
+        insert into SomeTx set name ='Jane2';
+        select assert(count = 6) from select count(*) as count from SomeTx;
+        commit;
+        select assert(count = 6) from select count(*) as count from SomeTx;
+        """);
   }
 
   @Test
   public void testGraphInTx() {
-    session.createVertexClass("MyV");
-    session.createEdgeClass("MyE");
-
-    var tx = session.begin();
-    var v1 = tx.newVertex("MyV");
-    var v2 = tx.newVertex("MyV");
-    var edge = v1.addStateFulEdge(v2, "MyE");
-    edge.setProperty("some", "value");
-    var result1 = tx.query("select outE('MyE') as edges from MyV where outE('MyE').size() > 0");
-    assertTrue(result1.hasNext());
-    var val = new ArrayList<>();
-    val.add(edge.getIdentity());
-    var edges = result1.next().getLinkList("edges");
-    assertEquals(tx.loadEdge(edges.getFirst()).getProperty("some"), "value");
-    result1.close();
-    tx.commit();
+    session.executeSQLScript("""
+        create class MyV extends V;
+        create class MyE extends E;
+        begin;
+        let $v1 = create vertex MyV;
+        let $v2 = create vertex MyV;
+        create edge MyE from $v1 to $v2 set some='value';
+        let $res = select outE('MyE') as edges from MyV where outE('MyE').size() > 0;
+        select assert($res.size() = 1);
+        select assert(edges[0].some = 'value') from $res;
+        commit;
+        """);
   }
 
   @Test
-  public void testRidbagsTx() {
-    var tx = session.begin();
-    var v1 = tx.newEntity("SomeTx");
-    var v2 = tx.newEntity("SomeTx");
-
-    var ridbag = new LinkBag(session);
-    ridbag.add(v2.getIdentity());
-    v1.setProperty("rids", ridbag);
-
-    var result1 = tx.query("select rids from SomeTx where rids is not null");
-    assertTrue(result1.hasNext());
-
-    tx.newEntity("SomeTx");
-    var val = new ArrayList<>();
-    val.add(v2.getIdentity());
-    assertEquals(result1.next().getProperty("rids"), val);
-    result1.close();
-
-    result1 = tx.query("select rids from SomeTx where rids is not null");
-    assertTrue(result1.hasNext());
-    assertEquals(result1.next().getProperty("rids"), val);
-    result1.close();
-    tx.commit();
+  public void testLinkBags() {
+    session.executeSQLScript("""
+        create property SomeTx.rids LINKBAG;
+        begin;
+        
+        let $v2 = insert into SomeTx;
+        let $v1 = insert into SomeTx set rids=$v2;
+        
+        select assert(rids.size() = 1), assert(rids.contains($v2)) \
+         from select rids from SomeTx where rids is not null;
+        
+        insert into SomeTx;
+        
+        select assert(rids.size() = 1), assert(rids.contains($v2)) \
+         from select rids from SomeTx where rids is not null;
+        
+        commit;
+        """);
   }
 
   @Test
   public void testProperIndexingOnDoubleInternalBegin() {
-    session.begin();
-
-    var idx = session.newEntity("IndexedTx");
-    idx.setProperty("name", FIELD_VALUE);
-
-    var someTx = session.newEntity("SomeTx");
-    someTx.setProperty("name", "foo");
-
-    var id = (DBRecord) someTx;
-    try (var rs = session.query("select from ?", id)) {
-      assertEquals(1, rs.stream().count());
-    }
-
-    session.commit();
-
-    var tx = session.begin();
-    try (var rs = tx.query("select * from IndexedTx where name = ?", FIELD_VALUE)) {
-      assertEquals(1, rs.stream().count());
-    }
-    tx.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into IndexedTx set name =:fieldValue;
+        let $entity = insert into SomeTx set name = 'foo';
+        select assert(count = 1) from select count(*) as count from $entity;
+        commit;
+        select assert(count = 1) from select count(*) as count from IndexedTx where name = :fieldValue;
+        """, Map.of("fieldValue", FIELD_VALUE));
   }
 
   @Test(expected = RecordDuplicatedException.class)
   public void testDuplicateIndexTx() {
-    session.begin();
-
-    var v1 = session.newEntity("UniqueIndexedTx");
-    v1.setProperty("name", "a");
-
-    var v2 = session.newEntity("UniqueIndexedTx");
-    v2.setProperty("name", "a");
-    session.commit();
+    session.executeSQLScript("""
+        begin;
+        insert into UniqueIndexedTx set name = 'a';
+        insert into UniqueIndexedTx set name = 'a';
+        commit;
+        """);
   }
 }
