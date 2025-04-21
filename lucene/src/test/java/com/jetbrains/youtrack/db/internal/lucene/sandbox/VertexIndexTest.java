@@ -75,6 +75,5 @@ public class VertexIndexTest {
 
   @After
   public void deInit() {
-    DatabaseDocumentTx.closeAll();
   }
 }

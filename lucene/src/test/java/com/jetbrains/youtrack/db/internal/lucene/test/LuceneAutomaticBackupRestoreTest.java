@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -67,7 +67,7 @@ public class LuceneAutomaticBackupRestoreTest {
   private String BACKUFILE = null;
 
   private YouTrackDBServer server;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Before
   public void setUp() throws Exception {
@@ -108,7 +108,7 @@ public class LuceneAutomaticBackupRestoreTest {
     youTrackDB.execute(
         "create database ? disk users(admin identified by 'admin' role admin) ", DBNAME);
 
-    db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+    db = (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
 
     db.execute("create class City ");
     db.execute("create property City.name string");
@@ -191,7 +191,6 @@ public class LuceneAutomaticBackupRestoreTest {
     db.close();
     latch.await();
 
-
     dropIfExists();
     // RESTORE
 
@@ -218,13 +217,13 @@ public class LuceneAutomaticBackupRestoreTest {
     assertThat(db.query("select from City where name lucene 'Rome'")).hasSize(1);
   }
 
-  private DatabaseSessionInternal createAndOpen() {
+  private DatabaseSessionEmbedded createAndOpen() {
     youTrackDB.execute(
         "create database ? disk users(admin identified by 'admin' role admin) ", DBNAME);
     return open();
   }
 
-  private DatabaseSessionInternal open() {
-    return (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+  private DatabaseSessionEmbedded open() {
+    return (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
   }
 }
