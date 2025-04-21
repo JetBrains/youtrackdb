@@ -589,7 +589,8 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testExecutor() throws ExecutionException, InterruptedException {
-    try (var youTrackDb = (YouTrackDBImpl) YourTracks.embedded(DbTestBase.embeddedDBUrl(getClass()),
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       youTrackDb.create("testExecutor", DatabaseType.MEMORY);
       var internal = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(youTrackDb);
@@ -734,7 +735,8 @@ public class YouTrackDBEmbeddedTests {
   public void testCreateDatabaseViaSQLIfNotExistsWithUsers() {
     final var youTrackDB =
         YourTracks.embedded(
-            DbTestBase.embeddedDBUrl(getClass()) + "testCreateDatabaseViaSQLIfNotExistsWithUsers",
+            DbTestBase.getBaseDirectoryPath(getClass())
+                + "testCreateDatabaseViaSQLIfNotExistsWithUsers",
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());

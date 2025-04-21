@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
@@ -22,6 +23,8 @@ public class SessionPoolTest {
             .build();
     final var youTrackDb =
         YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    youTrackDb.createIfNotExists("test", DatabaseType.MEMORY, "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin");
     @SuppressWarnings("unchecked") final SessionPool<DatabaseSession> pool =
         new SessionPoolImpl<>((YouTrackDBAbstract<?, DatabaseSession>) youTrackDb, "test", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);

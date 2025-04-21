@@ -40,11 +40,8 @@ import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -73,11 +70,9 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
-import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
@@ -94,7 +89,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImp
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
@@ -104,12 +98,9 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.B
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -123,7 +114,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
@@ -144,7 +134,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   protected final HashMap<String, Object> properties = new HashMap<>();
   protected final HashSet<Identifiable> inHook = new HashSet<>();
 
-  protected RecordSerializer serializer;
+  protected RecordSerializer serializer = RecordSerializerBinary.INSTANCE;
   protected String url;
   protected STATUS status;
   protected DatabaseSessionInternal databaseOwner;
@@ -183,6 +173,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     super(false);
   }
 
+  @Override
   public void callOnOpenListeners() {
     assert assertIfNotActive();
     wakeupOnOpenDbLifecycleListeners();
@@ -782,6 +773,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   }
 
 
+  @Override
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
 
@@ -803,7 +795,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
                     + " and cannot be saved");
           }
 
-          return schemaClass.getCollectionForNewInstance((EntityImpl) record);
+          return schemaClass.getCollectionForNewInstance(entity);
         } else {
           throw new DatabaseException(getDatabaseName(),
               "Cannot save (1) entity " + record + ": no class or collection defined");
@@ -928,6 +920,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return newInstance(className);
   }
 
+  @Override
   public Entity newEntity(SchemaClass clazz) {
     assert assertIfNotActive();
     return newInstance(clazz.getName());

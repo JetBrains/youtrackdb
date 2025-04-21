@@ -115,7 +115,8 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionEmbedded session = null;
     YouTrackDB ytdb = null;
     try {
-      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, "memory:",
+      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, DbTestBase.embeddedDBUrl(
+              EntityImplTest.class),
           CreateDatabaseUtil.TYPE_MEMORY);
       session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -180,7 +181,8 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionInternal db = null;
     YouTrackDB odb = null;
     try {
-      odb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, "memory:",
+      odb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName,
+          embeddedDBUrl(DbTestBase.class),
           CreateDatabaseUtil.TYPE_MEMORY);
       db = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -222,7 +224,8 @@ public class EntityImplTest extends DbTestBase {
     DatabaseSessionInternal session = null;
     BasicYouTrackDB odb = null;
     try {
-      odb = CreateDatabaseUtil.createDatabase(dbName, "memory:", CreateDatabaseUtil.TYPE_MEMORY);
+      odb = CreateDatabaseUtil.createDatabase(dbName,
+          DbTestBase.embeddedDBUrl(EntityImplTest.class), CreateDatabaseUtil.TYPE_MEMORY);
       session = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 

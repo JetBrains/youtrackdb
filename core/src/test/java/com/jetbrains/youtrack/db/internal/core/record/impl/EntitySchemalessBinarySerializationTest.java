@@ -38,17 +38,14 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @Parameters
   public static Collection<Object[]> generateParams() {
     List<Object[]> params = new ArrayList<>();
-    // first we want to run tests for all registreted serializers, and then for two network
-    // serializers
-    // testig for each serializer type has its own index
-    for (byte i = 0; i < RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions() + 2; i++) {
+    for (byte i = 0; i < RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions(); i++) {
       params.add(new Object[]{i});
     }
+
     return params;
   }
 
   protected RecordSerializer serializer;
-  private final byte serializerVersion;
 
   // first to test for all registreted serializers , then for network serializers
   public EntitySchemalessBinarySerializationTest(byte serializerVersion) {
@@ -57,8 +54,6 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     if (serializerVersion < numOfRegistretedSerializers) {
       serializer = new RecordSerializerBinary(serializerVersion);
     }
-
-    this.serializerVersion = serializerVersion;
   }
 
   @Test
