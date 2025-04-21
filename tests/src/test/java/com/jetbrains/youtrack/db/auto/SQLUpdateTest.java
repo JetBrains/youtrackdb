@@ -32,8 +32,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -45,11 +43,6 @@ import org.testng.annotations.Test;
 public class SQLUpdateTest extends BaseDBTest {
 
   private long updatedRecords;
-
-  @Parameters(value = "remote")
-  public SQLUpdateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override
@@ -113,7 +106,6 @@ public class SQLUpdateTest extends BaseDBTest {
             "UPDATE Profile SET surname='Merkel' UPSERT RETURN AFTER  where surname = 'Merkel'");
     Assert.assertEquals(result.stream().count(), 1);
     session.commit();
-
 
     session.begin();
     result = session.execute("SELECT FROM Profile  where surname = 'Merkel'");

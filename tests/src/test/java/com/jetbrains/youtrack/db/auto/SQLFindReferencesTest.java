@@ -15,20 +15,16 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
-import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "sql-findReferences")
+@Test
 public class SQLFindReferencesTest extends BaseDBTest {
 
   private static final String WORKPLACE = "Workplace";
@@ -42,11 +38,6 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private RecordId jackBauerID;
   private RecordId ctuID;
   private RecordId fbiID;
-
-  @Parameters(value = "remote")
-  public SQLFindReferencesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void findSimpleReference() {

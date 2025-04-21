@@ -36,8 +36,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -45,14 +43,8 @@ import org.testng.annotations.Test;
  */
 @Test
 public class BTreeBasedLinkBagTest extends LinkBagTest {
-
   private int topThreshold;
   private int bottomThreshold;
-
-  @Parameters(value = "remote")
-  public BTreeBasedLinkBagTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override
@@ -68,17 +60,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     bottomThreshold =
         GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
 
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, -1);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
     super.beforeMethod();
@@ -90,17 +71,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
-
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
-      server.close();
-    }
   }
 
   public void testRidBagCollectionDistribution() {

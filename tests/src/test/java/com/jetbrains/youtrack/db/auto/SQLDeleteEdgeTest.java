@@ -5,22 +5,8 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 
-/**
- * href="mailto:lomakin.andrey@gmail.com">Andrey Lomakin</a>
- *
- * @since 04/12/14
- */
 public class SQLDeleteEdgeTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLDeleteEdgeTest(@Optional Boolean remote) {
-    //super(remote != null && remote);
-    super(true);
-  }
-
   public void testDeleteFromTo() {
     session.execute("CREATE CLASS testFromToOneE extends E").close();
     session.execute("CREATE CLASS testFromToTwoE extends E").close();

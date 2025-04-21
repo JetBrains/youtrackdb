@@ -21,7 +21,6 @@ import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.File;
@@ -29,8 +28,6 @@ import java.util.Locale;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -39,12 +36,7 @@ public class DbCreationTest {
   private static final String DB_NAME = "DbCreationTest";
 
   private YouTrackDB youTrackDB;
-  private final boolean remoteDB;
 
-  @Parameters(value = "remote")
-  public DbCreationTest(@Optional Boolean remote) {
-    remoteDB = remote != null ? remote : false;
-  }
 
   @BeforeClass
   public void beforeClass() {
@@ -59,17 +51,8 @@ public class DbCreationTest {
   private void initODB() {
     var configBuilder = YouTrackDBConfig.builder();
 
-    if (remoteDB) {
-      youTrackDB =
-          YourTracks.remote(
-              "localhost",
-              "root",
-              "D2AFD02F20640EC8B7A5140F34FCA49D2289DB1F0D0598BB9DE8AAA75A0792F3",
-              configBuilder.build());
-    } else {
-      final var buildDirectory = System.getProperty("buildDirectory", ".");
-      youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", configBuilder.build());
-    }
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", configBuilder.build());
   }
 
   @Test
@@ -97,26 +80,19 @@ public class DbCreationTest {
   public void testDbOpenWithLastAsSlash() {
     youTrackDB.close();
 
-    var url = calculateURL() + "/";
-
     var configBuilder = YouTrackDBConfig.builder();
-    try (var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build())) {
-      var database = odb.open(DB_NAME, "admin", "admin");
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    try (var ytdb = YourTracks.embedded(buildDirectory + "/test-db/", configBuilder.build())) {
+      var database = ytdb.open(DB_NAME, "admin", "admin");
       database.close();
     }
 
     initODB();
   }
 
-  private String calculateURL() {
-    String url;
-    if (remoteDB) {
-      url = "remote:localhost";
-    } else {
-      final var buildDirectory = System.getProperty("buildDirectory", ".");
-      url = "disk:" + buildDirectory + "/test-db";
-    }
-    return url;
+  private static String calculateDirectory() {
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    return buildDirectory + "/test-db";
   }
 
   @Test(dependsOnMethods = {"testDbOpenWithLastAsSlash"})
@@ -149,44 +125,34 @@ public class DbCreationTest {
 
   @Test(dependsOnMethods = {"testChangeLocale"})
   public void testSubFolderDbCreate() {
-    if (remoteDB) {
-      return;
+    var directory = calculateDirectory();
+
+    var ytdb = YourTracks.embedded(directory);
+    if (ytdb.exists("sub")) {
+      ytdb.drop("sub");
     }
 
-    var url = calculateURL();
-
-    var configBuilder = YouTrackDBConfig.builder();
-    var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build());
-    if (odb.exists("sub")) {
-      odb.drop("sub");
-    }
-
-    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
-    var db = odb.open("sub", "admin", "admin");
+    ytdb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
+    var db = ytdb.open("sub", "admin", "admin");
     db.close();
 
-    odb.drop("sub");
+    ytdb.drop("sub");
   }
 
   @Test(dependsOnMethods = {"testChangeLocale"})
   public void testSubFolderDbCreateConnPool() {
-    if (remoteDB) {
-      return;
+    var directory = calculateDirectory();
+
+    var ytdb = YourTracks.embedded(directory);
+    if (ytdb.exists("sub")) {
+      ytdb.drop("sub");
     }
 
-    var url = calculateURL();
-
-    var configBuilder = YouTrackDBConfig.builder();
-    var odb = new YouTrackDBAbstract(url, "root", "root", configBuilder.build());
-    if (odb.exists("sub")) {
-      odb.drop("sub");
-    }
-
-    odb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
-    var db = odb.cachedPool("sub", "admin", "admin");
+    ytdb.create("sub", DatabaseType.DISK, "admin", "admin", "admin");
+    var db = ytdb.cachedPool("sub", "admin", "admin");
     db.close();
 
-    odb.drop("sub");
+    ytdb.drop("sub");
   }
 
   @Test(dependsOnMethods = {"testSubFolderDbCreateConnPool"})
@@ -198,10 +164,6 @@ public class DbCreationTest {
 
   @Test(dependsOnMethods = {"testChangeLocale"})
   public void testSubFolderMultipleDbCreateSameName() {
-    if (remoteDB) {
-      return;
-    }
-
     for (var i = 0; i < 3; ++i) {
       var dbName = "a" + i + "$db";
       try {
@@ -235,11 +197,9 @@ public class DbCreationTest {
       // ignore all is correct
     }
 
-    if (!remoteDB) {
-      final var buildDirectory = System.getProperty("buildDirectory", ".");
-      var path = buildDirectory + "/test-db/" + DB_NAME + "Remove";
-      Assert.assertTrue(new File(path).exists());
-    }
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    var path = buildDirectory + "/test-db/" + DB_NAME + "Remove";
+    Assert.assertTrue(new File(path).exists());
 
     youTrackDB.drop(DB_NAME + "Remove");
     try {

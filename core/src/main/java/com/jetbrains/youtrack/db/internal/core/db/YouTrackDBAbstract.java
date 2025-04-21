@@ -19,8 +19,8 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -296,7 +296,7 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @return a list of existing databases.
    */
   @Override
-  public List<String> list() {
+  public List<String> listDatabases() {
     return new ArrayList<>(this.internal.listDatabases(serverUser, serverPassword));
   }
 

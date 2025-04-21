@@ -9,10 +9,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -115,9 +115,9 @@ public class YouTrackDBEmbeddedTests {
     var youTrackDb = YourTracks.embedded(
         DbTestBase.getBaseDirectoryPath(getClass()) + "listTest1",
         YouTrackDBConfig.defaultConfig());
-    assertEquals(0, youTrackDb.list().size());
+    assertEquals(0, youTrackDb.listDatabases().size());
     youTrackDb.create("test", DatabaseType.MEMORY);
-    var databases = youTrackDb.list();
+    var databases = youTrackDb.listDatabases();
     assertEquals(1, databases.size());
     assertTrue(databases.contains("test"));
     youTrackDb.close();
@@ -127,9 +127,9 @@ public class YouTrackDBEmbeddedTests {
   public void testListDatabasesPersistent() {
     var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()) + "listTest2",
         YouTrackDBConfig.defaultConfig());
-    assertEquals(0, youTrackDb.list().size());
+    assertEquals(0, youTrackDb.listDatabases().size());
     youTrackDb.create("testListDatabase", DatabaseType.DISK);
-    var databases = youTrackDb.list();
+    var databases = youTrackDb.listDatabases();
     assertEquals(1, databases.size());
     assertTrue(databases.contains("testListDatabase"));
     youTrackDb.drop("testListDatabase");
@@ -208,7 +208,7 @@ public class YouTrackDBEmbeddedTests {
     var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDb.close();
-    youTrackDb.list();
+    youTrackDb.listDatabases();
   }
 
   @Test(expected = DatabaseException.class)

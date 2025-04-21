@@ -6,25 +6,16 @@ import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import java.io.IOException;
 import java.util.HashSet;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class EmbeddedLinkSetTest extends AbstractLinkSetTest {
-
   private int topThreshold;
   private int bottomThreshold;
-
-  @Parameters(value = "remote")
-  public EmbeddedLinkSetTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Override
   @BeforeMethod

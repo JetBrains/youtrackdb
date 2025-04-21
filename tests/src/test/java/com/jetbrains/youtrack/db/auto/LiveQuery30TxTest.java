@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,8 +29,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -49,20 +46,20 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
     public int unsubscribe;
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(new Pair<>("create", data));
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull Result before,
         @Nonnull Result after) {
       ops.add(new Pair<>("update", after));
       latch.countDown();
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(new Pair<>("delete", data));
       latch.countDown();
     }
@@ -78,10 +75,6 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
     }
   }
 
-  @Parameters(value = {"remote"})
-  public LiveQuery30TxTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void checkLiveQueryTx() throws IOException, InterruptedException {

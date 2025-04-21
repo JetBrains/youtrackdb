@@ -24,8 +24,6 @@ import java.util.concurrent.Future;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -36,11 +34,6 @@ public class MultipleDBTest extends BaseDBTest {
   int oldCollectionCount = 8;
 
   public MultipleDBTest() {
-  }
-
-  @Parameters(value = "remote")
-  public MultipleDBTest(@Optional Boolean remote) {
-    super(remote != null && remote);
   }
 
   @BeforeClass

@@ -11,7 +11,6 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,18 +21,10 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public abstract class LinkBagTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkBagTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testAdd() {
     session.begin();
     var bag = new LinkBag(session);

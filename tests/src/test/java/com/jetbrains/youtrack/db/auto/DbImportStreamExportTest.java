@@ -15,9 +15,10 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
@@ -26,7 +27,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -43,18 +43,13 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
   private boolean dumpMode = false;
 
   @Parameters(value = {"url", "testPath"})
-  public DbImportStreamExportTest(@Optional Boolean remote, String testPath) {
-    super(remote != null && remote);
+  public DbImportStreamExportTest(String testPath) {
     this.testPath = testPath;
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
   @Test
   public void testDbExport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     final var database = acquireSession();
     // ADD A CUSTOM TO THE CLASS
     database.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
@@ -68,52 +63,45 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     final var importDir = new File(testPath + "/" + NEW_DB_PATH);
-    if (importDir.exists()) {
-      for (final var f : importDir.listFiles()) {
-        f.delete();
+
+    try (var youTrackDb = YourTracks.embedded(testPath)) {
+      if (youTrackDb.exists(DbImportStreamExportTest.class.getSimpleName() + "Import")) {
+        youTrackDb.drop(DbImportStreamExportTest.class.getSimpleName() + "Import");
       }
-    } else {
-      importDir.mkdir();
+      youTrackDb.create(DbImportStreamExportTest.class.getSimpleName() + "Import", databaseType,
+          "admin", "admin", "admin");
+      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
+          DbImportStreamExportTest.class.getSimpleName() + "Import", "admin", "admin")) {
+        final var dbImport =
+            new DatabaseImport(importSession, new FileInputStream(testPath + "/" + exportFilePath),
+                this);
+        // UNREGISTER ALL THE HOOKS
+        for (final var hook : new ArrayList<>(importSession.getHooks())) {
+          importSession.unregisterHook(hook);
+        }
+
+        dbImport.setDeleteRIDMapping(false);
+        dbImport.importDatabase();
+        dbImport.close();
+      }
     }
-
-    final DatabaseSessionInternal database =
-        new DatabaseDocumentTx(getStorageType() + ":" + testPath + "/" + NEW_DB_URL);
-    database.create();
-
-    final var dbImport =
-        new DatabaseImport(database, new FileInputStream(importDir), this);
-    // UNREGISTER ALL THE HOOKS
-    for (final var hook : new ArrayList<>(database.getHooks())) {
-      database.unregisterHook(hook);
-    }
-
-    dbImport.setDeleteRIDMapping(false);
-    dbImport.importDatabase();
-    dbImport.close();
-
-    database.close();
   }
 
   @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
-    if (remoteDB) {
-      return;
+    var exportSession = acquireSession();
+
+    try (var youTrackDb = YourTracks.embedded(testPath)) {
+      try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
+          DbImportStreamExportTest.class.getSimpleName() + "Import", "admin", "admin")) {
+        final var databaseCompare = new DatabaseCompare(exportSession, importSession, this);
+        databaseCompare.setCompareEntriesForAutomaticIndexes(true);
+        databaseCompare.setCompareIndexMetadata(true);
+
+        Assert.assertTrue(databaseCompare.compare());
+      }
     }
-    var first = acquireSession();
-    DatabaseSessionInternal second =
-        new DatabaseDocumentTx(getStorageType() + ":" + testPath + "/" + NEW_DB_URL);
-    second.open("admin", "admin");
-
-    final var databaseCompare = new DatabaseCompare(first, second, this);
-    databaseCompare.setCompareEntriesForAutomaticIndexes(true);
-    databaseCompare.setCompareIndexMetadata(true);
-
-    Assert.assertTrue(databaseCompare.compare());
   }
 
   @Override

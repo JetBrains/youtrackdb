@@ -42,18 +42,11 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @SuppressWarnings({"deprecation", "unchecked"})
 @Test
 public class IndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public IndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Override
   @BeforeClass
@@ -194,13 +187,9 @@ public class IndexTest extends BaseDBTest {
   }
 
   private void dropIndexes() {
-    if (remoteDB) {
-      session.execute("drop index " + "Profile" + "." + "nick").close();
-    } else {
-      for (var indexName : session.getMetadata().getSchema().getClassInternal("Profile")
-          .getPropertyInternal("nick").getAllIndexes()) {
-        session.getSharedContext().getIndexManager().dropIndex(session, indexName);
-      }
+    for (var indexName : session.getMetadata().getSchema().getClassInternal("Profile")
+        .getPropertyInternal("nick").getAllIndexes()) {
+      session.getSharedContext().getIndexManager().dropIndex(session, indexName);
     }
   }
 
@@ -422,25 +411,19 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testChangeOfIndexToUnique")
   public void removeNotUniqueIndexOnNick() {
-    if (remoteDB) {
-      return;
-    }
-
     dropIndexes();
   }
 
   @Test(dependsOnMethods = "removeNotUniqueIndexOnNick")
   public void testQueryingWithoutNickIndex() {
-    if (!remoteDB) {
-      Assert.assertFalse(
-          session.getMetadata().getSchema().getClassInternal("Profile")
-              .getInvolvedIndexes(session, "name").isEmpty());
+    Assert.assertFalse(
+        session.getMetadata().getSchema().getClassInternal("Profile")
+            .getInvolvedIndexes(session, "name").isEmpty());
 
-      Assert.assertTrue(
-          session.getMetadata().getSchema().getClassInternal("Profile")
-              .getInvolvedIndexes(session, "nick")
-              .isEmpty());
-    }
+    Assert.assertTrue(
+        session.getMetadata().getSchema().getClassInternal("Profile")
+            .getInvolvedIndexes(session, "nick")
+            .isEmpty());
 
     var result =
         session
@@ -472,13 +455,11 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
   public void testIndexInNotUniqueIndex() {
-    if (!remoteDB) {
-      Assert.assertEquals(
-          session.getClassInternal("Profile").
-              getInvolvedIndexesInternal(session, "nick").iterator()
-              .next().getType(),
-          SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
-    }
+    Assert.assertEquals(
+        session.getClassInternal("Profile").
+            getInvolvedIndexesInternal(session, "nick").iterator()
+            .next().getType(),
+        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
 
     session.begin();
 
@@ -1310,10 +1291,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullIndexKeysSupportInMiddleTx() {
-    if (remoteDB) {
-      return;
-    }
-
     final var schema = session.getMetadata().getSchema();
     final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1);
     clazz.createProperty("nullField", PropertyType.STRING);
@@ -1408,10 +1385,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void testValuesContainerIsRemovedIfIndexIsRemoved() {
-    if (remoteDB) {
-      return;
-    }
-
     final var schema = session.getMetadata().getSchema();
     var clazz =
         schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1);

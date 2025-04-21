@@ -23,18 +23,10 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class AbstractClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public AbstractClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void createSchema() throws IOException {
     var abstractPerson =

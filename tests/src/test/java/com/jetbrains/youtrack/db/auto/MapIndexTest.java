@@ -4,15 +4,12 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -20,12 +17,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class MapIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public MapIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     if (session.getMetadata().getSchema().existsClass("Mapper")) {

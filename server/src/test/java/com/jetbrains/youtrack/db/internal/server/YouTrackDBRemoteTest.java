@@ -1,28 +1,20 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Assert;
@@ -200,9 +192,9 @@ public class YouTrackDBRemoteTest {
 
   @Test
   public void testListDatabases() {
-    assertEquals(0, factory.list().size());
+    assertEquals(0, factory.listDatabases().size());
     factory.execute("create database test memory users (admin identified by 'admin' role admin)");
-    var databases = factory.list();
+    var databases = factory.listDatabases();
     assertEquals(1, databases.size());
     assertTrue(databases.contains("test"));
   }
@@ -248,7 +240,7 @@ public class YouTrackDBRemoteTest {
 
   @After
   public void after() {
-    for (var db : factory.list()) {
+    for (var db : factory.listDatabases()) {
       factory.drop(db);
     }
 

@@ -388,7 +388,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       onlineHelp = "Console-Command-List-Databases")
   public void listDatabases() throws IOException {
     if (youTrackDB != null) {
-      final var databases = youTrackDB.list();
+      final var databases = youTrackDB.listDatabases();
       message(String.format("\nFound %d databases:\n", databases.size()));
       for (var database : databases) {
         message(String.format("\n* %s ", database));
@@ -2735,6 +2735,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\nCurrent path: " + new File("").getAbsolutePath());
   }
 
+  @Override
   public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
       final boolean iSucceed) {
     if (interactiveMode) {

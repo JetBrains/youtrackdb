@@ -11,8 +11,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -20,12 +18,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkMapIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkMapIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     final var linkMapIndexTestClass =

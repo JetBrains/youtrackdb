@@ -30,12 +30,11 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SchemaTest extends BaseDBTest {
+
   @Test
   public void checkSchema() {
     Schema schema = session.getMetadata().getSchema();
@@ -527,27 +526,26 @@ public class SchemaTest extends BaseDBTest {
     session.commit();
 
     var schema = (SchemaInternal) session.getSchema();
-    if (!remoteDB) {
-      var clazz = schema.getClassInternal(className);
-      var idx = clazz.getIndexesInternal();
+    var clazz = schema.getClassInternal(className);
+    var idx = clazz.getIndexesInternal();
 
-      Set<String> indexes = new HashSet<>();
-      for (var id : idx) {
-        indexes.add(id.getName());
-      }
-
-      Assert.assertTrue(
-          indexes.contains(className + "." + propertyName.toLowerCase(Locale.ENGLISH)));
-      Assert.assertTrue(
-          indexes.contains(className + "." + propertyName.toUpperCase(Locale.ENGLISH)));
+    Set<String> indexes = new HashSet<>();
+    for (var id : idx) {
+      indexes.add(id.getName());
     }
+
+    Assert.assertTrue(
+        indexes.contains(className + "." + propertyName.toLowerCase(Locale.ENGLISH)));
+    Assert.assertTrue(
+        indexes.contains(className + "." + propertyName.toUpperCase(Locale.ENGLISH)));
 
     schema.dropClass(className);
   }
 
   private void swapCollections(DatabaseSessionInternal databaseDocumentTx, int i) {
     databaseDocumentTx
-        .execute("CREATE CLASS TestRenameCollectionNew extends TestRenameCollectionOriginal collections 2")
+        .execute(
+            "CREATE CLASS TestRenameCollectionNew extends TestRenameCollectionOriginal collections 2")
         .close();
     databaseDocumentTx.begin();
     databaseDocumentTx
@@ -556,7 +554,8 @@ public class SchemaTest extends BaseDBTest {
     databaseDocumentTx.commit();
 
     databaseDocumentTx
-        .execute("ALTER CLASS TestRenameCollectionOriginal remove_collection TestRenameCollectionOriginal")
+        .execute(
+            "ALTER CLASS TestRenameCollectionOriginal remove_collection TestRenameCollectionOriginal")
         .close();
     databaseDocumentTx
         .execute("ALTER CLASS TestRenameCollectionNew remove_collection TestRenameCollectionNew")

@@ -9,21 +9,10 @@ import java.util.Date;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-/**
- * @since 10/21/13
- */
 @Test
 public class DateIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DateIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {

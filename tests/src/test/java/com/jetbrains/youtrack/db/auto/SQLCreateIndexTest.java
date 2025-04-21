@@ -15,20 +15,12 @@ import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLCreateIndexTest extends BaseDBTest {
-
   private static final PropertyTypeInternal EXPECTED_PROP1_TYPE = PropertyTypeInternal.DOUBLE;
   private static final PropertyTypeInternal EXPECTED_PROP2_TYPE = PropertyTypeInternal.INTEGER;
-
-  @Parameters(value = "remote")
-  public SQLCreateIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Override
   @BeforeClass

@@ -4,8 +4,6 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -13,11 +11,6 @@ public class EmbeddedLinkBagTest extends LinkBagTest {
 
   private int topThreshold;
   private int bottomThreshold;
-
-  @Parameters(value = "remote")
-  public EmbeddedLinkBagTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Override
   @BeforeMethod

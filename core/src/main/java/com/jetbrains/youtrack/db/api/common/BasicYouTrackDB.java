@@ -3,9 +3,9 @@ package com.jetbrains.youtrack.db.api.common;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -215,7 +215,7 @@ public interface BasicYouTrackDB<R extends BasicResult, S extends BasicDatabaseS
    *
    * @return a list of existing databases.
    */
-  List<String> list();
+  List<String> listDatabases();
 
 
   /**

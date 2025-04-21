@@ -11,18 +11,10 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Locale;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class CollateTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public CollateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testQuery() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateTest");

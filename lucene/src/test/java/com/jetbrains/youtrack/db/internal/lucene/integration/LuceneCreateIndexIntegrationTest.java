@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.lucene.integration;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Assert;
@@ -14,14 +14,14 @@ import org.junit.Test;
 public class LuceneCreateIndexIntegrationTest {
 
   private YouTrackDBServer server0;
-  private YouTrackDB remote;
+  private RemoteYouTrackDB remote;
 
   @Before
   public void before() throws Exception {
     server0 =
         YouTrackDBServer.startFromClasspathConfig(
             "com/orientechnologies/lucene/integration/youtrackdb-simple-server-config.xml");
-    remote = new YouTrackDBAbstract("remote:localhost", "root", "test",
+    remote = YourTracks.remote("remote:localhost", "root", "test",
         YouTrackDBConfig.defaultConfig());
 
     remote.execute(
@@ -34,11 +34,11 @@ public class LuceneCreateIndexIntegrationTest {
     session.computeScript("sql", "create property Person.name STRING");
     session.computeScript("sql", "create property Person.surname STRING");
 
-    session.executeInTx(transaction -> {
-      final var doc = transaction.newEntity("Person");
-      doc.setProperty("name", "Jon");
-      doc.setProperty("surname", "Snow");
-    });
+    session.executeSQLScript("""
+        begin;
+        insert into Person set name = 'Jon', surname = 'Snow';
+        commit;
+        """);
 
     session.close();
   }
