@@ -13,7 +13,7 @@ import java.io.IOException;
 public interface BinaryRequest<T extends BinaryResponse> {
 
   void write(RemoteDatabaseSessionInternal databaseSession, final ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException;
+      BinaryProptocolSession session) throws IOException;
 
   void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel, int protocolVersion)
       throws IOException;

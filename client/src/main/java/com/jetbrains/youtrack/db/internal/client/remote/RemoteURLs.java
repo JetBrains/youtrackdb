@@ -145,7 +145,7 @@ public class RemoteURLs {
       var toAdd = fetchHostsFromDns(lastHost, contextConfiguration);
       serverURLs.addAll(toAdd);
     }
-    this.initialServerURLs = new ArrayList<String>(serverURLs);
+    this.initialServerURLs = new ArrayList<>(serverURLs);
     return name;
   }
 
@@ -202,9 +202,10 @@ public class RemoteURLs {
   }
 
   private synchronized String getNextConnectUrl(
-      StorageRemoteSession session, ContextConfiguration contextConfiguration) {
+      BinaryProptocolSession session) {
     if (serverURLs.isEmpty()) {
       reloadOriginalURLs();
+
       if (serverURLs.isEmpty()) {
         throw new StorageException(null,
             "Cannot create a connection to remote server because url list is empty");
@@ -229,8 +230,7 @@ public class RemoteURLs {
 
   public synchronized String getServerURFromList(
       boolean iNextAvailable,
-      StorageRemoteSession session,
-      ContextConfiguration contextConfiguration) {
+      BinaryProptocolSession session) {
     if (session != null && session.getCurrentUrl() != null && !iNextAvailable) {
       return session.getCurrentUrl();
     }
@@ -272,8 +272,7 @@ public class RemoteURLs {
 
   public synchronized String getNextAvailableServerURL(
       boolean iIsConnectOperation,
-      StorageRemoteSession session,
-      ContextConfiguration contextConfiguration,
+      BinaryProptocolSession session,
       CONNECTION_STRATEGY strategy) {
     String url = null;
     if (session.isStickToSession()) {
@@ -283,13 +282,13 @@ public class RemoteURLs {
       case STICKY:
         url = session.getServerUrl();
         if (url == null) {
-          url = getServerURFromList(false, session, contextConfiguration);
+          url = getServerURFromList(false, session);
         }
         break;
 
       case ROUND_ROBIN_CONNECT:
         if (iIsConnectOperation || session.getServerUrl() == null) {
-          url = getNextConnectUrl(session, contextConfiguration);
+          url = getNextConnectUrl(session);
         } else {
           url = session.getServerUrl();
         }
@@ -303,7 +302,7 @@ public class RemoteURLs {
         break;
 
       case ROUND_ROBIN_REQUEST:
-        url = getServerURFromList(true, session, contextConfiguration);
+        url = getServerURFromList(true, session);
         LogManager.instance()
             .debug(
                 this,

@@ -232,6 +232,9 @@ public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
 
         return mapCopy;
       }
+      case RID recordId -> {
+        return recordId;
+      }
       default -> {
         throw new CommandExecutionException(
             "Invalid property value for Result: " + value + " - " + value.getClass().getName());

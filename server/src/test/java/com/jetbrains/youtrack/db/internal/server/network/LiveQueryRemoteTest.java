@@ -1,17 +1,15 @@
 package com.jetbrains.youtrack.db.internal.server.network;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -19,15 +17,11 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 public class LiveQueryRemoteTest {
@@ -110,8 +104,9 @@ public class LiveQueryRemoteTest {
     var listener = new MyLiveQueryListener(new CountDownLatch(1));
     var rid = session.computeSQLScript("""
         begin;
-        create vertex;
+        let $v = create vertex;
         commit;
+        return $v;
         """).findFirst().getIdentity();
 
     youTrackDB.live(session.getDatabaseName(), session.getCurrentUserName(), "admin",
@@ -119,7 +114,7 @@ public class LiveQueryRemoteTest {
 
     session.executeSQLScript("""
             begin;
-            update set name = 'foo' where @rid = ?;
+            update [?] set name = 'foo';
             commit;
             """,
         rid);
@@ -186,7 +181,7 @@ public class LiveQueryRemoteTest {
         begin;
         let $i = 0;
         while ($i < 100) {
-          create vertex test set name = 'foo', surname = 'bar' + i;
+          insert into test set name = 'foo', surname = 'bar' + i;
           let $i = $i + 1;
         }
         commit;

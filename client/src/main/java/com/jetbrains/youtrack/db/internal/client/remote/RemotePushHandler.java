@@ -13,7 +13,7 @@ public interface RemotePushHandler {
 
   BinaryPushRequest createPush(byte push);
 
-  void executeLiveQueryPush(LiveQueryPushRequest pushRequest);
+  void executeLiveQueryPush(LiveQueryPushRequest pushRequest, SocketChannelBinary network);
 
   void onPushReconnect(String host);
 

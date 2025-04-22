@@ -22,37 +22,40 @@ public class LiveQueryClientListener {
     this.listener = listener;
   }
 
+  @Nonnull
+  public DatabasePoolInternal<RemoteDatabaseSession> getPool() {
+    return pool;
+  }
+
   /**
    * Return true if the push request require an unregister
    */
-  public boolean onEvent(LiveQueryPushRequest pushRequest) {
-    try (var session = (RemoteDatabaseSessionInternal) pool.acquire()) {
-      if (pushRequest.getStatus() == LiveQueryPushRequest.ERROR) {
-        onError(pushRequest.getErrorCode().newException(pushRequest.getErrorMessage(), null),
-            session);
-        return true;
-      } else {
-        for (var result : pushRequest.getEvents()) {
-          switch (result.getEventType()) {
-            case LiveQueryResult.CREATE_EVENT:
-              listener.onCreate(session, (RemoteResult) result.getCurrentValue().detach());
-              break;
-            case LiveQueryResult.UPDATE_EVENT:
-              listener.onUpdate(session, (RemoteResult) result.getOldValue(),
-                  (RemoteResult) result.getCurrentValue().detach());
-              break;
-            case LiveQueryResult.DELETE_EVENT:
-              listener.onDelete(session, (RemoteResult) result.getCurrentValue().detach());
-              break;
-          }
-        }
-        if (pushRequest.getStatus() == LiveQueryPushRequest.END) {
-          onEnd(session);
-          return true;
+  public boolean onEvent(RemoteDatabaseSessionInternal session, LiveQueryPushRequest pushRequest) {
+    if (pushRequest.getStatus() == LiveQueryPushRequest.ERROR) {
+      onError(pushRequest.getErrorCode().newException(pushRequest.getErrorMessage(), null),
+          session);
+      return true;
+    } else {
+      for (var result : pushRequest.getEvents()) {
+        switch (result.getEventType()) {
+          case LiveQueryResult.CREATE_EVENT:
+            listener.onCreate(session, (RemoteResult) result.getCurrentValue().detach());
+            break;
+          case LiveQueryResult.UPDATE_EVENT:
+            listener.onUpdate(session, (RemoteResult) result.getOldValue(),
+                (RemoteResult) result.getCurrentValue().detach());
+            break;
+          case LiveQueryResult.DELETE_EVENT:
+            listener.onDelete(session, (RemoteResult) result.getCurrentValue().detach());
+            break;
         }
       }
-      return false;
+      if (pushRequest.getStatus() == LiveQueryPushRequest.END) {
+        onEnd(session);
+        return true;
+      }
     }
+    return false;
   }
 
   public void onError(BaseException e, RemoteDatabaseSessionInternal session) {

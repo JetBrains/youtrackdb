@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -40,7 +40,7 @@ public class IncrementalBackupResponse implements BinaryResponse {
 
   @Override
   public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     fileName = network.readString();
   }
 

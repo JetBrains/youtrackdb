@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -31,7 +31,7 @@ public class CreateDatabaseRequest implements BinaryRequest<CreateDatabaseRespon
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     network.writeString(databaseName);
     network.writeString(databaseType);
     network.writeString(storageMode);

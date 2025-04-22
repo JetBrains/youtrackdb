@@ -81,7 +81,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   remote(String[] hosts, YouTrackDBConfigImpl configuration) {
     YouTrackDBInternal<RemoteDatabaseSession> factory;
     try {
-      var className = "com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBRemote";
+      var className = "com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBInternalRemote";
       ClassLoader loader;
       if (configuration != null) {
         loader = configuration.getClassLoader();

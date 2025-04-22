@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -90,7 +90,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);
@@ -109,7 +109,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
         result.setProperty(key, value);
       }
 
-      MessageHelper.writeResult(databaseSession, result, network);
+      MessageHelper.writeResult(result, network, databaseSession.getDatabaseTimeZone());
     } else {
       network.writeByte((byte) 0);
     }
@@ -129,7 +129,8 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
     channel.readString();
 
     if (channel.readByte() == 1) {
-      this.params = MessageHelper.readResult(databaseSession, channel).toMap();
+      this.params = MessageHelper.readResult(databaseSession, channel,
+          databaseSession.getDatabaseTimeZone()).toMap();
     } else {
       this.params = Collections.emptyMap();
     }

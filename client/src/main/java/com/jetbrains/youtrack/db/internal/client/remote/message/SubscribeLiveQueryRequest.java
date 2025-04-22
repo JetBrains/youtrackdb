@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -41,13 +41,13 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     network.writeString(query);
     // params
     var paramsResult = new RemoteResultImpl(databaseSession);
     paramsResult.setProperty("params", this.params);
 
-    MessageHelper.writeResult(databaseSession, paramsResult, network);
+    MessageHelper.writeResult(paramsResult, network, databaseSession.getDatabaseTimeZone());
 
     network.writeBoolean(namedParams);
   }
@@ -58,7 +58,8 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
       throws IOException {
     this.query = channel.readString();
 
-    var paramsResult = MessageHelper.readResult(databaseSession, channel);
+    var paramsResult = MessageHelper.readResult(databaseSession, channel,
+        databaseSession.getDatabaseTimeZone());
     this.params = paramsResult.getProperty("params");
 
     this.namedParams = channel.readBoolean();

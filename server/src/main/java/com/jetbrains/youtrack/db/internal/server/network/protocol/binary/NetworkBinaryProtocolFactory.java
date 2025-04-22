@@ -62,7 +62,8 @@ public class NetworkBinaryProtocolFactory {
 
   public static Function<Integer, BinaryRequest<? extends BinaryResponse>> matchProtocol(
       short protocolVersion) {
-    if (protocolVersion == ChannelBinaryProtocol.PROTOCOL_VERSION_37) {
+    if (protocolVersion == ChannelBinaryProtocol.PROTOCOL_VERSION_37 ||
+        protocolVersion == ChannelBinaryProtocol.PROTOCOL_VERSION_38) {
       return NetworkBinaryProtocolFactory::createRequest37;
     }
 
@@ -125,8 +126,7 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_INCREMENTAL_BACKUP -> new IncrementalBackupRequest();
       case ChannelBinaryProtocol.REQUEST_DB_IMPORT -> new ImportRequest();
-      default -> throw new DatabaseException(
-          "binary protocol command with code: " + requestType + " for protocol version 37");
+      default -> createRequest(requestType);
     };
   }
 }

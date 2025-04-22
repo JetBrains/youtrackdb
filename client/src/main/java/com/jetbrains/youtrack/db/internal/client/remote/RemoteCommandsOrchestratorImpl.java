@@ -51,7 +51,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
@@ -63,11 +62,11 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinar
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.remote.RemoteCommandsOrchestrator;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -88,7 +87,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
   private static final Logger logger = LoggerFactory.getLogger(
       RemoteCommandsOrchestratorImpl.class);
-  public static final String DRIVER_NAME = "YouTrackDB Java";
 
   private static final AtomicInteger sessionSerialId = new AtomicInteger(-1);
 
@@ -109,8 +107,8 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   private final int connectionRetryDelay;
 
   public RemoteConnectionManager connectionManager;
-  private final Set<StorageRemoteSession> sessions =
-      Collections.newSetFromMap(new ConcurrentHashMap<StorageRemoteSession, Boolean>());
+  private final Set<BinaryProptocolSession> sessions =
+      Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private final Map<Integer, LiveQueryClientListener> liveQueryListener =
       new ConcurrentHashMap<>();
@@ -119,7 +117,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   protected final String url;
   protected final ReentrantReadWriteLock stateLock;
 
-  protected volatile StorageConfiguration configuration;
   protected String name;
 
   protected volatile STATUS status = STATUS.CLOSED;
@@ -134,18 +131,16 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
       final RemoteURLs hosts,
       String name,
       YouTrackDBInternalRemote context,
-      final String iMode,
       RemoteConnectionManager connectionManager,
       YouTrackDBConfigImpl config)
       throws IOException {
-    this(hosts, name, context, iMode, connectionManager, null, config);
+    this(hosts, name, context, connectionManager, null, config);
   }
 
   public RemoteCommandsOrchestratorImpl(
       final RemoteURLs hosts,
       String name,
       YouTrackDBInternalRemote context,
-      final String iMode,
       RemoteConnectionManager connectionManager,
       final STATUS status,
       YouTrackDBConfigImpl config)
@@ -163,8 +158,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     if (status != null) {
       this.status = status;
     }
-
-    configuration = null;
 
     if (config != null) {
       clientConfiguration = config.getConfiguration();
@@ -206,10 +199,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
         return name;
       }
     }
-  }
-
-  public StorageConfiguration getConfiguration() {
-    return configuration;
   }
 
 
@@ -501,7 +490,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
         }
 
         var timeZone = openRemoteDatabase(dbSession);
-        initPush(dbSession, session);
+        initPush(dbSession);
         return timeZone;
       } else {
         return reopenRemoteDatabase(dbSession);
@@ -528,11 +517,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     if (session != null) {
       final var nodes = session.getAllServerSessions();
       if (!nodes.isEmpty()) {
-        ContextConfiguration config = null;
-        if (configuration != null) {
-          config = configuration.getContextConfiguration();
-        }
-        session.closeAllSessions(connectionManager, config);
+        session.closeAllSessions(connectionManager, clientConfiguration);
         if (!checkForClose(iForce)) {
           return;
         }
@@ -1038,7 +1023,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     return response.getTimeZone();
   }
 
-  private void initPush(DatabaseSessionRemote database, StorageRemoteSession session) {
+  private void initPush(DatabaseSessionRemote database) {
     if (pushThread == null) {
       stateLock.writeLock().lock();
       try {
@@ -1048,8 +1033,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
                   this,
                   getCurrentServerURL(database),
                   connectionRetryDelay,
-                  configuration
-                      .getContextConfiguration()
+                  clientConfiguration
                       .getValueAsLong(GlobalConfiguration.NETWORK_REQUEST_TIMEOUT));
           pushThread.start();
         }
@@ -1134,42 +1118,16 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
 
-  /**
-   * Parse the URLs. Multiple URLs must be separated by semicolon (;)
-   */
-  protected void parseServerURLs() {
-    this.name = serverURLs.parseServerUrls(this.url, clientConfiguration);
-  }
-
-  /**
-   * Acquire a network channel from the pool. Don't lock the write stream since the connection usage
-   * is exclusive.
-   *
-   * @param iCommand id. Ids described at {@link ChannelBinaryProtocol}
-   * @return connection to server
-   */
-  public SocketChannelBinaryAsynchClient beginRequest(
-      final SocketChannelBinaryAsynchClient network, final byte iCommand,
-      StorageRemoteSession session)
-      throws IOException {
-    network.beginRequest(iCommand, session);
-    return network;
-  }
-
   protected String getNextAvailableServerURL(
-      boolean iIsConnectOperation, StorageRemoteSession session) {
+      boolean iIsConnectOperation, BinaryProptocolSession session) {
 
-    ContextConfiguration config = null;
-    if (configuration != null) {
-      config = configuration.getContextConfiguration();
-    }
     return serverURLs.getNextAvailableServerURL(
-        iIsConnectOperation, session, config, connectionStrategy);
+        iIsConnectOperation, session, connectionStrategy);
   }
 
   protected String getCurrentServerURL(DatabaseSessionRemote database) {
     return serverURLs.getServerURFromList(
-        false, getCurrentSession(database), configuration.getContextConfiguration());
+        false, getCurrentSession(database));
   }
 
   @Override
@@ -1220,7 +1178,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
   public static void beginResponse(
       DatabaseSessionRemote dbSession, SocketChannelBinaryAsynchClient iNetwork,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     var nodeSession = session.getServerSession(iNetwork.getServerURL());
     var newToken = iNetwork.beginResponse(dbSession, nodeSession.getSessionId(), true);
     if (newToken != null && newToken.length > 0) {
@@ -1245,14 +1203,14 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
   @Nullable
-  protected StorageRemoteSession getCurrentSession(@Nullable DatabaseSessionRemote db) {
+  protected BinaryProptocolSession getCurrentSession(@Nullable DatabaseSessionRemote db) {
     if (db == null) {
       return null;
     }
 
     var session = db.getSessionMetadata();
     if (session == null) {
-      session = new StorageRemoteSession(sessionSerialId.decrementAndGet());
+      session = new BinaryProptocolSession(sessionSerialId.decrementAndGet());
       sessions.add(session);
       db.setSessionMetadata(session);
     }
@@ -1277,7 +1235,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     if (session != null) {
       // TODO:may run a session reopen
       final var newSession =
-          new StorageRemoteSession(sessionSerialId.decrementAndGet());
+          new BinaryProptocolSession(sessionSerialId.decrementAndGet());
       newSession.connectionUserName = session.connectionUserName;
       newSession.connectionUserPassword = session.connectionUserPassword;
       dest.setSessionMetadata(newSession);
@@ -1312,15 +1270,14 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
   public LiveQueryMonitor liveQuery(
-      DatabasePoolInternal sessionPool,
+      DatabasePoolInternal<RemoteDatabaseSession> sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
       Object[] params) {
 
     var request = new SubscribeLiveQueryRequest(query, params);
-    var response = pushThread.subscribe(request,
-        getCurrentSession(database));
+    var response = pushThread.subscribe(request, getCurrentSession(database), sessionPool);
     if (response == null) {
       throw new DatabaseException(name,
           "Impossible to start the live query, check server log for additional information");
@@ -1330,7 +1287,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
   public LiveQueryMonitor liveQuery(
-      DatabasePoolInternal sessionPool,
+      DatabasePoolInternal<RemoteDatabaseSession> sessionPool,
       DatabaseSessionRemote database,
       String query,
       LiveQueryClientListener listener,
@@ -1338,8 +1295,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     @SuppressWarnings("unchecked")
     var request =
         new SubscribeLiveQueryRequest(query, (Map<String, Object>) params);
-    var response = pushThread.subscribe(request,
-        getCurrentSession(database));
+    var response = pushThread.subscribe(request, getCurrentSession(database), sessionPool);
     if (response == null) {
       throw new DatabaseException(name,
           "Impossible to start the live query, check server log for additional information");
@@ -1369,10 +1325,28 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
   @Override
-  public void executeLiveQueryPush(LiveQueryPushRequest pushRequest) {
-    var listener = liveQueryListener.get(pushRequest.getMonitorId());
-    if (listener.onEvent(pushRequest)) {
-      liveQueryListener.remove(pushRequest.getMonitorId());
+  public void executeLiveQueryPush(LiveQueryPushRequest pushRequest, SocketChannelBinary network) {
+    try {
+      pushRequest.readMonitorIdAndStatus(network);
+      var listener = liveQueryListener.get(pushRequest.getMonitorId());
+
+      if (listener != null) {
+        try (var session = (RemoteDatabaseSessionInternal) listener.getPool().acquire()) {
+          pushRequest.read(session, network);
+
+          if (listener.onEvent(session, pushRequest)) {
+            liveQueryListener.remove(pushRequest.getMonitorId());
+          }
+        }
+      } else {
+        if (logger.isWarnEnabled()) {
+          logger.warn("Live query listener not found for monitorId: {}",
+              pushRequest.getMonitorId());
+        }
+      }
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new DatabaseException(name, "Error on reading live query push request"), e, name);
     }
   }
 
@@ -1406,10 +1380,6 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   @Override
   public void returnSocket(SocketChannelBinary network) {
     this.connectionManager.remove((SocketChannelBinaryAsynchClient) network);
-  }
-
-  public List<String> getServerURLs() {
-    return serverURLs.getUrls();
   }
 
   public STATUS getStatus() {

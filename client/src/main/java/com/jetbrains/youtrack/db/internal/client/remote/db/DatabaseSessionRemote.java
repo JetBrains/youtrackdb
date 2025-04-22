@@ -26,8 +26,8 @@ import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
@@ -53,7 +53,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   private boolean initialized = false;
 
-  private StorageRemoteSession sessionMetadata;
+  private BinaryProptocolSession sessionMetadata;
   private final RemoteCommandsOrchestratorImpl commandsOrchestrator;
 
   @Nullable
@@ -115,11 +115,11 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
   }
 
 
-  public StorageRemoteSession getSessionMetadata() {
+  public BinaryProptocolSession getSessionMetadata() {
     return sessionMetadata;
   }
 
-  public void setSessionMetadata(StorageRemoteSession sessionMetadata) {
+  public void setSessionMetadata(BinaryProptocolSession sessionMetadata) {
     assert assertIfNotActive();
     this.sessionMetadata = sessionMetadata;
   }
@@ -141,7 +141,6 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   @Override
   public RemoteCommandsOrchestratorImpl getCommandOrchestrator() {
-    assert assertIfNotActive();
     return commandsOrchestrator;
   }
 
@@ -165,6 +164,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return result.getResult();
   }
 
+  @Override
   public RemoteResultSet execute(String query, Object... args) {
     checkOpenness();
     assert assertIfNotActive();
@@ -173,6 +173,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return result.getResult();
   }
 
+  @Override
   public RemoteResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
     checkOpenness();
     assert assertIfNotActive();

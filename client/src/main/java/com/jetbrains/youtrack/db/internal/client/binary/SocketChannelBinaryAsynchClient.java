@@ -21,8 +21,8 @@ package com.jetbrains.youtrack.db.internal.client.binary;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteNodeSession;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
@@ -319,31 +319,34 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
       DatabaseSessionRemote dbSession, final byte iResult, final int iClientTxId,
       ExceptionHandler exceptionHandler)
       throws IOException {
-    if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
-      var response = new Error37Response();
-      response.read(dbSession, this, null);
-      var serializedException = response.getVerbose();
-      Exception previous = null;
-      if (serializedException != null && serializedException.length > 0) {
-        var deserializeException = deserializeException(serializedException);
-        exceptionHandler.onException(deserializeException);
-      }
+    if (iResult != ChannelBinaryProtocol.RESPONSE_STATUS_OK
+        && iResult != ChannelBinaryProtocol.PUSH_DATA) {
+      if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
+        var response = new Error37Response();
+        response.read(dbSession, this, null);
+        var serializedException = response.getVerbose();
+        Exception previous = null;
+        if (serializedException != null && serializedException.length > 0) {
+          var deserializeException = deserializeException(serializedException);
+          exceptionHandler.onException(deserializeException);
+        }
 
-      for (var entry : response.getMessages().entrySet()) {
-        previous = createException(entry.getKey(), entry.getValue(), previous);
-      }
+        for (var entry : response.getMessages().entrySet()) {
+          previous = createException(entry.getKey(), entry.getValue(), previous);
+        }
 
-      if (previous != null) {
-        exceptionHandler.onException(new RuntimeException(previous));
+        if (previous != null) {
+          exceptionHandler.onException(new RuntimeException(previous));
+        } else {
+          exceptionHandler.onException(new NetworkProtocolException("Network response error"));
+        }
+
       } else {
-        exceptionHandler.onException(new NetworkProtocolException("Network response error"));
+        // PROTOCOL ERROR
+        // close();
+        exceptionHandler.onException(
+            new NetworkProtocolException("Error on reading response from the server"));
       }
-
-    } else {
-      // PROTOCOL ERROR
-      // close();
-      exceptionHandler.onException(
-          new NetworkProtocolException("Error on reading response from the server"));
     }
 
   }
@@ -413,7 +416,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     }
   }
 
-  public void beginRequest(final byte iCommand, final StorageRemoteSession session)
+  public void beginRequest(final byte iCommand, final BinaryProptocolSession session)
       throws IOException {
     final var nodeSession = session.getServerSession(serverURL);
     beginRequest(iCommand, nodeSession);

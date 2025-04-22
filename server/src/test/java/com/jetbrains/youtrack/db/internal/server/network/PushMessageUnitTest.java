@@ -5,13 +5,14 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemotePushThread;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import java.io.IOException;
@@ -56,11 +57,16 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionRemote session, ChannelDataInput network) throws IOException {
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
     }
 
     @Override
-    public BinaryPushResponse execute(RemotePushHandler remote) {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
+    }
+
+    @Override
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return new MockPushResponse();
     }
@@ -80,16 +86,21 @@ public class PushMessageUnitTest {
     }
 
     @Override
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
+    }
+
+    @Override
     public byte getPushCommand() {
       return 101;
     }
 
     @Override
-    public void read(DatabaseSessionRemote session, ChannelDataInput network) throws IOException {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
     }
 
     @Override
-    public BinaryPushResponse execute(RemotePushHandler remote) {
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return null;
     }

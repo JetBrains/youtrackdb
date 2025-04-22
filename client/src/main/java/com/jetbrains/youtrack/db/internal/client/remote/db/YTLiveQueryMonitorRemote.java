@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.client.remote.db;
 
 
 import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import javax.annotation.Nonnull;
 
@@ -11,10 +12,11 @@ import javax.annotation.Nonnull;
 public class YTLiveQueryMonitorRemote implements LiveQueryMonitor {
 
   @Nonnull
-  private final DatabasePoolInternal pool;
+  private final DatabasePoolInternal<RemoteDatabaseSession> pool;
   private final int monitorId;
 
-  public YTLiveQueryMonitorRemote(@Nonnull DatabasePoolInternal pool, int monitorId) {
+  public YTLiveQueryMonitorRemote(@Nonnull DatabasePoolInternal<RemoteDatabaseSession> pool,
+      int monitorId) {
     this.pool = pool;
     this.monitorId = monitorId;
   }

@@ -20,8 +20,8 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_S
 import static com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl.ADDRESS_SEPARATOR;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -152,6 +152,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     return new YouTrackDBRemoteImpl(this);
   }
 
+  @Override
   public RemoteDatabaseSessionInternal open(String name, String user, String password) {
     return open(name, user, password, null);
   }
@@ -166,7 +167,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
       synchronized (this) {
         orchestrator = orchestrators.get(name);
         if (orchestrator == null) {
-          orchestrator = new RemoteCommandsOrchestratorImpl(urls, name, this, "rw",
+          orchestrator = new RemoteCommandsOrchestratorImpl(urls, name, this,
               connectionManager,
               resolvedConfig);
           orchestrators.put(name, orchestrator);
@@ -235,7 +236,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
         try {
           storage =
               new RemoteCommandsOrchestratorImpl(
-                  urls, name, this, "rw", connectionManager, solveConfig(pool.getConfig()));
+                  urls, name, this, connectionManager, solveConfig(pool.getConfig()));
           orchestrators.put(name, storage);
         } catch (Exception e) {
           throw BaseException.wrapException(
@@ -472,6 +473,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     throw new UnsupportedOperationException("raw restore is not supported in remote");
   }
 
+  @Override
   public void schedule(TimerTask task, long delay, long period) {
     timer.schedule(task, delay, period);
   }
@@ -549,7 +551,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   }
 
   public <T extends BinaryResponse> T networkAdminOperation(
-      final BinaryRequest<T> request, StorageRemoteSession session, final String errorMessage) {
+      final BinaryRequest<T> request, BinaryProptocolSession session, final String errorMessage) {
     return networkAdminOperation(
         (network, session1) -> {
           try {
@@ -574,13 +576,13 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   public <T> T networkAdminOperation(
       final StorageRemoteOperation<T> operation,
       final String errorMessage,
-      StorageRemoteSession session) {
+      BinaryProptocolSession session) {
 
     SocketChannelBinaryAsynchClient network = null;
     var config = getContextConfiguration();
     try {
       var serverUrl =
-          urls.getNextAvailableServerURL(false, session, config, CONNECTION_STRATEGY.STICKY);
+          urls.getNextAvailableServerURL(false, session, CONNECTION_STRATEGY.STICKY);
       do {
         try {
           network = RemoteCommandsOrchestratorImpl.getNetwork(serverUrl, connectionManager, config);
@@ -607,13 +609,13 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
 
   private interface SessionOperation<T> {
 
-    T execute(StorageRemoteSession session) throws IOException;
+    T execute(BinaryProptocolSession session) throws IOException;
   }
 
   private <T> T connectAndExecute(
       String dbName, String user, String password, SessionOperation<T> operation) {
     checkOpen();
-    var newSession = new StorageRemoteSession(-1);
+    var newSession = new BinaryProptocolSession(-1);
     var retry = configurations.getConfiguration().getValueAsInteger(NETWORK_SOCKET_RETRY);
     while (retry > 0) {
       try {

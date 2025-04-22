@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -34,7 +34,7 @@ public class Error37Response implements BinaryResponse {
 
   @Override
   public void read(RemoteDatabaseSessionInternal dbSession, ChannelDataInput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     var code = network.readInt();
     this.errorIdentifier = network.readInt();
     this.code = ErrorCode.getErrorCode(code);

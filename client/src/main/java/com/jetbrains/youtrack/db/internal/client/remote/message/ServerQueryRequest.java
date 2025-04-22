@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataO
 import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;
+import java.util.TimeZone;
 import javax.annotation.Nullable;
 
 public final class ServerQueryRequest implements BinaryRequest<ServerQueryResponse> {
@@ -88,7 +89,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+      BinaryProptocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);
@@ -97,10 +98,10 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     network.writeString(null);
 
     // params
-    var paramsResult = new RemoteResultImpl(databaseSession);
+    var paramsResult = new RemoteResultImpl(null);
     paramsResult.setProperty("params", params);
 
-    MessageHelper.writeResult(databaseSession, paramsResult, network);
+    MessageHelper.writeResult(paramsResult, network, TimeZone.getDefault());
 
     network.writeBoolean(namedParams);
   }
@@ -116,7 +117,8 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     channel.readString();
 
-    var paramsResult = MessageHelper.readResult(databaseSession, channel);
+    var paramsResult = MessageHelper.readResult((DatabaseSessionEmbedded) null, channel,
+        TimeZone.getDefault());
     this.params = paramsResult.getProperty("params");
 
     this.namedParams = channel.readBoolean();

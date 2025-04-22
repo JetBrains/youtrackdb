@@ -621,21 +621,21 @@ public class ResultSerializerNetwork {
     channel.writeBytes(bytes.fitBytes());
   }
 
-  public static RemoteResult fromStream(RemoteDatabaseSessionInternal session,
-      ChannelDataInput channel)
+  public static RemoteResult fromStream(@Nullable RemoteDatabaseSessionInternal session,
+      ChannelDataInput channel, TimeZone databaseTimeZone)
       throws IOException {
     var bytes = new BytesContainer();
     bytes.bytes = channel.readBytes();
 
-    return deserialize(bytes, () -> new RemoteResultImpl(session), session.getDatabaseTimeZone());
+    return deserialize(bytes, () -> new RemoteResultImpl(session), databaseTimeZone);
   }
 
-  public static ResultInternal fromStream(DatabaseSessionEmbedded session,
-      ChannelDataInput channel)
+  public static ResultInternal fromStream(@Nullable DatabaseSessionEmbedded session,
+      ChannelDataInput channel, TimeZone databaseTimeZone)
       throws IOException {
     var bytes = new BytesContainer();
     bytes.bytes = channel.readBytes();
 
-    return deserialize(bytes, () -> new ResultInternal(session), session.getDatabaseTimeZone());
+    return deserialize(bytes, () -> new ResultInternal(session), databaseTimeZone);
   }
 }

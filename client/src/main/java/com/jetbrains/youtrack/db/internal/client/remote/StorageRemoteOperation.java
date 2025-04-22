@@ -27,6 +27,6 @@ import java.io.IOException;
  */
 public interface StorageRemoteOperation<T> {
 
-  T execute(final SocketChannelBinaryAsynchClient network, StorageRemoteSession session)
+  T execute(final SocketChannelBinaryAsynchClient network, BinaryProptocolSession session)
       throws IOException;
 }

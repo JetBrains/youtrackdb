@@ -40,9 +40,9 @@ import org.slf4j.LoggerFactory;
 /**
  *
  */
-public class StorageRemoteSession {
+public class BinaryProptocolSession {
 
-  private static final Logger logger = LoggerFactory.getLogger(StorageRemoteSession.class);
+  private static final Logger logger = LoggerFactory.getLogger(BinaryProptocolSession.class);
 
   public boolean commandExecuting = false;
   protected int serverURLIndex = -1;
@@ -67,7 +67,7 @@ public class StorageRemoteSession {
 
   protected String currentUrl;
 
-  public StorageRemoteSession(final int sessionId) {
+  public BinaryProptocolSession(final int sessionId) {
     this.uniqueClientSessionId = sessionId;
   }
 

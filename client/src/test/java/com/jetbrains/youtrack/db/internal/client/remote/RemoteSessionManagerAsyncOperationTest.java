@@ -34,7 +34,7 @@ public class RemoteSessionManagerAsyncOperationTest {
   @Mock
   private RemoteConnectionManager connectionManager;
   @Mock
-  private StorageRemoteSession session;
+  private BinaryProptocolSession session;
   @Mock
   private StorageRemoteNodeSession nodeSession;
 
@@ -51,7 +51,6 @@ public class RemoteSessionManagerAsyncOperationTest {
             new RemoteURLs(new String[]{}, new ContextConfiguration()),
             "mock",
             null,
-            "mock",
             null,
             null) {
           @Override
@@ -82,7 +81,7 @@ public class RemoteSessionManagerAsyncOperationTest {
           @Override
           public void write(RemoteDatabaseSessionInternal databaseSession,
               ChannelDataOutput network,
-              StorageRemoteSession session)
+              BinaryProptocolSession session)
               throws IOException {
             assertNull(status.status);
             status.status = "write";
@@ -119,7 +118,7 @@ public class RemoteSessionManagerAsyncOperationTest {
             return new BinaryResponse() {
               @Override
               public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
-                  StorageRemoteSession session)
+                  BinaryProptocolSession session)
                   throws IOException {
                 assertEquals(status.status, "write");
                 status.status = "read";
@@ -155,7 +154,7 @@ public class RemoteSessionManagerAsyncOperationTest {
           @Override
           public void write(RemoteDatabaseSessionInternal databaseSession,
               ChannelDataOutput network,
-              StorageRemoteSession session)
+              BinaryProptocolSession session)
               throws IOException {
             assertNull(status.status);
             status.status = "write";
@@ -193,7 +192,7 @@ public class RemoteSessionManagerAsyncOperationTest {
             return new BinaryResponse() {
               @Override
               public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
-                  StorageRemoteSession session)
+                  BinaryProptocolSession session)
                   throws IOException {
                 fail();
               }
@@ -232,7 +231,7 @@ public class RemoteSessionManagerAsyncOperationTest {
           @Override
           public void write(RemoteDatabaseSessionInternal databaseSession,
               ChannelDataOutput network,
-              StorageRemoteSession session)
+              BinaryProptocolSession session)
               throws IOException {
             assertNull(status.status);
             status.status = "write";
@@ -269,7 +268,7 @@ public class RemoteSessionManagerAsyncOperationTest {
             return new BinaryResponse() {
               @Override
               public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
-                  StorageRemoteSession session)
+                  BinaryProptocolSession session)
                   throws IOException {
                 try {
                   if (callBackWait.await(10, TimeUnit.MILLISECONDS)) {
