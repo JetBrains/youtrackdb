@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -8,11 +7,11 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinar
 import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 /**
@@ -28,6 +27,7 @@ public class ServerQueryResponseTest extends DbTestBase {
     super.beforeTest();
 
     MockitoAnnotations.initMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
   }
 
   @Test
@@ -45,7 +45,7 @@ public class ServerQueryResponseTest extends DbTestBase {
             "query", resuls, false);
 
     var channel = new MockChannel();
-    response.write(null,
+    response.write(session,
         channel,
         ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION
     );

@@ -10,10 +10,12 @@ import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 
 public class LiveQueryMessagesTests extends DbTestBase {
+
   @Mock
   private RemoteDatabaseSessionInternal remoteSession;
 
@@ -22,7 +24,8 @@ public class LiveQueryMessagesTests extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    MockitoAnnotations.initMocks(this);
+    MockitoAnnotations.openMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
   }
 
   @Test
@@ -31,7 +34,7 @@ public class LiveQueryMessagesTests extends DbTestBase {
     params.put("par", "value");
     var request = new SubscribeLiveQueryRequest("select from Some", params);
     var channel = new MockChannel();
-    request.write(null, channel, null);
+    request.write(remoteSession, channel, null);
     channel.close();
     var requestRead = new SubscribeLiveQueryRequest();
     requestRead.read(session, channel, -1);

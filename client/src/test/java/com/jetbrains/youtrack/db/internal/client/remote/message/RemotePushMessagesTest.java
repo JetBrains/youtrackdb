@@ -4,22 +4,24 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.HashMap;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 public class RemotePushMessagesTest extends DbTestBase {
 
   @Mock
-  private DatabaseSessionRemote sessionRemote;
+  private RemoteDatabaseSessionInternal remoteSession;
 
   @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
-    MockitoAnnotations.initMocks(this);
+    MockitoAnnotations.openMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
   }
 
   @Test
@@ -28,7 +30,7 @@ public class RemotePushMessagesTest extends DbTestBase {
 
     var request =
         new SubscribeRequest(new SubscribeLiveQueryRequest("10", new HashMap<>()));
-    request.write(null, channel, null);
+    request.write(remoteSession, channel, null);
     channel.close();
 
     var requestRead = new SubscribeRequest();
@@ -47,7 +49,7 @@ public class RemotePushMessagesTest extends DbTestBase {
     channel.close();
 
     var responseRead = new SubscribeResponse(new SubscribeLiveQueryResponse());
-    responseRead.read(sessionRemote, channel, null);
+    responseRead.read(remoteSession, channel, null);
 
     assertTrue(responseRead.getResponse() instanceof SubscribeLiveQueryResponse);
     assertEquals(10, ((SubscribeLiveQueryResponse) responseRead.getResponse()).getMonitorId());

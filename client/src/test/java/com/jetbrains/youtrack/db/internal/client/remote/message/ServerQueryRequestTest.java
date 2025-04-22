@@ -1,16 +1,27 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 
-/**
- *
- */
 public class ServerQueryRequestTest extends DbTestBase {
+
+  @Mock
+  private RemoteDatabaseSessionInternal remoteSession;
+
+  @Override
+  public void beforeTest() throws Exception {
+    super.beforeTest();
+    MockitoAnnotations.openMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
+  }
 
   @Test
   public void testWithPositionalParams() throws IOException {
@@ -23,7 +34,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
-    request.write(null, channel, null);
+    request.write(remoteSession, channel, null);
 
     channel.close();
 
@@ -52,7 +63,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
-    request.write(null, channel, null);
+    request.write(remoteSession, channel, null);
 
     channel.close();
 
@@ -77,7 +88,7 @@ public class ServerQueryRequestTest extends DbTestBase {
             ServerQueryRequest.QUERY, 123);
 
     var channel = new MockChannel();
-    request.write(null, channel, null);
+    request.write(remoteSession, channel, null);
 
     channel.close();
 
