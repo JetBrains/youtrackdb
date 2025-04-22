@@ -16,6 +16,7 @@ public class QueryResponse implements BinaryResponse {
 
   public static final byte RECORD_TYPE_RID = 0;
   public static final byte RECORD_TYPE_PROJECTION = 1;
+  public static final byte RECORD_TYPE_BLOB = 2;
 
   private String queryId;
   private List<RemoteResult> remoteResult;

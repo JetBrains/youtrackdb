@@ -22,6 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -44,7 +45,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 
-public class ResultInternal implements Result {
+public class ResultInternal implements Result, BasicResultInternal {
+
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -184,6 +186,7 @@ public class ResultInternal implements Result {
     };
   }
 
+  @Override
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
 
@@ -889,6 +892,7 @@ public class ResultInternal implements Result {
     return metadata == null ? null : metadata.get(key);
   }
 
+  @Override
   public void setMetadata(String key, Object value) {
     assert checkSession();
     if (key == null) {
@@ -915,6 +919,11 @@ public class ResultInternal implements Result {
   public Set<String> getMetadataKeys() {
     assert checkSession();
     return metadata == null ? Collections.emptySet() : metadata.keySet();
+  }
+
+  @Override
+  public void setIdentity(@Nonnull RID identity) {
+    setIdentifiable(identity);
   }
 
   public void setIdentifiable(Identifiable identifiable) {

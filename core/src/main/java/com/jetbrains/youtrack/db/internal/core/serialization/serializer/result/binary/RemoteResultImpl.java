@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
@@ -31,11 +32,14 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class RemoteResultImpl implements RemoteResult {
+public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
 
   private Map<String, Object> content;
   private Map<String, Object> metadata;
   private RID rid;
+
+  @Nullable
+  private byte[] blob;
 
   @Nullable
   protected RemoteDatabaseSessionInternal session;
@@ -45,36 +49,23 @@ public class RemoteResultImpl implements RemoteResult {
     this.session = session;
   }
 
+  public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session, @Nonnull byte[] blob) {
+    this.session = session;
+    this.blob = blob;
+  }
+
   public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session, @Nonnull RID rid) {
     content = new HashMap<>();
     this.session = session;
     this.rid = rid;
   }
 
-  public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session,
-      @Nonnull Map<String, ?> data) {
-    content = new HashMap<>();
-    this.session = session;
-
-    for (var entry : data.entrySet()) {
-      setProperty(entry.getKey(), entry.getValue());
-    }
+  @Override
+  public void setIdentity(@Nonnull RID identity) {
+    this.rid = identity;
   }
 
-
-  public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session,
-      @Nonnull Map<String, ?> data, @Nonnull RID rid) {
-    content = new HashMap<>();
-    this.session = session;
-
-    for (var entry : data.entrySet()) {
-      setProperty(entry.getKey(), entry.getValue());
-    }
-
-    this.rid = rid;
-  }
-
-
+  @Override
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
 
@@ -82,7 +73,8 @@ public class RemoteResultImpl implements RemoteResult {
       value = convertPropertyValue(value);
       content.put(name, value);
     } else {
-      throw new IllegalStateException("Result is not a project and it's property can not be set");
+      throw new IllegalStateException(
+          "Result is not a projection and it's property can not be set");
     }
   }
 
@@ -256,7 +248,7 @@ public class RemoteResultImpl implements RemoteResult {
       return (T) content.get(name);
     }
 
-    throw new IllegalStateException("Result is not a project and it's property can not be get");
+    throw new IllegalStateException("Result is not a projection and it's property can not be get");
   }
 
   @Nullable
@@ -265,7 +257,8 @@ public class RemoteResultImpl implements RemoteResult {
     assert checkSession();
 
     if (content == null) {
-      throw new IllegalStateException("Result is not a project and it's property can not be get");
+      throw new IllegalStateException(
+          "Result is not a projection and it's property can not be get");
     }
 
     Object result = null;
@@ -290,7 +283,8 @@ public class RemoteResultImpl implements RemoteResult {
     assert checkSession();
 
     if (content == null) {
-      throw new IllegalStateException("Result is not a project and it's property can not be get");
+      throw new IllegalStateException(
+          "Result is not a projection and it's property can not be get");
     }
 
     Object result = null;
@@ -311,7 +305,8 @@ public class RemoteResultImpl implements RemoteResult {
     assert checkSession();
 
     if (content == null) {
-      throw new IllegalStateException("Result is not a project and it's property can not be get");
+      throw new IllegalStateException(
+          "Result is not a projection and it's property can not be get");
     }
 
     return new ArrayList<>(content.keySet());
@@ -319,23 +314,53 @@ public class RemoteResultImpl implements RemoteResult {
 
   @Override
   public boolean isIdentifiable() {
+    assert checkSession();
+
     return rid != null;
   }
 
   @Nullable
   @Override
   public RID getIdentity() {
+    assert checkSession();
+
     return rid;
   }
 
   @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
+
     if (content == null) {
-      throw new IllegalStateException("Result is not a project and it's property can not be get");
+      throw new IllegalStateException(
+          "Result is not a projection and it's property can not be get");
     }
 
     return content.containsKey(propName);
+  }
+
+  public boolean isBlob() {
+    assert checkSession();
+
+    return blob != null;
+  }
+
+  @Nonnull
+  public byte[] asBlob() {
+    assert checkSession();
+
+    if (blob == null) {
+      throw new IllegalStateException("Result is not a blob.");
+    }
+
+    return blob;
+  }
+
+  @Nullable
+  public byte[] asBlobOrNull() {
+    assert checkSession();
+
+    return blob;
   }
 
   @Nullable
@@ -384,6 +409,7 @@ public class RemoteResultImpl implements RemoteResult {
     return metadata == null ? null : metadata.get(key);
   }
 
+  @Override
   public void setMetadata(String key, Object value) {
     assert checkSession();
     if (key == null) {

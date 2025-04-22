@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -95,7 +94,7 @@ public class LiveQueryPushRequest implements BinaryPushRequest {
 
   @Nullable
   @Override
-  public BinaryPushResponse execute(DatabaseSessionInternal session, RemotePushHandler remote) {
+  public BinaryPushResponse execute(RemotePushHandler remote) {
     remote.executeLiveQueryPush(this);
     return null;
   }

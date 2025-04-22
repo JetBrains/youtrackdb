@@ -1,204 +1,91 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
-import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.ResultSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
-import java.util.Locale;
-import javax.annotation.Nullable;
+import java.util.TimeZone;
 
 public class MessageHelper {
 
-  public static void writeIdentifiable(
-      DatabaseSessionEmbedded session, ChannelDataOutput channel, final Identifiable o)
-      throws IOException {
-    if (o == null) {
-      channel.writeShort(ChannelBinaryProtocol.RECORD_NULL);
-    } else if (o instanceof RecordId) {
-      channel.writeShort(ChannelBinaryProtocol.RECORD_RID);
-      channel.writeRID((RID) o);
-    } else {
-      var record = (RecordAbstract) o;
-      if (record.isEmbedded()) {
-        writeProjection(session, record.asEntity().detach(), channel);
-      }
-
-      writeIdentifiable(session, channel, record.getIdentity());
-    }
-  }
-
-  public static void writeRecord(
-      DatabaseSessionInternal session, ChannelDataOutput channel, RecordAbstract iRecord,
-      RecordSerializer serializer)
-      throws IOException {
-    channel.writeShort((short) 0);
-    channel.writeByte(iRecord.getRecordType());
-    channel.writeRID(iRecord.getIdentity());
-    channel.writeVersion(iRecord.getVersion());
-    try {
-      final var stream = getRecordBytes(session, iRecord, serializer);
-      channel.writeBytes(stream);
-    } catch (Exception e) {
-      channel.writeBytes(null);
-      final var message =
-          "Error on marshalling record " + iRecord.getIdentity() + " (" + e + ")";
-
-      throw BaseException.wrapException(new SerializationException(session, message), e, session);
-    }
-  }
-
-  public static byte[] getRecordBytes(@Nullable DatabaseSessionInternal session,
-      final RecordAbstract iRecord, RecordSerializer serializer) {
-    final byte[] stream;
-    String dbSerializerName = null;
-    if (session != null) {
-      dbSerializerName = session.getSerializer().toString();
-    }
-    if (EntityHelper.isEntity(iRecord.getRecordType())
-        && (dbSerializerName == null || !dbSerializerName.equals(serializer.toString()))) {
-      ((EntityImpl) iRecord).deserializeProperties();
-      stream = serializer.toStream(session, iRecord);
-    } else {
-      stream = iRecord.toStream();
-    }
-
-    return stream;
-  }
-
-  public static void writePhysicalPositions(
-      ChannelDataOutput channel, PhysicalPosition[] previousPositions) throws IOException {
-    if (previousPositions == null) {
-      channel.writeInt(0); // NO ENTRIEs
-    } else {
-      channel.writeInt(previousPositions.length);
-
-      for (final var physicalPosition : previousPositions) {
-        channel.writeLong(physicalPosition.collectionPosition);
-        channel.writeInt(physicalPosition.recordSize);
-        channel.writeVersion(physicalPosition.recordVersion);
-      }
-    }
-  }
-
-  public static PhysicalPosition[] readPhysicalPositions(ChannelDataInput network)
-      throws IOException {
-    final var positionsCount = network.readInt();
-    final PhysicalPosition[] physicalPositions;
-    if (positionsCount == 0) {
-      physicalPositions = CommonConst.EMPTY_PHYSICAL_POSITIONS_ARRAY;
-    } else {
-      physicalPositions = new PhysicalPosition[positionsCount];
-
-      for (var i = 0; i < physicalPositions.length; i++) {
-        final var position = new PhysicalPosition();
-
-        position.collectionPosition = network.readLong();
-        position.recordSize = network.readInt();
-        position.recordVersion = network.readVersion();
-
-        physicalPositions[i] = position;
-      }
-    }
-    return physicalPositions;
-  }
-
-  public static RawPair<String[], int[]> readCollectionsArray(final ChannelDataInput network)
-      throws IOException {
-    final int tot = network.readShort();
-    final var collectionNames = new String[tot];
-    final var collectionIds = new int[tot];
-
-    for (var i = 0; i < tot; ++i) {
-      var collectionName = network.readString().toLowerCase(Locale.ENGLISH);
-      final int collectionId = network.readShort();
-      collectionNames[i] = collectionName;
-      collectionIds[i] = collectionId;
-    }
-
-    return new RawPair<>(collectionNames, collectionIds);
-  }
-
-  public static void writeCollectionsArray(
-      ChannelDataOutput channel, RawPair<String[], int[]> collections, int protocolVersion)
-      throws IOException {
-    final var collectionNames = collections.first();
-    final var collectionIds = collections.second();
-
-    channel.writeShort((short) collectionNames.length);
-
-    for (var i = 0; i < collectionNames.length; i++) {
-      channel.writeString(collectionNames[i]);
-      channel.writeShort((short) collectionIds[i]);
-    }
-  }
-
-
-  public static void writeProjection(DatabaseSessionEmbedded session, BasicResult item,
-      ChannelDataOutput channel)
+  private static void writeProjection(BasicResult item,
+      ChannelDataOutput channel, TimeZone databaseTimeZone)
       throws IOException {
     channel.writeByte(QueryResponse.RECORD_TYPE_PROJECTION);
-    var ser = new ResultSerializerNetwork();
-    ser.toStream(session, item, channel);
+    ResultSerializerNetwork.toStream(item, channel, databaseTimeZone);
   }
 
   public static void writeResult(
       DatabaseSessionEmbedded session, Result row, ChannelDataOutput channel)
       throws IOException {
     if (row.isBlob()) {
-      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-      writeIdentifiable(session, channel, row.asBlob().getIdentity());
-    } else if (row.isVertex()) {
-      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-      writeIdentifiable(session, channel, row.asVertex().getIdentity());
-    } else if (row.isStatefulEdge()) {
-      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-      writeIdentifiable(session, channel, row.asStatefulEdge().getIdentity());
+      writeBlob(row, channel);
     } else if (row.isEntity()) {
-      var entity = row.asEntity();
-      if (entity.isEmbedded()) {
-        writeProjection(session, entity, channel);
-      } else {
-        channel.writeByte(QueryResponse.RECORD_TYPE_RID);
-        writeIdentifiable(session, channel, row.getIdentity());
-      }
+      writeEntity(session, row.asEntity(), channel);
+    } else if (row.isProjection()) {
+      writeProjection(row, channel, session.getDatabaseTimeZone());
     } else {
-      writeProjection(session, row, channel);
+      throw new IllegalArgumentException("Unsupported result type: " + row);
     }
   }
 
-  public static RemoteResult readResult(RemoteDatabaseSessionInternal session, ChannelDataInput channel)
+  public static void writeResult(
+      RemoteDatabaseSessionInternal session, RemoteResult row, ChannelDataOutput channel)
+      throws IOException {
+    if (row.isProjection()) {
+      writeProjection(row, channel, session.getDatabaseTimeZone());
+    } else {
+      throw new IllegalArgumentException("Unsupported result type: " + row);
+    }
+  }
+
+  private static void writeEntity(DatabaseSessionEmbedded session, Entity entity,
+      ChannelDataOutput channel) throws IOException {
+    if (entity.isUnloaded()) {
+      channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+      channel.writeRID(entity.getIdentity());
+    } else {
+      writeProjection(entity, channel, session.getDatabaseTimeZone());
+    }
+  }
+
+  private static void writeBlob(Result row, ChannelDataOutput channel) throws IOException {
+    channel.writeByte(QueryResponse.RECORD_TYPE_BLOB);
+    channel.writeBytes(row.asBlob().toStream());
+  }
+
+  public static RemoteResult readResult(RemoteDatabaseSessionInternal session,
+      ChannelDataInput channel)
       throws IOException {
     var type = channel.readByte();
-    if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
+
+    if (type == QueryResponse.RECORD_TYPE_RID) {
+      return new RemoteResultImpl(session, channel.readRID());
+    } else if (type == QueryResponse.RECORD_TYPE_BLOB) {
+      return new RemoteResultImpl(session, channel.readBytes());
+    } else if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
       return readProjection(session, channel);
     }
 
     throw new IllegalStateException("Unknown record type: " + type);
   }
 
-  public static Result readResult(DatabaseSessionEmbedded session, ChannelDataInput channel)
+  public static ResultInternal readResult(DatabaseSessionEmbedded session,
+      ChannelDataInput channel)
       throws IOException {
     var type = channel.readByte();
-    if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
+
+    if (type == QueryResponse.RECORD_TYPE_RID) {
+      return new ResultInternal(session, channel.readRID());
+    } else if (type == QueryResponse.RECORD_TYPE_PROJECTION) {
       return readProjection(session, channel);
     }
 
@@ -207,13 +94,11 @@ public class MessageHelper {
 
   private static RemoteResult readProjection(RemoteDatabaseSessionInternal session,
       ChannelDataInput channel) throws IOException {
-    var ser = new ResultSerializerNetwork();
-    return ser.fromStream(session, channel);
+    return ResultSerializerNetwork.fromStream(session, channel);
   }
 
-  public static Result readProjection(DatabaseSessionEmbedded session,
+  private static ResultInternal readProjection(DatabaseSessionEmbedded session,
       ChannelDataInput channel) throws IOException {
-    var ser = new ResultSerializerNetwork();
-    return ser.fromStream(session, channel);
+    return ResultSerializerNetwork.fromStream(session, channel);
   }
 }

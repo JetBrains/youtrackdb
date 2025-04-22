@@ -80,7 +80,8 @@ public class RemoteSessionManagerAsyncOperationTest {
           }
 
           @Override
-          public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
+          public void write(RemoteDatabaseSessionInternal databaseSession,
+              ChannelDataOutput network,
               StorageRemoteSession session)
               throws IOException {
             assertNull(status.status);
@@ -152,7 +153,8 @@ public class RemoteSessionManagerAsyncOperationTest {
           }
 
           @Override
-          public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
+          public void write(RemoteDatabaseSessionInternal databaseSession,
+              ChannelDataOutput network,
               StorageRemoteSession session)
               throws IOException {
             assertNull(status.status);
@@ -228,7 +230,8 @@ public class RemoteSessionManagerAsyncOperationTest {
           }
 
           @Override
-          public void write(DatabaseSessionRemote databaseSession, ChannelDataOutput network,
+          public void write(RemoteDatabaseSessionInternal databaseSession,
+              ChannelDataOutput network,
               StorageRemoteSession session)
               throws IOException {
             assertNull(status.status);

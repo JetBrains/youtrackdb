@@ -76,12 +76,13 @@ public class ResultSerializationTest extends DbTestBase {
     }
   }
 
-  private ResultInternal serializeDeserialize(DatabaseSessionEmbedded db,
+  private static ResultInternal serializeDeserialize(DatabaseSessionEmbedded db,
       ResultInternal document) {
     var bytes = new BytesContainer();
-    serializer.serialize(db, document, bytes);
+    ResultSerializerNetwork.serialize(document, bytes, db.getDatabaseTimeZone());
     bytes.offset = 0;
-    return serializer.deserialize(db, bytes);
+    return ResultSerializerNetwork.deserialize(bytes, () -> new ResultInternal(db),
+        db.getDatabaseTimeZone());
   }
 
   @SuppressWarnings({"rawtypes", "unchecked"})

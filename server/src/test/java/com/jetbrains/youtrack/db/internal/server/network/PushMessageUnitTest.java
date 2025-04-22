@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -61,8 +60,7 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public BinaryPushResponse execute(RemotePushHandler remote) {
       executed.countDown();
       return new MockPushResponse();
     }
@@ -91,8 +89,7 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public BinaryPushResponse execute(RemotePushHandler remote) {
       executed.countDown();
       return null;
     }
