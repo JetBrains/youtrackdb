@@ -24,7 +24,9 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -39,7 +41,7 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
     super(NAME, 1, -1);
   }
 
-  @SuppressWarnings("unchecked")
+  @Override
   public Object execute(
       Object iThis,
       Result iCurrentRecord,
@@ -54,7 +56,7 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
 
     // if the first parameter is null, then the overall result is empty
     if (iParams[0] == null) {
-      return Set.of();
+      return List.of();
     }
 
     // IN-LINE MODE (STATELESS)
@@ -66,7 +68,7 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
     }
 
     if (result.isEmpty()) { // no need to iterate further
-      return Set.of();
+      return List.of();
     }
 
     for (var i = 1; i < iParams.length; i++) {
@@ -81,9 +83,13 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
       }
     }
 
-    return result;
+    // still need to return a list here, because returning a Set can
+    // break the order, as some of our code performs collection copying based on
+    // "instanceof Set" check.
+    return new ArrayList<>(result);
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "difference(<field> [, <field]*)";
   }
