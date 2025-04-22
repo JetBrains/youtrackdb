@@ -12,6 +12,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 
@@ -24,6 +25,7 @@ public class QueryResponseTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     MockitoAnnotations.initMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
   }
 
   @Test
@@ -40,7 +42,7 @@ public class QueryResponseTest extends DbTestBase {
         new QueryResponse("query", resuls, false);
 
     var channel = new MockChannel();
-    response.write(null,
+    response.write(session,
         channel,
         ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION
     );

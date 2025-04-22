@@ -40,8 +40,6 @@ public class QueryResponse implements BinaryResponse {
       int protocolVersion)
       throws IOException {
     channel.writeString(queryId);
-    // THIS IS A PREFETCHED COLLECTION NOT YET HERE
-    channel.writeInt(0);
     channel.writeInt(embeddedResult.size());
     for (var res : embeddedResult) {
       MessageHelper.writeResult(session, res, channel);
