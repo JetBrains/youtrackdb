@@ -3,14 +3,10 @@ package com.jetbrains.youtrack.db.internal.server.network;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
@@ -69,10 +65,11 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
                   for (var j = 0; j < RECORDS; j++) {
                     var rid = db.computeSQLScript("""
                         begin;
-                        create vertex TestSequence;
+                        let $v = create vertex TestSequence;
                         commit;
+                        return $v;
                         """).findFirst().getIdentity();
-                    var entity = db.query("select from TestSequence where @rid = ?", rid)
+                    var entity = db.query("select id from ?", rid)
                         .findFirst();
                     assertNotNull(entity.getLong("id"));
                   }

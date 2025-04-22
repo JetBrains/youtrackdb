@@ -3,20 +3,17 @@ package com.jetbrains.youtrack.db.internal.server.network;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -66,12 +63,15 @@ public class TestConcurrentDBSequenceGenerationIT {
                 () -> {
                   try (var db = pool.acquire()) {
                     for (var j = 0; j < RECORDS; j++) {
-                      db.executeSQLScript("""
+                      var rid = db.computeSQLScript("""
                           begin;
                           let $v = create vertex TestSequence;
-                          select assert(id is not null) from $v;
                           commit;
-                          """);
+                          return $v;
+                          """).findFirst(BasicResult::getIdentity);
+                      var entity = db.query("select id from ?", rid)
+                          .findFirst();
+                      assertNotNull(entity.getLong("id"));
                     }
                   }
 

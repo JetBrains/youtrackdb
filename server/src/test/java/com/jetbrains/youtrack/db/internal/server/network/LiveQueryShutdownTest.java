@@ -2,11 +2,8 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
@@ -51,7 +48,7 @@ public class LiveQueryShutdownTest {
           LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin")) {
         db.command("create class Test");
         youTrackDd.live(LiveQueryShutdownTest.class.getSimpleName(), "admin", "admin",
-            "live select from Test",
+            "select from Test",
             new RemoteLiveQueryResultListener() {
 
               @Override

@@ -123,13 +123,14 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
             var retryPlan = new RetryExecutionPlan(scriptContext);
             retryPlan.chain(step);
             plan.chain(retryPlan, false);
-            lastRetryBlock = new ArrayList<>();
           } else {
             for (var statement : lastRetryBlock) {
               var sub = statement.createExecutionPlan(scriptContext);
               plan.chain(sub, false);
             }
           }
+
+          lastRetryBlock = new ArrayList<>();
         }
       }
 

@@ -784,6 +784,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     embedded.callOnCreateListeners();
   }
 
+  @Override
   public void restore(
       String name,
       String user,

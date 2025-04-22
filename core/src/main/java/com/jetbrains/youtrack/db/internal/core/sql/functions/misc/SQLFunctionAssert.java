@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import javax.annotation.Nullable;
@@ -22,28 +21,21 @@ public class SQLFunctionAssert extends SQLFunctionAbstract {
       Object[] iParams, CommandContext iContext) {
 
     boolean result;
+    var condition = iParams[0];
+    var message = iParams.length < 2 ? "" : iParams[1];
 
-    try {
-      var condition = iParams[0];
-      var message = iParams.length < 2 ? "" : iParams[1];
+    result = switch (condition) {
+      case Boolean b -> b;
+      case String s -> Boolean.parseBoolean(s);
+      case Number number -> number.intValue() > 0;
+      case null, default ->
+          throw new CommandExecutionException("Unsupported condition type: " + condition);
+    };
 
-      result = switch (condition) {
-        case Boolean b -> b;
-        case String s -> Boolean.parseBoolean(condition.toString());
-        case Number number -> number.intValue() > 0;
-        case null, default ->
-            throw new CommandExecutionException("Unsupported condition type: " + condition);
-      };
+    assert result : message;
 
-      assert result : message;
+    return result;
 
-      return null;
-
-    } catch (Exception e) {
-      LogManager.instance().error(this, "Error during if execution", e);
-
-      return null;
-    }
   }
 
   @Override
