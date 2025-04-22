@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.api.common.query;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -47,7 +46,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
     return stream().toList();
   }
 
-  @Nonnull
+  @Nullable
   default <O> O findFirst(@Nonnull Function<R, O> function) {
     try {
       if (hasNext()) {

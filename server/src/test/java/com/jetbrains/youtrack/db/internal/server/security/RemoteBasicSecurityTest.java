@@ -24,7 +24,7 @@ public class RemoteBasicSecurityTest {
             + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
     try (var session = youTrackDB.open("test", "admin", "admin")) {
       session.executeSQLScript("""
-          ceate class one;
+          create class one;
           begin;
           insert into one;
           commit;

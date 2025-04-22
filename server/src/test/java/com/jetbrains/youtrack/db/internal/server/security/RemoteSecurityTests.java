@@ -104,12 +104,12 @@ public class RemoteSecurityTests {
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       filteredSession.command("BEGIN");
-      try (var rs = session.query("select from Person")) {
+      try (var rs = filteredSession.query("select from Person")) {
         Assert.assertTrue(rs.hasNext());
         rs.next();
         Assert.assertFalse(rs.hasNext());
       }
-      session.command("COMMIT");
+      filteredSession.command("COMMIT");
     }
   }
 
@@ -129,11 +129,11 @@ public class RemoteSecurityTests {
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       filteredSession.command("BEGIN");
-      try (var rs = session.query("select from Person where name = 'bar'")) {
+      try (var rs = filteredSession.query("select from Person where name = 'bar'")) {
 
         Assert.assertFalse(rs.hasNext());
       }
-      session.command("COMMIT");
+      filteredSession.command("COMMIT");
     }
   }
 
@@ -148,10 +148,10 @@ public class RemoteSecurityTests {
 
     session.computeScript("sql", """
         BEGIN;
-        INSERT INTO Person SET name = 'foo', surname = 'foo'";
-        INSERT INTO Person SET name = 'foo', surname = 'bar'";
+        INSERT INTO Person SET name = 'foo', surname = 'foo';
+        INSERT INTO Person SET name = 'foo', surname = 'bar';
         COMMIT;
-        """);
+        """).close();
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
       filteredSession.command("BEGIN");
@@ -170,7 +170,7 @@ public class RemoteSecurityTests {
     session.computeSQLScript("""
         BEGIN;
         CREATE SECURITY POLICY testPolicy SET BEFORE UPDATE = (name = 'bar');
-        ALTER ROLE writer SET POLICY testPolicy ON database.class.Person
+        ALTER ROLE writer SET POLICY testPolicy ON database.class.Person;
         COMMIT;
         """).close();
     RID rid = null;
@@ -196,7 +196,7 @@ public class RemoteSecurityTests {
 
       filteredSession.command("BEGIN");
       Assert.assertEquals("foo",
-          session.query("select name from " + rid).findFirst().getProperty("name"));
+          filteredSession.query("select name from " + rid).findFirst().getProperty("name"));
       filteredSession.command("COMMIT");
     }
   }
@@ -353,12 +353,11 @@ public class RemoteSecurityTests {
         //expected
       }
 
-      filteredSession.executeSQLScript("""
-          begin;
-          let res = select count(*) as count from Person;
-          select assert(res[0].name = 'bar');
-          commit;
-          """);
+      try (var rs = filteredSession.query("select  from Person")) {
+        var result = rs.next();
+        Assert.assertEquals("bar", result.getProperty("name"));
+        Assert.assertFalse(rs.hasNext());
+      }
     }
   }
 
@@ -377,12 +376,9 @@ public class RemoteSecurityTests {
         """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      filteredSession.executeSQLScript("""
-          begin;
-          let res = select count(*) as count from Person;
-          select assert(res[0].count = 1);
-          commit;
-          """);
+      long count = filteredSession.query("select count(*)  as count from Person")
+          .findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(1, count);
     }
   }
 
@@ -403,14 +399,16 @@ public class RemoteSecurityTests {
         """);
     session.close();
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      filteredSession.executeSQLScript("""
-          begin;
-          let res = select count(*) as count from Person where name = 'bar';
-          select assert(res[0].count = 0);
-          let res = select count(*) as count from Person where name = 'foo';
-          select assert(res[0].count = 1);
-          commit;
-          """);
+      filteredSession.command("begin");
+      var count = filteredSession.query("select count(*) as count from Person where name = 'bar'").
+          findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(0, count.longValue());
+
+      count = filteredSession.query("select count(*) as count from Person where name = 'foo'").
+          findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(1, count.longValue());
+
+      filteredSession.command("commit");
     }
   }
 
@@ -431,14 +429,13 @@ public class RemoteSecurityTests {
         """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      filteredSession.executeSQLScript("""
-          begin;
-          let res = select count(*) from Person where name = 'bar';
-          select assert(res[0].count = 0);
-          let res = select count(*) from Person where name = 'foo';
-          select assert(res[0].count = 1);
-          commit;
-          """);
+      long count = filteredSession.query("select count(*) as count from Person where name = 'bar'")
+          .findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(0, count);
+
+      count = filteredSession.query("select count(*) as count from Person where name = 'foo'")
+          .findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(1, count);
     }
   }
 
@@ -459,14 +456,13 @@ public class RemoteSecurityTests {
         """);
 
     try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
-      filteredSession.executeSQLScript("""
-          begin;
-          let res = select count(*) from Person where name = 'bar';
-          select assert($res[0].count = 0);
-          let res = select count(*) from Person where name = 'foo';
-          select assert($res[0].count = 1);
-          commit;
-          """);
+      long count = filteredSession.query("select count(*) as count from Person where name = 'bar'")
+          .findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(0, count);
+
+      count = filteredSession.query("select count(*) as count from Person where name = 'foo'")
+          .findFirst(remoteResult -> remoteResult.getLong("count"));
+      Assert.assertEquals(1, count);
     }
   }
 
@@ -484,12 +480,13 @@ public class RemoteSecurityTests {
         """);
     session.close();
 
-    session = youTrackDB.open(DB_NAME, "reader", "reader");
-    session.executeSQLScript("""
-        begin;
-        select assert(name = undefined) from select from Person limit 1;
-        commit;
-        """);
+    try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
+      try (var rs = filteredSession.query("select from Person")) {
+        var result = rs.next();
+        Assert.assertNull(result.getString("name"));
+        Assert.assertFalse(rs.hasNext());
+      }
+    }
   }
 
   @Test
@@ -506,15 +503,16 @@ public class RemoteSecurityTests {
         """);
     session.close();
 
-    session = youTrackDB.open(DB_NAME, "reader", "reader");
-    try {
-      session.executeSQLScript("""
-          begin;
-          update Person set name = 'bar';
-          commit;
-          """);
-    } catch (Exception e) {
-      //expecte
+    try (var filteredSession = youTrackDB.open(DB_NAME, "reader", "reader")) {
+      try {
+        filteredSession.executeSQLScript("""
+            begin;
+            update Person set name = 'bar';
+            commit;
+            """);
+      } catch (SecurityException e) {
+        //expected
+      }
     }
   }
 }
