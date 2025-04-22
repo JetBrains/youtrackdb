@@ -563,7 +563,7 @@ public abstract class SchemaPropertyImpl {
   }
 
   public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
-    acquireSchemaWriteLock(session);
+    acquireSchemaReadLock(session);
     try {
       String name = entity.getProperty("name");
       PropertyTypeInternal type = null;
@@ -625,16 +625,18 @@ public abstract class SchemaPropertyImpl {
       } else {
         linkedClassName = null;
       }
-      // maybe I will find a better solution, but we need it to unfold recursion
-      // class loads properties -> property loads same class which is not loaded yet
-      if (linkedClassName != null && linkedClassName.equalsIgnoreCase(owner.getName(session))) {
-        linkedClass = owner;
-      } else {
-        LazySchemaClass lazyClass = owner.owner.getLazyClass(linkedClassName);
-        // we need to load class without inheritance to have a proper link on it
-        // later inheritance info will be loaded if needed
-        lazyClass.loadWithoutInheritanceIfNeeded(session);
-        linkedClass = lazyClass.getDelegate();
+      if (linkedClassName != null) {
+        // maybe I will find a better solution, but we need it to unfold recursion
+        // class loads properties -> property loads same class which is not loaded yet
+        if (linkedClassName.equalsIgnoreCase(owner.getName(session))) {
+          linkedClass = owner;
+        } else {
+          var lazyClass = owner.owner.getLazyClass(linkedClassName);
+          // we need to load class without inheritance to have a proper link on it
+          // later inheritance info will be loaded if needed
+          lazyClass.loadWithoutInheritanceIfNeeded(session);
+          linkedClass = lazyClass.getDelegate();
+        }
       }
       if (entity.getProperty("linkedType") != null) {
         linkedType =
@@ -654,7 +656,7 @@ public abstract class SchemaPropertyImpl {
         description = null;
       }
     } finally {
-      releaseSchemaWriteLock(session);
+      releaseSchemaReadLock(session);
     }
   }
 

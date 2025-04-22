@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -290,7 +289,7 @@ public class SchemaEmbedded extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final String key = normalizeClassName(className);
       if (classesRefs.containsKey(key) && retry == 0) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }

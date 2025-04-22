@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SchemaNotCreatedException;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
@@ -54,7 +54,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -434,7 +433,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       var normalizedClassName = normalizeClassName(iClassName);
       var lazySchemaClass = classesRefs.get(normalizedClassName);
-      if(lazySchemaClass==null){
+      if (lazySchemaClass == null) {
         return null;
       }
       lazySchemaClass.loadIfNeeded(session);
@@ -606,7 +605,6 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
       for (var lazySchemaClass : classesRefs.values()) {
-        //todo figure out why schema could be null and if new Andrii MR will fix it
         lazySchemaClass.loadIfNeededWithTemplate(session,
             createClassInstance(lazySchemaClass.getId().toString()));
         var cls = lazySchemaClass.getDelegate();
@@ -637,16 +635,22 @@ public abstract class SchemaShared implements CloseableInStorage {
   /**
    * Binds POJO to EntityImpl.
    */
-  public EntityImpl toStream(@Nonnull DatabaseSessionInternal session) {
+  public Entity toStream(@Nonnull DatabaseSessionInternal session) {
     lock.readLock().lock();
     try {
-      EntityImpl entity = session.load(identity);
+      Entity entity = session.load(identity);
       entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      Map<String, RID> classIds = classesRefs.entrySet().stream()
-          .map(e -> Map.entry(e.getKey(), e.getValue().getId()))
-          .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
-      entity.setProperty("classesRefs", classIds, PropertyType.EMBEDDEDMAP);
+      LinkMap classIds = session.newLinkMap(classesRefs.size());
+
+      for (var lazyClassRefs : classesRefs.entrySet()) {
+        //todo fix
+        if (lazyClassRefs.getValue().getId() == null || lazyClassRefs.getValue().getId().isNew()) {
+          continue; // skip not persisted ids
+        }
+        classIds.put(lazyClassRefs.getKey(), lazyClassRefs.getValue().getId());
+      }
+      entity.setProperty("classesRefs", classIds, PropertyType.LINKMAP);
 
       List<Entity> globalProperties = session.newEmbeddedList();
       for (var globalProperty : properties) {

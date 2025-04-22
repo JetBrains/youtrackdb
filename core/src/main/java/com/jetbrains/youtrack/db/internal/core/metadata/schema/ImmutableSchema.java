@@ -66,17 +66,21 @@ public class ImmutableSchema implements SchemaInternal {
     identity = schemaShared.getIdentity(session);
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
-    var classes = schemaShared.getClassesSlow(session);
-    var size = classes.size();
+    var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
+    var size = schemaSharedClassesRefs.size();
     collectionsToClasses = new Int2ObjectOpenHashMap<>(size * 3);
     this.classes = new HashMap<>(size);
 
-    var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
     classesRefs = new HashMap<>(schemaSharedClassesRefs.size());
     classesRefs.putAll(schemaSharedClassesRefs);
 
-    for (var oClass : classes) {
-      final var immutableClass = new SchemaImmutableClass(session, oClass, this);
+    for (var className : classesRefs.keySet()) {
+      var lazyClass = schemaShared.getLazyClass(className);
+      if (!lazyClass.isFullyLoaded()) {
+        // do not load class if it's not loaded
+        continue;
+      }
+      final var immutableClass = new SchemaImmutableClass(session, lazyClass.getDelegate(), this);
 
       this.classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 

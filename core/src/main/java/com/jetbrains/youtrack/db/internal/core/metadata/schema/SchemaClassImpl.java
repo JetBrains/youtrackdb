@@ -36,7 +36,6 @@ import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
@@ -595,7 +594,7 @@ public abstract class SchemaClassImpl {
 
   public void fromStream(DatabaseSessionInternal session, Entity entity,
       boolean loadInheritanceTree) {
-    acquireSchemaWriteLock(session);
+    acquireSchemaReadLock(session);
     try {
       identity = entity.getIdentity();
       subclasses.clear();
@@ -677,7 +676,7 @@ public abstract class SchemaClassImpl {
         loadInheritanceTree(session, entity);
       }
     } finally {
-      releaseSchemaWriteLock(session);
+      releaseSchemaReadLock(session);
     }
   }
 
@@ -737,9 +736,9 @@ public abstract class SchemaClassImpl {
       if (identity != null && identity.isPersistent()) {
         entity = session.load(identity);
       } else {
-        entity = session.newEntity();
+        entity = session.newInternalInstance();
         // I don't like the solution, there should be a better way to make only one copy of identity present in the system
-        identity = (RecordId) entity.getIdentity();
+        identity = entity.getIdentity();
       }
       entity.setProperty("name", name);
       entity.setProperty("description", description);

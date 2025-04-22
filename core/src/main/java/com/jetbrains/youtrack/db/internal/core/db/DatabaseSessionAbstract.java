@@ -1419,7 +1419,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     }
     if (cls.isEdgeType()) {
       throw new IllegalArgumentException(
-          "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
+          "The class " + cls.getName()
+              + " is an edge type and cannot be used to create an entity, "
               + "please use newStatefulEdge() method");
     }
     var entity = new EntityImpl(this, className);
