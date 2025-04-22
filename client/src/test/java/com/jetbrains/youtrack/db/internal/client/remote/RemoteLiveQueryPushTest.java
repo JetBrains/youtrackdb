@@ -65,7 +65,7 @@ public class RemoteLiveQueryPushTest extends DbTestBase {
     }
   }
 
-  private RemoteCommandsOrchestratorImpl commandsOrchestrator;
+  private RemoteCommandsDispatcherImpl commandsOrchestrator;
 
   @Mock
   private RemoteConnectionManager connectionManager;
@@ -87,7 +87,7 @@ public class RemoteLiveQueryPushTest extends DbTestBase {
     Mockito.when(remoteDatabaseSession.assertIfNotActive()).thenReturn(true);
 
     commandsOrchestrator =
-        new RemoteCommandsOrchestratorImpl(
+        new RemoteCommandsDispatcherImpl(
             new RemoteURLs(new String[]{}, new ContextConfiguration()),
             "none",
             null,

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -33,7 +33,7 @@ public class ListDatabasesResponse implements BinaryResponse {
 
   @Override
   public void read(RemoteDatabaseSessionInternal databaseSession, ChannelDataInput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     final var result = MessageHelper.readResult((RemoteDatabaseSessionInternal) null, network,
         TimeZone.getDefault());
     databases = result.getProperty("databases");

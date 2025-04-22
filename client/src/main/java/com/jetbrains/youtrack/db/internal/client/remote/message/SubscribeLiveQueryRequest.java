@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -32,7 +32,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
 
   public SubscribeLiveQueryRequest(String query, Object[] params) {
     this.query = query;
-    this.params = RemoteCommandsOrchestratorImpl.paramsArrayToParamsMap(params);
+    this.params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(params);
     this.namedParams = false;
   }
 
@@ -41,7 +41,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     network.writeString(query);
     // params
     var paramsResult = new RemoteResultImpl(databaseSession);

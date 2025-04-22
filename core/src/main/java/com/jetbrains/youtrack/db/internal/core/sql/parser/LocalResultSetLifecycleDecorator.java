@@ -38,11 +38,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public boolean hasNext() {
-    var hasNext = entity.hasNext();
-    if (!hasNext) {
-      close();
-    }
-    return hasNext;
+    return entity.hasNext();
   }
 
   @Override

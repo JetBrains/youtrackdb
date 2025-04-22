@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
@@ -58,7 +58,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    params = RemoteCommandsOrchestratorImpl.paramsArrayToParamsMap(positionalParams);
+    params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(positionalParams);
     namedParams = false;
     this.operationType = operationType;
     if (this.recordsPerPage <= 0) {
@@ -89,7 +89,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);

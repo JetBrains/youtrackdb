@@ -19,14 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command;
 
-import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.HashMap;
@@ -35,7 +33,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
 /**
@@ -44,10 +41,6 @@ import javax.annotation.Nullable;
  * the search is applied recursively on child contexts.
  */
 public class BasicCommandContext implements CommandContext {
-
-  public static final String EXECUTION_BEGUN = "EXECUTION_BEGUN";
-  public static final String TIMEOUT_MS = "TIMEOUT_MS";
-  public static final String TIMEOUT_STRATEGY = "TIMEOUT_STARTEGY";
   public static final String INVALID_COMPARE_COUNT = "INVALID_COMPARE_COUNT";
 
   protected DatabaseSessionEmbedded session;
@@ -57,6 +50,7 @@ public class BasicCommandContext implements CommandContext {
   protected CommandContext parent;
   protected CommandContext child;
   private Map<String, Object> variables;
+
   private final Int2ObjectOpenHashMap<Object> systemVariables = new Int2ObjectOpenHashMap<>();
 
   protected Map<Object, Object> inputParameters;
@@ -66,10 +60,8 @@ public class BasicCommandContext implements CommandContext {
   // MANAGES THE TIMEOUT
   private long executionStartedOn;
   private long timeoutMs;
-  private CommandContext.TIMEOUT_STRATEGY
-      timeoutStrategy;
-  protected AtomicLong resultsProcessed = new AtomicLong(0);
-  protected Set<Object> uniqueResult = new HashSet<Object>();
+  private CommandContext.TIMEOUT_STRATEGY timeoutStrategy;
+
   private final Map<ExecutionStep, StepStats> stepStats = new IdentityHashMap<>();
   private final LinkedList<StepStats> currentStepStats = new LinkedList<>();
 
@@ -477,31 +469,6 @@ public class BasicCommandContext implements CommandContext {
   @Override
   public void setInputParameters(Map<Object, Object> inputParameters) {
     this.inputParameters = inputParameters;
-  }
-
-  /**
-   * returns the number of results processed. This is intended to be used with LIMIT in SQL
-   * statements
-   *
-   * @return
-   */
-  public AtomicLong getResultsProcessed() {
-    return resultsProcessed;
-  }
-
-  /**
-   * adds an item to the unique result set
-   *
-   * @param o the result item to add
-   * @return true if the element is successfully added (it was not present yet), false otherwise (it
-   * was already present)
-   */
-  public synchronized boolean addToUniqueResult(Object o) {
-    var toAdd = o;
-    if (o instanceof EntityImpl && ((EntityImpl) o).getIdentity().isNew()) {
-      toAdd = new DocumentEqualityWrapper((EntityImpl) o);
-    }
-    return this.uniqueResult.add(toAdd);
   }
 
   @Override

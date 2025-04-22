@@ -351,6 +351,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   private void runShutdownInNonDaemonThread() {
     var shutdownThread =
         new Thread("YouTrackDB server shutdown thread") {
+          @Override
           public void run() {
             server.shutdown();
           }
@@ -410,34 +411,34 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeQuery(QueryRequest request) {
-    var database = connection.getDatabaseSession();
+    var session = connection.getDatabaseSession();
     var metadataListener = new QueryMetadataUpdateListener();
-    database.getSharedContext().registerListener(metadataListener);
+    session.getSharedContext().registerListener(metadataListener);
     ResultSet rs;
     if (QueryRequest.QUERY == request.getOperationType()) {
       // TODO Assert is sql.
       if (request.isNamedParams()) {
-        rs = database.query(request.getStatement(), request.getNamedParameters());
+        rs = session.query(request.getStatement(), request.getNamedParameters());
       } else {
-        rs = database.query(request.getStatement(), request.getPositionalParameters());
+        rs = session.query(request.getStatement(), request.getPositionalParameters());
       }
     } else {
       if (QueryRequest.COMMAND == request.getOperationType()) {
         if (request.isNamedParams()) {
-          rs = database.execute(request.getStatement(), request.getNamedParameters());
+          rs = session.execute(request.getStatement(), request.getNamedParameters());
         } else {
-          rs = database.execute(request.getStatement(), request.getPositionalParameters());
+          rs = session.execute(request.getStatement(), request.getPositionalParameters());
         }
       } else {
         if (request.isNamedParams()) {
           //noinspection unchecked
           rs =
-              database.computeScript(
+              session.computeScript(
                   request.getLanguage(), request.getStatement(),
                   request.getNamedParameters());
         } else {
           rs =
-              database.computeScript(
+              session.computeScript(
                   request.getLanguage(), request.getStatement(),
                   request.getPositionalParameters());
         }
@@ -446,7 +447,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     // copy the result-set to make sure that the execution is successful
     var stream = rs.stream();
-    if (database
+    if (session
         .getActiveQueries()
         .containsKey(((LocalResultSetLifecycleDecorator) rs).getQueryId())) {
       stream = stream.limit(request.getRecordsPerPage());
@@ -454,10 +455,11 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     var rsCopy = stream.collect(Collectors.toList());
 
     var hasNext = rs.hasNext();
-    database.getSharedContext().unregisterListener(metadataListener);
+    session.getSharedContext().unregisterListener(metadataListener);
 
     return new QueryResponse(
-        ((LocalResultSetLifecycleDecorator) rs).getQueryId(), rsCopy, hasNext);
+        ((LocalResultSetLifecycleDecorator) rs).getQueryId(), rsCopy, hasNext,
+        session.isTxActive());
   }
 
   @Override
@@ -500,7 +502,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       return new QueryResponse(
           rs.getQueryId(),
           rsCopy,
-          hasNext);
+          hasNext, session.isTxActive());
     } finally {
       youTrackDB.endCommand();
     }

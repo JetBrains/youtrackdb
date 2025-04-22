@@ -35,7 +35,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.ContextVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequest;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
@@ -76,7 +75,7 @@ import org.slf4j.LoggerFactory;
  * @see CommandScript
  */
 public class CommandExecutorScript extends CommandExecutorAbstract
-    implements CommandDistributedReplicateRequest, TemporaryRidGenerator {
+    implements TemporaryRidGenerator {
 
   private static final Logger logger = LoggerFactory.getLogger(CommandExecutorScript.class);
 

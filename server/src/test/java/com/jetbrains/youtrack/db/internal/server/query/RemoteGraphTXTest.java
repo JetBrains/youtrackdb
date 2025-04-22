@@ -1,24 +1,20 @@
 package com.jetbrains.youtrack.db.internal.server.query;
 
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
 
   @Override
   public void beforeTest() {
     super.beforeTest();
     session.executeSQLScript("""
-        create class FirstV extends V if not exists;
-        create class SecondV extends V if not exists;
-        create class TestEdge extends E if not exists;
+        create class FirstV if not exists extends V;
+        create class SecondV if not exists extends V;
+        create class TestEdge if not exists extends E;
         """);
   }
 
@@ -32,8 +28,7 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
     try (var resultSet =
         session.computeSQLScript("""
             begin;
-            let $res = create edge TestEdge from ( select from FirstV where id = '1') to ( select from"
-                + " SecondV where id = '2');
+            let $res = create edge TestEdge from (select from FirstV where id = '1') to (select from SecondV where id = '2');
             commit;
             return $res;
             """)) {
@@ -44,8 +39,7 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
     session
         .computeSQLScript("""
                 begin;
-                let $res = delete edge TestEdge from (select from FirstV where id = :param1) to (select from"
-                                + " SecondV where id = :param2);
+                let $res = delete edge TestEdge from (select from FirstV where id = :param1) to (select from SecondV where id = :param2);
                 commit;
                 return $res;
                 """,

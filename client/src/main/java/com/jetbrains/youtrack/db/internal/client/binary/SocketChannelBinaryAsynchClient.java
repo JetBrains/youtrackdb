@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.client.binary;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteNodeSession;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
@@ -416,7 +416,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     }
   }
 
-  public void beginRequest(final byte iCommand, final BinaryProptocolSession session)
+  public void beginRequest(final byte iCommand, final BinaryProtocolSession session)
       throws IOException {
     final var nodeSession = session.getServerSession(serverURL);
     beginRequest(iCommand, nodeSession);

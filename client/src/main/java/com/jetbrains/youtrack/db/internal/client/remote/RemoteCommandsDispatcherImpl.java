@@ -61,7 +61,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.DistributedRedirectException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
-import com.jetbrains.youtrack.db.internal.remote.RemoteCommandsOrchestrator;
+import com.jetbrains.youtrack.db.internal.remote.RemoteCommandsDispatcher;
 import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.io.InputStream;
@@ -82,11 +82,11 @@ import org.slf4j.LoggerFactory;
 /**
  * This object is bound to each remote ODatabase instances.
  */
-public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
-    RemoteCommandsOrchestrator {
+public class RemoteCommandsDispatcherImpl implements RemotePushHandler,
+    RemoteCommandsDispatcher {
 
   private static final Logger logger = LoggerFactory.getLogger(
-      RemoteCommandsOrchestratorImpl.class);
+      RemoteCommandsDispatcherImpl.class);
 
   private static final AtomicInteger sessionSerialId = new AtomicInteger(-1);
 
@@ -107,7 +107,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   private final int connectionRetryDelay;
 
   public RemoteConnectionManager connectionManager;
-  private final Set<BinaryProptocolSession> sessions =
+  private final Set<BinaryProtocolSession> sessions =
       Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private final Map<Integer, LiveQueryClientListener> liveQueryListener =
@@ -127,7 +127,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     return String.join(ADDRESS_SEPARATOR, hosts) + "/" + name;
   }
 
-  public RemoteCommandsOrchestratorImpl(
+  public RemoteCommandsDispatcherImpl(
       final RemoteURLs hosts,
       String name,
       YouTrackDBInternalRemote context,
@@ -137,7 +137,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     this(hosts, name, context, connectionManager, null, config);
   }
 
-  public RemoteCommandsOrchestratorImpl(
+  public RemoteCommandsDispatcherImpl(
       final RemoteURLs hosts,
       String name,
       YouTrackDBInternalRemote context,
@@ -616,37 +616,44 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     session.unStickToSession();
   }
 
-  public RemoteQueryResult query(DatabaseSessionRemote db, String query, Object[] args) {
-    var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
+  public RemoteQueryResult query(DatabaseSessionRemote session, String query, Object[] args) {
+    var recordsPerPage = clientConfiguration.getValueAsInteger(
+        GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE);
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
     var request =
         new QueryRequest(
             "sql", query, args, QueryRequest.QUERY, recordsPerPage);
-    var response = networkOperation(db, request, "Error on executing command: " + query);
+    var response = networkOperation(session, request, "Error on executing command: " + query);
     try {
 
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
 
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        session.queryClosed(response.getQueryId());
+        unstickToSession(session);
       }
+
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
 
-  public RemoteQueryResult query(DatabaseSessionRemote db, String query,
+  public RemoteQueryResult query(DatabaseSessionRemote session, String query,
       @SuppressWarnings("rawtypes") Map args) {
     var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
@@ -655,29 +662,33 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     @SuppressWarnings("unchecked")
     var request =
         new QueryRequest("sql", query, args, QueryRequest.QUERY, recordsPerPage);
-    var response = networkOperation(db, request, "Error on executing command: " + query);
+    var response = networkOperation(session, request, "Error on executing command: " + query);
 
     try {
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
 
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        session.queryClosed(response.getQueryId());
+        unstickToSession(session);
       }
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
 
-  public RemoteQueryResult command(DatabaseSessionRemote db, String query, Object[] args) {
+  public RemoteQueryResult command(DatabaseSessionRemote session, String query, Object[] args) {
     var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
@@ -685,28 +696,33 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     var request =
         new QueryRequest("sql", query, args, QueryRequest.COMMAND, recordsPerPage);
     var response =
-        networkOperationNoRetry(db, request, "Error on executing command: " + query);
+        networkOperationNoRetry(session, request, "Error on executing command: " + query);
 
     try {
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        session.queryClosed(response.getQueryId());
+        unstickToSession(session);
       }
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
 
-  public RemoteQueryResult command(DatabaseSessionRemote db, String query,
+  public RemoteQueryResult command(DatabaseSessionRemote session, String query,
       @SuppressWarnings("rawtypes") Map args) {
     var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
@@ -716,59 +732,68 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     var request =
         new QueryRequest("sql", query, args, QueryRequest.COMMAND, recordsPerPage);
     var response =
-        networkOperationNoRetry(db, request, "Error on executing command: " + query);
+        networkOperationNoRetry(session, request, "Error on executing command: " + query);
     try {
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        session.queryClosed(response.getQueryId());
+        unstickToSession(session);
       }
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
 
   public RemoteQueryResult execute(
-      DatabaseSessionRemote db, String language, String query, Object[] args) {
+      DatabaseSessionRemote session, String language, String query, Object[] args) {
     var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
       recordsPerPage = 100;
     }
     var request = new QueryRequest(language, query, args, QueryRequest.EXECUTE, recordsPerPage);
     var response =
-        networkOperationNoRetry(db, request, "Error on executing command: " + query);
+        networkOperationNoRetry(session, request, "Error on executing command: " + query);
 
     try {
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
 
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        session.queryClosed(response.getQueryId());
+        unstickToSession(session);
       }
 
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
 
   public RemoteQueryResult execute(
-      DatabaseSessionRemote db, String language, String query,
+      DatabaseSessionRemote session, String language, String query,
       @SuppressWarnings("rawtypes") Map args) {
     var recordsPerPage = GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
     if (recordsPerPage <= 0) {
@@ -779,22 +804,28 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     var request =
         new QueryRequest(language, query, args, QueryRequest.EXECUTE, recordsPerPage);
     var response =
-        networkOperationNoRetry(db, request, "Error on executing command: " + query);
+        networkOperationNoRetry(session, request, "Error on executing command: " + query);
     try {
       var rs =
           new PaginatedResultSet(
-              db,
+              session,
               response.getQueryId(),
               response.getResult(),
               response.isHasNextPage());
-      if (response.isHasNextPage()) {
-        stickToSession(db);
+      if (response.isHasNextPage() || response.isActiveTx()) {
+        stickToSession(session);
+
+        if (!response.isHasNextPage()) {
+          session.queryClosed(response.getQueryId());
+        }
       } else {
-        db.queryClosed(response.getQueryId());
+        unstickToSession(session);
+        session.queryClosed(response.getQueryId());
       }
+
       return new RemoteQueryResult(rs);
     } catch (Exception e) {
-      db.queryClosed(response.getQueryId());
+      session.queryClosed(response.getQueryId());
       throw e;
     }
   }
@@ -818,6 +849,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     rs.fetched(
         response.getResult(),
         response.isHasNextPage());
+
     if (!response.isHasNextPage()) {
       unstickToSession(database);
       database.queryClosed(response.getQueryId());
@@ -1119,7 +1151,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
 
   protected String getNextAvailableServerURL(
-      boolean iIsConnectOperation, BinaryProptocolSession session) {
+      boolean iIsConnectOperation, BinaryProtocolSession session) {
 
     return serverURLs.getNextAvailableServerURL(
         iIsConnectOperation, session, connectionStrategy);
@@ -1164,7 +1196,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
         // CANNOT LOCK IT, MAYBE HASN'T BE CORRECTLY UNLOCKED BY PREVIOUS USER?
         LogManager.instance()
             .error(
-                RemoteCommandsOrchestratorImpl.class,
+                RemoteCommandsDispatcherImpl.class,
                 "Removing locked network channel '%s' (connected=%s)...",
                 null,
                 iCurrentURL,
@@ -1178,7 +1210,7 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
 
   public static void beginResponse(
       DatabaseSessionRemote dbSession, SocketChannelBinaryAsynchClient iNetwork,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     var nodeSession = session.getServerSession(iNetwork.getServerURL());
     var newToken = iNetwork.beginResponse(dbSession, nodeSession.getSessionId(), true);
     if (newToken != null && newToken.length > 0) {
@@ -1203,14 +1235,14 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
   }
 
   @Nullable
-  protected BinaryProptocolSession getCurrentSession(@Nullable DatabaseSessionRemote db) {
+  protected BinaryProtocolSession getCurrentSession(@Nullable DatabaseSessionRemote db) {
     if (db == null) {
       return null;
     }
 
     var session = db.getSessionMetadata();
     if (session == null) {
-      session = new BinaryProptocolSession(sessionSerialId.decrementAndGet());
+      session = new BinaryProtocolSession(sessionSerialId.decrementAndGet());
       sessions.add(session);
       db.setSessionMetadata(session);
     }
@@ -1229,13 +1261,13 @@ public class RemoteCommandsOrchestratorImpl implements RemotePushHandler,
     return session.isClosed();
   }
 
-  public RemoteCommandsOrchestratorImpl copy(
+  public RemoteCommandsDispatcherImpl copy(
       final DatabaseSessionRemote source, final DatabaseSessionRemote dest) {
     final var session = source.getSessionMetadata();
     if (session != null) {
       // TODO:may run a session reopen
       final var newSession =
-          new BinaryProptocolSession(sessionSerialId.decrementAndGet());
+          new BinaryProtocolSession(sessionSerialId.decrementAndGet());
       newSession.connectionUserName = session.connectionUserName;
       newSession.connectionUserPassword = session.connectionUserPassword;
       dest.setSessionMetadata(newSession);

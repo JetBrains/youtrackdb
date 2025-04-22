@@ -39,7 +39,7 @@ public class QueryResponseTest extends DbTestBase {
       resuls.add(item);
     }
     var response =
-        new QueryResponse("query", resuls, false);
+        new QueryResponse("query", resuls, false, false);
 
     var channel = new MockChannel();
     response.write(session,

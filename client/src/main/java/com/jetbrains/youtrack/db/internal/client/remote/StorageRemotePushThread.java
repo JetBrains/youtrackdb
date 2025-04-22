@@ -112,7 +112,7 @@ public class StorageRemotePushThread extends Thread {
 
   @Nullable
   public <T extends BinaryResponse> T subscribe(
-      BinaryRequest<T> request, BinaryProptocolSession session,
+      BinaryRequest<T> request, BinaryProtocolSession session,
       DatabasePoolInternal<RemoteDatabaseSession> sessionPool) {
     try {
       synchronized (this) {

@@ -11,5 +11,5 @@ public interface BinaryResponse {
       throws IOException;
 
   void read(RemoteDatabaseSessionInternal db, final ChannelDataInput network,
-      BinaryProptocolSession session) throws IOException;
+      BinaryProtocolSession session) throws IOException;
 }

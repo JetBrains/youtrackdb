@@ -55,13 +55,13 @@ public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
   }
 
   public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session, @Nonnull RID rid) {
-    content = new HashMap<>();
     this.session = session;
     this.rid = rid;
   }
 
   @Override
   public void setIdentity(@Nonnull RID identity) {
+    assert checkSession();
     this.rid = identity;
   }
 

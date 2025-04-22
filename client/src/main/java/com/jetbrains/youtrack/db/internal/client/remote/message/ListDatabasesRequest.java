@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
@@ -15,7 +15,7 @@ public class ListDatabasesRequest implements BinaryRequest<ListDatabasesResponse
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
   }
 
   @Override

@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
@@ -121,7 +121,7 @@ public class RemoteTokenExpireTest {
   }
 
   @Test
-  public void itShouldFailWithQueryNext() throws InterruptedException {
+  public void itShouldFailWithQueryNext() {
     try {
       try (var res = session.query("select from ORole")) {
         waitAndClean();
@@ -138,8 +138,8 @@ public class RemoteTokenExpireTest {
 
   @Test
   public void itShouldNotFailWithNewTXAndQuery() {
-
     waitAndClean();
+
     session.command("begin");
     session.command("insert into Some");
     try (var res = session.query("select from Some")) {
@@ -150,7 +150,7 @@ public class RemoteTokenExpireTest {
   }
 
   @Test
-  public void itShouldFailAtBeingAndQuery() {
+  public void itShouldFailAtBeginAndQuery() {
     session.command("begin");
     session.command("insert into Some");
     try (var resultSet = session.query("select from Some")) {
@@ -161,7 +161,7 @@ public class RemoteTokenExpireTest {
     try {
       //noinspection ResultOfMethodCallIgnored
       session.query("select from Some").stream().toList();
-      Assert.fail("It should not get the expire exception");
+      Assert.fail("It should get the expire exception");
     } catch (TokenSecurityException e) {
       //expected
     }
@@ -172,23 +172,28 @@ public class RemoteTokenExpireTest {
     var config = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
         .addGlobalConfigurationParameter(
             GlobalConfiguration.CLIENT_CONNECTION_STRATEGY,
-            RemoteCommandsOrchestratorImpl.CONNECTION_STRATEGY.ROUND_ROBIN_CONNECT)
+            RemoteCommandsDispatcherImpl.CONNECTION_STRATEGY.ROUND_ROBIN_CONNECT).
+        addGlobalConfigurationParameter(
+            GlobalConfiguration.NETWORK_SOCKET_RETRY, 0)
+        .addGlobalConfigurationParameter(GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE, 1)
         .build();
     try (var pool = youTrackDB.cachedPool(RemoteTokenExpireTest.class.getSimpleName(), "admin",
         "admin",
         config)) {
-      try (var resultSet = session.query("select from Some")) {
-        Assert.assertEquals(0, resultSet.stream().count());
-      }
-
-      waitAndClean();
-      try {
+      try (var session = pool.acquire()) {
         try (var resultSet = session.query("select from Some")) {
           Assert.assertEquals(0, resultSet.stream().count());
         }
-        Assert.fail("It should  get the expire exception");
-      } catch (TokenSecurityException e) {
-        //expected
+
+        waitAndClean();
+        try {
+          try (var resultSet = session.query("select from Some")) {
+            Assert.assertEquals(0, resultSet.stream().count());
+          }
+          Assert.fail("It should  get the expire exception");
+        } catch (TokenSecurityException e) {
+          //expected
+        }
       }
     }
   }

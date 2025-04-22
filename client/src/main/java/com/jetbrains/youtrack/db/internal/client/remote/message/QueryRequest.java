@@ -20,10 +20,10 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.TimeZone;
 import javax.annotation.Nullable;
 
 public final class QueryRequest implements BinaryRequest<QueryResponse> {
@@ -56,7 +57,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    params = RemoteCommandsOrchestratorImpl.paramsArrayToParamsMap(positionalParams);
+    params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(positionalParams);
 
     namedParams = false;
 
@@ -90,7 +91,7 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
   @Override
   public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);
@@ -130,7 +131,8 @@ public final class QueryRequest implements BinaryRequest<QueryResponse> {
 
     if (channel.readByte() == 1) {
       this.params = MessageHelper.readResult(databaseSession, channel,
-          databaseSession.getDatabaseTimeZone()).toMap();
+              databaseSession != null ? databaseSession.getDatabaseTimeZone() : TimeZone.getDefault())
+          .toMap();
     } else {
       this.params = Collections.emptyMap();
     }

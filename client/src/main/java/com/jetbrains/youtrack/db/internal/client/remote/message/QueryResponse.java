@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -22,14 +22,18 @@ public class QueryResponse implements BinaryResponse {
   private List<RemoteResult> remoteResult;
   private List<Result> embeddedResult;
   private boolean hasNextPage;
+  private boolean activeTx;
+
 
   public QueryResponse(
       String queryId,
       List<Result> result,
-      boolean hasNextPage) {
+      boolean hasNextPage,
+      boolean activeTx) {
     this.queryId = queryId;
     this.embeddedResult = result;
     this.hasNextPage = hasNextPage;
+    this.activeTx = activeTx;
   }
 
   public QueryResponse() {
@@ -45,11 +49,12 @@ public class QueryResponse implements BinaryResponse {
       MessageHelper.writeResult(res, channel, session.getDatabaseTimeZone());
     }
     channel.writeBoolean(hasNextPage);
+    channel.writeBoolean(activeTx);
   }
 
   @Override
   public void read(RemoteDatabaseSessionInternal databaseSession, ChannelDataInput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     queryId = network.readString();
     var size = network.readInt();
     this.remoteResult = new ArrayList<>(size);
@@ -58,6 +63,7 @@ public class QueryResponse implements BinaryResponse {
           databaseSession.getDatabaseTimeZone()));
     }
     this.hasNextPage = network.readBoolean();
+    this.activeTx = network.readBoolean();
   }
 
   public String getQueryId() {
@@ -70,5 +76,9 @@ public class QueryResponse implements BinaryResponse {
 
   public boolean isHasNextPage() {
     return hasNextPage;
+  }
+
+  public boolean isActiveTx() {
+    return activeTx;
   }
 }

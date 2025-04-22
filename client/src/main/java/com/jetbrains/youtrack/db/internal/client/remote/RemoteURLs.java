@@ -4,7 +4,7 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CO
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl.CONNECTION_STRATEGY;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl.CONNECTION_STRATEGY;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
@@ -117,7 +117,7 @@ public class RemoteURLs {
       addresses.add(url);
     } else {
       Collections.addAll(
-          addresses, url.substring(0, dbPos).split(RemoteCommandsOrchestratorImpl.ADDRESS_SEPARATOR));
+          addresses, url.substring(0, dbPos).split(RemoteCommandsDispatcherImpl.ADDRESS_SEPARATOR));
     }
     return addresses;
   }
@@ -202,7 +202,7 @@ public class RemoteURLs {
   }
 
   private synchronized String getNextConnectUrl(
-      BinaryProptocolSession session) {
+      BinaryProtocolSession session) {
     if (serverURLs.isEmpty()) {
       reloadOriginalURLs();
 
@@ -230,7 +230,7 @@ public class RemoteURLs {
 
   public synchronized String getServerURFromList(
       boolean iNextAvailable,
-      BinaryProptocolSession session) {
+      BinaryProtocolSession session) {
     if (session != null && session.getCurrentUrl() != null && !iNextAvailable) {
       return session.getCurrentUrl();
     }
@@ -272,7 +272,7 @@ public class RemoteURLs {
 
   public synchronized String getNextAvailableServerURL(
       boolean iIsConnectOperation,
-      BinaryProptocolSession session,
+      BinaryProtocolSession session,
       CONNECTION_STRATEGY strategy) {
     String url = null;
     if (session.isStickToSession()) {

@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.internal.server.query;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
@@ -21,26 +18,24 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
     super.beforeTest();
 
     session.executeSQLScript("""
-        create class FirstV extends V if not exists;
-        create class SecondV extends V if not exists;
-        create class TestEdge extends V if not exists;
+        create class FirstV if not exists extends V;
+        create class SecondV if not exists extends V;
+        create class TestEdge if not exists extends E;
         """);
   }
 
   @Test
   public void testLiveQuery() throws InterruptedException {
-
     session.command("begin");
     session.execute("create vertex FirstV set id = '1'").close();
     session.execute("create vertex SecondV set id = '2'").close();
     session.command("commit");
 
-    ;
     try (var resultSet =
         session.computeSQLScript(
             """
                 begin;
-                let $res = create edge TestEdge  from (select from FirstV) to (select from SecondV);
+                let $res = create edge TestEdge from (select from FirstV) to (select from SecondV);
                 commit;
                 return $res;
                 """)) {
@@ -81,7 +76,7 @@ public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
     session.executeSQLScript("""
         begin;
-        update SecondV set id = 3
+        update SecondV set id = 3;
         commit;
         """);
 

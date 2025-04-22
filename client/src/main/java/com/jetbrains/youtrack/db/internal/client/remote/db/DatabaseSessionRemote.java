@@ -26,8 +26,8 @@ import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
@@ -53,13 +53,13 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   private boolean initialized = false;
 
-  private BinaryProptocolSession sessionMetadata;
-  private final RemoteCommandsOrchestratorImpl commandsOrchestrator;
+  private BinaryProtocolSession sessionMetadata;
+  private final RemoteCommandsDispatcherImpl commandsOrchestrator;
 
   @Nullable
   private TimeZone serverTimeZone;
 
-  public DatabaseSessionRemote(final RemoteCommandsOrchestratorImpl commandsOrchestrator) {
+  public DatabaseSessionRemote(final RemoteCommandsDispatcherImpl commandsOrchestrator) {
     activateOnCurrentThread();
     try {
       status = STATUS.CLOSED;
@@ -115,11 +115,11 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
   }
 
 
-  public BinaryProptocolSession getSessionMetadata() {
+  public BinaryProtocolSession getSessionMetadata() {
     return sessionMetadata;
   }
 
-  public void setSessionMetadata(BinaryProptocolSession sessionMetadata) {
+  public void setSessionMetadata(BinaryProtocolSession sessionMetadata) {
     assert assertIfNotActive();
     this.sessionMetadata = sessionMetadata;
   }
@@ -140,7 +140,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
   }
 
   @Override
-  public RemoteCommandsOrchestratorImpl getCommandOrchestrator() {
+  public RemoteCommandsDispatcherImpl getCommandOrchestrator() {
     return commandsOrchestrator;
   }
 

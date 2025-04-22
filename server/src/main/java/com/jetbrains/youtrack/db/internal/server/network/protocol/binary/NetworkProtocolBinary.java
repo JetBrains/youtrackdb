@@ -23,8 +23,6 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
@@ -33,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ErrorResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.QueryResponse;
 import com.jetbrains.youtrack.db.internal.common.concur.OfflineNodeException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
@@ -43,13 +42,8 @@ import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.SerializationThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
@@ -355,14 +349,28 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         } else {
           try {
             if (response != null) {
+              var session = connection.getDatabaseSession();
               beginResponse();
               try {
+
                 sendOk(connection, clientTxId);
-                response.write(connection.getDatabaseSession(),
+                response.write(session,
                     channel,
                     connection.getData().protocolVersion);
               } finally {
                 endResponse();
+              }
+
+              //close query after the writing last page of response to avoid
+              //unnecessary memory consumption and an additonal client-server round-trip
+              if (response instanceof QueryResponse queryResponse
+                  && !queryResponse.isHasNextPage()) {
+                var rs =
+                    (LocalResultSetLifecycleDecorator) session.getActiveQuery(
+                        queryResponse.getQueryId());
+                if (rs != null) {
+                  rs.close();
+                }
               }
             }
           } catch (InvalidBinaryChunkException e) {
@@ -384,7 +392,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             afterOperationRequest(connection);
           }
         }
-        tokenConnection = Boolean.TRUE.equals(connection.getTokenBased());
+        tokenConnection = connection != null && Boolean.TRUE.equals(connection.getTokenBased());
       } else {
         LogManager.instance().error(this, "Request not supported. Code: " + requestType, null);
         handleConnectionError(
@@ -760,6 +768,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
   }
 
 
+  @Override
   public String getType() {
     return "binary";
   }

@@ -8,16 +8,9 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,6 +29,14 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
         create class Some;
         create class SomeVertex extends V;
         create class AbstractSome abstract;
+        
+        create class EmbeddedClass abstract;
+        create property Some.emb EMBEDDED EmbeddedClass;
+        
+        create property EmbeddedClass.secEmb EMBEDDED;
+        
+        create property Some.map EMBEDDEDMAP EMBEDDED;
+        create property Some.list EMBEDDEDLIST EMBEDDED;
         """);
 
     oldPageSize = QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger();
@@ -50,13 +51,14 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
         
         while ($i < 150) {
           insert into Some set prop = "value";
-          $i = $i + 1;
+          let $i = $i + 1;
         }
         
         commit;
         """);
 
     var res = session.query("select from Some");
+
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
@@ -66,16 +68,14 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testCommandSelect() {
+    session.command("begin");
     session.executeSQLScript("""
-        begin;
         let $i = 0;
         
         while ($i < 150) {
           insert into Some set prop = "value";
-          $i = $i + 1;
+          let $i = $i + 1;
         }
-        
-        commit;
         """);
 
     var res = session.query("select from Some");
@@ -84,6 +84,8 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
       var item = res.next();
       assertEquals("value", item.getProperty("prop"));
     }
+
+    session.command("commit");
   }
 
   @Test
@@ -93,15 +95,15 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
         let $i = 0;
         
         while ($i < 150) {
-          create vertex SomeVertex set prop = "value";
-          $i = $i + 1;
+          insert into Some set prop = "value";
+          let $i = $i + 1;
         }
         
         commit;
         """);
 
     session.command("begin");
-    var res = session.execute("insert into V from select from SomeVertex");
+    var res = session.execute("insert into Some from select from Some");
     for (var i = 0; i < 150; i++) {
       assertTrue(res.hasNext());
       var item = res.next();
@@ -118,7 +120,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
         
         while ($i < 150) {
           insert into Some set prop = "value";
-          $i = $i + 1;
+          let $i = $i + 1;
         }
         
         commit;
@@ -169,7 +171,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   public void testQueryEmbeddedList() {
     session.executeSQLScript("""
         begin;
-        insert into Some set prop = "value", list = [{"one" : "value"}]};
+        insert into Some set prop = "value", list = [{"one" : "value"}];
         commit;
         """);
 
@@ -185,7 +187,7 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   @Test
   public void testQueryEmbeddedSet() {
     session.executeSQLScript("""
-        create property Some.set EMBEDDEDSET;
+        create property Some.set EMBEDDEDSET EmbeddedClass;
         begin;
         insert into Some set prop = "value", set = [{"one" : "value"}];
         commit;
@@ -205,7 +207,6 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
   public void testQueryEmbeddedMap() {
     session.executeSQLScript("""
         begin;
-        create property Some.map EMBEDDEDMAP;
         insert into Some set prop = 'value', map = {"key" : {"one" : "value"}};
         commit;
         """);
@@ -222,16 +223,13 @@ public class RemoteQuerySupportTest extends BaseServerMemoryDatabase {
 
   @Test
   public void testCommandWithTX() {
-    session.command("begin");
-    session.execute("insert into Some set prop = 'value'");
-    RemoteResult result;
-
-    try (var resultSet = session.execute("insert into Some set prop = 'value'")) {
-      result = resultSet.next();
-    }
-    session.command("commit");
-
-    Assert.assertTrue(result.getIdentity().isPersistent());
+    var rid = session.computeSQLScript("""
+        begin;
+        let $res = insert into Some set prop = "value";
+        commit;
+        return $res;
+        """).findFirst(BasicResult::getIdentity);
+    Assert.assertTrue(rid.isPersistent());
   }
 
   @Test(expected = CommandExecutionException.class)

@@ -17,7 +17,7 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_SOCKET_RETRY;
-import static com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl.ADDRESS_SEPARATOR;
+import static com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl.ADDRESS_SEPARATOR;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
@@ -28,7 +28,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsOrchestratorImpl.CONNECTION_STRATEGY;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl.CONNECTION_STRATEGY;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
@@ -83,7 +83,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDatabaseSession> {
 
-  private final Map<String, RemoteCommandsOrchestratorImpl> orchestrators = new HashMap<>();
+  private final Map<String, RemoteCommandsDispatcherImpl> orchestrators = new HashMap<>();
   private final Set<DatabasePoolInternal<RemoteDatabaseSession>> pools = new HashSet<>();
   private final String[] hosts;
   private final YouTrackDBConfigImpl configurations;
@@ -163,11 +163,11 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     checkOpen();
     var resolvedConfig = solveConfig((YouTrackDBConfigImpl) config);
     try {
-      RemoteCommandsOrchestratorImpl orchestrator;
+      RemoteCommandsDispatcherImpl orchestrator;
       synchronized (this) {
         orchestrator = orchestrators.get(name);
         if (orchestrator == null) {
-          orchestrator = new RemoteCommandsOrchestratorImpl(urls, name, this,
+          orchestrator = new RemoteCommandsDispatcherImpl(urls, name, this,
               connectionManager,
               resolvedConfig);
           orchestrators.put(name, orchestrator);
@@ -229,13 +229,13 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   @Override
   public DatabaseSessionRemotePooled poolOpen(
       String name, String user, String password, DatabasePoolInternal pool) {
-    RemoteCommandsOrchestratorImpl storage;
+    RemoteCommandsDispatcherImpl storage;
     synchronized (this) {
       storage = orchestrators.get(name);
       if (storage == null) {
         try {
           storage =
-              new RemoteCommandsOrchestratorImpl(
+              new RemoteCommandsDispatcherImpl(
                   urls, name, this, connectionManager, solveConfig(pool.getConfig()));
           orchestrators.put(name, storage);
         } catch (Exception e) {
@@ -250,7 +250,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     return db;
   }
 
-  public synchronized void closeStorage(RemoteCommandsOrchestratorImpl remote) {
+  public synchronized void closeStorage(RemoteCommandsDispatcherImpl remote) {
     orchestrators.remove(remote.getName());
     remote.shutdown();
   }
@@ -398,7 +398,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
       timer.cancel();
     }
 
-    final List<RemoteCommandsOrchestratorImpl> storagesCopy;
+    final List<RemoteCommandsDispatcherImpl> storagesCopy;
     synchronized (this) {
       // SHUTDOWN ENGINES AVOID OTHER OPENS
       open = false;
@@ -551,7 +551,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   }
 
   public <T extends BinaryResponse> T networkAdminOperation(
-      final BinaryRequest<T> request, BinaryProptocolSession session, final String errorMessage) {
+      final BinaryRequest<T> request, BinaryProtocolSession session, final String errorMessage) {
     return networkAdminOperation(
         (network, session1) -> {
           try {
@@ -562,7 +562,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
           }
           var response = request.createResponse();
           try {
-            RemoteCommandsOrchestratorImpl.beginResponse(null, network, session1);
+            RemoteCommandsDispatcherImpl.beginResponse(null, network, session1);
             response.read(null, network, session1);
           } finally {
             network.endResponse();
@@ -576,7 +576,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   public <T> T networkAdminOperation(
       final StorageRemoteOperation<T> operation,
       final String errorMessage,
-      BinaryProptocolSession session) {
+      BinaryProtocolSession session) {
 
     SocketChannelBinaryAsynchClient network = null;
     var config = getContextConfiguration();
@@ -585,7 +585,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
           urls.getNextAvailableServerURL(false, session, CONNECTION_STRATEGY.STICKY);
       do {
         try {
-          network = RemoteCommandsOrchestratorImpl.getNetwork(serverUrl, connectionManager, config);
+          network = RemoteCommandsDispatcherImpl.getNetwork(serverUrl, connectionManager, config);
         } catch (BaseException e) {
           serverUrl = urls.removeAndGet(serverUrl);
           if (serverUrl == null) {
@@ -609,13 +609,13 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
 
   private interface SessionOperation<T> {
 
-    T execute(BinaryProptocolSession session) throws IOException;
+    T execute(BinaryProtocolSession session) throws IOException;
   }
 
   private <T> T connectAndExecute(
       String dbName, String user, String password, SessionOperation<T> operation) {
     checkOpen();
-    var newSession = new BinaryProptocolSession(-1);
+    var newSession = new BinaryProtocolSession(-1);
     var retry = configurations.getConfiguration().getValueAsInteger(NETWORK_SOCKET_RETRY);
     while (retry > 0) {
       try {
@@ -698,7 +698,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
 
   @Override
   public String getConnectionUrl() {
-    return "remote:" + String.join(RemoteCommandsOrchestratorImpl.ADDRESS_SEPARATOR,
+    return "remote:" + String.join(RemoteCommandsDispatcherImpl.ADDRESS_SEPARATOR,
         this.urls.getUrls());
   }
 }

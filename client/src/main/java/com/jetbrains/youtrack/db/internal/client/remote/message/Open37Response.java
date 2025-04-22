@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryProptocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
@@ -38,7 +38,7 @@ public class Open37Response implements BinaryResponse {
 
   @Override
   public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
-      BinaryProptocolSession session) throws IOException {
+      BinaryProtocolSession session) throws IOException {
     sessionId = network.readInt();
     sessionToken = network.readBytes();
     timeZone = TimeZone.getTimeZone(network.readString());

@@ -9,7 +9,7 @@ public class DatabaseSessionRemotePooled extends DatabaseSessionRemote implement
   private final DatabasePoolInternal<DatabaseSessionRemote> pool;
 
   public DatabaseSessionRemotePooled(
-      DatabasePoolInternal<DatabaseSessionRemote> pool, RemoteCommandsOrchestratorImpl storage) {
+      DatabasePoolInternal<DatabaseSessionRemote> pool, RemoteCommandsDispatcherImpl storage) {
     super(storage);
     this.pool = pool;
   }

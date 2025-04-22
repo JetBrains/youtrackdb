@@ -37,22 +37,20 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
-public class BinaryProptocolSession {
+public class BinaryProtocolSession {
 
-  private static final Logger logger = LoggerFactory.getLogger(BinaryProptocolSession.class);
-
+  private static final Logger logger = LoggerFactory.getLogger(BinaryProtocolSession.class);
   public boolean commandExecuting = false;
+
   protected int serverURLIndex = -1;
   protected String connectionUserName = null;
   protected String connectionUserPassword = null;
+
   protected Map<String, StorageRemoteNodeSession> sessions =
       new HashMap<String, StorageRemoteNodeSession>();
 
-  private Set<SocketChannelBinary> connections =
-      Collections.newSetFromMap(new WeakHashMap<SocketChannelBinary, Boolean>());
+  private Set<SocketChannelBinary> connections = Collections.newSetFromMap(new WeakHashMap<>());
+
   private final int uniqueClientSessionId;
   private boolean closed = true;
 
@@ -63,11 +61,11 @@ public class BinaryProptocolSession {
    * <p>this is for avoid to send to the server wrong request expecting a specific state that is
    * not there anymore.
    */
-  private int stickToSession = 0;
+  private boolean stickToSession;
 
   protected String currentUrl;
 
-  public BinaryProptocolSession(final int sessionId) {
+  public BinaryProtocolSession(final int sessionId) {
     this.uniqueClientSessionId = sessionId;
   }
 
@@ -89,15 +87,11 @@ public class BinaryProptocolSession {
     return session;
   }
 
-  public void addConnection(final SocketChannelBinary connection) {
-    connections.add(connection);
-  }
-
   public void close() {
     commandExecuting = false;
     serverURLIndex = -1;
-    connections = new HashSet<SocketChannelBinary>();
-    sessions = new HashMap<String, StorageRemoteNodeSession>();
+    connections = new HashSet<>();
+    sessions = new HashMap<>();
     closed = true;
   }
 
@@ -131,15 +125,15 @@ public class BinaryProptocolSession {
   }
 
   public void stickToSession() {
-    this.stickToSession++;
+    this.stickToSession = true;
   }
 
   public void unStickToSession() {
-    this.stickToSession--;
+    this.stickToSession = false;
   }
 
   public boolean isStickToSession() {
-    return stickToSession > 0;
+    return stickToSession;
   }
 
   public void closeAllSessions(
@@ -148,19 +142,14 @@ public class BinaryProptocolSession {
       SocketChannelBinaryAsynchClient network = null;
       try {
         network =
-            RemoteCommandsOrchestratorImpl.getNetwork(
+            RemoteCommandsDispatcherImpl.getNetwork(
                 nodeSession.getServerURL(), connectionManager, clientConfiguration);
         var request = new CloseRequest();
         network.beginRequest(request.getCommand(), this);
         request.write(null, network, this);
         network.endRequest();
         connectionManager.release(network);
-      } catch (YTIOException ex) {
-        // IGNORING IF THE SERVER IS DOWN OR NOT REACHABLE THE SESSION IS AUTOMATICALLY CLOSED.
-        LogManager.instance()
-            .debug(this, "Impossible to comunicate to the server for close: %s", logger, ex);
-        connectionManager.remove(network);
-      } catch (IOException ex) {
+      } catch (YTIOException | IOException ex) {
         // IGNORING IF THE SERVER IS DOWN OR NOT REACHABLE THE SESSION IS AUTOMATICALLY CLOSED.
         LogManager.instance()
             .debug(this, "Impossible to comunicate to the server for close: %s", logger, ex);
