@@ -42,8 +42,8 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
         let $i = 0;
         begin;
         while ($i < 10) {
-          let $person = create vertex Person set name = "Foo" + $i, id = 1000 + $i;
-          $i = $i + 1;
+          create vertex Person set name = "Foo" + $i, id = 1000 + $i;
+          let $i = $i + 1;
         }
         commit;
         """);
@@ -68,8 +68,8 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
         let $i = 0;
         begin;
         while ($i < 10) {
-          let $person = create vertex Person set name = "Foo" + $i
-          $i = $i + 1;
+          create vertex Person set name = "Foo" + $i
+          let $i = $i + 1;
         }
         commit;
         """);

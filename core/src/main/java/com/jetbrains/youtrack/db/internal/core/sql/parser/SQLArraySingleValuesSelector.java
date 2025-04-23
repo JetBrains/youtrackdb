@@ -31,6 +31,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     var first = true;
     for (var item : items) {
@@ -89,7 +90,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
 
   @Nullable
   public Object execute(Result iCurrentRecord, Object iResult, CommandContext ctx) {
-    List<Object> result = new ArrayList<Object>();
+    List<Object> result = new ArrayList<>();
     for (var item : items) {
       var index = item.getValue(iCurrentRecord, iResult, ctx);
       if (index == null) {
@@ -149,6 +150,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     return false;
   }
 
+  @Override
   public SQLArraySingleValuesSelector copy() {
     var result = new SQLArraySingleValuesSelector(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());

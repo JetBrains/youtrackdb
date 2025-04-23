@@ -65,7 +65,6 @@ public class SQLMethodField extends AbstractSQLMethod {
       paramAsString = ((String) params).trim();
     }
 
-
     if (ioResult != null) {
       if (ioResult instanceof Identifiable) {
         try {
@@ -93,7 +92,7 @@ public class SQLMethodField extends AbstractSQLMethod {
       } else if (ioResult instanceof Collection<?>
           || ioResult instanceof Iterator<?>
           || ioResult.getClass().isArray()) {
-        final List<Object> result = new ArrayList<Object>(MultiValue.getSize(ioResult));
+        final List<Object> result = new ArrayList<Object>((int) MultiValue.getSize(ioResult));
         for (var o : MultiValue.getMultiValueIterable(ioResult)) {
           var newlyAdded = EntityHelper.getFieldValue(session, o, paramAsString);
           if (MultiValue.isMultiValue(newlyAdded)) {

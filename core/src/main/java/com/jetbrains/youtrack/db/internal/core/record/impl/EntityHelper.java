@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -229,7 +230,7 @@ public class EntityHelper {
             // MULTI VALUE
             final var values = new Object[indexParts.size()];
             for (var i = 0; i < indexParts.size(); ++i) {
-              final String iFieldName1 = IOUtils.getStringContent(indexParts.get(i));
+              final var iFieldName1 = IOUtils.getStringContent(indexParts.get(i));
               values[i] = ((EntityImpl) record).getProperty(iFieldName1);
             }
             value = values;
@@ -279,7 +280,7 @@ public class EntityHelper {
               value = null;
             }
           }
-        } else if (value instanceof Map<?, ?>) {
+        } else if (value instanceof Map<?, ?> || value instanceof Result) {
           final var index = getIndexPart(iContext, indexPart);
           final var indexAsString = index != null ? index.toString() : null;
 
@@ -291,16 +292,27 @@ public class EntityHelper {
           final var indexCondition =
               StringSerializerHelper.smartSplit(indexAsString, '=', ' ');
 
-          final var map = (Map<String, ?>) value;
           if (indexParts.size() == 1 && indexCondition.size() == 1 && indexRanges.size() == 1)
           // SINGLE VALUE
           {
-            value = map.get(index.toString());
+            if (value instanceof Map<?, ?> map) {
+              value = map.get(index.toString());
+            } else {
+              var result = (Result) value;
+              value = result.getProperty(indexAsString);
+            }
           } else if (indexParts.size() > 1) {
             // MULTI VALUE
             final var values = new Object[indexParts.size()];
-            for (var i = 0; i < indexParts.size(); ++i) {
-              values[i] = map.get(IOUtils.getStringContent(indexParts.get(i)));
+            if (value instanceof Map<?, ?> map) {
+              for (var i = 0; i < indexParts.size(); ++i) {
+                values[i] = map.get(IOUtils.getStringContent(indexParts.get(i)));
+              }
+            } else {
+              var result = (Result) value;
+              for (var i = 0; i < indexParts.size(); ++i) {
+                values[i] = result.getProperty(IOUtils.getStringContent(indexParts.get(i)));
+              }
             }
             value = values;
           } else if (indexRanges.size() > 1) {
@@ -309,7 +321,13 @@ public class EntityHelper {
             var from = indexRanges.get(0);
             var to = indexRanges.get(1);
 
-            final List<String> fieldNames = new ArrayList<String>(map.keySet());
+            final ArrayList<String> fieldNames;
+            if (value instanceof Map<?, ?> map) {
+              fieldNames = new ArrayList<>(((Map<String, Object>) map).keySet());
+            } else {
+              var result = (Result) value;
+              fieldNames = new ArrayList<>(result.getPropertyNames());
+            }
             final var rangeFrom = from != null && !from.isEmpty() ? Integer.parseInt(from) : 0;
             final var rangeTo =
                 to != null && !to.isEmpty()
@@ -318,8 +336,16 @@ public class EntityHelper {
 
             final var values = new Object[rangeTo - rangeFrom + 1];
 
-            for (var i = rangeFrom; i <= rangeTo; ++i) {
-              values[i - rangeFrom] = map.get(fieldNames.get(i));
+            if (value instanceof Map<?, ?> map) {
+              for (var i = rangeFrom; i <= rangeTo; ++i) {
+                values[i - rangeFrom] = map.get(fieldNames.get(i));
+              }
+            } else {
+              var result = (Result) value;
+
+              for (var i = rangeFrom; i <= rangeTo; ++i) {
+                values[i - rangeFrom] = result.getProperty(fieldNames.get(i));
+              }
             }
 
             value = values;
@@ -334,7 +360,14 @@ public class EntityHelper {
               conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
             }
 
-            final var fieldValue = map.get(conditionFieldName);
+            Object fieldValue = null;
+
+            if (value instanceof Map<?, ?> map) {
+              value = map.get(conditionFieldName);
+            } else {
+              var result = (Result) value;
+              fieldValue = result.getProperty(conditionFieldName);
+            }
 
             if (conditionFieldValue != null && fieldValue != null) {
               var type = PropertyTypeInternal.getTypeByValue(fieldValue);
@@ -387,9 +420,9 @@ public class EntityHelper {
             final var rangeFrom = from != null && !from.isEmpty() ? Integer.parseInt(from) : 0;
             final int rangeTo;
             if (to != null && !to.isEmpty()) {
-              rangeTo = Math.min(Integer.parseInt(to), MultiValue.getSize(value) - 1);
+              rangeTo = Math.min(Integer.parseInt(to), (int) MultiValue.getSize(value) - 1);
             } else {
-              rangeTo = MultiValue.getSize(value) - 1;
+              rangeTo = (int) MultiValue.getSize(value) - 1;
             }
 
             var arraySize = rangeTo - rangeFrom + 1;
@@ -487,6 +520,8 @@ public class EntityHelper {
             value = getIdentifiableValue(session, currentRecord, fieldName);
           } else if (value instanceof Map<?, ?>) {
             value = getMapEntry(session, (Map<String, ?>) value, fieldName);
+          } else if (value instanceof Result result) {
+            value = getResultEntry(session, result, fieldName);
           } else if (MultiValue.isMultiValue(value)) {
             final Set<Object> values = new LinkedHashSet<Object>();
             for (var v : MultiValue.getMultiValueIterable(value)) {
@@ -705,6 +740,41 @@ public class EntityHelper {
       return value;
     } else {
       return iMap.get(iKey.toString());
+    }
+  }
+
+  @Nullable
+  public static Object getResultEntry(DatabaseSessionEmbedded session, final Result result,
+      final Object iKey) {
+    if (result == null || iKey == null) {
+      return null;
+    }
+
+    if (iKey instanceof String iName) {
+      var pos = iName.indexOf('.');
+      if (pos > -1) {
+        iName = iName.substring(0, pos);
+      }
+
+      final var value = result.getProperty(iName);
+      if (value == null) {
+        return null;
+      }
+
+      if (pos > -1) {
+        final var restFieldName = iName.substring(pos + 1);
+        if (value instanceof EntityImpl) {
+          return getFieldValue(session, value, restFieldName);
+        } else if (value instanceof Map<?, ?>) {
+          return getMapEntry(session, (Map<String, ?>) value, restFieldName);
+        } else if (value instanceof Result res) {
+          return getResultEntry(session, res, restFieldName);
+        }
+      }
+
+      return value;
+    } else {
+      return result.getProperty(iKey.toString());
     }
   }
 
@@ -1102,7 +1172,7 @@ public class EntityHelper {
       }
 
       if (myEntry.getValue() instanceof EntityImpl entity) {
-        Identifiable identifiable = ((Identifiable) otherFieldValue.get(myEntry.getKey()));
+        var identifiable = ((Identifiable) otherFieldValue.get(myEntry.getKey()));
         var transaction = iOtherDb.getActiveTransaction();
         if (!hasSameContentOf(entity, iMyDb,
             transaction.load(identifiable),

@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
@@ -45,10 +44,10 @@ public class CountRealationshipsTest {
             "admin", "admin");
     var res = session.computeSQLScript("""
         begin;
-        let $v1 = create vertex class V;
-        let $v2 = create vertex class V;
+        let $v1 = create vertex V;
+        let $v2 = create vertex V;
         commit;
-        return $v1 as v1, $v2 as v2;
+        return {"v1" : $v1, "v2" : $v2};
         """).findFirst();
 
     var vertex1 = res.getLink("v1");

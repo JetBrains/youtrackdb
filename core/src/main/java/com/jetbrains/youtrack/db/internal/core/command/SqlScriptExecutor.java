@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBeginStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCommitStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLetStatement;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRollbackStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -132,6 +133,15 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
 
           lastRetryBlock = new ArrayList<>();
         }
+      } else if (stm instanceof SQLRollbackStatement && nestedTxLevel > 0) {
+        nestedTxLevel = 0;
+
+        for (var statement : lastRetryBlock) {
+          var sub = statement.createExecutionPlan(scriptContext);
+          plan.chain(sub, false);
+        }
+
+        lastRetryBlock = new ArrayList<>();
       }
 
       if (stm instanceof SQLLetStatement) {

@@ -117,7 +117,7 @@ public class SQLMethodExclude extends AbstractSQLMethod {
         } else {
           if (MultiValue.isMultiValue(iThis)) {
             // ACT ON MULTIPLE DOCUMENTS
-            final List<Object> result = new ArrayList<Object>(MultiValue.getSize(iThis));
+            final List<Object> result = new ArrayList<Object>((int) MultiValue.getSize(iThis));
             for (var o : MultiValue.getMultiValueIterable(iThis)) {
               if (o instanceof Identifiable) {
                 try {

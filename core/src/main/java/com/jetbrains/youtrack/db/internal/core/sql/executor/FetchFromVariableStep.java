@@ -5,12 +5,12 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collections;
-import java.util.Iterator;
 import org.apache.commons.collections4.IteratorUtils;
 
 /**
@@ -41,13 +41,14 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
           ExecutionStream.resultIterator(
                   resultSet.stream().map(result -> loadEntity(session, result)).iterator())
               .onClose((context) -> ((ResultSet) src).close());
-      case Entity entity -> {
+      case Identifiable identifiable -> {
         //case when we pass variable between txs
-        entity = (Entity) loadEntity(session, entity);
+        identifiable = session.getActiveTransaction().loadEntity(identifiable);
         source =
             ExecutionStream.resultIterator(
                 Collections.singleton(
-                    (Result) new ResultInternal(ctx.getDatabaseSession(), entity)).iterator());
+                        (Result) new ResultInternal(ctx.getDatabaseSession(), identifiable))
+                    .iterator());
       }
       case Result result -> {
         source = ExecutionStream.resultIterator(

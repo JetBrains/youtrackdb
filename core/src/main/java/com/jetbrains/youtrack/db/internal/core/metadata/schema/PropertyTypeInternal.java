@@ -1225,13 +1225,30 @@ public enum PropertyTypeInternal {
         return linkBag;
       }
 
-      var ridBag = new LinkBag(session);
-      if (value instanceof Iterable<?> iterable) {
-        for (var item : iterable) {
-          ridBag.add(((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
-        }
+      var linkBag = new LinkBag(session);
+      switch (value) {
+        case Iterable<?> iterable -> {
+          for (var item : iterable) {
+            linkBag.add(
+                ((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
+          }
 
-        return ridBag;
+          return linkBag;
+        }
+        case Iterator<?> iterator -> {
+          while (iterator.hasNext()) {
+            linkBag.add(((Identifiable) LINK.convert(iterator.next(), null, linkedClass, session))
+                .getIdentity());
+          }
+
+          return linkBag;
+        }
+        case Identifiable identifiable -> {
+          linkBag.add(identifiable.getIdentity());
+          return linkBag;
+        }
+        default -> {
+        }
       }
 
       throw new DatabaseException(session, conversionErrorMessage(value, this));

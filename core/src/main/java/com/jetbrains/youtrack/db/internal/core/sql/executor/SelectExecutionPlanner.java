@@ -286,6 +286,11 @@ public class SelectExecutionPlanner {
     if (targetClass == null) {
       return false;
     }
+    var clsName = targetClass.getStringValue();
+    if (clsName.isEmpty() || clsName.charAt(0) == '$') {
+      return false;
+    }
+
     if (info.distinct || info.expand) {
       return false;
     }
@@ -382,7 +387,7 @@ public class SelectExecutionPlanner {
       if (fields.size() == 1
           && fields.getFirst()
           .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
-        var expr = ((SQLBinaryCondition) condition).getRight();
+        var expr = binaryCondition.getRight();
         result.chain(
             new CountFromIndexWithKeyStep(
                 new SQLIndexIdentifier(classIndex.getName(), SQLIndexIdentifier.Type.INDEX),
