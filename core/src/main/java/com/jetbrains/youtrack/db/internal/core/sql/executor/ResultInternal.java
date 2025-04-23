@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -346,6 +347,11 @@ public class ResultInternal implements Result, BasicResultInternal {
           listCopy = new EmbeddedListResultImpl<>();
         }
         return listCopy;
+      }
+      case ResultSet resultSet -> {
+        var resultList = new ArrayList<>();
+        resultSet.forEachRemaining(result -> resultList.add(convertPropertyValue(result)));
+        return resultList;
       }
       case Set<?> set -> {
         Set<Object> setCopy = null;

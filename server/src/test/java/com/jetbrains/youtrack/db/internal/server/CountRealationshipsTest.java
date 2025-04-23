@@ -4,12 +4,14 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.io.File;
+import java.util.List;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,10 +50,12 @@ public class CountRealationshipsTest {
         let $v2 = create vertex V;
         commit;
         return {"v1" : $v1, "v2" : $v2};
-        """).findFirst();
+        """).findFirst().getEmbeddedMap("value");
 
-    var vertex1 = res.getLink("v1");
-    var vertex2 = res.getLink("v2");
+    @SuppressWarnings("unchecked")
+    var vertex1 = ((List<Identifiable>) res.get("v1")).getFirst().getIdentity();
+    @SuppressWarnings("unchecked")
+    var vertex2 = ((List<Identifiable>) res.get("v2")).getFirst().getIdentity();
 
     assertEquals(0, countOutEdges(session, vertex1));
 
@@ -68,12 +72,8 @@ public class CountRealationshipsTest {
     session.close();
   }
 
-  private static int countOutEdges(RemoteDatabaseSession session, RID v) {
-    return session.query("select out().size() as size from ?", v).findFirst().getInt("size");
-  }
-
-  private static int countInEdges(RemoteDatabaseSession session, RID v) {
-    return session.query("select in().size() as size from ?", v).findFirst().getInt("size");
+  private static long countOutEdges(RemoteDatabaseSession session, RID v) {
+    return session.query("select out().size() as size from ?", v).findFirst().getLong("size");
   }
 
   @After
