@@ -53,7 +53,7 @@ public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
             .collect(Collectors.toList());
 
     for (var result : results) {
-      Assert.assertEquals(0, (int) result.getProperty("count"));
+      Assert.assertEquals(0, result.getLong("count").longValue());
     }
   }
 }
