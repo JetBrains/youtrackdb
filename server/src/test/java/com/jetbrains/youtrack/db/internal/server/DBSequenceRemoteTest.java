@@ -50,7 +50,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
 
     assertThat(
         session.query("select count(*) as count from Person").
-            findFirst(res -> res.getInt("count"))
+            findFirst(res -> res.getLong("count"))
             .intValue()).isEqualTo(10);
   }
 
@@ -68,13 +68,14 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
         let $i = 0;
         begin;
         while ($i < 10) {
-          create vertex Person set name = "Foo" + $i
+          create vertex Person set name = "Foo" + $i;
           let $i = $i + 1;
         }
         commit;
         """);
 
-    assertThat(session.query("select count(*) from Person").findFirst(res -> res.getInt("count"))
+    assertThat(
+        session.query("select count(*) as count from Person").findFirst(res -> res.getLong("count"))
         .intValue()).isEqualTo(10);
   }
 
@@ -86,7 +87,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
         commit;
         """);
 
-    session.command("select sequence('CircuitSequence').next() as seq");
+    session.query("select sequence('CircuitSequence').next() as seq");
   }
 
   @Test
@@ -97,6 +98,6 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
         commit;
         """);
 
-    session.command("select sequence('CircuitSequence').next() as seq");
+    session.query("select sequence('CircuitSequence').next() as seq");
   }
 }
