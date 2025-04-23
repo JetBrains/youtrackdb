@@ -3,16 +3,11 @@ package com.jetbrains.youtrack.db.internal.server;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -51,17 +46,25 @@ public class SessionPoolRemoteTest {
     }
 
     var pool = youTrackDb.cachedPool("test", "admin", "admin");
-    var db = pool.acquire();
-    db.command("create class Test");
 
-    db.command("begin");
-    db.command("insert into Test");
-    db.close();
+    var session = pool.acquire();
+    session.command("create class Test");
 
-    db = pool.acquire();
     assertEquals(0,
-        db.query("select count(*)  as count from Test").
-            findFirst(res -> res.getInt("count")).intValue());
+        session.query("select count(*)  as count from Test").
+            findFirst(res -> res.getLong("count")).longValue());
+
+    session.command("begin");
+    session.command("insert into Test");
+    assertEquals(1,
+        session.query("select count(*)  as count from Test").
+            findFirst(res -> res.getLong("count")).longValue());
+    session.close();
+
+    session = pool.acquire();
+    assertEquals(0,
+        session.query("select count(*)  as count from Test").
+            findFirst(res -> res.getLong("count")).longValue());
 
     pool.close();
     youTrackDb.close();

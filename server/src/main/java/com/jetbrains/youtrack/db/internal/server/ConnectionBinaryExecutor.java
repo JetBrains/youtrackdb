@@ -42,6 +42,8 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseR
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryRequest;
@@ -63,7 +65,6 @@ import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.HandshakeInfo;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import java.io.File;
@@ -275,16 +276,14 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Wrong user/password to [connect] to the remote YouTrackDB Server instance");
     }
 
-    byte[] token = null;
-    if (connection.getData().protocolVersion > ChannelBinaryProtocol.PROTOCOL_VERSION_26) {
-      connection.getData().serverUsername = connection.getServerUser().getName(null);
-      connection.getData().serverUser = true;
+    byte[] token;
+    connection.getData().serverUsername = connection.getServerUser().getName(null);
+    connection.getData().serverUser = true;
 
-      if (Boolean.TRUE.equals(connection.getTokenBased())) {
-        token = server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
-      } else {
-        token = CommonConst.EMPTY_BYTE_ARRAY;
-      }
+    if (Boolean.TRUE.equals(connection.getTokenBased())) {
+      token = server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
+    } else {
+      token = CommonConst.EMPTY_BYTE_ARRAY;
     }
 
     return new ConnectResponse(connection.getId(), token);
@@ -471,6 +470,16 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       query.close();
     }
     return new CloseQueryResponse();
+  }
+
+  @Override
+  public BinaryResponse executeRollbackActiveTx(RollbackActiveTxRequest request) {
+    var session = connection.getDatabaseSession();
+    if (session.isTxActive()) {
+      session.rollback();
+    }
+
+    return new RollbackActiveTxResponse();
   }
 
   @Override

@@ -226,6 +226,11 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     queryClosed(queryId);
   }
 
+  public void rollbackActiveTx() {
+    assert assertIfNotActive();
+    commandsOrchestrator.rollbackActiveTx(this);
+  }
+
   public void queryClosed(String id) {
     assert assertIfNotActive();
 
@@ -333,6 +338,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
     try {
       closeActiveQueries();
+      rollbackActiveTx();
 
       if (isClosed()) {
         status = STATUS.CLOSED;

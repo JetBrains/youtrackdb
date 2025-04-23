@@ -18,6 +18,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageReq
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigurationRequest;
@@ -77,4 +78,6 @@ public interface BinaryRequestExecutor {
   BinaryResponse executeUnsubscribeLiveQuery(UnsubscribeLiveQueryRequest request);
 
   BinaryResponse executeListDatabases(ListDatabasesRequest request);
+
+  BinaryResponse executeRollbackActiveTx(RollbackActiveTxRequest request);
 }

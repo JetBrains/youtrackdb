@@ -592,7 +592,7 @@ public enum GlobalConfiguration {
       "Set the minimum enabled binary protocol version and disable all backward compatible"
           + " behaviour for version previous the one specified",
       Integer.class,
-      26,
+      1,
       false),
 
   NETWORK_BINARY_DEBUG(

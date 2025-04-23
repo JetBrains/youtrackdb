@@ -41,6 +41,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultS
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeLiveQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeLiveQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeRequest;
@@ -830,10 +831,16 @@ public class RemoteCommandsDispatcherImpl implements RemotePushHandler,
     }
   }
 
-  public void closeQuery(DatabaseSessionRemote database, String queryId) {
-    unstickToSession(database);
+  public void closeQuery(DatabaseSessionRemote databaseSession, String queryId) {
+    unstickToSession(databaseSession);
     var request = new CloseQueryRequest(queryId);
-    networkOperation(database, request, "Error closing query: " + queryId);
+    networkOperation(databaseSession, request, "Error closing query: " + queryId);
+  }
+
+  public void rollbackActiveTx(DatabaseSessionRemote databaseSession) {
+    unstickToSession(databaseSession);
+    var request = new RollbackActiveTxRequest();
+    networkOperation(databaseSession, request, "Error on rolling back active transaction");
   }
 
   public void fetchNextPage(DatabaseSessionRemote database, PaginatedResultSet rs) {

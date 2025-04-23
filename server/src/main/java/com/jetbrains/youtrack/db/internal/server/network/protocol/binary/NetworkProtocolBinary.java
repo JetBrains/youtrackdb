@@ -535,36 +535,19 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
   protected void checkServerAccess(DatabaseSessionInternal session, final String iResource,
       ClientConnection connection) {
-    if (connection.getData().protocolVersion <= ChannelBinaryProtocol.PROTOCOL_VERSION_26) {
-      if (connection.getServerUser() == null) {
-        throw new SecurityAccessException("Server user not authenticated");
-      }
+    if (!connection.getData().serverUser) {
+      throw new SecurityAccessException("Server user not authenticated");
+    }
 
-      if (!server.getSecurity()
-          .isAuthorized(session, connection.getServerUser().getName(session), iResource)) {
-        throw new SecurityAccessException(
-            "User '"
-                + connection.getServerUser().getName(session)
-                + "' cannot access to the resource ["
-                + iResource
-                + "]. Use another server user or change permission in the file"
-                + " config/youtrackdb-server-config.xml");
-      }
-    } else {
-      if (!connection.getData().serverUser) {
-        throw new SecurityAccessException("Server user not authenticated");
-      }
-
-      if (!server.getSecurity()
-          .isAuthorized(session, connection.getData().serverUsername, iResource)) {
-        throw new SecurityAccessException(
-            "User '"
-                + connection.getData().serverUsername
-                + "' cannot access to the resource ["
-                + iResource
-                + "]. Use another server user or change permission in the file"
-                + " config/youtrackdb-server-config.xml");
-      }
+    if (!server.getSecurity()
+        .isAuthorized(session, connection.getData().serverUsername, iResource)) {
+      throw new SecurityAccessException(
+          "User '"
+              + connection.getData().serverUsername
+              + "' cannot access to the resource ["
+              + iResource
+              + "]. Use another server user or change permission in the file"
+              + " config/youtrackdb-server-config.xml");
     }
   }
 
@@ -573,7 +556,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       throws IOException {
     channel.acquireWriteLock();
     try {
-
       channel.writeByte(ChannelBinaryProtocol.RESPONSE_STATUS_ERROR);
       channel.writeInt(iClientTxId);
       if (handshakeInfo != null) {
@@ -586,26 +568,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         }
         channel.writeBytes(renewedToken);
         channel.writeByte((byte) requestType);
-      } else {
-        if (tokenConnection
-            && requestType != ChannelBinaryProtocol.REQUEST_CONNECT
-            && (requestType != ChannelBinaryProtocol.REQUEST_DB_OPEN
-            && requestType != ChannelBinaryProtocol.REQUEST_SHUTDOWN
-            || (connection != null
-            && connection.getData() != null
-            && connection.getData().protocolVersion
-            <= ChannelBinaryProtocol.PROTOCOL_VERSION_32))
-            || requestType == ChannelBinaryProtocol.REQUEST_DB_REOPEN) {
-          // TODO: Check if the token is expiring and if it is send a new token
-
-          if (connection != null && connection.getToken() != null) {
-            var renewedToken = server.getTokenHandler().renewIfNeeded(connection.getToken());
-            channel.writeBytes(renewedToken);
-          } else {
-            channel.writeBytes(new byte[]{});
-          }
-        }
       }
+
       final Throwable current;
       if (t instanceof BaseException
           && t.getCause() instanceof java.lang.InterruptedException

@@ -39,6 +39,7 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageReq
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigurationRequest;
@@ -62,46 +63,11 @@ public class NetworkBinaryProtocolFactory {
 
   public static Function<Integer, BinaryRequest<? extends BinaryResponse>> matchProtocol(
       short protocolVersion) {
-    if (protocolVersion == ChannelBinaryProtocol.PROTOCOL_VERSION_37 ||
-        protocolVersion == ChannelBinaryProtocol.PROTOCOL_VERSION_38) {
-      return NetworkBinaryProtocolFactory::createRequest37;
-    }
-
     return NetworkBinaryProtocolFactory::createRequest;
   }
 
-  /**
-   * Legacy Protocol < 37
-   */
-  private static BinaryRequest<? extends BinaryResponse> createRequest(int requestType) {
-    return switch (requestType) {
-      case ChannelBinaryProtocol.REQUEST_DB_REOPEN -> new ReopenRequest();
-      case ChannelBinaryProtocol.REQUEST_SHUTDOWN -> new ShutdownRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_LIST -> new ListDatabasesRequest();
-      case ChannelBinaryProtocol.REQUEST_SERVER_INFO -> new ServerInfoRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_CREATE -> new CreateDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_CLOSE -> new CloseRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_EXIST -> new ExistsDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_DROP -> new DropDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_SERVER_QUERY -> new ServerQueryRequest();
-      case ChannelBinaryProtocol.REQUEST_QUERY -> new QueryRequest();
-      case ChannelBinaryProtocol.REQUEST_CLOSE_QUERY -> new CloseQueryRequest();
-      case ChannelBinaryProtocol.REQUEST_QUERY_NEXT_PAGE -> new QueryNextPageRequest();
-      case ChannelBinaryProtocol.REQUEST_CONFIG_GET -> new GetGlobalConfigurationRequest();
-      case ChannelBinaryProtocol.REQUEST_CONFIG_SET -> new SetGlobalConfigurationRequest();
-      case ChannelBinaryProtocol.REQUEST_CONFIG_LIST -> new ListGlobalConfigurationsRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_FREEZE -> new FreezeDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
-      case ChannelBinaryProtocol.REQUEST_INCREMENTAL_BACKUP -> new IncrementalBackupRequest();
-      case ChannelBinaryProtocol.REQUEST_DB_IMPORT -> new ImportRequest();
-      default -> throw new DatabaseException("binary protocol command with code: " + requestType);
-    };
-  }
 
-  /**
-   * Protocol 37
-   */
-  public static BinaryRequest<? extends BinaryResponse> createRequest37(int requestType) {
+  public static BinaryRequest<? extends BinaryResponse> createRequest(int requestType) {
     return switch (requestType) {
       case ChannelBinaryProtocol.SUBSCRIBE_PUSH -> new SubscribeRequest();
       case ChannelBinaryProtocol.UNSUBSCRIBE_PUSH -> new UnsubscribeRequest();
@@ -126,7 +92,8 @@ public class NetworkBinaryProtocolFactory {
       case ChannelBinaryProtocol.REQUEST_DB_RELEASE -> new ReleaseDatabaseRequest();
       case ChannelBinaryProtocol.REQUEST_INCREMENTAL_BACKUP -> new IncrementalBackupRequest();
       case ChannelBinaryProtocol.REQUEST_DB_IMPORT -> new ImportRequest();
-      default -> createRequest(requestType);
+      case ChannelBinaryProtocol.REQUEST_ROLLBACK_ACTIVE_TX -> new RollbackActiveTxRequest();
+      default -> throw new DatabaseException("binary protocol command with code: " + requestType);
     };
   }
 }
