@@ -28,7 +28,8 @@ public class ListDatabasesResponse implements BinaryResponse {
       throws IOException {
     final var result = new ResultInternal(null);
     result.setProperty("databases", databases);
-    MessageHelper.writeResult(result, channel, session.getDatabaseTimeZone());
+    MessageHelper.writeResult(result, channel,
+        session != null ? session.getDatabaseTimeZone() : TimeZone.getDefault());
   }
 
   @Override
