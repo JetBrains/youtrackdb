@@ -765,7 +765,16 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
 
     if (isEntity()) {
-      var transaction = session.getActiveTransaction();
+      var transaction = session.getActiveTransactionOrNull();
+
+      if (transaction == null) {
+        if (identifiable instanceof Entity entity) {
+          return entity;
+        }
+
+        return null;
+      }
+
       this.identifiable = transaction.loadEntity(identifiable);
       return asEntityOrNull();
     }
@@ -821,7 +830,15 @@ public class ResultInternal implements Result, BasicResultInternal {
       return (DBRecord) identifiable;
     }
 
-    var transaction = session.getActiveTransaction();
+    var transaction = session.getActiveTransactionOrNull();
+    if (transaction == null) {
+      if (identifiable instanceof DBRecord record) {
+        return record;
+      }
+
+      return null;
+    }
+
     this.identifiable = transaction.load(this.identifiable);
     return asRecordOrNull();
   }
@@ -875,7 +892,16 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
 
     if (isBlob()) {
-      var transaction = session.getActiveTransaction();
+      var transaction = session.getActiveTransactionOrNull();
+
+      if (transaction == null) {
+        if (identifiable instanceof Blob blob) {
+          return blob;
+        }
+
+        return null;
+      }
+
       this.identifiable = transaction.loadBlob(this.identifiable);
       return asBlobOrNull();
     }

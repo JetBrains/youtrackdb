@@ -251,7 +251,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
     document.setProperty("ridBag", ridBagOne);
 
-    Assert.assertTrue(session.commit());
+    Assert.assertNotNull(session.commit());
 
     session.begin();
     var activeTx = session.getActiveTransaction();

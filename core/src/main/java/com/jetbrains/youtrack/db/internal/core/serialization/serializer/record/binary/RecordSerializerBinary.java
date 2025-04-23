@@ -118,7 +118,7 @@ public class RecordSerializerBinary implements RecordSerializer {
     if (record instanceof Blob) {
       return record.toStream();
     } else {
-      var documentToSerialize = (EntityImpl) record;
+      var entityToSerialize = (EntityImpl) record;
 
       final var container = new BytesContainer();
 
@@ -126,7 +126,7 @@ public class RecordSerializerBinary implements RecordSerializer {
       var pos = container.alloc(1);
       container.bytes[pos] = currentSerializerVersion;
       // SERIALIZE RECORD
-      serializerByVersion[currentSerializerVersion].serialize(session, documentToSerialize,
+      serializerByVersion[currentSerializerVersion].serialize(session, entityToSerialize,
           container);
 
       return container.fitBytes();

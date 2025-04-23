@@ -30,6 +30,14 @@ public class MessageHelper {
     if (row.isBlob()) {
       writeBlob(row, channel);
     } else if (row.isEntity()) {
+      var entity = row.asEntityOrNull();
+
+      if (entity == null) {
+        channel.writeByte(QueryResponse.RECORD_TYPE_RID);
+        channel.writeRID(row.getIdentity());
+        return;
+      }
+
       writeEntity(row.asEntity(), channel, databaseTimeZone);
     } else if (row.isProjection()) {
       writeProjection(row, channel, databaseTimeZone);

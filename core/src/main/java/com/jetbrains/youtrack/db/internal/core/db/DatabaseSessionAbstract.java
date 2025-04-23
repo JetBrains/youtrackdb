@@ -1092,7 +1092,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
    * {@inheritDoc}
    */
   @Override
-  public boolean commit() {
+  public Map<RID, RID> commit() {
     checkOpenness();
     assert assertIfNotActive();
 
@@ -1107,8 +1107,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
     if (currentTx.amountOfNestedTxs() > 1) {
       // This just do count down no real commit here
-      currentTx.commitInternal();
-      return false;
+      return currentTx.commitInternal();
     }
 
     // WAKE UP LISTENERS
@@ -1125,7 +1124,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
       throw e;
     }
     try {
-      currentTx.commitInternal();
+      return currentTx.commitInternal();
     } catch (RuntimeException e) {
 
       if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
@@ -1155,8 +1154,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
       afterRollbackOperations();
       throw e;
     }
-
-    return true;
   }
 
   protected void beforeCommitOperations() {

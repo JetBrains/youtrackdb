@@ -37,7 +37,6 @@ import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -77,7 +76,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void commitInternal() {
+  public Map<RID, RID> commitInternal() {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -229,7 +228,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void commitInternal(boolean force) {
+  public Map<RID, RID> commitInternal(boolean force) {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -254,7 +253,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean commit() throws TransactionException {
+  public Map<RID, RID> commit() throws TransactionException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

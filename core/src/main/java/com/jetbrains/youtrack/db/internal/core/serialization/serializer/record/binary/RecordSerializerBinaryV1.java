@@ -117,6 +117,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return false;
   }
 
+  @Override
   public void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields) {
     // TRANSFORMS FIELDS FOM STRINGS TO BYTE[]
@@ -200,6 +201,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return match;
   }
 
+  @Override
   @Nullable
   public BinaryField deserializeField(
       DatabaseSessionInternal session, final BytesContainer bytes,
@@ -266,6 +268,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
+  @Override
   public void deserialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     var headerLength = VarIntSerializer.readAsInteger(bytes);
@@ -332,6 +335,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     deserialize(db, entity, bytes);
   }
 
+  @Override
   public String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
       final BytesContainer bytes,
       boolean embedded) {
@@ -470,7 +474,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     destinationBuffer.offset += sourceBuffer1.offset + sourceBuffer2.offset;
   }
 
-  private void serializeDocument(
+  private void serializeEntity(
       DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes,
       final SchemaClass clazz,
@@ -510,9 +514,10 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       writeEmptyString(bytes);
     }
     var encryption = entity.propertyEncryption;
-    serializeDocument(session, entity, bytes, clazz, schema, encryption);
+    serializeEntity(session, entity, bytes, clazz, schema, encryption);
   }
 
+  @Override
   public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
     ImmutableSchema schema = null;
@@ -521,13 +526,15 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
     var encryption = entity.propertyEncryption;
     var clazz = entity.getImmutableSchemaClass(session);
-    serializeDocument(session, entity, bytes, clazz, schema, encryption);
+    serializeEntity(session, entity, bytes, clazz, schema, encryption);
   }
 
+  @Override
   public boolean isSerializingClassNameByDefault() {
     return false;
   }
 
+  @Override
   public <RET> RET deserializeFieldTyped(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
@@ -615,6 +622,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return new Tuple<>(fieldSize, type);
   }
 
+  @Override
   public void deserializeDebug(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       RecordSerializationDebug debugInfo,
@@ -958,6 +966,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return new EmbeddedLinkBag(changes, session, linkBagSize, counterMaxValue);
   }
 
+  @Override
   public Object deserializeValue(
       DatabaseSessionEmbedded db, final BytesContainer bytes, final PropertyTypeInternal type,
       final RecordElement owner) {
@@ -1216,7 +1225,10 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
               "Value '" + value + "' is not a Identifiable");
         }
 
-        assert identifiable.getIdentity().isPersistent();
+        if (!identifiable.getIdentity().isPersistent()) {
+          throw new IllegalStateException(
+              "Non-persistent link " + identifiable + " cannot be serialized");
+        }
         pointer = writeOptimizedLink(session, bytes, identifiable);
         break;
       case LINKMAP:

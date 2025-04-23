@@ -41,7 +41,6 @@ import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
@@ -176,8 +175,8 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void commitInternal() {
-    commitInternal(false);
+  public Map<RID, RID> commitInternal() {
+    return commitInternal(false);
   }
 
   /**
@@ -185,10 +184,12 @@ public class FrontendTransactionImpl implements
    * commit happens only after the same amount of {@code commit()} calls
    *
    * @param force commit transaction even
+   * @return Map between generated rids of new records and ones generated during records commit.
    */
   @Override
-  public void commitInternal(final boolean force) {
+  public Map<RID, RID> commitInternal(final boolean force) {
     checkTransactionValid();
+
     if (txStartCounter < 0) {
       throw new TransactionException(session.getDatabaseName(),
           "Invalid value of tx counter: " + txStartCounter);
@@ -204,13 +205,15 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      doCommit();
+      return doCommit();
     } else {
       if (txStartCounter < 0) {
         throw new TransactionException(session,
             "Transaction was committed more times than it was started.");
       }
     }
+
+    return null;
   }
 
   @Override
@@ -546,7 +549,7 @@ public class FrontendTransactionImpl implements
     return txEntry;
   }
 
-  private void doCommit() {
+  private Map<RID, RID> doCommit() {
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
       if (status == TXSTATUS.ROLLBACKING) {
         internalRollback();
@@ -576,8 +579,11 @@ public class FrontendTransactionImpl implements
       throw e;
     }
 
+    var result = new HashMap<RID, RID>(originalChangedRecordIdMap);
     close();
     status = TXSTATUS.COMPLETED;
+
+    return result;
   }
 
   @Override
@@ -1668,7 +1674,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean commit() throws TransactionException {
+  public Map<RID, RID> commit() throws TransactionException {
     checkIfActive();
     return session.commit();
   }

@@ -76,7 +76,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -1335,7 +1334,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     preprocessRemovedValue(oldValue);
-    preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(name, value, propertyType);
 
     if (oldType != propertyType) {
       entry.type = propertyType;
@@ -1854,7 +1853,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    if (!(propertyValue instanceof Identifiable)) {
+    if (!(propertyValue instanceof Identifiable identifiable)) {
       throw new ValidationException(session.getDatabaseName(),
           "The property '"
               + p.getFullName()
@@ -1866,7 +1865,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     final var schemaClass = p.getLinkedClass();
     if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
-      var identifiable = (Identifiable) propertyValue;
       final var rid = identifiable.getIdentity();
       if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD

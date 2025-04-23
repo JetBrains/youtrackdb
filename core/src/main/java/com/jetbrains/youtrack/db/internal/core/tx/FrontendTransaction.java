@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -52,9 +51,11 @@ public interface FrontendTransaction extends Transaction {
 
   int beginInternal();
 
-  void commitInternal();
+  @Nullable
+  Map<RID, RID> commitInternal();
 
-  void commitInternal(boolean force);
+  @Nullable
+  Map<RID, RID> commitInternal(boolean force);
 
   void rollbackInternal();
 

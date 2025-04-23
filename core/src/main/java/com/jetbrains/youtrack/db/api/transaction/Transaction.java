@@ -1,12 +1,18 @@
 package com.jetbrains.youtrack.db.api.transaction;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -16,12 +22,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.Collection;
@@ -33,6 +33,7 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings("unused")
 public interface Transaction {
+
   boolean isActive();
 
   @Nonnull
@@ -239,6 +240,7 @@ public interface Transaction {
    */
   @Nonnull
   <RET extends DBRecord> RET load(RID recordId);
+
   /**
    * Loads the record by the Record ID, unlike {@link  #load(RID)} method does not throw exception
    * if record not found but returns <code>null</code> instead.
@@ -281,11 +283,12 @@ public interface Transaction {
    * transaction context will be effective. If the operation fails, all the changed entities will be
    * restored in the data store.
    *
-   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
-   * otherwise false. If false is returned, then there are still nested transaction that have to be
-   * committed.
+   * @return Map between the synthetic RIDs of new records created inside transaction and the
+   * persistent RIDs assigned to records during commit or <code>null</code> if transaction is not
+   * the highest level transaction and changes are not commited yet as a result.
    */
-  boolean commit() throws TransactionException;
+  @Nullable
+  Map<RID, RID> commit() throws TransactionException;
 
   /**
    * Aborts the current running transaction. All the pending changed entities will be restored in

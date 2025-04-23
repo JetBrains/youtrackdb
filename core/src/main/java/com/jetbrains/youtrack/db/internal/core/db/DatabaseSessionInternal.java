@@ -1110,11 +1110,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * transaction context will be effective. If the operation fails, all the changed entities will be
    * restored in the data store.
    *
-   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
-   * otherwise false. If false is returned, then there are still nested transaction that have to be
-   * committed.
+   * @return Map of RIDs updated during transaction (oldRid, newRid) or <code>null</code> if that is
+   * not the highest level commit and transaction is not committed yet.
    */
-  boolean commit() throws TransactionException;
+  @Nullable
+  Map<RID, RID> commit() throws TransactionException;
 
   /**
    * Aborts the current running transaction. All the pending changed entities will be restored in

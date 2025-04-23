@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -151,7 +152,12 @@ public class ResultSerializerNetwork {
                     + propertyValue.getClass()
                     + " with the Result binary serializer");
           }
-          writeOType(bytes, bytes.alloc(1), type);
+          if (type != PropertyTypeInternal.LINKBAG) {
+            writeOType(bytes, bytes.alloc(1), type);
+          } else {
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINKLIST);
+          }
+
           serializeValue(bytes, propertyValue, type, databaseTimeZone);
         }
       } else {
@@ -465,7 +471,12 @@ public class ResultSerializerNetwork {
         writeEmbeddedMap(bytes, (Map<Object, Object>) value, databaseTimeZone);
         break;
       case LINKBAG:
-        throw new UnsupportedOperationException("LINKBAG should never appear in a projection");
+        var copy = new ArrayList<Identifiable>();
+        for (var rid : (LinkBag) value) {
+          copy.add(rid);
+        }
+        writeLinkCollection(bytes, copy);
+        break;
     }
   }
 
