@@ -3,10 +3,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class SQLLetStatement extends SQLSimpleExecStatement {
 
@@ -34,6 +37,12 @@ public class SQLLetStatement extends SQLSimpleExecStatement {
         statement.setOriginalStatement(statement.toString());
       }
       result = statement.execute(ctx.getDatabaseSession(), params, ctx, false);
+    }
+
+    //eager execution of result set for variables so expressions will be executed in the right order
+    if (result instanceof ResultSet resultSet) {
+      var resultList = resultSet.stream().collect(Collectors.toList());
+      result = new InternalResultSet(ctx.getDatabaseSession(), resultList);
     }
 
     if (ctx.getParent() != null) {

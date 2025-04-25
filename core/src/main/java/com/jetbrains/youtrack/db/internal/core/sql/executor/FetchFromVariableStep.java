@@ -37,10 +37,12 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     ExecutionStream source;
     switch (src) {
       case ExecutionStream executionStream -> source = executionStream;
-      case ResultSet resultSet -> source =
-          ExecutionStream.resultIterator(
-                  resultSet.stream().map(result -> loadEntity(session, result)).iterator())
-              .onClose((context) -> ((ResultSet) src).close());
+      case ResultSet resultSet -> {
+        source =
+            ExecutionStream.resultIterator(
+                    resultSet.stream().map(result -> loadEntity(session, result)).iterator())
+                .onClose((context) -> ((ResultSet) src).close());
+      }
       case Identifiable identifiable -> {
         //case when we pass variable between txs
         identifiable = session.getActiveTransaction().loadEntity(identifiable);
@@ -77,12 +79,10 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
       }
     } else if (result instanceof Result sqlResult) {
       if (sqlResult.isEntity()) {
-        var entity = sqlResult.asEntity();
-        if (entity.isUnloaded()) {
-          var tx = session.getActiveTransaction();
-          return tx.loadEntity(entity);
+        var entity = sqlResult.asEntityOrNull();
+        if (entity == null) {
+          return new ResultInternal(session, sqlResult.getIdentity());
         }
-
         return new ResultInternal(session, entity);
       }
     }

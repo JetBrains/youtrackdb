@@ -150,5 +150,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
 
   @Override
   void forEachRemaining(@Nonnull Consumer<? super R> action);
+
+  boolean isClosed();
 }
 

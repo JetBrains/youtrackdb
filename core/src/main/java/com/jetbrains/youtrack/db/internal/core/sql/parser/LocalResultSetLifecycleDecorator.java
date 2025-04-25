@@ -21,14 +21,12 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   private static final AtomicLong counter = new AtomicLong(0);
 
-  private final ResultSet entity;
+  private final ResultSet underlyingResultSet;
   private final List<QueryLifecycleListener> lifecycleListeners = new ArrayList<>();
   private final String queryId;
 
-  private boolean hasNextPage;
-
-  public LocalResultSetLifecycleDecorator(ResultSet entity) {
-    this.entity = entity;
+  public LocalResultSetLifecycleDecorator(ResultSet underlyingResultSet) {
+    this.underlyingResultSet = underlyingResultSet;
     queryId = System.currentTimeMillis() + "_" + counter.incrementAndGet();
   }
 
@@ -38,7 +36,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public boolean hasNext() {
-    return entity.hasNext();
+    return underlyingResultSet.hasNext();
   }
 
   @Override
@@ -47,13 +45,13 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
       throw new IllegalStateException();
     }
 
-    return entity.next();
+    return underlyingResultSet.next();
   }
 
   @Override
   public void close() {
-    var session = (DatabaseSessionInternal) entity.getBoundToSession();
-    entity.close();
+    var session = (DatabaseSessionInternal) underlyingResultSet.getBoundToSession();
+    underlyingResultSet.close();
     this.lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
     this.lifecycleListeners.clear();
     if (session != null) {
@@ -67,32 +65,24 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public DatabaseSession getBoundToSession() {
-    return entity.getBoundToSession();
+    return underlyingResultSet.getBoundToSession();
   }
 
   @Override
   public @Nonnull ExecutionPlan getExecutionPlan() {
-    return entity.getExecutionPlan();
+    return underlyingResultSet.getExecutionPlan();
   }
 
   public String getQueryId() {
     return queryId;
   }
 
-  public boolean hasNextPage() {
-    return hasNextPage;
-  }
-
-  public void setHasNextPage(boolean b) {
-    this.hasNextPage = b;
-  }
-
   public boolean isDetached() {
-    return entity instanceof InternalResultSet;
+    return underlyingResultSet instanceof InternalResultSet;
   }
 
-  public ResultSet getInternal() {
-    return entity;
+  public ResultSet getUnderlying() {
+    return underlyingResultSet;
   }
 
   @Override
@@ -107,12 +97,17 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   @Nullable
   @Override
   public ResultSet trySplit() {
-    return null;
+    var result = underlyingResultSet.trySplit();
+    if (result == null) {
+      return null;
+    }
+
+    return new LocalResultSetLifecycleDecorator((ResultSet) result);
   }
 
   @Override
   public long estimateSize() {
-    return Long.MAX_VALUE;
+    return underlyingResultSet.estimateSize();
   }
 
   @Override
@@ -125,5 +120,10 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
     while (hasNext()) {
       action.accept(next());
     }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return underlyingResultSet.isClosed();
   }
 }

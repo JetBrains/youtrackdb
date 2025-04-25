@@ -22,6 +22,8 @@ public class ExplainResultSet implements ResultSet {
   @Nullable
   private DatabaseSessionInternal session;
 
+  private boolean closed = false;
+
   public ExplainResultSet(@Nullable DatabaseSessionInternal session, ExecutionPlan executionPlan,
       DatabaseStats dbStats) {
     this.executionPlan = executionPlan;
@@ -34,12 +36,16 @@ public class ExplainResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     return hasNext;
   }
 
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     if (!hasNext) {
       throw new IllegalStateException();
     }
@@ -51,18 +57,26 @@ public class ExplainResultSet implements ResultSet {
     }
 
     hasNext = false;
+    close();
+
     return result;
   }
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+
     assert session == null || session.assertIfNotActive();
     this.session = null;
+    this.closed = true;
   }
 
   @Override
   public @Nonnull ExecutionPlan getExecutionPlan() {
     assert session == null || session.assertIfNotActive();
+
     return executionPlan;
   }
 
@@ -101,6 +115,17 @@ public class ExplainResultSet implements ResultSet {
   public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
+    }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return closed;
+  }
+
+  private void checkClosed() {
+    if (closed) {
+      throw new IllegalStateException("ResultSet is closed and can not be used");
     }
   }
 }

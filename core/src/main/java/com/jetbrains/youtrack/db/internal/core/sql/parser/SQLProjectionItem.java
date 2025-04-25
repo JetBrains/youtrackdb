@@ -82,6 +82,7 @@ public class SQLProjectionItem extends SimpleNode {
     this.expression = expression;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (all) {
       builder.append("*");
@@ -104,6 +105,7 @@ public class SQLProjectionItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (all) {
       builder.append("*");
@@ -158,8 +160,8 @@ public class SQLProjectionItem extends SimpleNode {
       }
       return result;
     }
-    if (value instanceof InternalResultSet) {
-      ((InternalResultSet) value).reset();
+    if (value instanceof InternalResultSet internalResultSet) {
+      value = internalResultSet.copy(context.getDatabaseSession());
       value = ((InternalResultSet) value).stream().collect(Collectors.toList());
     }
     if (value instanceof ExecutionStream) {
@@ -286,6 +288,7 @@ public class SQLProjectionItem extends SimpleNode {
     return expression.getAggregationContext(ctx);
   }
 
+  @Override
   public SQLProjectionItem copy() {
     var result = new SQLProjectionItem(-1);
     result.exclude = exclude;

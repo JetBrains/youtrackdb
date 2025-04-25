@@ -5,18 +5,21 @@ import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class PaginatedResultSet implements RemoteResultSet {
+
   @Nullable
   private DatabaseSessionRemote session;
   private final String queryId;
   private List<RemoteResult> currentPage;
   private boolean hasNextPage;
+
+  private final boolean closed = false;
 
   public PaginatedResultSet(
       @Nullable DatabaseSessionRemote session,
@@ -36,18 +39,23 @@ public class PaginatedResultSet implements RemoteResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     if (!currentPage.isEmpty()) {
       return true;
     }
     if (!hasNextPage()) {
       return false;
     }
+
     fetchNextPage();
+
     return !currentPage.isEmpty();
   }
 
   private void fetchNextPage() {
     assert session == null || session.assertIfNotActive();
+
     if (session != null) {
       session.fetchNextPage(this);
     }
@@ -56,14 +64,18 @@ public class PaginatedResultSet implements RemoteResultSet {
   @Override
   public RemoteResult next() {
     assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     if (currentPage.isEmpty()) {
       if (!hasNextPage()) {
-        throw new IllegalStateException();
+        throw new NoSuchElementException();
       }
+
       fetchNextPage();
     }
+
     if (currentPage.isEmpty()) {
-      throw new IllegalStateException();
+      throw new NoSuchElementException();
     }
 
     return currentPage.removeFirst();
@@ -71,6 +83,10 @@ public class PaginatedResultSet implements RemoteResultSet {
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+
     assert session == null || session.assertIfNotActive();
     if (hasNextPage && session != null) {
       // CLOSES THE QUERY SERVER SIDE ONLY IF THERE IS ANOTHER PAGE. THE SERVER ALREADY
@@ -89,11 +105,14 @@ public class PaginatedResultSet implements RemoteResultSet {
 
   public void add(RemoteResult item) {
     assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     currentPage.add(item);
   }
 
   public boolean hasNextPage() {
     assert session == null || session.assertIfNotActive();
+
     return hasNextPage;
   }
 
@@ -139,6 +158,17 @@ public class PaginatedResultSet implements RemoteResultSet {
   public void forEachRemaining(@Nonnull Consumer<? super RemoteResult> action) {
     while (hasNext()) {
       action.accept(next());
+    }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return closed;
+  }
+
+  private void checkClosed() {
+    if (closed) {
+      throw new IllegalStateException("ResultSet is closed and can not be used");
     }
   }
 }

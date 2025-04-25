@@ -46,6 +46,10 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public void close() {
+    for (var step : steps) {
+      step.close();
+    }
+
     lastStep.close();
   }
 

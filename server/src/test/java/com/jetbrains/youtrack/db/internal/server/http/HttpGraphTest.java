@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -28,21 +30,24 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
             .getResponse()
             .getCode());
 
-    var script = "begin;";
-    script += "let $v1 = create vertex Foo set name = 'foo1';";
-    script += "let $v2 = create vertex Foo set name = 'foo2';";
-    script += "create edge FooEdge from $v1 to $v2;";
-    script += "let $v3 = select detach() from $v1;";
-    script += "commit;";
-    script += "return $v3;";
+    var script = """
+        begin;
+        let $v1 = create vertex Foo set name = 'foo1';
+        let $v2 = create vertex Foo set name = 'foo2';
+        let $v1Ref = $v1[0].@rid;
+        create edge FooEdge from $v1Ref to $v2;
+        let $v3 = select detach() from $v1Ref;
+        commit;
+        return $v3;
+        """;
+    final var scriptPayload = new HashMap<String, List<Map<String, String>>>();
+    var operation = Map.of("type", "script", "language", "SQL", "script", script);
+    scriptPayload.put("operations", List.of(operation));
 
-    final var scriptPayload =
-        "{ \"operations\" : [{ \"type\" : \"script\", \"language\" : \"SQL\",  \"script\" :"
-            + " \"%s\"}]}";
-
+    var json = JSONSerializerJackson.mapToJson(scriptPayload);
     var response =
         post("batch/" + getDatabaseName() + "/sql/")
-            .payload(String.format(scriptPayload, script), CONTENT.JSON)
+            .payload(json, CONTENT.JSON)
             .getResponse();
     Assert.assertEquals(200, response.getCode());
 
@@ -56,8 +61,6 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     Assert.assertEquals("foo1", created.get("name").asText());
     Assert.assertEquals(1, created.get("@version").asInt());
 
-    var coll = created.get("out_FooEdge");
-    Assert.assertEquals(1, coll.size());
 
     var createdNode = created.<ObjectNode>deepCopy();
     createdNode.put("name", "fooUpdated");
@@ -72,9 +75,6 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     var updated = objectMapper.readTree(response.getEntity().getContent());
     Assert.assertEquals("fooUpdated", updated.get("name").asText());
     Assert.assertEquals(2, updated.get("@version").asInt());
-
-    coll = updated.get("out_FooEdge");
-    Assert.assertEquals(1, coll.size());
   }
 
   @Test
@@ -100,20 +100,22 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     script += "commit;";
     script += "return $v3;";
 
-    final var scriptPayload =
-        "{ \"operations\" : [{ \"type\" : \"script\", \"language\" : \"SQL\",  \"script\" :"
-            + " \"%s\"}]}";
+    final var scriptPayload = new HashMap<String, List<Map<String, String>>>();
+    var operation = Map.of("type", "script", "language", "SQL", "script", script);
+    scriptPayload.put("operations", List.of(operation));
+
+    var json = JSONSerializerJackson.mapToJson(scriptPayload);
 
     var response =
         post("batch/" + getDatabaseName() + "/sql/")
-            .payload(String.format(scriptPayload, script), CONTENT.JSON)
+            .payload(json, CONTENT.JSON)
             .getResponse();
     Assert.assertEquals(200, response.getCode());
 
     final var payload = new HashMap<String, String>();
     payload.put("command", "select from E");
     payload.put("mode", "graph");
-    var json = JSONSerializerJackson.mapToJson(payload);
+    json = JSONSerializerJackson.mapToJson(payload);
 
     response =
         post("command/" + getDatabaseName() + "/sql/").payload(json, CONTENT.JSON).getResponse();

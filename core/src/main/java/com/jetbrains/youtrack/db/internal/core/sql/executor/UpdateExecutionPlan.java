@@ -14,9 +14,9 @@ import javax.annotation.Nullable;
  *
  */
 public class UpdateExecutionPlan extends SelectExecutionPlan {
-
   private final List<Result> result = new ArrayList<>();
   private int next = 0;
+
 
   public UpdateExecutionPlan(CommandContext ctx) {
     super(ctx);
@@ -50,15 +50,6 @@ public class UpdateExecutionPlan extends SelectExecutionPlan {
     return res;
   }
 
-  @Override
-  public boolean canBeCached() {
-    for (var step : steps) {
-      if (!step.canBeCached()) {
-        return false;
-      }
-    }
-    return true;
-  }
 
   @Override
   public InternalExecutionPlan copy(CommandContext ctx) {

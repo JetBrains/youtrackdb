@@ -1,7 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.ExecutionStep;
+import com.google.common.collect.Streams;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -15,13 +16,10 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBatch;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Spliterators;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -36,6 +34,10 @@ public class CreateEdgesStep extends AbstractExecutionStep {
   private final Number wait;
   private final Number retry;
   private final SQLBatch batch;
+
+  private Stream<?> fromStream;
+  private Stream<?> toStream;
+
 
   public CreateEdgesStep(
       SQLIdentifier targetClass,
@@ -63,15 +65,16 @@ public class CreateEdgesStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var fromIter = fetchFroms();
-    var toList = fetchTo();
+    fromStream = fetchFroms();
+    toStream = fetchTo();
+
     var uniqueIndex = findIndex(this.uniqueIndexName);
     var db = ctx.getDatabaseSession();
     var stream =
-        StreamSupport.stream(Spliterators.spliteratorUnknownSize(fromIter, 0), false)
-            .map(currentFrom1 -> asVertex(db, currentFrom1))
+        fromStream
+            .map(fromObject -> asVertex(db, fromObject))
             .flatMap(
-                (currentFrom) -> mapTo(ctx.getDatabaseSession(), toList, currentFrom, uniqueIndex));
+                (fromVertex) -> mapTo(ctx.getDatabaseSession(), toStream, fromVertex, uniqueIndex));
     return ExecutionStream.resultIterator(stream.iterator());
   }
 
@@ -90,55 +93,45 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return null;
   }
 
-  private List<Object> fetchTo() {
+  private Stream<?> fetchTo() {
     var toValues = ctx.getVariable(toAlias.getStringValue());
-    if (toValues instanceof Iterable && !(toValues instanceof Identifiable)) {
-      toValues = ((Iterable<?>) toValues).iterator();
-    } else if (!(toValues instanceof Iterator)) {
-      toValues = Collections.singleton(toValues).iterator();
-    }
-    if (toValues instanceof InternalResultSet) {
-      toValues = ((InternalResultSet) toValues).copy();
-    }
-
-    var toIter = (Iterator<?>) toValues;
-
-    if (toIter instanceof InternalResultSet resultSet) {
-      try {
-        resultSet.reset();
-      } catch (Exception ignore) {
-      }
-    }
-    List<Object> toList = new ArrayList<>();
-    while (toIter != null && toIter.hasNext()) {
-      toList.add(toIter.next());
-    }
-    return toList;
+    return convertToStream(toValues);
   }
 
-  private Iterator<?> fetchFroms() {
+  private Stream<?> fetchFroms() {
     var fromValues = ctx.getVariable(fromAlias.getStringValue());
-    if (fromValues instanceof Iterable && !(fromValues instanceof Identifiable)) {
-      fromValues = ((Iterable<?>) fromValues).iterator();
-    } else if (!(fromValues instanceof Iterator)) {
-      fromValues = Collections.singleton(fromValues).iterator();
-    }
-    if (fromValues instanceof InternalResultSet) {
-      fromValues = ((InternalResultSet) fromValues).copy();
-    }
-    var fromIter = (Iterator<?>) fromValues;
-    if (fromIter instanceof InternalResultSet resultSet) {
-      try {
-        resultSet.reset();
-      } catch (Exception ignore) {
-      }
-    }
-    return fromIter;
+    return convertToStream(fromValues);
   }
 
-  public Stream<Result> mapTo(DatabaseSessionInternal session, List<Object> to, Vertex currentFrom,
+  @Nonnull
+  private Stream<?> convertToStream(Object fromValues) {
+    if (fromValues == null) {
+      return Stream.empty();
+    }
+    var session = ctx.getDatabaseSession();
+    switch (fromValues) {
+      case InternalResultSet internalResultSet -> {
+        return internalResultSet.copy(session).stream();
+      }
+      case Stream<?> stream -> {
+        return stream;
+      }
+      case Iterable<?> iterable -> {
+        return Streams.stream(iterable);
+      }
+      default -> {
+      }
+    }
+    if (!(fromValues instanceof Iterator)) {
+      return Streams.stream(Collections.singleton(fromValues));
+    }
+
+    return Stream.empty();
+  }
+
+  public Stream<Result> mapTo(DatabaseSessionInternal session, Stream<?> to, Vertex currentFrom,
       Index uniqueIndex) {
-    return to.stream()
+    return to
         .map(
             (obj) -> {
               var currentTo = asVertex(session, obj);
@@ -236,5 +229,17 @@ public class CreateEdgesStep extends AbstractExecutionStep {
         batch == null ? null : batch.copy(),
         ctx,
         profilingEnabled);
+  }
+
+  @Override
+  public void close() {
+    super.close();
+
+    if (fromStream != null) {
+      fromStream.close();
+    }
+    if (toStream != null) {
+      toStream.close();
+    }
   }
 }

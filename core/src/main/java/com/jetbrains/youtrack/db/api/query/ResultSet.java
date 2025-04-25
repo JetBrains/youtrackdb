@@ -18,6 +18,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface ResultSet extends BasicResultSet<Result> {
+
   default Entity findFirstEntity() {
     try {
       if (hasNext()) {
@@ -443,6 +444,6 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nullable
   DatabaseSession getBoundToSession();
 
-  @Nonnull
+  @Nullable
   ExecutionPlan getExecutionPlan();
 }
