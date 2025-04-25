@@ -69,7 +69,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   }
 
   @Override
-  public @Nonnull ExecutionPlan getExecutionPlan() {
+  public @Nullable ExecutionPlan getExecutionPlan() {
     return underlyingResultSet.getExecutionPlan();
   }
 

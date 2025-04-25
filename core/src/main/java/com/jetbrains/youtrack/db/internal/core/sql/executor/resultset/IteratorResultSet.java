@@ -61,6 +61,7 @@ public class IteratorResultSet implements ResultSet {
   }
 
   @Override
+  @Nullable
   public ExecutionPlan getExecutionPlan() {
     assert session == null || session.assertIfNotActive();
     return null;
