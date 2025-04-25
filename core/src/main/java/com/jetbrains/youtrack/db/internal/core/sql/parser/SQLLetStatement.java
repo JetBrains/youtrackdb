@@ -42,7 +42,10 @@ public class SQLLetStatement extends SQLSimpleExecStatement {
     //eager execution of result set for variables so expressions will be executed in the right order
     if (result instanceof ResultSet resultSet) {
       var resultList = resultSet.stream().collect(Collectors.toList());
-      result = new InternalResultSet(ctx.getDatabaseSession(), resultList);
+      var executionPlan = resultSet.getExecutionPlan();
+      var internalResultSet = new InternalResultSet(ctx.getDatabaseSession(), resultList);
+      internalResultSet.setPlan(executionPlan);
+      result = internalResultSet;
     }
 
     if (ctx.getParent() != null) {

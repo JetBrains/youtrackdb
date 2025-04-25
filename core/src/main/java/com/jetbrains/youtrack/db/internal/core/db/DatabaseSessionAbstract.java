@@ -110,7 +110,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -153,8 +152,6 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   private boolean prefetchRecords;
 
   protected ConcurrentHashMap<String, QueryDatabaseState<ResultSet>> activeQueries = new ConcurrentHashMap<>();
-  protected LinkedList<QueryDatabaseState<ResultSet>> queryState = new LinkedList<>();
-
   // database stats!
   protected long loadedRecordsCount;
   protected long totalRecordLoadMs;
@@ -1424,8 +1421,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
             .forEach(plan -> LogManager.instance().debug(this, plan.toString(), logger));
       }
     }
-    this.activeQueries.put(id, state);
 
+    this.activeQueries.put(id, state);
     getListeners().forEach((it) -> it.onCommandStart(this, state.getResultSet()));
   }
 

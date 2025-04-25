@@ -14,11 +14,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
-
   protected final SQLSimpleExecServerStatement statement;
   private final ServerCommandContext ctx;
 
@@ -51,6 +47,7 @@ public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
     return result;
   }
 
+  @Override
   public void reset(CommandContext ctx) {
     executed = false;
   }

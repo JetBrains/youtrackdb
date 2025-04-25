@@ -21,8 +21,6 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -31,9 +29,11 @@ import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -574,7 +574,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       beginReadOnly();
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
-      preQueryStart();
       try {
         var statement = SQLEngine.parse(query, this);
         if (!statement.isIdempotent()) {
@@ -586,7 +585,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -618,7 +616,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         currentTx.preProcessRecordsAndExecuteCallCallbacks();
       }
       getSharedContext().getYouTrackDB().startCommand(null);
-      preQueryStart();
+      var queryState = new QueryDatabaseState<>();
       try {
         var statement = SQLEngine.parse(query, this);
         if (!statement.isIdempotent()) {
@@ -631,7 +629,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -654,7 +651,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
-      preQueryStart();
+      var queryState = new QueryDatabaseState<>();
       try {
         var statement = SQLEngine.parse(query, this);
         var original = statement.execute(this, args, true);
@@ -664,7 +661,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var prefetched = new InternalResultSet(this);
           original.forEachRemaining(prefetched::add);
           original.close();
-          queryCompleted();
           result = new LocalResultSetLifecycleDecorator(prefetched);
         } else {
           // stream, keep open and attach to the current DB
@@ -673,7 +669,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         }
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -697,7 +692,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
+        var queryState = new QueryDatabaseState<>();
 
         var statement = SQLEngine.parse(query, this);
         @SuppressWarnings("unchecked")
@@ -708,18 +703,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var prefetched = new InternalResultSet(this);
           original.forEachRemaining(prefetched::add);
           original.close();
-          queryCompleted();
           result = new LocalResultSetLifecycleDecorator(prefetched);
         } else {
           // stream, keep open and attach to the current DB
           result = new LocalResultSetLifecycleDecorator(original);
-
           queryStarted(result);
         }
 
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -745,7 +737,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
+        var queryState = new QueryDatabaseState<>();
         var executor =
             getSharedContext()
                 .getYouTrackDB()
@@ -764,7 +756,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -773,24 +764,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
-  private void cleanQueryState() {
-    this.queryState.pop();
-  }
-
-  private void queryCompleted() {
-    var state = this.queryState.peekLast();
-
-  }
 
   private void queryStarted(LocalResultSetLifecycleDecorator result) {
-    var state = this.queryState.peekLast();
-    state.setResultSet(result);
-    this.queryStarted(result.getQueryId(), state);
-    result.addLifecycleListener(this);
-  }
+    var queryState = new QueryDatabaseState<ResultSet>();
 
-  private void preQueryStart() {
-    this.queryState.push(new QueryDatabaseState<>());
+    queryState.setResultSet(result);
+    this.queryStarted(result.getQueryId(), queryState);
+
+    result.addLifecycleListener(this);
   }
 
   @Override
@@ -811,7 +792,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
         var executor =
             sharedContext
                 .getYouTrackDB()
@@ -831,7 +811,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
@@ -855,7 +834,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
         var ctx = new BasicCommandContext();
         ctx.setDatabaseSession(this);
         ctx.setInputParameters(params);
@@ -866,7 +844,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
         return decorator;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {

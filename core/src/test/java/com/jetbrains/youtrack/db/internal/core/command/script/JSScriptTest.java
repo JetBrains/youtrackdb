@@ -14,11 +14,7 @@ import javax.script.ScriptException;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class JSScriptTest extends DbTestBase {
-
   @Test
   public void jsSimpleTest() {
     var resultSet = session.computeScript("javascript", "'foo'");

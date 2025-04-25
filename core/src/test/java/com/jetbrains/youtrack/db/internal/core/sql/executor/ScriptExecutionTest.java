@@ -338,8 +338,8 @@ public class ScriptExecutionTest extends DbTestBase {
     script +=
         "create edge E from (select from V where name = 'c') to (select from V where name ="
             + " 'd');\n";
-    script += "LET SourceDataset = SELECT expand(out()) from V where name = 'a';\n";
-    script += "LET TarDataset = SELECT expand(out()) from V where name = 'c';\n";
+    script += "LET $SourceDataset = SELECT expand(out()) from V where name = 'a';\n";
+    script += "LET $TarDataset = SELECT expand(out()) from V where name = 'c';\n";
     script += "IF ($SourceDataset[0] != $TarDataset[0])\n";
     script += "{\n";
     script +=
