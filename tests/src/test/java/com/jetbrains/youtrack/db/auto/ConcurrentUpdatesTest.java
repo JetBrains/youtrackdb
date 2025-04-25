@@ -15,6 +15,8 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -257,5 +259,64 @@ public class ConcurrentUpdatesTest extends BaseDBTest {
     database.commit();
 
     database.close();
+  }
+
+  @Test
+  public void concurrentUpdateDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+
+      var e1 = tx0.newEntity();
+      var e2 = tx0.newEntity();
+      e2.setLink("link", e1);
+      tx0.commit();
+
+      final var tx1 = session1.begin();
+      e1 = tx1.load(e1.getIdentity());
+      e2 = tx1.load(e2.getIdentity());
+      e1.setProperty("test", 1);
+      e2.setProperty("test", 2);
+
+      final var tx2 = session2.begin();
+      tx2.load(e1.getIdentity()).delete();
+      tx2.commit();
+
+      try {
+        tx1.commit();
+        Assert.fail("Should throw ConcurrentModificationException");
+      } catch (ConcurrentModificationException ex) {
+        // okay
+      }
+    }
+  }
+
+  @Test
+  public void concurrentDeleteDelete() {
+
+    try (
+        var session1 = acquireSession();
+        var session2 = acquireSession()
+    ) {
+      final var tx0 = session1.begin();
+      var e = tx0.newEntity();
+      tx0.commit();
+      final var eid = e.getIdentity();
+
+      final var tx1 = session1.begin();
+      DBRecord eee = tx1.load(eid);
+      eee.delete();
+
+      final var tx2 = session2.begin();
+      DBRecord ee = tx2.load(eid);
+      ee.delete();
+      tx2.commit();
+
+      // we don't throw ConcurrentModificationException here
+      tx1.commit();
+    }
   }
 }

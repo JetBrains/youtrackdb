@@ -4187,18 +4187,11 @@ public abstract class AbstractStorage
     try {
       final var ppos =
           collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
-      if (ppos == null) {
-        throw new RecordNotFoundException(name,
-            rid, "Cannot update record "
-            + rid
-            + " since the position is invalid in database '"
-            + name
-            + '\'');
-      }
 
-      if (version != ppos.recordVersion) {
-        throw new ConcurrentModificationException(name, rid, ppos.recordVersion, version,
-            RecordOperation.UPDATED);
+      if (ppos == null || ppos.recordVersion != version) {
+        final var dbVersion = ppos == null ? -1 : ppos.recordVersion;
+        throw new ConcurrentModificationException(
+            name, rid, dbVersion, version, RecordOperation.UPDATED);
       }
 
       ppos.recordVersion = version + 1;
