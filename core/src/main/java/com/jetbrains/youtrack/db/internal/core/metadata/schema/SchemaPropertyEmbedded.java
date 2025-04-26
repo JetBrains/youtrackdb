@@ -27,6 +27,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     super(oClassImpl, global);
   }
 
+  @Override
   public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -67,6 +68,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setName(DatabaseSessionInternal session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -123,6 +125,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setCollate(DatabaseSessionEmbedded session, String collate) {
     if (collate == null) {
       collate = DefaultCollate.NAME;
@@ -172,7 +175,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                   "Collate value was changed, following indexes will be rebuilt %s",
                   indexesToRecreate);
 
-          final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+          final var indexManager = session.getSharedContext()
               .getIndexManager();
           for (var indexToRecreate : indexesToRecreate) {
             final var indexMetadata = session.computeInTxInternal(transaction ->
@@ -197,6 +200,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void clearCustom(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -219,6 +223,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setCustom(DatabaseSessionInternal session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -250,6 +255,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setRegexp(DatabaseSessionInternal session, final String regexp) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -272,6 +278,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedClass(DatabaseSessionInternal session,
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -301,6 +308,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedType(DatabaseSessionInternal session,
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -328,6 +336,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setNotNull(DatabaseSessionInternal session, final boolean isNotNull) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -350,6 +359,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setDefaultValue(DatabaseSessionInternal session,
       final String defaultValue) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -379,6 +389,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMax(DatabaseSessionInternal session, final String max) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, max);
@@ -433,6 +444,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMin(DatabaseSessionInternal session, final String min) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, min);
@@ -459,6 +471,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setReadonly(DatabaseSessionInternal session, final boolean isReadonly) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -483,6 +496,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMandatory(DatabaseSessionInternal session,
       final boolean isMandatory) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
