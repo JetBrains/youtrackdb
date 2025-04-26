@@ -158,6 +158,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var result = session.query("select from V");
     var before = result.stream().count();
+    result.close();
 
     session.computeScript("sql", cmd).close();
 

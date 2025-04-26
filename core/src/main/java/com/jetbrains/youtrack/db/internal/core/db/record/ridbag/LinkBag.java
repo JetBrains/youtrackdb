@@ -185,14 +185,12 @@ public class LinkBag
   }
 
   public void checkAndConvert() {
-    if (!session.isRemote()) {
-      if (isEmbedded()
-          && session.getBTreeCollectionManager() != null
-          && delegate.size() >= topThreshold) {
-        convertToTree();
-      } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
-        convertToEmbedded();
-      }
+    if (isEmbedded()
+        && session.getBTreeCollectionManager() != null
+        && delegate.size() >= topThreshold) {
+      convertToTree();
+    } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
+      convertToEmbedded();
     }
   }
 
@@ -291,7 +289,7 @@ public class LinkBag
   }
 
   protected void init() {
-    delegate = topThreshold >= 0 || session.isRemote() ?
+    delegate = topThreshold >= 0 ?
         new EmbeddedLinkBag(session, Integer.MAX_VALUE) :
         new BTreeBasedLinkBag(session, Integer.MAX_VALUE);
   }

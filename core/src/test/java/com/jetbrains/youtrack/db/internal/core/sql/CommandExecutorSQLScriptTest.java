@@ -12,6 +12,7 @@ import org.junit.Test;
 
 public class CommandExecutorSQLScriptTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -59,7 +60,8 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     script.append("let $a = insert into V set test = 'sql script test';\n");
     script.append("commit;\n");
     script.append("begin;\n");
-    script.append("let $b = select $current.toJSON() as json from $a;\n");
+    script.append("let $rid = $a.@rid;\n");
+    script.append("let $b = select $current.toJSON() as json from $rid;\n");
     script.append("commit;");
     script.append("return $b;\n");
 
@@ -119,7 +121,6 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   @Test
   public void testReturnObject() {
     final var result = session.computeScript("sql", "return [{ a: 'b' }, { c: 'd'}]");
-    result.close();
 
     assertThat(result).isNotNull();
     assertThat(result.hasNext()).isTrue();

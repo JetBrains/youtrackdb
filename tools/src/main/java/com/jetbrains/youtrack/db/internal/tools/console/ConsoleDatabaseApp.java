@@ -493,7 +493,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       String iCollectionName) {
     checkForDatabase();
 
-    message("\nDropping collection [" + iCollectionName + "] in database " + currentDatabaseName + "...");
+    message("\nDropping collection [" + iCollectionName + "] in database " + currentDatabaseName
+        + "...");
 
     var result = currentDatabaseSession.dropCollection(iCollectionName);
 
@@ -536,23 +537,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           "\nError: an active transaction is currently open (id="
               + currentDatabaseSession.getTransactionInternal().getId()
               + "). Commit or rollback before starting a new one.");
-      return;
-    }
-
-    if (currentDatabaseSession.isRemote()) {
-      message(
-          """
-              WARNING - Transactions are not supported from console in remote, please use an sql\
-               script:\s
-              eg.
-              
-              script sql
-              begin;
-              <your commands here>
-              commit;
-              end
-              
-              """);
       return;
     }
 
@@ -1785,25 +1769,23 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       formatter.writeRecords(resultSet, -1, currentDatabaseSession);
     }
 
-    if (currentDatabaseSession.isRemote()) {
-      final var indexes = prop.getAllIndexes();
-      if (!indexes.isEmpty()) {
-        message("\n\nINDEXES (" + indexes.size() + " altogether)");
+    final var indexes = prop.getAllIndexes();
+    if (!indexes.isEmpty()) {
+      message("\n\nINDEXES (" + indexes.size() + " altogether)");
 
-        final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
+      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-        for (final var index : indexes) {
-          var row = new HashMap<>();
-          resultSet.add(new RawPair<>(null, row));
+      for (final var index : indexes) {
+        var row = new HashMap<>();
+        resultSet.add(new RawPair<>(null, row));
 
-          row.put("NAME", index);
-        }
-        final var formatter = new TableFormatter(this);
-        formatter.setMaxWidthSize(getConsoleWidth());
-        formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-        formatter.writeRecords(resultSet, -1, currentDatabaseSession);
+        row.put("NAME", index);
       }
+      final var formatter = new TableFormatter(this);
+      formatter.setMaxWidthSize(getConsoleWidth());
+      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
+
+      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
     }
   }
 

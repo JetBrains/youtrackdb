@@ -19,6 +19,7 @@ public class SchemaEmbedded extends SchemaShared {
     super();
   }
 
+  @Override
   public SchemaClassImpl createClass(
       DatabaseSessionEmbedded session,
       final String className,
@@ -51,6 +52,7 @@ public class SchemaEmbedded extends SchemaShared {
     return result;
   }
 
+  @Override
   public SchemaClassImpl createClass(
       DatabaseSessionEmbedded session,
       final String className,
@@ -107,7 +109,7 @@ public class SchemaEmbedded extends SchemaShared {
         collectionIds = new int[]{-1};
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -215,6 +217,7 @@ public class SchemaEmbedded extends SchemaShared {
     return new SchemaClassEmbedded(this, className, collectionIds);
   }
 
+  @Override
   @Nullable
   public SchemaClassImpl getOrCreateClass(
       DatabaseSessionEmbedded session, final String iClassName,
@@ -302,7 +305,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -387,6 +390,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   public void dropClass(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
@@ -475,7 +479,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      dropClassIndexes((DatabaseSessionEmbedded) session, cls);
+      dropClassIndexes(session, cls);
 
       classes.remove(key);
 
@@ -497,6 +501,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassEmbedded(this, name);
   }
@@ -536,6 +541,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   public void checkEmbedded(DatabaseSessionInternal session) {
   }
 

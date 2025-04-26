@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -59,11 +58,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       DatabaseSessionEmbedded sessionTwo,
       final CommandOutputListener iListener) {
     super(null, null, iListener);
-
-    if (sessionOne.isRemote() || sessionTwo.isRemote()) {
-      throw new IllegalArgumentException(
-          "Only databases open in local environment are supported for comparison.");
-    }
 
     listener.onMessage(
         "\nComparing two local databases:\n1) "

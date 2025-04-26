@@ -3,12 +3,10 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
@@ -64,6 +62,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     this.serializer = serializer;
   }
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -116,6 +115,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     clazzEmbComp.createProperty("addressByStreet", PropertyType.EMBEDDEDMAP, address);
   }
 
+  @Override
   public void afterTest() {
     session.setSerializer(RecordSerializerBinary.INSTANCE);
 

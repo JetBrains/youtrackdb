@@ -445,11 +445,8 @@ public abstract class SchemaShared implements CloseableInStorage {
       lock.writeLock().unlock();
       session.endExclusiveMetadataChange();
     }
-    assert count >= 0;
 
-    if (count == 0 && session.isRemote()) {
-      session.getStorage().reload(session);
-    }
+    assert count >= 0;
   }
 
   void changeClassName(

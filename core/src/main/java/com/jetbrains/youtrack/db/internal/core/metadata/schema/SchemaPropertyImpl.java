@@ -728,10 +728,7 @@ public abstract class SchemaPropertyImpl {
   }
 
   public static void checkEmbedded(DatabaseSessionInternal session) {
-    if (session.isRemote()) {
-      throw new SchemaException(session.getDatabaseName(),
-          "'Internal' schema modification methods can be used only inside of embedded database");
-    }
+
   }
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {

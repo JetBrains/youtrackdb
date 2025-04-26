@@ -1455,10 +1455,8 @@ public abstract class SchemaClassImpl {
       return;
     }
 
-    if (!session.isRemote()) {
-      session.getStorage()
-          .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
-    }
+    session.getStorage()
+        .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
   }
 
   protected abstract SchemaPropertyImpl addProperty(
@@ -1611,7 +1609,7 @@ public abstract class SchemaClassImpl {
       }
 
       final var indexManager =
-          (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+          session.getSharedContext().getIndexManager();
       for (final var indexName : indexesToRemove) {
         indexManager.removeCollectionFromIndex(session, collectionName, indexName);
       }

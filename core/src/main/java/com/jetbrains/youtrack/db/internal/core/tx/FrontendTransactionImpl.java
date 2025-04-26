@@ -55,7 +55,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
@@ -255,10 +254,6 @@ public class FrontendTransactionImpl implements
 
   @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(final String indexName) {
-    if (session.isRemote()) {
-      return null;
-    }
-
     return getIndexChanges(indexName);
   }
 
@@ -308,7 +303,7 @@ public class FrontendTransactionImpl implements
             new FrontendTransactionRecordIndexOperation(iIndexName, key, iOperation));
       }
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
   }
@@ -328,7 +323,12 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void rollbackInternal() {
-    rollbackInternal(false, -1);
+    checkTransactionValid();
+    status = TXSTATUS.ROLLBACKING;
+
+    txStartCounter = 0;
+
+    internalRollback();
   }
 
   @Override
@@ -348,7 +348,6 @@ public class FrontendTransactionImpl implements
   }
 
   private void invalidateChangesInCacheDuringRollback() {
-    var recordsSize = recordOperations.size();
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
       rec.unsetDirty();
@@ -358,28 +357,6 @@ public class FrontendTransactionImpl implements
     var localCache = session.getLocalCache();
     localCache.unloadRecords();
     localCache.clear();
-  }
-
-  @Override
-  public void rollbackInternal(boolean force, int commitLevelDiff) {
-    if (txStartCounter < 0) {
-      throw new TransactionException(session, "Invalid value of TX counter");
-    }
-    checkTransactionValid();
-
-    txStartCounter += commitLevelDiff;
-    status = TXSTATUS.ROLLBACKING;
-
-    if (!force && txStartCounter > 0) {
-      return;
-    }
-
-    if (session.isRemote()) {
-      final var storage = session.getStorage();
-      ((StorageProxy) storage).rollback(FrontendTransactionImpl.this);
-    }
-
-    internalRollback();
   }
 
   @Override
@@ -421,7 +398,7 @@ public class FrontendTransactionImpl implements
       //execute it here because after this operation record will be unloaded
       preProcessRecordsAndExecuteCallCallbacks();
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
   }
@@ -542,7 +519,7 @@ public class FrontendTransactionImpl implements
         operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
 
@@ -575,7 +552,7 @@ public class FrontendTransactionImpl implements
       }
 
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
 
@@ -724,12 +701,12 @@ public class FrontendTransactionImpl implements
       try {
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
-            if (className != null && !session.isRemote()) {
+            if (className != null) {
               ClassIndexManager.checkIndexesAfterCreate(entityImpl, this);
             }
             session.beforeCreateOperations(record, collectionName);
           } else {
-            if (className != null && !session.isRemote()) {
+            if (className != null) {
               ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
             }
             session.beforeUpdateOperations(record, collectionName);
@@ -761,7 +738,7 @@ public class FrontendTransactionImpl implements
 
       recordOperation.record.processingInCallback = true;
       try {
-        if (className != null && !session.isRemote()) {
+        if (className != null) {
           ClassIndexManager.checkIndexesAfterDelete(entityImpl, this);
         }
         session.beforeDeleteOperations(record, collectionName);
@@ -848,30 +825,28 @@ public class FrontendTransactionImpl implements
       return true;
     }
     final var database = session;
-    if (!database.isRemote()) {
-      final var indexManager = database.getSharedContext().getIndexManager();
-      for (var entry : indexEntries.entrySet()) {
-        final var index = indexManager.getIndex(database, entry.getKey());
-        if (index == null) {
-          throw new TransactionException(session,
-              "Cannot find index '" + entry.getValue() + "' while committing transaction");
-        }
+    final var indexManager = database.getSharedContext().getIndexManager();
+    for (var entry : indexEntries.entrySet()) {
+      final var index = indexManager.getIndex(database, entry.getKey());
+      if (index == null) {
+        throw new TransactionException(session,
+            "Cannot find index '" + entry.getValue() + "' while committing transaction");
+      }
 
-        final var fieldRidDependencies = getIndexFieldRidDependencies(index);
-        if (!isIndexMayDependOnRids(fieldRidDependencies)) {
-          continue;
-        }
+      final var fieldRidDependencies = getIndexFieldRidDependencies(index);
+      if (!isIndexMayDependOnRids(fieldRidDependencies)) {
+        continue;
+      }
 
-        final var indexChanges = entry.getValue();
-        for (final var keyChanges : indexChanges.changesPerKey.values()) {
-          assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
-              "Index key " + keyChanges.key
-                  + " may depend on RID " + oldRid
-                  + ", but it was not updated during record update. Index: "
-                  + index.getName()
-                  + ", key: "
-                  + keyChanges.key;
-        }
+      final var indexChanges = entry.getValue();
+      for (final var keyChanges : indexChanges.changesPerKey.values()) {
+        assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
+            "Index key " + keyChanges.key
+                + " may depend on RID " + oldRid
+                + ", but it was not updated during record update. Index: "
+                + index.getName()
+                + ", key: "
+                + keyChanges.key;
       }
     }
 

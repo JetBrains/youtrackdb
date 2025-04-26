@@ -68,6 +68,8 @@ public class CreateLightWeightEdgesSQLTest {
 
     var session = pool.acquire();
 
+    session.getSchema().createLightweightEdgeClass("lightweight");
+
     var tx = session.begin();
     tx.command("create vertex v set id = 1 ");
     tx.command("create vertex v set id = 2 ");
@@ -109,8 +111,8 @@ public class CreateLightWeightEdgesSQLTest {
         var res1 = tx.query(
             "select sum(in('lightweight').size()) as size from V where id = 2")) {
 
-      var s1 = res.findFirst(r -> r.getInt("size"));
-      var s2 = res1.findFirst(r -> r.getInt("size"));
+      var s1 = res.findFirst(r -> r.getLong("size"));
+      var s2 = res1.findFirst(r -> r.getLong("size"));
       assertEquals(s1, s2);
 
     } finally {

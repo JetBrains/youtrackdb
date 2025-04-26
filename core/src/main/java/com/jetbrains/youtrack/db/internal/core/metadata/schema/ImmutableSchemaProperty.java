@@ -215,11 +215,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     }
 
     this.maxComparable = maxComparable;
-    if (!session.isRemote()) {
-      this.allIndexes = property.getAllIndexesInternal(session);
-    } else {
-      this.allIndexes = Collections.emptyList();
-    }
+    this.allIndexes = property.getAllIndexesInternal(session);
   }
 
   private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,

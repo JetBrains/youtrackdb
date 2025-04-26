@@ -38,6 +38,9 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     switch (src) {
       case ExecutionStream executionStream -> source = executionStream;
       case ResultSet resultSet -> {
+        if (resultSet instanceof InternalResultSet internalResultSet) {
+          resultSet = internalResultSet.copy(session);
+        }
         source =
             ExecutionStream.resultIterator(
                     resultSet.stream().map(result -> loadEntity(session, result)).iterator())

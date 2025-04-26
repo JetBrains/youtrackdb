@@ -197,7 +197,6 @@ public class SecurityShared implements SecurityInternal {
       DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     SecurityUser user = null;
     final var dbName = session.getDatabaseName();
-    assert !session.isRemote();
     user = security.authenticate(session, authenticationInfo);
 
     if (user != null) {
@@ -224,7 +223,6 @@ public class SecurityShared implements SecurityInternal {
       DatabaseSessionEmbedded session, String userName, String password) {
     SecurityUser user;
     final var dbName = session.getDatabaseName();
-    assert !session.isRemote();
     user = security.authenticate(session, userName, password);
 
     if (user != null) {
@@ -255,6 +253,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   // Token MUST be validated before being passed to this method.
+  @Override
   public SecurityUserImpl authenticate(final DatabaseSessionInternal session,
       final Token authToken) {
     final var dbName = session.getDatabaseName();
@@ -280,6 +279,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
@@ -294,6 +294,7 @@ public class SecurityShared implements SecurityInternal {
     return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Override
   public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String iUserName,
@@ -311,6 +312,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String userName,
@@ -328,6 +330,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
     final Number removed;
     try (var res = session.getActiveTransaction().
@@ -338,6 +341,7 @@ public class SecurityShared implements SecurityInternal {
     return removed != null && removed.intValue() > 0;
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     try {
@@ -357,6 +361,7 @@ public class SecurityShared implements SecurityInternal {
     return null;
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
@@ -399,6 +404,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public Role createRole(
       final DatabaseSessionInternal session, final String iRoleName) {
     return createRole(session, iRoleName, null);
@@ -414,6 +420,7 @@ public class SecurityShared implements SecurityInternal {
     return role;
   }
 
+  @Override
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
     return session.computeInTx(transaction -> {
       final Number removed;
@@ -427,6 +434,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from OUser")) {
@@ -436,6 +444,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
@@ -600,6 +609,7 @@ public class SecurityShared implements SecurityInternal {
     return resource; // TODO
   }
 
+  @Override
   @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
@@ -1050,6 +1060,7 @@ public class SecurityShared implements SecurityInternal {
     return roleClass;
   }
 
+  @Override
   public void load(DatabaseSessionInternal session) {
     final var userClass = session.getMetadata().getSchema()
         .getClassInternal("OUser");

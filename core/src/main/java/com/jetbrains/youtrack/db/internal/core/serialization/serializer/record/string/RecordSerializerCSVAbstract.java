@@ -87,7 +87,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       // JUST THE REFERENCE
       rid = (RecordId) iLinked;
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
       resultRid = rid;
     } else {
@@ -108,7 +108,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       var iLinkedRecord = transaction.load(((Identifiable) iLinked));
       rid = (RecordId) iLinkedRecord.getIdentity();
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
 
       if (iParentRecord != null) {
@@ -791,7 +791,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
           assert linkedType == PropertyTypeInternal.EMBEDDED
               || ((RecordId) id.getIdentity()).isValidPosition()
-              || session.isRemote()
               : "Impossible to serialize invalid link " + id.getIdentity();
 
           SchemaImmutableClass result = null;

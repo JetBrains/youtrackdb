@@ -305,6 +305,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
 
   @Override
   protected void assertEmbedded(boolean isEmbedded) {
-    Assert.assertTrue((!isEmbedded || session.isRemote()));
+    Assert.assertTrue((!isEmbedded));
   }
 }

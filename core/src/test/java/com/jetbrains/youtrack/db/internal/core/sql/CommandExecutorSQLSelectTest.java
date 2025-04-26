@@ -59,6 +59,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   private static final int ORDER_SKIP_LIMIT_ITEMS = 100 * 1000;
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -450,9 +451,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testProjection() {
     try (var rs = session.query("select a from foo where name = 'a' or bar = 1")) {
-      if (!session.isRemote()) {
-        assertEquals(2, indexUsages(rs.getExecutionPlan()));
-      }
+      assertEquals(2, indexUsages(rs.getExecutionPlan()));
 
       var qResult = rs.toList();
       assertEquals(1, qResult.size());
@@ -462,9 +461,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testProjection2() {
     try (var rs = session.query("select a from foo where name = 'a' or bar = 2")) {
-      if (!session.isRemote()) {
-        assertEquals(2, indexUsages(rs.getExecutionPlan()));
-      }
+      assertEquals(2, indexUsages(rs.getExecutionPlan()));
 
       var qResult = rs.toList();
       assertEquals(2, qResult.size());
@@ -1025,11 +1022,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, results.size());
     var doc = results.getFirst();
 
-    assertThat(doc.<Integer>getProperty("collection_size")).isEqualTo(5);
-    assertThat(doc.<Integer>getProperty("collection_sum")).isEqualTo(130);
-    assertThat(doc.<Integer>getProperty("collection_avg")).isEqualTo(26);
-    assertThat(doc.<Integer>getProperty("collection_min")).isEqualTo(0);
-    assertThat(doc.<Integer>getProperty("collection_max")).isEqualTo(50);
+    assertThat(doc.getLong("collection_size")).isEqualTo(5);
+    assertThat(doc.getInt("collection_sum")).isEqualTo(130);
+    assertThat(doc.getInt("collection_avg")).isEqualTo(26);
+    assertThat(doc.getInt("collection_min")).isEqualTo(0);
+    assertThat(doc.getInt("collection_max")).isEqualTo(50);
   }
 
   @Test
@@ -1294,11 +1291,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     // issue #5664
     var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
     assertEquals(3, results.stream().count());
+    results.close();
     session.begin();
     session.execute("update MaxLongNumberTest set last = max(91,ifnull(last,0))").close();
     session.commit();
     results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
     assertEquals(0, results.stream().count());
+    results.close();
   }
 
   @Test
@@ -1893,6 +1892,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     results = session.query("SELECT * FROM " + className + " WHERE \"0\" <= name");
     assertEquals(2, results.stream().count());
+    results.close();
 
     session.execute("CREATE INDEX " + className + ".name on " + className + " (name) UNIQUE")
         .close();

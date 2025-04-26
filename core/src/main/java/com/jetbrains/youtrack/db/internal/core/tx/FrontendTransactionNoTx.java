@@ -421,11 +421,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     return 0;
   }
 
-  @Override
-  public void rollbackInternal(boolean force, int commitLevelDiff) {
-    throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
-  }
-
   @Nonnull
   @Override
   public DatabaseSessionEmbedded getDatabaseSession() {

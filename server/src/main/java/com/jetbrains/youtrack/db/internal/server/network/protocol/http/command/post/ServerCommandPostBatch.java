@@ -98,7 +98,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Found database instance from the pool with a pending transaction. Forcing rollback"
                     + " before using it");
-        db.rollback(true);
+        db.rollback();
       }
 
       var batch = JSONSerializerJackson.mapFromJson(iRequest.getContent());

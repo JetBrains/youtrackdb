@@ -75,49 +75,47 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
 
   @Override
   public void onOpen(@Nonnull DatabaseSessionInternal session) {
-    if (!session.isRemote()) {
-      var db = session;
-      for (var hook : configuredHooks) {
+    var db = session;
+    for (var hook : configuredHooks) {
+      try {
+        var klass = Class.forName(hook.clazz);
+        final RecordHook h;
+        Constructor constructor = null;
         try {
-          var klass = Class.forName(hook.clazz);
-          final RecordHook h;
-          Constructor constructor = null;
-          try {
-            constructor = klass.getConstructor(BasicDatabaseSession.class);
-          } catch (NoSuchMethodException ex) {
-            // Ignore
-          }
-
-          if (constructor != null) {
-            h = (RecordHook) constructor.newInstance(session);
-          } else {
-            h = (RecordHook) klass.newInstance();
-          }
-          if (hook.parameters != null && hook.parameters.length > 0) {
-            try {
-              final var m =
-                  h.getClass().getDeclaredMethod("config", ServerParameterConfiguration[].class);
-              m.invoke(h, new Object[]{hook.parameters});
-            } catch (Exception e) {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "[configure] Failed to configure hook '%s'. Parameters specified but hook don"
-                          + " support parameters. Should have a method config with parameters"
-                          + " ServerParameterConfiguration[] ",
-                      hook.clazz);
-            }
-          }
-          db.registerHook(h);
-        } catch (Exception e) {
-          LogManager.instance()
-              .error(
-                  this,
-                  "[configure] Failed to configure hook '%s' due to the an error : ",
-                  e,
-                  hook.clazz,
-                  e.getMessage());
+          constructor = klass.getConstructor(BasicDatabaseSession.class);
+        } catch (NoSuchMethodException ex) {
+          // Ignore
         }
+
+        if (constructor != null) {
+          h = (RecordHook) constructor.newInstance(session);
+        } else {
+          h = (RecordHook) klass.newInstance();
+        }
+        if (hook.parameters != null && hook.parameters.length > 0) {
+          try {
+            final var m =
+                h.getClass().getDeclaredMethod("config", ServerParameterConfiguration[].class);
+            m.invoke(h, new Object[]{hook.parameters});
+          } catch (Exception e) {
+            LogManager.instance()
+                .warn(
+                    this,
+                    "[configure] Failed to configure hook '%s'. Parameters specified but hook don"
+                        + " support parameters. Should have a method config with parameters"
+                        + " ServerParameterConfiguration[] ",
+                    hook.clazz);
+          }
+        }
+        db.registerHook(h);
+      } catch (Exception e) {
+        LogManager.instance()
+            .error(
+                this,
+                "[configure] Failed to configure hook '%s' due to the an error : ",
+                e,
+                hook.clazz,
+                e.getMessage());
       }
     }
   }

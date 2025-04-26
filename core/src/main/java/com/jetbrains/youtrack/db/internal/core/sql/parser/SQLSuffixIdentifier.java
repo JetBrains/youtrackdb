@@ -148,6 +148,9 @@ public class SQLSuffixIdentifier extends SimpleNode {
         if (result instanceof Resettable resettable && resettable.isResetable()) {
           resettable.reset();
         }
+        if (result instanceof InternalResultSet internalResultSet) {
+          result = internalResultSet.copy(ctx.getDatabaseSession());
+        }
         return result;
       }
       if (iCurrentRecord != null) {

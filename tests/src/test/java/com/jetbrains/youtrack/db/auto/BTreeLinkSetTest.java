@@ -196,10 +196,6 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
   @Test
   public void testRemoveLinkSet() {
-    if (session.isRemote()) {
-      return;
-    }
-
     var rid = session.computeInTx(transaction -> {
       var linkSet = session.newLinkSet();
       var entityHolder = session.newEntity();

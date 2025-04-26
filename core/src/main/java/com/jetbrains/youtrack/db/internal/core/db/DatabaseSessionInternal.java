@@ -75,7 +75,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -159,9 +158,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param iCollectionName Collection name
    * @param iParameters     Additional parameters to pass to the factories
-   * @return Collection id
    */
-  int addBlobCollection(String iCollectionName, Object... iParameters);
+  void addBlobCollection(String iCollectionName, Object... iParameters);
 
   int begin(FrontendTransactionImpl tx);
 
@@ -275,10 +273,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void internalClose(boolean recycle);
 
   String getCollectionName(@Nonnull final DBRecord record);
-
-  default boolean isRemote() {
-    return false;
-  }
 
   boolean dropCollectionInternal(int collectionId);
 
@@ -507,24 +501,13 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   DatabaseSession open(final Token iToken);
 
-  SharedContext<?> getSharedContext();
-
-  /**
-   * @return an endpoint for Enterprise features. Null in Community Edition
-   */
-  @Nullable
-  default EnterpriseEndpoint getEnterpriseEndpoint() {
-    return null;
-  }
+  SharedContext getSharedContext();
 
   default DatabaseStats getStats() {
     return new DatabaseStats();
   }
 
   default void resetRecordLoadStats() {
-  }
-
-  default void addRidbagPrefetchStats(long execTimeMs) {
   }
 
   /**
@@ -695,7 +678,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   RecordMetadata getRecordMetadata(final RID rid);
 
-  void rollback(boolean force) throws TransactionException;
 
   /**
    * Returns if the Multi Version Concurrency Control is enabled or not. If enabled the version of

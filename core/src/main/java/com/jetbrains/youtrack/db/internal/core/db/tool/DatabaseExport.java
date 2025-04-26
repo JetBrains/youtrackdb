@@ -32,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -78,10 +77,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       final CommandOutputListener iListener)
       throws IOException {
     super(iDatabase, iFileName, iListener);
-    if (iDatabase.isRemote()) {
-      throw new DatabaseExportException("Database export can be done only in embedded environment");
-    }
-
     if (fileName == null) {
       throw new IllegalArgumentException("file name missing");
     }
@@ -482,8 +477,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         final var n2priority = PRIORITY_EXPORT_CLASSES.contains(n2);
         if (n1priority == n2priority) {
           return n1.compareTo(n2);
-        } else
+        } else {
           return n1priority ? -1 : 1;
+        }
       }));
 
       for (var cls : classes) {

@@ -44,7 +44,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-@SuppressWarnings({"deprecation", "unchecked"})
+@SuppressWarnings({"deprecation"})
 @Test
 public class IndexTest extends BaseDBTest {
 
@@ -222,10 +222,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMajorSelect() {
-    if (session.isRemote()) {
-      return;
-    }
-
     session.begin();
     try (var resultSet =
         session.query("select * from Profile where nick > 'ZZZJayLongNickIndex3'")) {
@@ -246,10 +242,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMajorEqualsSelect() {
-    if (session.isRemote()) {
-      return;
-    }
-
     session.begin();
     try (var resultSet =
         session.query("select * from Profile where nick >= 'ZZZJayLongNickIndex3'")) {
@@ -272,10 +264,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMinorSelect() {
-    if (session.isRemote()) {
-      return;
-    }
-
     session.begin();
     try (var resultSet = session.query("select * from Profile where nick < '002'")) {
       assertIndexUsage(resultSet);
@@ -294,10 +282,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInMinorEqualsSelect() {
-    if (session.isRemote()) {
-      return;
-    }
-
     session.begin();
     try (var resultSet = session.query("select * from Profile where nick <= '002'")) {
       final List<String> expectedNicks = new ArrayList<>(Arrays.asList("000", "001", "002"));
@@ -315,10 +299,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexBetweenSelect() {
-    if (session.isRemote()) {
-      return;
-    }
-
     var query = "select * from Profile where nick between '001' and '004'";
     try (var resultSet = session.query(query)) {
       assertIndexUsage(resultSet);
@@ -336,10 +316,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexInComplexSelectOne() {
-    if (session.isRemote()) {
-      return;
-    }
-
     try (var resultSet =
         session.query(
             "select * from Profile where (name = 'Giuseppe' OR name <> 'Napoleone') AND"
@@ -364,10 +340,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments", enabled = false)
   public void testIndexInComplexSelectTwo() {
-    if (session.isRemote()) {
-      return;
-    }
-
     try (var resultSet =
         session.query(
             "select * from Profile where ((name = 'Giuseppe' OR name <> 'Napoleone') AND"
@@ -984,7 +956,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     try (var stream = idx.stream(session)) {
-      Assert.assertEquals(stream.map((pair) -> pair.first()).distinct().count(), keys.size());
+      Assert.assertEquals(stream.map(RawPair::first).distinct().count(), keys.size());
     }
   }
 
@@ -1617,24 +1589,22 @@ public class IndexTest extends BaseDBTest {
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        if (rid1.compareTo(rid2) < 0) {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-        }
+    try (var keyStream = index.keyStream()) {
+      if (rid1.compareTo(rid2) < 0) {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
-      try (var descStream = index.descStream(session)) {
-        if (rid1.compareTo(rid2) < 0) {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
-        }
+    }
+    try (var descStream = index.descStream(session)) {
+      if (rid1.compareTo(rid2) < 0) {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
 
@@ -1657,11 +1627,9 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex(session, "MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-      }
+    try (var keyStream = index.keyStream()) {
+      Assert.assertEquals(
+          keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
 
     session.close();
@@ -1685,11 +1653,9 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    if (!(session.isRemote())) {
-      try (var keyStreamAsc = index.keyStream()) {
-        Assert.assertEquals(
-            keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
-      }
+    try (var keyStreamAsc = index.keyStream()) {
+      Assert.assertEquals(
+          keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
 
     session.close();
@@ -1709,11 +1675,9 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-      }
+    try (var keyStream = index.keyStream()) {
+      Assert.assertEquals(
+          keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
 
     session.close();
@@ -1734,24 +1698,22 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        if (rid3.compareTo(rid4) < 0) {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
-        }
+    try (var keyStream = index.keyStream()) {
+      if (rid3.compareTo(rid4) < 0) {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
-      try (var descStream = index.descStream(session)) {
-        if (rid3.compareTo(rid4) < 0) {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-        }
+    }
+    try (var descStream = index.descStream(session)) {
+      if (rid3.compareTo(rid4) < 0) {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
@@ -1772,11 +1734,9 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
-      }
+    try (var keyStream = index.keyStream()) {
+      Assert.assertEquals(
+          keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
   }
 
@@ -1839,24 +1799,22 @@ public class IndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        if (rid1.compareTo(rid2) < 0) {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-        }
+    try (var keyStream = index.keyStream()) {
+      if (rid1.compareTo(rid2) < 0) {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
-      try (var descStream = index.descStream(session)) {
-        if (rid1.compareTo(rid2) < 0) {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
-        }
+    }
+    try (var descStream = index.descStream(session)) {
+      if (rid1.compareTo(rid2) < 0) {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
       }
     }
 
@@ -1878,11 +1836,9 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
-      }
+    try (var keyStream = index.keyStream()) {
+      Assert.assertEquals(
+          keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
 
     session.close();
@@ -1921,11 +1877,9 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
 
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        Assert.assertEquals(
-            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-      }
+    try (var keyStream = index.keyStream()) {
+      Assert.assertEquals(
+          keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
 
     session.close();
@@ -1947,24 +1901,22 @@ public class IndexTest extends BaseDBTest {
             .getIndex(session, "MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 2);
 
-    if (!(session.isRemote())) {
-      try (var keyStream = index.keyStream()) {
-        if (rid3.compareTo(rid4) < 0) {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
-        }
+    try (var keyStream = index.keyStream()) {
+      if (rid3.compareTo(rid4) < 0) {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
-      try (var descStream = index.descStream(session)) {
-        if (rid3.compareTo(rid4) < 0) {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
-        } else {
-          Assert.assertEquals(
-              descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
-        }
+    }
+    try (var descStream = index.descStream(session)) {
+      if (rid3.compareTo(rid4) < 0) {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
+      } else {
+        Assert.assertEquals(
+            descStream.iterator().next().first(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
       }
     }
 
@@ -2012,7 +1964,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
+            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2044,7 +1996,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
+            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2075,7 +2027,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first()).distinct().count()
+            stream.map(RawPair::first).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
@@ -2108,7 +2060,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
+            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2140,7 +2092,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map((pair) -> pair.first()).distinct().count() + nullStream.count(), 2);
+            stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
       }
     }
   }
@@ -2171,7 +2123,7 @@ public class IndexTest extends BaseDBTest {
     try (var stream = index.stream(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
-            stream.map(pair -> pair.first()).distinct().count()
+            stream.map(RawPair::first).distinct().count()
                 + nullStream.findAny().map(v -> 1).orElse(0),
             1);
       }
