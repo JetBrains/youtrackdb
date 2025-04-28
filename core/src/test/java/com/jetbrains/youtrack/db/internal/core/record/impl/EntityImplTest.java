@@ -5,8 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -17,6 +19,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 public class EntityImplTest extends DbTestBase {
@@ -343,6 +346,33 @@ public class EntityImplTest extends DbTestBase {
     entity.setBinary("bytes", bytes.clone());
     assertFalse(entity.isDirty());
     assertNull(entity.getOriginalValue("bytes"));
+
+    session.rollback();
+  }
+
+  @Test
+  public void testPropertyNameValidation() {
+    final var invalidPropertyNames = Set.of(
+        ":abc", ",abc", "a,bc", ";abc", "ab;c", " abc", "a b c", "=abc", "a=bc", "#abc", "$abc"
+    );
+
+    final var validPropertyNames = Set.of("a:bc", "a#bc", "a$bc");
+
+    session.begin();
+    var doc = session.newEntity();
+    for (var propName : invalidPropertyNames) {
+
+      try {
+        doc.setProperty(propName, "some value");
+        fail("Should throw exception for invalid property name: " + propName);
+      } catch (IllegalArgumentException | DatabaseException ex) {
+        // ok
+      }
+    }
+
+    for (var propName : validPropertyNames) {
+      doc.setProperty(propName, "some value");
+    }
 
     session.rollback();
   }
