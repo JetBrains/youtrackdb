@@ -422,7 +422,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
         transaction -> {
           try {
             EntityImpl doc = session.newInstance();
-            doc.setProperty("a:b", 10);
+            doc.setProperty("a;b", 10);
             fail();
           } catch (IllegalArgumentException e) {
             Assert.assertTrue(true);
