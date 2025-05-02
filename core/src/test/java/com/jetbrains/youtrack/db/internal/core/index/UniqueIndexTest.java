@@ -8,6 +8,9 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.common.util.Triple;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -186,5 +189,50 @@ public class UniqueIndexTest extends DbTestBase {
     final var result = session.query("select from User where MailAddress = 'john@doe.com'");
     Assert.assertEquals(result.stream().count(), 1);
     session.commit();
+  }
+
+  @Test
+  public void uniqueIndexOnLinkBag() {
+    final var schema = session.getMetadata().getSchema();
+    final var bClass = schema.createClass("bClass_" + UniqueIndexTest.class.getSimpleName());
+    final var aClass = schema.createClass("aClass_" + UniqueIndexTest.class.getSimpleName());
+    aClass.createProperty("bLinks", PropertyType.LINKBAG, bClass);
+
+    // a unique index on the LINKBAG property
+    aClass.createIndex(
+        "unique_index_123", SchemaClass.INDEX_TYPE.UNIQUE, "bLinks"
+    );
+
+    // 2 entities with different "bLinks" fields.
+    final var ids = session.computeInTx(tx -> {
+      final var b = tx.newEntity(bClass);
+
+      final var a1 = tx.newEntity(aClass);
+      final var a2 = tx.newEntity(aClass);
+
+      final var bag1 = new LinkBag((DatabaseSessionInternal) tx.getDatabaseSession());
+      bag1.add(b.getIdentity());
+      a1.setProperty("bLinks", bag1);
+
+      return new Triple<>(b.getIdentity(), a1.getIdentity(), a2.getIdentity());
+    });
+
+    // removing link from a1, adding it to a2
+    session.executeInTx(tx -> {
+      final var b = tx.loadEntity(ids.key);
+      final var a1 = tx.loadEntity(ids.value.key);
+      final var a2 = tx.loadEntity(ids.value.value);
+
+      final var bag2 = new LinkBag((DatabaseSessionInternal) tx.getDatabaseSession());
+      bag2.add(b.getIdentity());
+      a2.setProperty("bLinks", bag2);
+
+      final var bag1 = a1.<LinkBag>getProperty("bLinks");
+      bag1.remove(b.getIdentity());
+
+      // this line is redundant in theory, but it used to cause an issue with index update.
+      // don't remove it from the test please.
+      a1.setProperty("bLinks", bag1);
+    });
   }
 }

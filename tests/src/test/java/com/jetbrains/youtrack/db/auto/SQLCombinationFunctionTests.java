@@ -290,6 +290,21 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     runOneArgumentTest(FunctionDefinition.DIFFERENCE);
   }
 
+  @Test
+  public void unionAllExpandTest() {
+    runExpandTest(FunctionDefinition.UNION_ALL);
+  }
+
+  @Test
+  public void intersectExpandTest() {
+    runExpandTest(FunctionDefinition.INTERSECT);
+  }
+
+  @Test
+  public void differenceExpandTest() {
+    runExpandTest(FunctionDefinition.DIFFERENCE);
+  }
+
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
     session.begin();
@@ -349,9 +364,9 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       final var query =
           "SELECT FROM $var3 LET "
-              + "$var1 = :someNumbers1, "
-              + "$var2 = :someNumbers2, "
-              + "$var3 = " + fDef.name + "($var1, $var2)";
+          + "$var1 = :someNumbers1, "
+          + "$var2 = :someNumbers2, "
+          + "$var3 = " + fDef.name + "($var1, $var2)";
 
       var result =
           tx.query(query, Map.of("someNumbers1", randomNumbers1, "someNumbers2", randomNumbers2))
@@ -364,10 +379,10 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       assertEquals(
           result, expected,
           "Order was not preserved for " + fDef.name + " function. "
-              + "list1: " + randomNumbers1 + ",\n"
-              + "list2: " + randomNumbers2 + ",\n"
-              + "result: " + result + ",\n"
-              + "expected: " + expected
+          + "list1: " + randomNumbers1 + ",\n"
+          + "list2: " + randomNumbers2 + ",\n"
+          + "result: " + result + ",\n"
+          + "expected: " + expected
       );
     });
   }
@@ -379,10 +394,10 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       final var query =
           "SELECT FROM $var2 LET "
-              + "$var1 = :someNumbers, "
-              + "$var2 = " + fDef.name + "($var1);";
+          + "$var1 = :someNumbers, "
+          + "$var2 = " + fDef.name + "($var1);";
 
-       var result =
+      final var result =
           tx.query(query, Map.of("someNumbers", randomNumbers))
               .stream()
               .map(r -> r.getInt("value"))
@@ -391,6 +406,55 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       var expected = fDef.impl(List.of(randomNumbers));
 
       assertEquals(result, expected);
+    });
+  }
+
+  @SuppressWarnings({"NonConstantStringShouldBeStringBuffer"})
+  private void runExpandTest(FunctionDefinition fDef) {
+    session.executeInTx(tx -> {
+      final var rids = tx.query("SELECT @rid FROM GraphVehicle_CF").stream()
+          .map(e -> e.getLink("@rid"))
+          .collect(Collectors.toCollection(ArrayList::new));
+      final var recordsCount = rids.size();
+
+      for (var asc : List.of(false, true)) {
+
+        Collections.shuffle(rids);
+        final var rids1 = new ArrayList<>(rids.subList(0, recordsCount / 2));
+        Collections.shuffle(rids);
+        final var rids2 = new ArrayList<>(rids.subList(0, recordsCount / 2));
+
+        var subQuery1 = "SELECT FROM GraphVehicle_CF WHERE @rid IN :rids1 ORDER BY randomInt";
+        var subQuery2 = "SELECT FROM GraphVehicle_CF WHERE @rid IN :rids2 ORDER BY randomInt";
+        if (asc) {
+          subQuery2 += " DESC";
+        } else {
+          subQuery1 += " DESC";
+        }
+
+        final var query =
+            "SELECT expand(" + fDef.name + "($var1, $var2)) LET\n" +
+            "$var1 = (" + subQuery1 + "),\n" +
+            "$var2 = (" + subQuery2 + ");";
+
+        final var result =
+            tx.query(query, Map.of("rids1", rids1, "rids2", rids2)).toList();
+
+        final var returnedRids =
+            result.stream().map(r -> r.getLink("@rid")).toList();
+
+        final var expectedRids1 =
+            tx.query(subQuery1, Map.of("rids1", rids1)).stream()
+                .map(r -> r.getLink("@rid"))
+                .toList();
+        final var expectedRids2 =
+            tx.query(subQuery2, Map.of("rids2", rids2)).stream()
+                .map(r -> r.getLink("@rid"))
+                .toList();
+
+        final var expectedRids = fDef.impl(List.of(expectedRids1, expectedRids2));
+        assertEquals(returnedRids, expectedRids);
+      }
     });
   }
 
@@ -409,6 +473,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       var carNode = session.newVertex("GraphCar_CF");
       carNode.setProperty("brand", "Brand" + (i + 1));
       carNode.setProperty("model", "Car" + (i + 1));
+      carNode.setProperty("randomInt", r.nextInt(0, 1000));
       carNode.setProperty("year", r.nextInt(1990, 2024));
       cars.add(carNode);
     }
@@ -419,6 +484,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       var motorcycleNode = session.newVertex("GraphMotocycle_CF");
       motorcycleNode.setProperty("brand", "Brand" + (i + 1));
       motorcycleNode.setProperty("model", "Motorcycle" + (i + 1));
+      motorcycleNode.setProperty("randomInt", r.nextInt(0, 1000));
       motorcycleNode.setProperty("year", r.nextInt(1990, 2024));
       motorcycles.add(motorcycleNode);
     }
@@ -525,23 +591,17 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     return country;
   }
 
-  private Entity createCity(String name, String localName, Entity country) {
+  private void createCity(String name, String localName, Entity country) {
     var city = session.newInstance("CityExt");
     city.setProperty("name", name);
     city.setProperty("localName", localName == null ? name : localName);
     city.setProperty("country", country);
-
-    return city;
   }
 
   private static void assertListsEqualsIgnoreOrder(List<?> list1, List<?> list2) {
-    assertListsEqualsIgnoreOrder(list1, list2, null);
-  }
-
-  private static void assertListsEqualsIgnoreOrder(List<?> list1, List<?> list2, String message) {
     final var l1Sorted = list1.stream().sorted().toList();
     final var l2Sorted = list2.stream().sorted().toList();
-    assertEquals(l1Sorted, l2Sorted, message);
+    assertEquals(l1Sorted, l2Sorted);
   }
 
   private static Set<Set<String>> combinations(int minLength, int maxLength, Set<String> values) {
@@ -572,6 +632,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         final var first = collections.getFirst();
         final var rest = collections.stream().skip(1).toList();
 
+        // preserves order of "first" collection
         return first.stream()
             .distinct()
             .filter(l -> rest.stream().allMatch(r -> r.contains(l))).toList();
@@ -587,6 +648,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
         final var first = collections.getFirst();
         final var rest = collections.stream().skip(1).toList();
 
+        // preserves order of "first" collection
         return first.stream()
             .distinct()
             .filter(l -> rest.stream().noneMatch(r -> r.contains(l))).toList();
