@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
@@ -23,13 +24,15 @@ public class LazySchemaClass {
     this.delegate = delegate;
   }
 
-  public static LazySchemaClass fromTemplate(RID identity, SchemaClassImpl cls) {
+  public static LazySchemaClass fromTemplate(RID identity, SchemaClassImpl cls, boolean isNew) {
     var lazySchemaClass = new LazySchemaClass(identity, cls);
-    // lazy class just created from the template should be considered loaded
-    // since there is no information about it in the storage, thus all the information we have
-    // in the template is the most accurate
-    lazySchemaClass.classLoaded = true;
-    lazySchemaClass.inheritanceLoaded = true;
+    if (isNew) {
+      // lazy class just created from the template should be considered loaded
+      // since there is no information about it in the storage, thus all the information we have
+      // in the template is the most accurate
+      lazySchemaClass.classLoaded = true;
+      lazySchemaClass.inheritanceLoaded = true;
+    }
     return lazySchemaClass;
   }
 
@@ -104,7 +107,7 @@ public class LazySchemaClass {
       delegate = delegateTemplate;
     }
     session.executeInTx(tx -> {
-      EntityImpl classEntity = session.load(recordId);
+      Entity classEntity = session.load(recordId);
       delegate.fromStream(session, classEntity, false);
       classLoaded = true;
       loading = false;

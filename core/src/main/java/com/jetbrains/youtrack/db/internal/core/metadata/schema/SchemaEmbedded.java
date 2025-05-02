@@ -183,7 +183,11 @@ public class SchemaEmbedded extends SchemaShared {
       // todo move to schema lock release step
       var savedClassEntity = session.computeInTx(tx -> cls.toStream(session));
 
-      classesRefs.put(key, LazySchemaClass.fromTemplate(savedClassEntity.getIdentity(), cls));
+      classesRefs.put(key, LazySchemaClass.fromTemplate(
+          savedClassEntity.getIdentity(),
+          cls,
+          true
+      ));
       this.markClassDirty(session, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {

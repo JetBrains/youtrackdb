@@ -59,6 +59,7 @@ import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
 import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
 import com.jetbrains.youtrack.db.api.transaction.TxFunction;
+import com.jetbrains.youtrack.db.internal.common.collection.BitSetMap;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -144,6 +145,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
   protected final HashMap<String, Object> properties = new HashMap<>();
   protected final HashSet<Identifiable> inHook = new HashSet<>();
+  private final BitSetMap systemCollectionsLocalCache = new BitSetMap();
 
   protected RecordSerializer serializer;
   protected String url;
@@ -943,7 +945,10 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
     RecordId previousRid = null;
     RecordId nextRid = null;
-    getMetadata().makeThreadLocalSchemaSnapshot();
+    var systemCollection = isSystemCollection(rid.getCollectionId());
+    if (!systemCollection) {
+      getMetadata().makeThreadLocalSchemaSnapshot();
+    }
     try {
       checkSecurity(
           Rule.ResourceGeneric.COLLECTION,
@@ -1106,8 +1111,18 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
             t, getDatabaseName());
       }
     } finally {
-      getMetadata().clearThreadLocalSchemaSnapshot();
+      if (!systemCollection) {
+        getMetadata().clearThreadLocalSchemaSnapshot();
+      }
     }
+  }
+
+  private boolean isSystemCollection(int collectionId) {
+    if (collectionId < 0) {
+      return false;
+    }
+    return systemCollectionsLocalCache.computeIfAbsent(collectionId,
+        k -> getStorage().isSystemCollection(k));
   }
 
   private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,

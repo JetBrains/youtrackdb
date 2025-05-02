@@ -76,10 +76,7 @@ public class ImmutableSchema implements SchemaInternal {
 
     for (var className : classesRefs.keySet()) {
       var lazyClass = schemaShared.getLazyClass(className);
-      if (!lazyClass.isFullyLoaded()) {
-        // do not load class if it's not loaded
-        continue;
-      }
+      lazyClass.loadIfNeeded(session);
       final var immutableClass = new SchemaImmutableClass(session, lazyClass.getDelegate(), this);
 
       this.classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);

@@ -654,13 +654,13 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testLimitWithMetadataQuery() {
-    var qResult = session.query("select expand(classes) from metadata:schema limit 3");
+    var qResult = session.query("select expand(classesRefs) from metadata:schema limit 3");
     assertEquals(3, qResult.stream().count());
   }
 
   @Test
   public void testOrderByWithMetadataQuery() {
-    var qResult = session.query("select expand(classes) from metadata:schema order by name");
+    var qResult = session.query("select expand(classesRefs) from metadata:schema order by name");
     assertTrue(qResult.stream().count() > 0);
   }
 

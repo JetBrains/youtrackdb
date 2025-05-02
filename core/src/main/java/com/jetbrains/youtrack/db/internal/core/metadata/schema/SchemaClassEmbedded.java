@@ -167,7 +167,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 + "' as superclass");
       }
 
-      superClass.addBaseClass(session, this);
+      superClass.addSubClass(session, this);
       superClasses.put(superClassName, owner.getLazyClass(superClassName));
 
       owner.markClassDirty(session, this);

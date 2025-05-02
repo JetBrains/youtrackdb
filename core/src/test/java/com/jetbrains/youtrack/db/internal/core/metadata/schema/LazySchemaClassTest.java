@@ -31,7 +31,7 @@ public class LazySchemaClassTest {
   public void justCreatedSchemaClassShouldBeLoaded() {
     var classId = new RecordId(1, 1);
     var delegate = mock(SchemaClassImpl.class);
-    var lazyClass = LazySchemaClass.fromTemplate(classId, delegate);
+    var lazyClass = LazySchemaClass.fromTemplate(classId, delegate, true);
     assertTrue(lazyClass.isFullyLoaded());
   }
 
@@ -41,7 +41,7 @@ public class LazySchemaClassTest {
     var session = mock(DatabaseSessionInternal.class);
     var classId = new RecordId(1, 1);
     var delegate = mock(SchemaClassImpl.class);
-    var lazyClass = LazySchemaClass.fromTemplate(classId, delegate);
+    var lazyClass = LazySchemaClass.fromTemplate(classId, delegate, false);
     doAnswer((Answer<Void>) invocation -> {
       TxConsumer<Transaction, ?> call = invocation.getArgument(0);
       var transactionMock = mock(Transaction.class);

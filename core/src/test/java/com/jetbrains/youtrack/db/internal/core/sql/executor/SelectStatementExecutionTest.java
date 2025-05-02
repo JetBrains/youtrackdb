@@ -1020,7 +1020,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
-      Assert.assertNotNull(item.getProperty("classes"));
+      Assert.assertNotNull(item.getProperty("classesRefs"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();

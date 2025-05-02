@@ -599,7 +599,9 @@ public abstract class SchemaShared implements CloseableInStorage {
               // create class templates so it could be loaded later properly.
               // this is required since on a later stages we don't have createClassInstance method,
               // and we can always overwrite this instance internals from lazy class with actual db values
-              createClassInstance(entry.getKey()));
+              createClassInstance(entry.getKey()),
+              false
+          );
           classesRefs.put(entry.getKey(), lazySchemaClass);
         }
       }

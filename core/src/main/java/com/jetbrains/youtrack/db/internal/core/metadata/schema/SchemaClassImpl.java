@@ -242,7 +242,7 @@ public abstract class SchemaClassImpl {
       List<SchemaClassImpl> result = new ArrayList<>(superClasses.size());
       for (LazySchemaClass superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
-        result.add((SchemaClassImpl) superClass.getDelegate());
+        result.add(superClass.getDelegate());
       }
       return result;
     } finally {
@@ -296,16 +296,16 @@ public abstract class SchemaClassImpl {
     }
 
     Map<String, LazySchemaClass> classesToAdd = new HashMap<>();
-    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : newSuperClasses.entrySet()) {
+    for (var potentialSuperClass : newSuperClasses.entrySet()) {
       if (!superClasses.containsKey(potentialSuperClass.getKey())) {
         classesToAdd.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
       }
     }
 
     Map<String, LazySchemaClass> classesToRemove = new HashMap<>();
-    for (Map.Entry<String, LazySchemaClass> potentialSuperClass : superClasses.entrySet()) {
-      if (!newSuperClasses.containsKey(potentialSuperClass.getKey())) {
-        classesToRemove.put(potentialSuperClass.getKey(), potentialSuperClass.getValue());
+    for (var presentSuperClass : superClasses.entrySet()) {
+      if (!newSuperClasses.containsKey(presentSuperClass.getKey())) {
+        classesToRemove.put(presentSuperClass.getKey(), presentSuperClass.getValue());
       }
     }
 
@@ -315,7 +315,7 @@ public abstract class SchemaClassImpl {
     }
     for (LazySchemaClass addTo : classesToAdd.values()) {
       addTo.loadWithoutInheritanceIfNeeded(session);
-      addTo.getDelegate().addBaseClass(session, this);
+      addTo.getDelegate().addSubClass(session, this);
     }
     superClasses.clear();
     superClasses.putAll(newSuperClasses);
@@ -447,7 +447,7 @@ public abstract class SchemaClassImpl {
     }
     for (var superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
-      result.addAll(((SchemaClassImpl) superClass.getDelegate()).getIndexedProperties(session));
+      result.addAll((superClass.getDelegate()).getIndexedProperties(session));
     }
     return result;
   }
@@ -468,8 +468,11 @@ public abstract class SchemaClassImpl {
 
       for (var superClass : superClasses.values()) {
         superClass.loadWithoutInheritanceIfNeeded(session);
-        p = (SchemaPropertyImpl) superClass.getDelegate()
+        p = superClass.getDelegate()
             .getPropertyInternal(session, propertyName);
+        if (p != null) {
+          break;
+        }
       }
 
       return p;
@@ -1678,7 +1681,7 @@ public abstract class SchemaClassImpl {
     subclasses.put(subClassName, lazyClass);
     owner.markClassDirty(session, this);
     owner.markClassDirty(session, subClass);
-    addPolymorphicCollectionIds(session, subClass);
+    addPolymorphicCollectionIdsWithInheritance(session, subClass);
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,

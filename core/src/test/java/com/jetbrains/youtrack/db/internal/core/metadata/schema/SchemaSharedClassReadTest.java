@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.SessionPool;
@@ -24,18 +25,31 @@ public class SchemaSharedClassReadTest extends DbTestBase {
 
     Schema schema = session.getMetadata().getSchema();
 
-    SchemaClass originalClass = schema.createClass("zurich");
-    SchemaClass loadedClass = schema.getClass("zurich");
+    var originalClass = schema.createClass("zurich");
+    var loadedClass = schema.getClass("zurich");
     originalClass.createProperty("modification", PropertyType.STRING);
-    SchemaClass reloadedClass = schema.getClass("zurich");
-    assertThat(reloadedClass)
+    var reloadedClass = schema.getClass("zurich");
+    var loadedClassDelegate = extractDelegate(loadedClass);
+    var reloadedClassDelegate = extractDelegate(reloadedClass);
+    var originalClassDelegate = extractDelegate(originalClass);
+    assertThat(reloadedClassDelegate)
         .as("Reloaded class reference is " + System.identityHashCode(reloadedClass)
             + " should be the same as the original one " + System.identityHashCode(originalClass))
-        .isSameAs(originalClass);
-    assertTrue(originalClass == loadedClass);
-    assertTrue(originalClass == reloadedClass);
+        .isSameAs(originalClassDelegate);
+    assertSame(originalClassDelegate, loadedClassDelegate);
+    assertSame(originalClassDelegate, reloadedClassDelegate);
 
-    assertEquals(reloadedClass.getProperty("modification").getType(), PropertyType.STRING);
+    assertEquals(PropertyType.STRING, reloadedClass.getProperty("modification").getType());
+  }
+
+  private SchemaClassImpl extractDelegate(SchemaClass proxy) {
+    try {
+      var field = proxy.getClass().getSuperclass().getDeclaredField("delegate");
+      field.setAccessible(true);
+      return (SchemaClassImpl) field.get(proxy);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
 //  @Test
@@ -78,11 +92,11 @@ public class SchemaSharedClassReadTest extends DbTestBase {
     DatabaseSessionInternal db2 = (DatabaseSessionInternal) youTrackDb.open("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     db2.activateOnCurrentThread();
-    db2.execute("sql", "create class propertizedClass");
-    db2.execute("sql", "create property propertizedClass.prop1 STRING");
+    db2.execute("create class propertizedClass");
+    db2.execute("create property propertizedClass.prop1 STRING");
     final SessionPool pool =
         youTrackDb.cachedPool("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var db = (DatabaseSessionInternal) pool.acquire();
+    var session = (DatabaseSessionInternal) pool.acquire();
     SchemaClass coldClass = session.getMetadata().getSchema().getClass("propertizedClass");
     assertEquals(coldClass.getProperty("prop1").getType(), PropertyType.STRING);
 
