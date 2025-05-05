@@ -70,7 +70,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
 
-        var result = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+        var result = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
         if (result.containsKey("adminPassword")) {
           createAdmin = true;

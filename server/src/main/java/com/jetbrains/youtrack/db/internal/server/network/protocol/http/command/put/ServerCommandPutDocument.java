@@ -66,7 +66,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
           db.computeInTx(
               tx -> {
                 var txRecordId = recordId;
-                final var content = JSONSerializerJackson.mapFromJson(
+                final var content = JSONSerializerJackson.INSTANCE.mapFromJson(
                     iRequest.getContent());
                 final int recordVersion;
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT

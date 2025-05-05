@@ -182,7 +182,7 @@ public class SchemaEmbedded extends SchemaShared {
       classes.put(key, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
-        cls.setSuperClassesInternal(session, superClasses);
+        cls.setSuperClassesInternal(session, superClasses, true);
         for (var superClass : superClasses) {
           // UPDATE INDEXES
           final var collectionsToIndex = superClass.getPolymorphicCollectionIds(session);
@@ -197,7 +197,7 @@ public class SchemaEmbedded extends SchemaShared {
                 session
                     .getSharedContext()
                     .getIndexManager()
-                    .addCollectionToIndex(session, collectionName, index.getName());
+                    .addCollectionToIndex(session, collectionName, index.getName(), true);
               }
             }
           }

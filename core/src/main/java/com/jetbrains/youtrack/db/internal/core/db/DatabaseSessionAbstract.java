@@ -1440,13 +1440,13 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
-    return (T) JSONSerializerJackson.fromString(this, json);
+    return (T) JSONSerializerJackson.INSTANCE.fromString(this, json);
   }
 
   @Override
   public Entity createOrLoadEntityFromJson(String json) {
     assert assertIfNotActive();
-    var result = JSONSerializerJackson.fromString(this, json);
+    var result = JSONSerializerJackson.INSTANCE.fromString(this, json);
 
     if (result instanceof Entity) {
       return (Entity) result;
@@ -1510,7 +1510,8 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
     return vertex;
   }
 
-  private StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
+  @Override
+  public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");

@@ -231,7 +231,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
     }
 
     if (metadata != null) {
-      queryBuilder.append(" metadata ").append(JSONSerializerJackson.mapToJson(metadata));
+      queryBuilder.append(" metadata ").append(JSONSerializerJackson.INSTANCE.mapToJson(metadata));
     }
 
     session.execute(queryBuilder.toString()).close();
@@ -378,7 +378,7 @@ public class SchemaClassRemote extends SchemaClassImpl {
 
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes) {
+      final List<SchemaClassImpl> classes, boolean validateIndexes) {
     List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
     SchemaClassImpl cls;
     for (var superClass : classes) {
@@ -400,13 +400,14 @@ public class SchemaClassRemote extends SchemaClassImpl {
       toRemove.removeBaseClassInternal(session, this);
     }
     for (var addTo : toAddList) {
-      addTo.addBaseClass(session, this);
+      addTo.addBaseClass(session, this, validateIndexes);
     }
     superClasses.clear();
     superClasses.addAll(newSuperClasses);
   }
 
   @Override
-  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
+      boolean requireEmpty) {
   }
 }

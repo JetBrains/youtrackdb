@@ -258,7 +258,7 @@ public class YouTrackDBRemote implements YouTrackDBInternal {
   public Map<String, Object> getServerInfo(String username, String password) {
     var request = new ServerInfoRequest();
     var response = connectAndSend(null, username, password, request);
-    return JSONSerializerJackson.mapFromJson(response.getResult());
+    return JSONSerializerJackson.INSTANCE.mapFromJson(response.getResult());
   }
 
   public String getGlobalConfiguration(

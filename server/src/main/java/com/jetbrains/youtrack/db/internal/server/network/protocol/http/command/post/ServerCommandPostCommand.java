@@ -70,7 +70,7 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var map = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+        final var map = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
         text = (String) map.get("command");
         params = map.get("parameters");
         if (map.containsKey("mode")) {

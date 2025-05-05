@@ -142,7 +142,7 @@ public class ServerCommandPostAuthToken extends ServerCommandAbstract {
         HttpUtils.STATUS_BADREQ_CODE,
         HttpUtils.STATUS_BADREQ_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        JSONSerializerJackson.mapToJson(error),
+        JSONSerializerJackson.INSTANCE.mapToJson(error),
         null);
   }
 

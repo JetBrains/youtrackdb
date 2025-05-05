@@ -15,18 +15,25 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Java6Assertions.assertThat;
+import static org.testng.AssertJUnit.assertTrue;
+
 import com.google.common.collect.ImmutableList;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
@@ -41,8 +48,8 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -140,9 +147,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
       return;
     }
 
-    final var localTesPath = new File(testPath + "/target", "embeddedListMigration");
-    FileUtils.deleteRecursively(localTesPath);
-    Assert.assertTrue(localTesPath.mkdirs());
+    final var localTesPath = initExportPath("embeddedListMigration", true);
 
     final var exportPath = new File(localTesPath, "export.json.gz");
 
@@ -297,6 +302,103 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         });
       }
     }
+  }
+
+  @Nonnull
+  private File initExportPath(String dirName, boolean clear) {
+    final var localTesPath = new File(testPath + "/target", dirName);
+    if (clear) {
+      FileUtils.deleteRecursively(localTesPath);
+      Assert.assertTrue(localTesPath.mkdirs());
+    }
+    return localTesPath;
+  }
+
+  @Test
+  public void testGraphImportExport() throws IOException {
+
+    final var localTesPath = initExportPath("graphImportExport", true);
+
+    final var exportPath = new File(localTesPath, "export_graph.json.gz");
+
+    final YouTrackDBConfig config =
+        new YouTrackDBConfigBuilderImpl()
+            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
+            .build();
+
+    try (
+        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var original = createAndOpen(youTrackDB, "original");
+        var imported = createAndOpen(youTrackDB, "imported");
+    ) {
+      final var vClass = original.getSchema().createVertexClass("AVertex");
+      final var eClass = original.getSchema().createEdgeClass("AnEdge");
+      final var leClass = original.getSchema().createLightweightEdgeClass("LightweightEdge");
+
+      final var p = original.computeInTx(tx -> {
+        final var v1 = tx.newVertex(vClass);
+        v1.setProperty("no", 1);
+        final var v2 = tx.newVertex(vClass);
+        v2.setProperty("no", 2);
+        final var v3 = tx.newVertex(vClass);
+        v3.setProperty("no", 3);
+
+        v1.addStateFulEdge(v2, eClass).setProperty("lbl", "1to2");
+        v2.addStateFulEdge(v1, eClass).setProperty("lbl", "2to1");
+
+        v1.addLightWeightEdge(v3, leClass);
+        v3.addLightWeightEdge(v2, leClass);
+
+        return new Pair<>(v1.getIdentity(), v2.getIdentity());
+      });
+
+      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+          .exportDatabase();
+
+      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+          .importDatabase();
+
+      assertTrue(imported.getSchema().getClass("AVertex").isVertexType());
+      assertTrue(imported.getSchema().getClass("AnEdge").isEdgeType());
+
+      imported.executeInTx(tx -> {
+        final var vs = tx.query("select from AVertex order by no")
+            .stream()
+            .map(Result::asVertex)
+            .toList();
+
+        assertThat(vs).hasSize(3);
+
+        final var v1 = vs.get(0);
+        final var v2 = vs.get(1);
+        final var v3 = vs.get(2);
+
+        final var v1Tov2 = v1.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+        assertThat(v1Tov2.getFrom()).isEqualTo(v1);
+        assertThat(v1Tov2.getTo()).isEqualTo(v2);
+        assertThat(v1Tov2.getString("lbl")).isEqualTo("1to2");
+
+        final var v2Tov1 = v2.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+        assertThat(v2Tov1.getFrom()).isEqualTo(v2);
+        assertThat(v2Tov1.getTo()).isEqualTo(v1);
+        assertThat(v2Tov1.getString("lbl")).isEqualTo("2to1");
+
+        final var v1Tov3 = v1.getEdges(Direction.OUT, leClass).iterator().next();
+        assertThat(v1Tov3.isLightweight()).isTrue();
+        assertThat(v1Tov3.getFrom()).isEqualTo(v1);
+        assertThat(v1Tov3.getTo()).isEqualTo(v3);
+
+        final var v3tov2 = v3.getEdges(Direction.OUT, leClass).iterator().next();
+        assertThat(v3tov2.isLightweight()).isTrue();
+        assertThat(v3tov2.getFrom()).isEqualTo(v3);
+        assertThat(v3tov2.getTo()).isEqualTo(v2);
+      });
+    }
+  }
+
+  private static DatabaseSession createAndOpen(YouTrackDB youTrackDB, String dbName) {
+    youTrackDB.create(dbName, DatabaseType.DISK);
+    return youTrackDB.open(dbName, "admin", "admin");
   }
 
   @Override
