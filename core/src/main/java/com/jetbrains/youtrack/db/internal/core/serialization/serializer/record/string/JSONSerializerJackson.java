@@ -60,6 +60,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -624,11 +625,11 @@ public class JSONSerializerJackson {
             record.fromStream(CommonConst.EMPTY_BYTE_ARRAY);
           } else if (record instanceof Blob) {
             // BYTES
+            // we can do better here: read and decode base64 at the same time without creating
+            // intermediate structures.
             final var iBuffer = jsonParser.getBinaryValue();
             if (iBuffer != null && iBuffer.length > 0) {
-              record.unsetDirty();
-              record.fromStream(iBuffer);
-              record.setDirty();
+              ((Blob) record).fromInputStream(new ByteArrayInputStream(iBuffer));
             }
           } else {
             throw new SerializationException(session,
@@ -946,6 +947,7 @@ public class JSONSerializerJackson {
         case Boolean booleanValue -> jsonGenerator.writeBoolean(booleanValue);
 
         case byte[] byteArray -> jsonGenerator.writeBinary(byteArray);
+        case Blob blob -> serializeLink(jsonGenerator, blob.getIdentity());
         case Entity entityValue -> {
           if (entityValue.isEmbedded()) {
             recordToJson(session, entityValue, jsonGenerator, formatSettings);

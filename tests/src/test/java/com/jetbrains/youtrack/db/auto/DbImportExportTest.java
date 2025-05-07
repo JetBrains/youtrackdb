@@ -335,7 +335,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
       final var eClass = original.getSchema().createEdgeClass("AnEdge");
       final var leClass = original.getSchema().createLightweightEdgeClass("LightweightEdge");
 
-      final var p = original.computeInTx(tx -> {
+      original.executeInTx(tx -> {
         final var v1 = tx.newVertex(vClass);
         v1.setProperty("no", 1);
         final var v2 = tx.newVertex(vClass);
@@ -348,8 +348,6 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
         v1.addLightWeightEdge(v3, leClass);
         v3.addLightWeightEdge(v2, leClass);
-
-        return new Pair<>(v1.getIdentity(), v2.getIdentity());
       });
 
       new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
@@ -392,6 +390,60 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         assertThat(v3tov2.isLightweight()).isTrue();
         assertThat(v3tov2.getFrom()).isEqualTo(v3);
         assertThat(v3tov2.getTo()).isEqualTo(v2);
+      });
+    }
+  }
+
+  @Test
+  public void testBlobs() throws IOException {
+    final var localTesPath = initExportPath("blobImportExport", true);
+
+    final var exportPath = new File(localTesPath, "export_blob.json.gz");
+
+    final YouTrackDBConfig config =
+        new YouTrackDBConfigBuilderImpl()
+            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
+            .build();
+
+    try (
+        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var original = createAndOpen(youTrackDB, "original");
+        var imported = createAndOpen(youTrackDB, "imported");
+    ) {
+
+      original.getSchema().createClass("WithBlob");
+
+      original.executeInTx(tx -> {
+        final var emptyBlob = tx.newBlob(new byte[]{});
+        final var nonEmptyBlob = tx.newBlob("some test string".getBytes());
+
+        final var withEmpty = tx.newEntity("WithBlob");
+        withEmpty.setString("name", "withEmpty");
+        withEmpty.setLink("blob", emptyBlob.getIdentity());
+
+        final var withNonEmpty = tx.newEntity("WithBlob");
+        withNonEmpty.setString("name", "withNonEmpty");
+        withNonEmpty.setLink("blob", nonEmptyBlob);
+      });
+
+      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+          .exportDatabase();
+
+      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+          .importDatabase();
+
+      imported.executeInTx(tx -> {
+        final var withEmtpy =
+            tx.query("SELECT FROM WithBlob WHERE name = 'withEmpty'").next().asEntity();
+
+        final var withNonEmpty =
+            tx.query("SELECT FROM WithBlob WHERE name = 'withNonEmpty'").next().asEntity();
+
+        final var emptyBlob = withEmtpy.getBlob("blob");
+        final var nonEmptyBlob = withNonEmpty.getBlob("blob");
+
+        assertThat(emptyBlob.toStream()).isEqualTo(new byte[]{});
+        assertThat(nonEmptyBlob.toStream()).isEqualTo("some test string".getBytes());
       });
     }
   }
