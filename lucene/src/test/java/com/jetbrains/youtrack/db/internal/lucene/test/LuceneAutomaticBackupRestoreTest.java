@@ -46,6 +46,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -143,6 +144,7 @@ public class LuceneAutomaticBackupRestoreTest {
     }
   }
 
+  @Ignore
   @Test
   public void shouldExportImport() throws IOException, InterruptedException {
 

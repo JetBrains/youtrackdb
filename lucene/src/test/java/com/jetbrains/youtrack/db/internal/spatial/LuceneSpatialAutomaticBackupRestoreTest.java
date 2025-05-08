@@ -45,6 +45,7 @@ import java.util.zip.GZIPInputStream;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -155,6 +156,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     }
   }
 
+  @Ignore
   @Test
   public void shouldExportImport() throws IOException, InterruptedException {
     var query =

@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 public class LazySchemaClass {
 
   private final RID recordId;
-  private boolean loading = false;
   private boolean classLoaded = false;
   private boolean inheritanceLoaded = false;
   private SchemaClassImpl delegate;
@@ -57,12 +56,6 @@ public class LazySchemaClass {
   }
 
   private void load(DatabaseSessionInternal session, SchemaClassImpl delegateTemplate) {
-    if (loading) {
-      // we don't need to load it again, it will be updated in place when last load operation will finish,
-      // this is needed to prevent recursion
-      return;
-    }
-    loading = true;
     if (delegate == null) {
       delegate = delegateTemplate;
     }
@@ -75,10 +68,13 @@ public class LazySchemaClass {
 //      // more issues.
 ////      loaded = true;
       EntityImpl classEntity = session.load(recordId);
-      delegate.fromStream(session, classEntity);
+      // we need to load class without inheritance first, and then we can load inheritance
+      // this is needed because unloaded class will be overwritten by loading its superclass
+      delegate.fromStream(session, classEntity, false);
       classLoaded = true;
+      //todo do we need to reload this one? wouldn't it be easier to load just inheritance?
+      delegate.fromStream(session, classEntity);
       inheritanceLoaded = true;
-      loading = false;
     };
     if (session.isTxActive()) {
       loadClassTransaction.accept(session.getTransactionInternal());
@@ -110,7 +106,6 @@ public class LazySchemaClass {
       Entity classEntity = session.load(recordId);
       delegate.fromStream(session, classEntity, false);
       classLoaded = true;
-      loading = false;
     });
   }
 
@@ -121,6 +116,9 @@ public class LazySchemaClass {
   public void unload() {
     this.classLoaded = false;
     this.inheritanceLoaded = false;
+    // todo better fix, this is just to prove I am right.
+    this.delegate.subclasses.clear();
+    this.delegate.superClasses.clear();
   }
 
   public SchemaClassImpl getDelegate() {

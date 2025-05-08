@@ -723,8 +723,7 @@ public abstract class SchemaClassImpl {
             SchemaShared.normalizeClassName(storedSubclassName));
         subclasses.put(storedSubclassName, subclass);
         subclass.loadWithoutInheritanceIfNeeded(session);
-        addPolymorphicCollectionIdsWithInheritance(session,
-            (SchemaClassImpl) subclass.getDelegate());
+        addPolymorphicCollectionIdsWithInheritance(session, subclass.getDelegate());
       }
     }
   }
@@ -1827,8 +1826,9 @@ public abstract class SchemaClassImpl {
       final SchemaClassImpl subClass) {
     addPolymorphicCollectionIds(session, subClass);
     for (var superClass : superClasses.values()) {
+      // this load of superclass breaks content of this class
       superClass.loadIfNeeded(session);
-      ((SchemaClassImpl) superClass.getDelegate()).addPolymorphicCollectionIds(
+      (superClass.getDelegate()).addPolymorphicCollectionIds(
           session,
           subClass);
     }

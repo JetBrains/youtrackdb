@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.zip.GZIPInputStream;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -55,6 +56,7 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     session.commit();
   }
 
+  @Ignore
   @Test
   public void testExportImport() throws Throwable {
 

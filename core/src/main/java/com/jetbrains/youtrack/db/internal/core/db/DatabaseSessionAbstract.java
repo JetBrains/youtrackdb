@@ -945,8 +945,9 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
 
     RecordId previousRid = null;
     RecordId nextRid = null;
-    var systemCollection = isSystemCollection(rid.getCollectionId());
-    if (!systemCollection) {
+    // remote does not support system collections
+    var snapshotRequired = isRemote() || !isSystemCollection(rid.getCollectionId());
+    if (snapshotRequired) {
       getMetadata().makeThreadLocalSchemaSnapshot();
     }
     try {
@@ -1111,7 +1112,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
             t, getDatabaseName());
       }
     } finally {
-      if (!systemCollection) {
+      if (snapshotRequired) {
         getMetadata().clearThreadLocalSchemaSnapshot();
       }
     }

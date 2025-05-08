@@ -116,7 +116,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       var lazyClass = lazySchemaClassEntry.getValue();
       if (lazyClass != null && lazyClass.isLoadedWithoutInheritance()) {
         this.dirtyClasses.put(lazySchemaClassEntry.getKey(),
-            (SchemaClassImpl) lazyClass.getDelegate());
+            lazyClass.getDelegate());
       }
     }
   }
@@ -607,6 +607,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
       for (var lazySchemaClass : classesRefs.values()) {
+        //todo cope with recursion in loading schema, figure out why we need it in the first place
         lazySchemaClass.loadIfNeededWithTemplate(session,
             createClassInstance(lazySchemaClass.getId().toString()));
         var cls = lazySchemaClass.getDelegate();
