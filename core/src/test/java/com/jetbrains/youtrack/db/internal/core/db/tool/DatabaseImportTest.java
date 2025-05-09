@@ -18,7 +18,6 @@ import org.junit.Test;
  */
 public class DatabaseImportTest {
 
-  @Ignore // this test seems to be broken, need more deep investigation to fix
   @Test
   public void exportImportOnlySchemaTest() throws IOException {
     // delete import path to make test work without clean step before it

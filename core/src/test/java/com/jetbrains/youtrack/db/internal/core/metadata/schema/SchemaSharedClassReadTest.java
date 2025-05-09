@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
@@ -52,23 +52,23 @@ public class SchemaSharedClassReadTest extends DbTestBase {
     }
   }
 
-//  @Test
-//  public void testReadPropertiesFromStorage() {
-//    Schema schema = db.getMetadata().getSchema();
-//
-//    SchemaClass classWithProperty = schema.createClass("propertizedClass");
-//    classWithProperty.createProperty(db, "prop1", PropertyType.STRING);
-//
-//    // we need db reload to force reread schema from storage,
-//    // I am working on a bug where in-memory schema is fine, but after reload class properties are empty
-//    Storage storage = db.getStorage();
-//    storage.reload(db);
-//    db.getMetadata().reload();
-//    SchemaInternal anotherSchema = db.getMetadata().getSchema();
-//
-//    SchemaClass coldClass = anotherSchema.getClass("propertizedClass");
-//    assertNotNull(coldClass.getProperty("prop1"));
-//  }
+  @Test
+  public void testReadPropertiesFromStorage() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var classWithProperty = schema.createClass("propertizedClass");
+    classWithProperty.createProperty("prop1", PropertyType.STRING);
+
+    // we need db reload to force reread schema from storage,
+    // I am working on a bug where in-memory schema is fine, but after reload class properties are empty
+    var storage = session.getStorage();
+    storage.reload(session);
+    session.getMetadata().reload();
+    var anotherSchema = session.getMetadata().getSchema();
+
+    var coldClass = anotherSchema.getClass("propertizedClass");
+    assertNotNull(coldClass.getProperty("prop1"));
+  }
 
   @Test
   public void testReadPropertiesFromStorage2() {

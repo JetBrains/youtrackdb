@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SchemaNotCreatedException;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
@@ -115,6 +114,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     for (var lazySchemaClassEntry : classesRefs.entrySet()) {
       var lazyClass = lazySchemaClassEntry.getValue();
       if (lazyClass != null && lazyClass.isLoadedWithoutInheritance()) {
+        assert lazyClass.getDelegate() != null;
         this.dirtyClasses.put(lazySchemaClassEntry.getKey(),
             lazyClass.getDelegate());
       }
@@ -122,6 +122,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public void markClassDirty(DatabaseSessionInternal session, SchemaClassImpl dirtyClass) {
+    assert dirtyClass != null;
     this.dirtyClasses.put(normalizeClassName(dirtyClass.getName(session)), dirtyClass);
   }
 
@@ -607,7 +608,6 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
       for (var lazySchemaClass : classesRefs.values()) {
-        //todo cope with recursion in loading schema, figure out why we need it in the first place
         lazySchemaClass.loadIfNeededWithTemplate(session,
             createClassInstance(lazySchemaClass.getId().toString()));
         var cls = lazySchemaClass.getDelegate();
@@ -644,10 +644,9 @@ public abstract class SchemaShared implements CloseableInStorage {
       Entity entity = session.load(identity);
       entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      LinkMap classIds = session.newLinkMap(classesRefs.size());
+      var classIds = session.newLinkMap(classesRefs.size());
 
       for (var lazyClassRefs : classesRefs.entrySet()) {
-        //todo fix
         if (lazyClassRefs.getValue().getId() == null || lazyClassRefs.getValue().getId().isNew()) {
           continue; // skip not persisted ids
         }
@@ -670,13 +669,13 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public Collection<SchemaClassImpl> getClassesSlow(DatabaseSessionInternal session) {
+  public Collection<SchemaClassImpl> getClasses(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     acquireSchemaReadLock(session);
     try {
       Set<SchemaClassImpl> result = new HashSet<>(classesRefs.size());
-      for (String className : classesRefs.keySet()) {
-        SchemaClassImpl loadedClass = getClass(session, className);
+      for (var className : classesRefs.keySet()) {
+        var loadedClass = getClass(session, className);
         result.add(loadedClass);
       }
       return result;
@@ -840,11 +839,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     session.computeInTx(transaction -> {
       var dirtyClasses = this.dirtyClasses.values();
       for (var dirtyClass : dirtyClasses) {
-        // TODO FIX THIS, for now it's ok, but I need to forbid adding null dirty classes
         if (dirtyClass != null) {
           dirtyClass.toStream(session);
-          // todo replace copy with storing identity in the class like it used to be in schema
-          // how to save?
         }
       }
       var result = toStream(session);

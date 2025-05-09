@@ -73,9 +73,6 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       setCustomInternal(session, name, value);
-      // todo move inside internal method
-      owner.markClassDirty(session, this);
-
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -105,8 +102,15 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public void removeBaseClassInternal(DatabaseSessionInternal session,
+  public void removeSubClassInternal(DatabaseSessionInternal session,
       final SchemaClassImpl baseClass) {
+    removeBaseClassInternal(session, baseClass);
+  }
+
+  @Override
+  @Deprecated // please use removeSubClassInternal instead
+  public void removeBaseClassInternal(DatabaseSessionInternal session,
+      final SchemaClassImpl subClass) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
@@ -115,13 +119,12 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         return;
       }
 
-      LazySchemaClass removedClass = subclasses.remove(baseClass.getName(session));
+      var removedClass = subclasses.remove(subClass.getName(session));
       if (removedClass != null) {
-        // todo replace with removedClass.getDelegate()
-        removePolymorphicCollectionIds(session, (SchemaClassImpl) baseClass);
+        removePolymorphicCollectionIds(session, subClass);
       }
       owner.markClassDirty(session, this);
-      owner.markClassDirty(session, baseClass);
+      owner.markClassDirty(session, subClass);
 
     } finally {
       releaseSchemaWriteLock(session);

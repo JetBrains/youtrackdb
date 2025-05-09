@@ -86,7 +86,7 @@ public class SchemaEmbedded extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final var key = normalizeClassName(className);
       if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
@@ -171,7 +171,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
 
-      final String key = normalizeClassName(className);
+      final var key = normalizeClassName(className);
 
       if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
@@ -234,8 +234,9 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaReadLock(session);
     try {
-      LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+      var lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
+        lazySchemaClass.loadIfNeeded(session);
         var cls = lazySchemaClass.getDelegate();
         if (cls != null) {
           return cls;
@@ -254,7 +255,7 @@ public class SchemaEmbedded extends SchemaShared {
       try {
         acquireSchemaWriteLock(session);
         try {
-          LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+          var lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
           if (lazySchemaClass != null) {
             cls = lazySchemaClass.getDelegate();
             if (cls != null) {
@@ -292,8 +293,7 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaWriteLock(session);
     try {
-
-      final String key = normalizeClassName(className);
+      final var key = normalizeClassName(className);
       if (classesRefs.containsKey(key) && retry == 0) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
@@ -416,14 +416,14 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClassImpl cls = classesRefs.get(key).getDelegate();
+      var cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      Collection<SchemaClassImpl> subclasses = cls.getSubclasses(session);
+      var subclasses = cls.getSubclasses(session);
       if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
@@ -463,13 +463,13 @@ public class SchemaEmbedded extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      final SchemaClassImpl cls = classesRefs.get(key).getDelegate();
+      final var cls = classesRefs.get(key).getDelegate();
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
       }
 
-      Collection<SchemaClassImpl> subclasses = cls.getSubclasses(session);
+      var subclasses = cls.getSubclasses(session);
       if (!subclasses.isEmpty()) {
         throw new SchemaException(
             "Class '"
@@ -481,7 +481,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       checkEmbedded(session);
 
-      for (SchemaClassImpl superClass : cls.getSuperClasses(session)) {
+      for (var superClass : cls.getSuperClasses(session)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }

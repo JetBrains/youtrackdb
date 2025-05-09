@@ -40,7 +40,7 @@ public class SchemaRemote extends SchemaShared {
 
     acquireSchemaReadLock(session);
     try {
-      LazySchemaClass cls = classesRefs.get(normalizeClassName(iClassName));
+      var cls = classesRefs.get(normalizeClassName(iClassName));
       if (cls != null) {
         cls.loadIfNeededWithTemplate(session, createClassInstance(iClassName));
         return cls.getDelegate();
@@ -55,7 +55,7 @@ public class SchemaRemote extends SchemaShared {
 
     acquireSchemaWriteLock(session);
     try {
-      LazySchemaClass lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
+      var lazySchemaClass = classesRefs.get(normalizeClassName(iClassName));
       if (lazySchemaClass != null) {
         lazySchemaClass.loadIfNeededWithTemplate(session, createClassInstance(iClassName));
         return lazySchemaClass.getDelegate();
@@ -281,7 +281,7 @@ public class SchemaRemote extends SchemaShared {
                 + ". Remove the dependencies before trying to drop it again");
       }
 
-      String cmd = "drop class `" + className + "` unsafe";
+      var cmd = "drop class `" + className + "` unsafe";
       // mark potentially dropped class as dirty
       markClassDirty(session, cls);
       markSuperClassesDirty(session, cls);
@@ -290,8 +290,8 @@ public class SchemaRemote extends SchemaShared {
       reload(session);
 
       var localCache = session.getLocalCache();
-      for (int clusterId : cls.getCollectionIds(session)) {
-        localCache.freeCollection(clusterId);
+      for (var collectionId : cls.getCollectionIds(session)) {
+        localCache.freeCollection(collectionId);
       }
     } finally {
       releaseSchemaWriteLock(session);

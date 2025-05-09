@@ -886,7 +886,7 @@ public abstract class SchemaClassImpl {
   }
 
   /**
-   * Base class is used wrong in this context meaning subclass and not superclass Please use remove
+   * Base class is used wrong in this context meaning subclass and not superclass. Please use remove
    * subClassInternal method instead
    */
   @Deprecated

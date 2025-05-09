@@ -59,14 +59,7 @@ public class LazySchemaClass {
     if (delegate == null) {
       delegate = delegateTemplate;
     }
-    // todo fix later.
-    // when I do it this way it builds schemaSnapshot while loading schema which leads to use of non initialized classes
     TxConsumer<Transaction, RuntimeException> loadClassTransaction = tx -> {
-//      // todo figure out why loaded = true first works fine and loaded = true last gives stack overflow
-//      // my first assumption is class relies on itself, so when we do from streamStream we already need some places
-//      // where we want to use this class, but it seems like class could be partially initialized which could lead to
-//      // more issues.
-////      loaded = true;
       EntityImpl classEntity = session.load(recordId);
       // we need to load class without inheritance first, and then we can load inheritance
       // this is needed because unloaded class will be overwritten by loading its superclass
@@ -116,7 +109,7 @@ public class LazySchemaClass {
   public void unload() {
     this.classLoaded = false;
     this.inheritanceLoaded = false;
-    // todo better fix, this is just to prove I am right.
+
     this.delegate.subclasses.clear();
     this.delegate.superClasses.clear();
   }

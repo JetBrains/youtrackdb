@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.util.zip.GZIPInputStream;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -47,7 +46,6 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     var city = schema.createClass("City");
     city.createProperty("name", PropertyType.STRING);
 
-
     session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
     session.begin();
@@ -56,7 +54,6 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     session.commit();
   }
 
-  @Ignore
   @Test
   public void testExportImport() throws Throwable {
 

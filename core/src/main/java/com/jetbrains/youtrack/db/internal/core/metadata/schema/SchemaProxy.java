@@ -230,7 +230,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public Collection<SchemaClass> getClasses() {
     assert session.assertIfNotActive();
-    var classes = delegate.getClassesSlow(session);
+    var classes = delegate.getClasses(session);
     var result = new ArrayList<SchemaClass>(classes.size());
     for (var cls : classes) {
       result.add(new SchemaClassProxy(cls, session));

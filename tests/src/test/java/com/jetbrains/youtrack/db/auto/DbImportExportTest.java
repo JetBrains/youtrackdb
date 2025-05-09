@@ -42,12 +42,11 @@ import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.testng.Assert;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(enabled = false)
+@Test
 public class DbImportExportTest extends BaseDBTest implements CommandOutputListener {
 
   public static final String EXPORT_FILE_PATH = "target/export/db.export.gz";
@@ -65,7 +64,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
-  @Test(enabled = false)
+  @Test
   public void testDbExport() throws IOException {
     if (remoteDB) {
       return;
@@ -80,7 +79,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     export.close();
   }
 
-  @Test(dependsOnMethods = "testDbExport", enabled = false)
+  @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
     if (remoteDB) {
       return;
@@ -116,7 +115,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
   }
 
-  @Test(dependsOnMethods = "testDbImport", enabled = false) // todo restore
+  @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
     if (remoteDB) {
       return;
@@ -300,7 +299,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   }
 
   @Override
-  @Test(enabled = false)
+  @Test
   public void onMessage(final String iText) {
     if (iText != null && iText.contains("ERR")) {
       // ACTIVATE DUMP MODE
