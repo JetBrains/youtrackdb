@@ -102,7 +102,7 @@ public class SchemaRemote extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final String key = normalizeClassName(className);
+      final var key = normalizeClassName(className);
       if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
@@ -184,7 +184,7 @@ public class SchemaRemote extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final String key = className.toLowerCase(Locale.ENGLISH);
+      final var key = className.toLowerCase(Locale.ENGLISH);
       if (classesRefs.containsKey(key)) {
         throw new SchemaException("Class '" + className + "' already exists in current database");
       }
@@ -265,7 +265,7 @@ public class SchemaRemote extends SchemaShared {
 
       final var key = className.toLowerCase(Locale.ENGLISH);
 
-      SchemaClassImpl cls = classesRefs.get(key).getDelegate();
+      var cls = classesRefs.get(key).getDelegate();
 
       if (cls == null) {
         throw new SchemaException(session,

@@ -65,8 +65,8 @@ public class LazySchemaClass {
       // this is needed because unloaded class will be overwritten by loading its superclass
       delegate.fromStream(session, classEntity, false);
       classLoaded = true;
-      //todo do we need to reload this one? wouldn't it be easier to load just inheritance?
-      delegate.fromStream(session, classEntity);
+
+      delegate.loadInheritanceTree(session, classEntity);
       inheritanceLoaded = true;
     };
     if (session.isTxActive()) {

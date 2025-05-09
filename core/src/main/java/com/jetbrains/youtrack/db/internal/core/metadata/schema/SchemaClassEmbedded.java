@@ -237,7 +237,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClassImpl> classes) {
+      final List<SchemaClassImpl> classes) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
       if (!classes.contains(owner.getClass(session, SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
@@ -254,9 +254,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     Map<String, LazySchemaClass> newSuperClasses = new HashMap<>();
-    SchemaClassImpl cls;
     for (var superClass : classes) {
-      String className = superClass.getName(session);
+      var className = superClass.getName(session);
       if (newSuperClasses.containsKey(className)) {
         throw new SchemaException(session.getDatabaseName(),
             "Duplicated superclass '" + className + "'");
@@ -661,7 +660,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     addCollectionIdToIndexes(session, collectionId);
 
-    for (LazySchemaClass superClass : superClasses.values()) {
+    for (var superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
       ((SchemaClassEmbedded) superClass.getDelegate()).addPolymorphicCollectionId(session,
           collectionId);

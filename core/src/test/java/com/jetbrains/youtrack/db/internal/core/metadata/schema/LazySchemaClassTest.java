@@ -19,7 +19,6 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.jetbrains.annotations.NotNull;
-import org.junit.Ignore;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 
@@ -35,7 +34,6 @@ public class LazySchemaClassTest {
     assertTrue(lazyClass.isFullyLoaded());
   }
 
-  @Ignore // to do what is the expected behavior
   @Test
   public void shouldLoadClassOnlyOnce() {
     var session = mock(DatabaseSessionInternal.class);

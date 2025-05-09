@@ -240,7 +240,7 @@ public abstract class SchemaClassImpl {
     acquireSchemaReadLock(session);
     try {
       List<SchemaClassImpl> result = new ArrayList<>(superClasses.size());
-      for (LazySchemaClass superClass : superClasses.values()) {
+      for (var superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
         result.add(superClass.getDelegate());
       }
@@ -322,11 +322,11 @@ public abstract class SchemaClassImpl {
   }
 
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClassImpl> classes) {
+      final List<SchemaClassImpl> classes) {
     // todo this is a bad temporary decision, we already have all classes, converting them to lazy classes to load again smells.
     // I think it's possible to completely move to lazy classes and remove this method
     List<LazySchemaClass> lazyClasses = new ArrayList<>(classes.size());
-    for (SchemaClassImpl superClass : classes) {
+    for (var superClass : classes) {
       lazyClasses.add(owner.getLazyClass(superClass.getName(session)));
     }
     setLazySuperClassesInternal(session, lazyClasses);
@@ -418,7 +418,7 @@ public abstract class SchemaClassImpl {
     List<SchemaPropertyImpl> resultProperties = new ArrayList<>(
         this.properties.values()
     );
-    for (LazySchemaClass superClass : superClasses.values()) {
+    for (var superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
       resultProperties.addAll(superClass.getDelegate().properties(session));
     }
