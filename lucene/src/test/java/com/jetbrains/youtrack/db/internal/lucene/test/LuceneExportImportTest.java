@@ -56,7 +56,6 @@ public class LuceneExportImportTest extends BaseLuceneTest {
     session.commit();
   }
 
-  @Ignore
   @Test
   public void testExportImport() {
 
