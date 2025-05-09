@@ -108,7 +108,7 @@ public abstract class ServerCommandAbstract implements ServerCommand {
     errors.add(error);
     response.put("errors", errors);
     iResponse.send(
-        iCode, iReason, HttpUtils.CONTENT_JSON, JSONSerializerJackson.mapToJson(response),
+        iCode, iReason, HttpUtils.CONTENT_JSON, JSONSerializerJackson.INSTANCE.mapToJson(response),
         iHeaders);
   }
 }

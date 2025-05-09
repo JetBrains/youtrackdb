@@ -389,7 +389,7 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   protected static YouTrackDBJwtHeader deserializeWebHeader(final byte[] decodedHeader) {
-    final var map = JSONSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.INSTANCE.mapFromJson(
         new String(decodedHeader, StandardCharsets.UTF_8));
     final var header = new YouTrackDBJwtHeader();
     header.setType((String) map.get("typ"));
@@ -403,7 +403,7 @@ public class TokenHandlerImpl implements TokenHandler {
     if (!"YouTrackDB".equals(type)) {
       throw new SystemException("Payload class not registered:" + type);
     }
-    final var map = JSONSerializerJackson.mapFromJson(
+    final var map = JSONSerializerJackson.INSTANCE.mapFromJson(
         new String(decodedPayload, StandardCharsets.UTF_8));
     final var payload = new YouTrackDBJwtPayload();
     payload.setUserName((String) map.get("username"));
@@ -432,7 +432,7 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("alg", header.getAlgorithm());
     map.put("kid", header.getKeyId());
 
-    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.INSTANCE.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected static byte[] serializeWebPayload(final JwtPayload payload) throws Exception {
@@ -452,7 +452,7 @@ public class TokenHandlerImpl implements TokenHandler {
     map.put("uidc", payload.getUserRid().getCollectionId());
     map.put("uidp", payload.getUserRid().getCollectionPosition());
     map.put("bdtyp", payload.getDatabaseType());
-    return JSONSerializerJackson.mapToJson(map).getBytes(StandardCharsets.UTF_8);
+    return JSONSerializerJackson.INSTANCE.mapToJson(map).getBytes(StandardCharsets.UTF_8);
   }
 
   protected JwtPayload createPayloadServerUser(SecurityUser serverUser) {

@@ -154,7 +154,7 @@ public class LuceneAutomaticBackupRestoreTest {
         IOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
-    var map = JSONSerializerJackson.mapFromJson(jsonConfig);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(jsonConfig);
 
     map.put("enabled", true);
     map.put("targetFileName", "${DBNAME}.json");
@@ -167,7 +167,7 @@ public class LuceneAutomaticBackupRestoreTest {
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
     IOUtils.writeFile(new File(tempFolder, "config/automatic-backup.json"),
-        JSONSerializerJackson.mapToJson(map));
+        JSONSerializerJackson.INSTANCE.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();
     final var latch = new CountDownLatch(1);

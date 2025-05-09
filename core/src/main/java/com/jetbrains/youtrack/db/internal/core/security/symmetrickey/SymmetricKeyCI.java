@@ -74,7 +74,7 @@ public class SymmetricKeyCI implements CredentialInterceptor {
     Map<String, Object> metadata = null;
 
     try {
-      metadata = JSONSerializerJackson.mapFromJson(password);
+      metadata = JSONSerializerJackson.INSTANCE.mapFromJson(password);
     } catch (Exception ex) {
       throw BaseException.wrapException(
           new SecurityException((String) null,

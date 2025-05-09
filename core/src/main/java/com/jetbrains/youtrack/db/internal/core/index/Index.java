@@ -337,9 +337,11 @@ public interface Index extends Comparable<Index> {
    *
    * @param transaction
    * @param collectionName Collection to add.
+   * @param requireEmpty Whether the collection has to be empty.
    * @return Current index instance.
    */
-  Index addCollection(FrontendTransaction transaction, final String collectionName);
+  Index addCollection(FrontendTransaction transaction, final String collectionName,
+      boolean requireEmpty);
 
   /**
    * Remove given collection from the list of collections that should be automatically indexed.

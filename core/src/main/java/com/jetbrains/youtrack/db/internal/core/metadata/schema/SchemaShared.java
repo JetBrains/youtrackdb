@@ -585,7 +585,7 @@ public abstract class SchemaShared implements CloseableInStorage {
             }
             superClasses.add(superClass);
           }
-          cls.setSuperClassesInternal(session, superClasses);
+          cls.setSuperClassesInternal(session, superClasses, false);
         }
       }
 

@@ -64,7 +64,7 @@ public class SQLMethodToJSON extends AbstractSQLMethod {
     } else if (current instanceof Map) {
 
       //noinspection unchecked
-      return JSONSerializerJackson.mapToJson((Map<String, Object>) current);
+      return JSONSerializerJackson.INSTANCE.mapToJson((Map<String, Object>) current);
     } else if (MultiValue.isMultiValue(current)) {
       var builder = new StringBuilder();
       builder.append("[");

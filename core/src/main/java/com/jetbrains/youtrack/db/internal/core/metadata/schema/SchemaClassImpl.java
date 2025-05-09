@@ -279,8 +279,10 @@ public abstract class SchemaClassImpl {
   public abstract void setSuperClasses(DatabaseSessionInternal session,
       List<SchemaClassImpl> classes);
 
-  protected abstract void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes);
+  protected abstract void setSuperClassesInternal(
+      DatabaseSessionInternal session,
+      final List<SchemaClassImpl> classes,
+      boolean validateIndexes);
 
   public long getSize(DatabaseSessionInternal session) {
     acquireSchemaReadLock(session);
@@ -1483,16 +1485,23 @@ public abstract class SchemaClassImpl {
   protected void validatePropertyName(final String propertyName) {
   }
 
-  protected abstract void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId);
+  protected abstract void addCollectionIdToIndexes(
+      DatabaseSessionInternal session,
+      int iId,
+      boolean requireEmpty
+  );
 
   /**
    * Adds a base class to the current one. It adds also the base class collection ids to the
    * polymorphic collection ids array.
    *
-   * @param iBaseClass The base class to add.
+   * @param iBaseClass      The base class to add.
+   * @param validateIndexes Require that collections are empty before adding them to indexes.
    */
-  public void addBaseClass(DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass) {
+  public void addBaseClass(
+      DatabaseSessionInternal session,
+      final SchemaClassImpl iBaseClass,
+      boolean validateIndexes) {
     checkRecursion(session, iBaseClass);
 
     if (subclasses == null) {
@@ -1504,7 +1513,7 @@ public abstract class SchemaClassImpl {
     }
 
     subclasses.add(iBaseClass);
-    addPolymorphicCollectionIdsWithInheritance(session, iBaseClass);
+    addPolymorphicCollectionIdsWithInheritance(session, iBaseClass, validateIndexes);
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
@@ -1620,14 +1629,17 @@ public abstract class SchemaClassImpl {
   /**
    * Add different collection id to the "polymorphic collection ids" array.
    */
-  protected void addPolymorphicCollectionIds(DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass) {
+  protected void addPolymorphicCollectionIds(
+      DatabaseSessionInternal session,
+      final SchemaClassImpl iBaseClass,
+      boolean validateIndexes
+  ) {
     var collections = new IntRBTreeSet(polymorphicCollectionIds);
 
     for (var collectionId : iBaseClass.polymorphicCollectionIds) {
       if (collections.add(collectionId)) {
         try {
-          addCollectionIdToIndexes(session, collectionId);
+          addCollectionIdToIndexes(session, collectionId, validateIndexes);
         } catch (RuntimeException e) {
           LogManager.instance()
               .warn(
@@ -1644,11 +1656,13 @@ public abstract class SchemaClassImpl {
     polymorphicCollectionIds = collections.toIntArray();
   }
 
-  private void addPolymorphicCollectionIdsWithInheritance(DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass) {
-    addPolymorphicCollectionIds(session, iBaseClass);
+  private void addPolymorphicCollectionIdsWithInheritance(
+      DatabaseSessionInternal session,
+      final SchemaClassImpl iBaseClass,
+      boolean validateIndexes) {
+    addPolymorphicCollectionIds(session, iBaseClass, validateIndexes);
     for (var superClass : superClasses) {
-      superClass.addPolymorphicCollectionIdsWithInheritance(session, iBaseClass);
+      superClass.addPolymorphicCollectionIdsWithInheritance(session, iBaseClass, validateIndexes);
     }
   }
 

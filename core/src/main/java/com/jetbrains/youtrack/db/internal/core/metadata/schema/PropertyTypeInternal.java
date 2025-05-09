@@ -381,7 +381,7 @@ public enum PropertyTypeInternal {
         }
         case String s -> {
           var entityImpl = session.newEmbeddedEntity(linkedClass);
-          JSONSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
+          JSONSerializerJackson.INSTANCE.fromString(session, s, (RecordAbstract) entityImpl);
           return entityImpl;
         }
         default -> {

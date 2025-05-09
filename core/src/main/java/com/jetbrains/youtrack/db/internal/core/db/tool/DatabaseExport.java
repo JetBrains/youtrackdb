@@ -58,7 +58,7 @@ import java.util.zip.GZIPOutputStream;
  */
 public class DatabaseExport extends DatabaseImpExpAbstract {
 
-  public static final int EXPORTER_VERSION = 13;
+  public static final int EXPORTER_VERSION = 14;
 
   protected JsonGenerator jsonGenerator;
   protected long recordExported;
@@ -448,7 +448,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       final var metadata = index.getMetadata();
       if (metadata != null) {
         jsonGenerator.writeFieldName("metadata");
-        JSONSerializerJackson.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
+        JSONSerializerJackson.INSTANCE.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
       }
 
       jsonGenerator.writeEndObject();
@@ -597,7 +597,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     if (rec != null) {
       try {
         final var format = "rid,version,class,type,keepTypes,internal,markEmbeddedEntities";
-        JSONSerializerJackson.recordToJson(session, rec, jsonGenerator, format);
+        JSONSerializerJackson.INSTANCE.recordToJson(session, rec, jsonGenerator, format);
 
         recordExported++;
         recordNum++;

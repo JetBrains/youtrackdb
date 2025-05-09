@@ -66,6 +66,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
@@ -1019,6 +1020,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return the edge
    */
   StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
+
+  StatefullEdgeEntityImpl newStatefulEdgeInternal(String className);
 
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
