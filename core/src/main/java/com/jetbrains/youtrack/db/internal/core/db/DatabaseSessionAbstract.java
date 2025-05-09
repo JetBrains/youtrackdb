@@ -2230,26 +2230,7 @@ public abstract class DatabaseSessionAbstract<IM extends IndexManagerAbstract> e
   @Override
   public <T, X extends Exception> void executeInTxBatches(
       Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
-    var ok = false;
-    assert assertIfNotActive();
-    var counter = 0;
-
-    var tx = begin();
-    try {
-      for (var t : iterable) {
-        consumer.accept(tx, t);
-        counter++;
-
-        if (counter % batchSize == 0) {
-          commit();
-          begin();
-        }
-      }
-
-      ok = true;
-    } finally {
-      finishTx(ok);
-    }
+    this.executeInTxBatchesInternal(iterable.iterator(), batchSize, consumer::accept);
   }
 
   @Override
