@@ -299,7 +299,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   }
 
   @Override
-  @Test
+  @Test(enabled = false)
   public void onMessage(final String iText) {
     if (iText != null && iText.contains("ERR")) {
       // ACTIVATE DUMP MODE
