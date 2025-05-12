@@ -864,7 +864,7 @@ public class FrontendTransactionImpl implements
     final var database = session;
     final var indexManager = database.getSharedContext().getIndexManager();
     for (var entry : indexEntries.entrySet()) {
-      final var index = indexManager.getIndex(database, entry.getKey());
+      final var index = indexManager.getIndex(entry.getKey());
       if (index == null) {
         throw new TransactionException(session,
             "Cannot find index '" + entry.getValue() + "' while committing transaction");

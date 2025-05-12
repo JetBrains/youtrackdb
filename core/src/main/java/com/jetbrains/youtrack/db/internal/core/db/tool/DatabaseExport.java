@@ -404,7 +404,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var indexManager = session.getSharedContext().getIndexManager();
     indexManager.reload(session);
 
-    final var indexes = indexManager.getIndexes(session);
+    final var indexes = indexManager.getIndexes();
 
     for (var index : indexes) {
       final var clsName =

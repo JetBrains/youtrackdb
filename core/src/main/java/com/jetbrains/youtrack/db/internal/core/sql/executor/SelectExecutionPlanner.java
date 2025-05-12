@@ -1123,10 +1123,8 @@ public class SelectExecutionPlanner {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
       var schemaRid = new RecordId(schemaRecordIdAsString);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase("INDEXMANAGER")) {
-      schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getIndexMgrRecordId();
-      var schemaRid = new RecordId(schemaRecordIdAsString);
-      plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
+    } else if (metadata.getName().equalsIgnoreCase("INDEXES")) {
+      plan.chain(new FetchFromIndexManagerStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("STORAGE")) {
       plan.chain(new FetchFromStorageMetadataStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("DATABASE")) {

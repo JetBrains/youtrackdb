@@ -29,13 +29,8 @@ import javax.annotation.Nullable;
  * Collate implementation used on composite indexes.
  */
 public class CompositeCollate implements Collate {
-
-  private static final long serialVersionUID = 8683726773893639905L;
   private final AbstractIndexDefinition oCompositeIndexDefinition;
 
-  /**
-   * @param oCompositeIndexDefinition
-   */
   public CompositeCollate(final AbstractIndexDefinition oCompositeIndexDefinition) {
     this.oCompositeIndexDefinition = oCompositeIndexDefinition;
   }
@@ -48,7 +43,7 @@ public class CompositeCollate implements Collate {
 
   @Override
   public @Nonnull String getName() {
-    throw new UnsupportedOperationException("getName");
+    return "CompositeCollate";
   }
 
   @SuppressWarnings("unchecked")

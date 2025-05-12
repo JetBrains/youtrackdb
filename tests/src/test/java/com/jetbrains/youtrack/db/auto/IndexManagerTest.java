@@ -23,8 +23,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -764,12 +762,12 @@ public class IndexManagerTest extends BaseDBTest {
         null,
         null);
 
-    assertNotNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNotNull(indexManager.getIndex("anotherproperty"));
     assertNotNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
 
     indexManager.dropIndex(session, "anotherproperty");
 
-    assertNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNull(indexManager.getIndex("anotherproperty"));
     assertNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
   }
 

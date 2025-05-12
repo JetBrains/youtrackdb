@@ -183,34 +183,16 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
 
-  @Nullable
-  public IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, final String className) {
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex != null) {
-      for (final var propertyIndexes : propertyIndex.values()) {
-        for (final var index : propertyIndexes) {
-          if (index instanceof IndexUnique) {
-            return (IndexUnique) index;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-
-  public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
+  public Collection<? extends Index> getIndexes() {
     return indexes.values();
   }
 
 
-  public Index getIndex(DatabaseSessionInternal session, final String iName) {
+  public Index getIndex(final String iName) {
     return indexes.get(iName);
   }
 
-  public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
+  public boolean existsIndex(final String iName) {
     return indexes.containsKey(iName);
   }
 

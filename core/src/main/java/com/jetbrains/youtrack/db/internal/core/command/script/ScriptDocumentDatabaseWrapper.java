@@ -88,7 +88,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Index getIndex(final String name) {
-    return session.getSharedContext().getIndexManager().getIndex(session, name);
+    return session.getSharedContext().getIndexManager().getIndex(name);
   }
 
   public boolean exists() {

@@ -1031,22 +1031,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testQueryMetadataIndexManager() {
     session.begin();
-    var result = session.query("select from metadata:indexmanager");
+    var result = session.query("select from metadata:indexes");
     printExecutionPlan(result);
-    for (var i = 0; i < 1; i++) {
-      Assert.assertTrue(result.hasNext());
-      var item = result.next();
-      Assert.assertNotNull(item.getProperty("indexes"));
-    }
-    Assert.assertFalse(result.hasNext());
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testQueryMetadataIndexManager2() {
-    session.begin();
-    var result = session.query("select expand(indexes) from metadata:indexmanager");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     result.close();

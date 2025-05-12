@@ -27,8 +27,6 @@ import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -174,14 +172,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session);
 
@@ -201,7 +199,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
@@ -209,7 +207,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session),
         prev1);
@@ -223,14 +221,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session);
 
@@ -249,7 +247,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
@@ -257,7 +255,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session),
         prev1);
@@ -289,12 +287,12 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "PropertyIndexFirstIndex"));
+            .getIndex("PropertyIndexFirstIndex"));
     Assert.assertNull(
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "PropertyIndexSecondIndex"));
+            .getIndex("PropertyIndexSecondIndex"));
   }
 
   private static Index containsIndex(final Collection<Index> indexes, final String indexName) {

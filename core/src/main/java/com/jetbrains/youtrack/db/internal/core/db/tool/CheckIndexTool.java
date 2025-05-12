@@ -20,7 +20,6 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -56,11 +55,11 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
 
   @Override
   public void run() {
-    for (var index : session.getSharedContext().getIndexManager().getIndexes(session)) {
+    for (var index : session.getSharedContext().getIndexManager().getIndexes()) {
       if (!canCheck(index)) {
         continue;
       }
-      checkIndex((DatabaseSessionEmbedded) session, index);
+      checkIndex(session, index);
     }
     message("Total errors found on indexes: " + totalErrors);
   }

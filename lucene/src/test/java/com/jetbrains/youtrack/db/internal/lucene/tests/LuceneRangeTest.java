@@ -67,7 +67,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     assertThat(
         session.getSharedContext()
             .getIndexManager()
-            .getIndex(session, "Person.weight")
+            .getIndex("Person.weight")
 
             .size(session))
         .isEqualTo(10);
@@ -100,7 +100,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     assertThat(
         session.getSharedContext()
             .getIndexManager()
-            .getIndex(session, "Person.age")
+            .getIndex("Person.age")
 
             .size(session))
         .isEqualTo(10);
@@ -133,7 +133,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     assertThat(
         session.getSharedContext()
             .getIndexManager()
-            .getIndex(session, "Person.date")
+            .getIndex("Person.date")
 
             .size(session))
         .isEqualTo(10);
@@ -172,7 +172,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     assertThat(
         session.getSharedContext()
             .getIndexManager()
-            .getIndex(session, "Person.composite")
+            .getIndex("Person.composite")
 
             .size(session))
         .isEqualTo(10);
@@ -227,7 +227,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
     assertThat(
         session.getSharedContext()
             .getIndexManager()
-            .getIndex(session, "Person.composite")
+            .getIndex("Person.composite")
 
             .size(session))
         .isEqualTo(10);
@@ -239,7 +239,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
             baseTime - (5 * 3600 * 24 * 1000), DateTools.Resolution.MINUTE);
 
     var index = session.getSharedContext().getIndexManager()
-        .getIndex(session, "Person.composite");
+        .getIndex("Person.composite");
 
     // name and age range
     try (var stream = index.getRids(session, "name:luke  age:[5 TO 6]")) {

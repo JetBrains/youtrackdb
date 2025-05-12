@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
@@ -71,9 +70,9 @@ public class SQLCreateIndexStatement extends DDLStatement {
 
   @Nullable
   Object execute(CommandContext ctx) {
-    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    final var session = ctx.getDatabaseSession();
 
-    if (session.getSharedContext().getIndexManager().existsIndex(session, name.getValue())) {
+    if (session.getSharedContext().getIndexManager().existsIndex(name.getValue())) {
       if (ifNotExists) {
         return null;
       } else {

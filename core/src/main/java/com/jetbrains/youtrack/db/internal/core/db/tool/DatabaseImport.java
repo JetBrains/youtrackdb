@@ -219,7 +219,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       session.getSharedContext().getIndexManager().reload(session);
 
       for (final var index :
-          session.getSharedContext().getIndexManager().getIndexes(session)) {
+          session.getSharedContext().getIndexManager().getIndexes()) {
         if (index.isAutomatic()) {
           indexesToRebuild.add(index.getName());
         }
@@ -347,7 +347,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nRebuild of stale indexes...");
     for (var indexName : indexesToRebuild) {
 
-      if (indexManager.getIndex(session, indexName) == null) {
+      if (indexManager.getIndex(indexName) == null) {
         listener.onMessage(
             "\nIndex " + indexName + " is skipped because it is absent in imported DB.");
         continue;
@@ -481,7 +481,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
     }
 
-    final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+    final var indexManager = session.getSharedContext()
         .getIndexManager();
     for (final var indexName : indexNames) {
       indexManager.dropIndex(session, indexName);
@@ -977,8 +977,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       session
           .getSharedContext()
           .getIndexManager()
-          .getIndex(session, indexName)
-          .rebuild((DatabaseSessionEmbedded) session,
+          .getIndex(indexName)
+          .rebuild(session,
               new ProgressListener() {
                 private long last = 0;
 
@@ -1027,7 +1027,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       Schema beforeImportSchemaSnapshot
   ) throws Exception {
 
-    ((DatabaseSessionEmbedded) session).disableLinkConsistencyCheck();
+    session.disableLinkConsistencyCheck();
     session.begin();
     var ok = true;
     RID rid = null;
@@ -1122,7 +1122,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           session.rollback();
         }
       } finally {
-        ((DatabaseSessionEmbedded) session).enableLinkConsistencyCheck();
+        session.enableLinkConsistencyCheck();
       }
     }
 
@@ -1312,7 +1312,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private void importIndexes() throws IOException, ParseException {
     listener.onMessage("\n\nImporting indexes ...");
 
-    var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext().getIndexManager();
+    var indexManager = session.getSharedContext().getIndexManager();
     indexManager.reload(session);
 
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
@@ -1433,7 +1433,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.setValue(
           indexDefinition.isNullValuesIgnored());
       indexManager.createIndex(
-          (DatabaseSessionEmbedded) session,
+          session,
           indexName,
           indexType,
           indexDefinition,
@@ -1506,7 +1506,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             .collect(Collectors.toSet());
 
     final var linksUpdated = new DatabaseRecordWalker(
-        ((DatabaseSessionEmbedded) session), ridMapCollections)
+        session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
             (colName, colSize, seenInCol, colDone, seenTotal, speed) ->
@@ -1525,7 +1525,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage(String.format("\nTotal links updated: %,d", linksUpdated));
 
     final var linksRecovered = new DatabaseRecordWalker(
-        ((DatabaseSessionEmbedded) session), ridMapCollections)
+        session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
             (colName, colSize, seenInCol, colDone, seenTotal, speed) ->

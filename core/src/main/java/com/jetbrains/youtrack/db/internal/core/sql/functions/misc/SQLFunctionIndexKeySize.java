@@ -37,6 +37,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
     super(NAME, 1, 1);
   }
 
+  @Override
   @Nullable
   public Object execute(
       Object iThis,
@@ -48,7 +49,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
 
     var indexName = String.valueOf(value);
     final var database = context.getDatabaseSession();
-    var index = database.getSharedContext().getIndexManager().getIndex(database, indexName);
+    var index = database.getSharedContext().getIndexManager().getIndex(indexName);
     if (index == null) {
       return null;
     }
@@ -60,6 +61,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
     }
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "indexKeySize(<indexName-string>)";
   }

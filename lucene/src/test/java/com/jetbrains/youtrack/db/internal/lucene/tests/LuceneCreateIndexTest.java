@@ -59,7 +59,7 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
   @Test
   public void testMetadata() {
     var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "Song.title")
+        session.getSharedContext().getIndexManager().getIndex("Song.title")
             .getMetadata();
 
     Assert.assertEquals(index.get("analyzer"), StandardAnalyzer.class.getName());

@@ -236,7 +236,7 @@ public class CollateTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       session.executeInTx(tx -> {
         final var indexManager = session.getSharedContext().getIndexManager();
-        final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
+        final var index = indexManager.getIndex("collateCompositeIndexCS");
 
         final Collection<RID> value;
         try (var stream = index.getRids(session, new CompositeKey("VAL", "VaL"))) {

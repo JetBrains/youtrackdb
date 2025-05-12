@@ -209,7 +209,7 @@ public class LuceneAutomaticBackupRestoreTest {
 
     assertThat(db.countClass("City")).isEqualTo(1);
 
-    var index = db.getSharedContext().getIndexManager().getIndex(db, "City.name");
+    var index = db.getSharedContext().getIndexManager().getIndex("City.name");
 
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.FULLTEXT.name());

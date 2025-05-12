@@ -55,7 +55,7 @@ public class LuceneCreateIndexIntegrationTest {
         "create index Person.firstName_lastName on Person (name, surname) FULLTEXT ENGINE LUCENE");
 
     try (var rs = session.query(
-        "select expand(indexes['Person.firstName_lastName']) from metadata:indexmanager")) {
+        "select from metadata:indexes where name = 'Person.firstName_lastName'")) {
       Assert.assertTrue(rs.hasNext());
       var result = rs.next();
       Assert.assertEquals("Person.firstName_lastName", result.getString("name"));

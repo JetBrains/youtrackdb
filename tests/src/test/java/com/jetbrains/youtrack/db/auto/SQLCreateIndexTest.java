@@ -62,7 +62,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "sqlCreateIndexTestClass.prop1");
+            .getIndex("sqlCreateIndexTestClass.prop1");
 
     Assert.assertNotNull(index);
 

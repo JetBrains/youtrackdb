@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.storage;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -14,7 +13,6 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -126,8 +124,8 @@ public class StorageEncryptionTestIT {
       try (final var session =
           (DatabaseSessionEmbedded) youTrackDB.open("encryption", "admin", "admin")) {
         final var indexManager = session.getSharedContext().getIndexManager();
-        final var treeIndex = indexManager.getIndex(session, "EncryptedTree");
-        final var hashIndex = indexManager.getIndex(session, "EncryptedHash");
+        final var treeIndex = indexManager.getIndex("EncryptedTree");
+        final var hashIndex = indexManager.getIndex("EncryptedHash");
 
         var entityIterator = session.browseClass("EncryptedData");
         while (entityIterator.hasNext()) {

@@ -62,6 +62,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     super(storage);
   }
 
+  @Override
   public void load(DatabaseSessionInternal session) {
     if (!autoRecreateIndexesAfterCrash(session)) {
       session.executeInTxInternal(transaction -> {
@@ -78,6 +79,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
   }
 
+  @Override
   public void reload(DatabaseSessionInternal session) {
     session.executeInTxInternal(
         transaction -> {
@@ -245,6 +247,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    *                             engine.
    * @return a newly created index instance
    */
+  @Override
   public Index createIndex(
       DatabaseSessionEmbedded session,
       final String iName,
@@ -279,6 +282,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @param algorithm            tip to an index factory what algorithm to use
    * @return a newly created index instance
    */
+  @Override
   public Index createIndex(
       DatabaseSessionEmbedded session,
       final String iName,
@@ -451,6 +455,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return collectionsToIndex;
   }
 
+  @Override
   public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop an index inside a transaction");

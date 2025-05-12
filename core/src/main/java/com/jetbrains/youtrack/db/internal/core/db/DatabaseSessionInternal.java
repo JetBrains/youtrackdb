@@ -1429,7 +1429,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default Index getIndex(String indexName) {
     var indexManager = getSharedContext().getIndexManager();
-    return indexManager.getIndex(this, indexName);
+    return indexManager.getIndex(indexName);
   }
 
   enum ATTRIBUTES_INTERNAL {

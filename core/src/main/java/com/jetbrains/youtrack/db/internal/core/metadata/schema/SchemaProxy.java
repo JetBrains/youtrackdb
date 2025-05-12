@@ -241,7 +241,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
 
-    var indexesInternal = indexManager.getIndexes(session);
+    var indexesInternal = indexManager.getIndexes();
     var indexes = new HashSet<String>(indexesInternal.size());
     for (var index : indexesInternal) {
       indexes.add(index.getName());
@@ -255,14 +255,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
 
-    return indexManager.existsIndex(session, indexName);
+    return indexManager.existsIndex(indexName);
   }
 
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
-    var index = indexManager.getIndex(session, indexName);
+    var index = indexManager.getIndex(indexName);
 
     if (index == null) {
       throw new IllegalArgumentException("Index '" + indexName + "' not found");
@@ -272,7 +272,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
     var metadata = index.getMetadata();
 
-    if (metadata != null) {
+    if (metadata == null) {
       metadata = Collections.emptyMap();
     }
 

@@ -16,7 +16,6 @@ import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeSuite;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -206,6 +205,6 @@ public abstract class BaseTest {
   protected Index getIndex(final String indexName) {
     final DatabaseSessionInternal db = this.session;
 
-    return db.getSharedContext().getIndexManager().getIndex(db, indexName);
+    return db.getSharedContext().getIndexManager().getIndex(indexName);
   }
 }

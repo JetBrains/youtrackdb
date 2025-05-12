@@ -50,7 +50,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
 
     session.execute("DROP CLASS SQLDropClassTestClass").close();
 
@@ -59,7 +59,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
     session.close();
     session = createSessionInstance();
     Assert.assertNull(session.getMetadata().getSchema().getClass("SQLDropClassTestClass"));
@@ -67,6 +67,6 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
   }
 }

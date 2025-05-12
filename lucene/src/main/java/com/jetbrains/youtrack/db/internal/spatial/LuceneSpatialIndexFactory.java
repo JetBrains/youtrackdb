@@ -144,7 +144,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
       var embeddedSession = (DatabaseSessionEmbedded) session;
       var indexManager = embeddedSession.getSharedContext().getIndexManager();
       LogManager.instance().debug(this, "Dropping spatial indexes...", logger);
-      for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
 
         if (idx instanceof LuceneSpatialIndex) {
           LogManager.instance().debug(this, "- index '%s'", logger, idx.getName());

@@ -13,8 +13,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 
 /**
  * @since 3/28/14
@@ -55,7 +53,7 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     if (session.getStorage().isRemote()) {
       var index =
-          session.getSharedContext().getIndexManager().getIndex(session, "linkSetIndex");
+          session.getSharedContext().getIndexManager().getIndex("linkSetIndex");
       Assert.assertEquals(index.size(session), 0);
     }
     session.commit();

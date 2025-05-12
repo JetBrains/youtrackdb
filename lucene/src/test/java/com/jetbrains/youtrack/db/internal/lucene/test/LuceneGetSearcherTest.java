@@ -44,7 +44,7 @@ public class LuceneGetSearcherTest extends BaseLuceneTest {
   public void testSearcherInstance() {
 
     var index = session.getSharedContext().getIndexManager()
-        .getIndex(session, "Person.isDeleted");
+        .getIndex("Person.isDeleted");
 
     Assert.assertTrue(index instanceof LuceneIndexNotUnique);
 

@@ -37,7 +37,7 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     var results = session.query("select from Foo where bar = 'yep'");
     assertEquals(1, results.stream().count());
 
-    final var index = session.getSharedContext().getIndexManager().getIndex(session, "Foo.bar");
+    final var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
     assertEquals(1, index.size(session));
   }
 

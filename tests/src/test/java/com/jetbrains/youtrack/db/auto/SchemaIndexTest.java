@@ -7,8 +7,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -44,7 +42,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
 
     session.getMetadata().getSchema().dropClass("SchemaIndexTest");
     session.getSharedContext().getIndexManager().reload(session);
@@ -56,7 +54,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
   @Test
@@ -84,7 +82,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
 

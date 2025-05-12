@@ -57,7 +57,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
         .close();
 
     final var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "Song.title_author")
+        session.getSharedContext().getIndexManager().getIndex("Song.title_author")
             .getMetadata();
 
     assertThat(index.get("author_index")).isEqualTo(StandardAnalyzer.class.getName());
@@ -146,7 +146,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
 
     // nidex api
     final var index = session.getSharedContext().getIndexManager()
-        .getIndex(session, "Item.i_lucene");
+        .getIndex("Item.i_lucene");
     try (var stream = index.getRids(session, "(Title:test )")) {
       assertThat(stream.findAny().isPresent()).isTrue();
     }

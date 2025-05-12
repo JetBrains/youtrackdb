@@ -260,7 +260,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       }
       final var idxManager = session.getSharedContext().getIndexManager();
       json.beginCollection(session, "indexes");
-      for (var index : idxManager.getIndexes(session)) {
+      for (var index : idxManager.getIndexes()) {
         json.beginObject();
         try {
           json.writeAttribute(session, "name", index.getName());
