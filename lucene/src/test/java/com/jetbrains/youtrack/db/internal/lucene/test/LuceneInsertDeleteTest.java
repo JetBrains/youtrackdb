@@ -93,9 +93,11 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
                 + " {'closeAfterInterval':1000 , 'firstFlushAfter':1000 }")
         .close();
 
+    session.begin();
     var docs = session.query("select from Song where title lucene 'mountain'");
-
     assertThat(docs).hasSize(4);
+    session.commit();
+
     TimeUnit.SECONDS.sleep(5);
 
     session.begin();

@@ -57,8 +57,6 @@ public class ExplainResultSet implements ResultSet {
     }
 
     hasNext = false;
-    close();
-
     return result;
   }
 

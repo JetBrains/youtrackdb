@@ -4,12 +4,11 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexConcurrentCommitTest extends BaseDBTest {
+
   public void testConcurrentUpdate() {
     var personClass = session.getMetadata().getSchema().createClass("Person");
     personClass.createProperty("ssn", PropertyType.STRING)
@@ -38,6 +37,7 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
       while (result1.hasNext()) {
         System.out.println(result1.next());
       }
+      result1.close();
 
       // Transaction 2
       session.begin();

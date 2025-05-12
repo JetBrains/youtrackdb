@@ -30,12 +30,11 @@ import java.util.Map;
 import org.apache.commons.math3.util.Pair;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class JSONTest extends BaseDBTest {
+
   public static final String FORMAT_WITHOUT_RID =
       "version,class,type,keepTypes";
 
@@ -357,13 +356,14 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testFetchedJson() {
+    var rs = session
+        .query("select * from Profile where name = 'Barack' and surname = 'Obama'");
     final var resultSet =
-        session
-            .query("select * from Profile where name = 'Barack' and surname = 'Obama'")
-            .toList();
+        rs.toList();
+
+    rs.close();
 
     for (var result : resultSet) {
-
       final var entity = result.asEntity();
       checkJsonSerialization(entity.getIdentity());
     }

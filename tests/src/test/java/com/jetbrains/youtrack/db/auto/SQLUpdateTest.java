@@ -378,9 +378,11 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void updateIncrement() {
 
+    session.begin();
     var result1 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result1.isEmpty());
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -392,6 +394,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     Assert.assertTrue(updatedRecords > 0);
 
+    session.begin();
     var result2 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result2.isEmpty());
@@ -402,6 +405,7 @@ public class SQLUpdateTest extends BaseDBTest {
       float salary2 = result2.get(i).getProperty("salary");
       Assert.assertEquals(salary2, salary1 + 10);
     }
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -429,9 +433,11 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void updateSetMultipleFields() {
 
+    session.begin();
     var result1 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result1.isEmpty());
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -593,6 +599,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.execute("create edge from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
+    session.begin();
     var result =
         session
             .query("select sum(outE().size(), inE().size()) as sum from UpdateVertexContent")
@@ -602,9 +609,10 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 2);
 
     for (var doc : result) {
-      Assert.assertEquals(doc.<Object>getProperty("sum"), 3);
+      Assert.assertEquals(doc.getLong("sum"), 3);
     }
 
+    session.commit();
     session.begin();
     session
         .execute("update UpdateVertexContent content {value : 'val'} where @rid = " + vOneId)
@@ -624,7 +632,7 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 2);
 
     for (var doc : result) {
-      Assert.assertEquals(doc.<Object>getProperty("sum"), 3);
+      Assert.assertEquals(doc.getLong("sum"), 3);
     }
     session.commit();
 
@@ -655,9 +663,11 @@ public class SQLUpdateTest extends BaseDBTest {
     session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
+    var rs = session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE");
     var result =
-        session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE").stream()
+        rs.stream()
             .collect(Collectors.toList());
+    rs.close();
 
     Assert.assertEquals(result.size(), 3);
 

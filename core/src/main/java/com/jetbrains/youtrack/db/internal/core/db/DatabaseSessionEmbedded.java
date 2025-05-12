@@ -1591,7 +1591,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   @Override
-  public void setDefaultTransactionMode() {
+  public void setNoTxMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {
       currentTx = new FrontendTransactionNoTx(this);
     }
@@ -1928,7 +1928,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   }
 
-  private void afterRollbackOperations() {
+  public void afterRollbackOperations() {
     assert assertIfNotActive();
 
     for (var listener : browseListeners()) {
@@ -3543,11 +3543,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
       // WAKE UP ROLLBACK LISTENERS
-      beforeRollbackOperations();
-
       try {
         // ROLLBACK TX AT DB LEVEL
-        currentTx.internalRollback();
+        if (currentTx.isActive()) {
+          currentTx.rollbackInternal();
+        }
       } catch (Exception re) {
         LogManager.instance()
             .error(
@@ -3555,7 +3555,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
       // WAKE UP ROLLBACK LISTENERS
-      afterRollbackOperations();
       throw e;
     }
   }
@@ -3585,7 +3584,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  private void beforeRollbackOperations() {
+  public final void beforeRollbackOperations() {
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
       try {
@@ -3609,10 +3608,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     if (currentTx.isActive()) {
       // WAKE UP LISTENERS
-      beforeRollbackOperations();
       currentTx.rollbackInternal();
       // WAKE UP LISTENERS
-      afterRollbackOperations();
     }
   }
 

@@ -28,9 +28,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
   @Before
@@ -155,6 +152,7 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
     session.commit();
 
+    session.begin();
     vertices = session.query("select from C1 where p1 lucene \"update\" ");
 
     Collection coll;
@@ -166,10 +164,11 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
     Assert.assertFalse(vertices.hasNext());
     Assert.assertEquals(1, coll.size());
     Assert.assertEquals(1, index.size(session));
+    session.commit();
 
     session.begin();
 
-    Entity identifiable = res.asEntity();
+    var identifiable = res.asEntity();
     var activeTx = session.getActiveTransaction();
     var record = activeTx.<Entity>load(identifiable);
     record.setProperty("p1", "removed");

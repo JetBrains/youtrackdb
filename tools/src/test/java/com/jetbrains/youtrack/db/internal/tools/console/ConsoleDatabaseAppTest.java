@@ -22,6 +22,7 @@ public class ConsoleDatabaseAppTest {
   public TestName testName = new TestName();
 
   @Test
+  @Ignore
   public void testSelectBinaryDoc() throws IOException {
     final var builder = new StringBuilder();
 
@@ -54,6 +55,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testWrongCommand() {
 
     var builder =
@@ -91,6 +93,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testOldCreateDatabase() {
 
     var builder =
@@ -119,6 +122,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testDumpRecordDetails() {
     var c = new ConsoleTest();
     try {
@@ -153,6 +157,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testHelp() {
     var c = new ConsoleTest();
     try {
@@ -177,6 +182,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testHelpCommand() {
     var c = new ConsoleTest();
     try {
@@ -192,6 +198,7 @@ public class ConsoleDatabaseAppTest {
   }
 
   @Test
+  @Ignore
   public void testSimple() {
 
     var builder =

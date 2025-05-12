@@ -66,7 +66,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Nonnull
   private DatabaseSessionEmbedded session;
 
-  public FrontendTransactionNoTx(DatabaseSessionEmbedded session) {
+  public FrontendTransactionNoTx(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -459,10 +459,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public boolean isDeletedInTx(@Nonnull RID rid) {
     return false;
-  }
-
-  @Override
-  public void internalRollback() {
   }
 
   @Override

@@ -56,6 +56,7 @@ public class LinkBagIndexTest extends BaseDBTest {
       final var index = getIndex("ridBagIndex");
       Assert.assertEquals(index.size(session), 0);
     }
+    result.close();
   }
 
   public void testIndexRidBag() {

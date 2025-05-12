@@ -323,29 +323,61 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void rollbackInternal() {
-    checkTransactionValid();
-    status = TXSTATUS.ROLLBACKING;
-
-    txStartCounter = 0;
-
-    internalRollback();
-  }
-
-  @Override
-  public void internalRollback() {
-    status = TXSTATUS.ROLLBACKING;
-
-    if (isWriteTransaction()) {
-      session.transactionMeters()
-          .writeRollbackTransactions()
-          .record();
+    if (txStartCounter < 0) {
+      throw new TransactionException(session, "Invalid value of TX counter");
     }
 
-    invalidateChangesInCacheDuringRollback();
+    switch (status) {
+      case ROLLBACKING -> {
+        //do nothing
+      }
+      case ROLLED_BACK -> {
+        throw new IllegalStateException("Transaction is already rolled back");
+      }
+      case BEGUN, COMMITTING -> {
+        status = TXSTATUS.ROLLBACKING;
 
-    close();
-    status = TXSTATUS.ROLLED_BACK;
+        if (isWriteTransaction()) {
+          session.transactionMeters()
+              .writeRollbackTransactions()
+              .record();
+        }
+
+        //There are could be exceptions during session opening
+        // that will force to rollback of txs started during this process.
+        //Session is active only if it is opened successfully.
+        if (session.isActiveOnCurrentThread()) {
+          session.beforeRollbackOperations();
+        }
+
+        invalidateChangesInCacheDuringRollback();
+        clear();
+      }
+      case INVALID, COMPLETED -> {
+        throw new IllegalStateException("Transaction is in invalid state: " + status);
+      }
+      default -> {
+        throw new IllegalStateException("Transaction is in unknown state: " + status);
+      }
+    }
+
+    if (txStartCounter > 0) {
+      txStartCounter--;
+    }
+
+    if (txStartCounter == 0) {
+      close();
+      status = TXSTATUS.ROLLED_BACK;
+
+      //There are could be exceptions during session opening
+      // that will force to rollback of txs started during this process.
+      //Session is active only if it is opened successfully.
+      if (session.isActiveOnCurrentThread()) {
+        session.afterRollbackOperations();
+      }
+    }
   }
+
 
   private void invalidateChangesInCacheDuringRollback() {
     for (final var v : recordOperations.values()) {
@@ -529,7 +561,7 @@ public class FrontendTransactionImpl implements
   private Map<RID, RID> doCommit() {
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
       if (status == TXSTATUS.ROLLBACKING) {
-        internalRollback();
+        rollbackInternal();
       }
 
       throw new RollbackException(
@@ -779,7 +811,15 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
+    clear();
+
+    session.setNoTxMode();
+    status = TXSTATUS.INVALID;
+  }
+
+  private void clear() {
     session.closeActiveQueries();
+
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {
       var record = txEntry.record;
@@ -801,8 +841,6 @@ public class FrontendTransactionImpl implements
     clearUnfinishedChanges();
 
     recordSerializationContext.clear();
-
-    status = TXSTATUS.INVALID;
   }
 
   private void clearUnfinishedChanges() {
@@ -813,7 +851,6 @@ public class FrontendTransactionImpl implements
 
     newRecordsPositionsGenerator = -2;
 
-    session.setDefaultTransactionMode();
     userData.clear();
   }
 

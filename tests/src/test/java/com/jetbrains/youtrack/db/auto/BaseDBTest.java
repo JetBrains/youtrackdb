@@ -68,8 +68,10 @@ public abstract class BaseDBTest extends BaseTest {
   }
 
   protected static List<Result> executeQuery(String sql, DatabaseSessionInternal db) {
-    return db.query(sql).stream()
-        .toList();
+    try (var rs = db.query(sql)) {
+      return rs.stream()
+          .toList();
+    }
   }
 
   protected List<Result> executeQuery(String sql, Object... args) {
@@ -83,8 +85,9 @@ public abstract class BaseDBTest extends BaseTest {
   }
 
   protected List<Result> executeQuery(String sql) {
-    return session.query(sql).stream()
-        .toList();
+    try (var rs = session.query(sql)) {
+      return rs.stream().toList();
+    }
   }
 
   protected void addBarackObamaAndFollowers() {

@@ -48,12 +48,11 @@ public class LuceneCreateIndexIntegrationTest {
     final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin",
             "admin");
-    session.executeSQLScript("""
-        create class Person if not exists;
-        create property Person.name STRING if not exists;
-        create property Person.surname STRING if not exists;
-        create index Person.firstName_lastName on Person (name, surname) FULLTEXT ENGINE LUCENE;
-        """);
+    session.execute("create class Person if not exists");
+    session.execute("create property Person.name if not exists STRING");
+    session.execute("create property Person.surname if not exists STRING");
+    session.execute(
+        "create index Person.firstName_lastName on Person (name, surname) FULLTEXT ENGINE LUCENE");
 
     try (var rs = session.query(
         "select expand(indexes['Person.firstName_lastName']) from metadata:indexmanager")) {

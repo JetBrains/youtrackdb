@@ -113,7 +113,7 @@ public class TransactionChangesDetectionTest {
     db.begin();
     assertEquals(2, currentTx.getTxStartCounter());
     db.rollback();
-    assertEquals(0, currentTx.getTxStartCounter());
+    assertEquals(1, currentTx.getTxStartCounter());
     db.commit();
     fail("Should throw an 'TransactionException'.");
   }

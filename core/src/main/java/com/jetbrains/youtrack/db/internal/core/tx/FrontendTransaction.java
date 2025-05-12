@@ -245,8 +245,6 @@ public interface FrontendTransaction extends Transaction {
 
   boolean isCallBackProcessingInProgress();
 
-  void internalRollback();
-
   boolean isScheduledForCallbackProcessing(RecordId rid);
 
   @Nonnull

@@ -209,7 +209,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean executeExists(@Nonnull RID rid);
 
-  void setDefaultTransactionMode();
+  void setNoTxMode();
 
   DatabaseSessionInternal copy();
 

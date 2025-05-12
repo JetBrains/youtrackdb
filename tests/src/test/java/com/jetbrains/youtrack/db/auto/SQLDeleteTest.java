@@ -16,11 +16,10 @@
 package com.jetbrains.youtrack.db.auto;
 
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class SQLDeleteTest extends BaseDBTest {
+
   @Test
   public void deleteWithWhereOperator() {
     session.begin();
@@ -32,6 +31,7 @@ public class SQLDeleteTest extends BaseDBTest {
     var resultset =
         session.query("select from Profile where sex = 'female' and salary = 2100");
     var queryCount = resultset.stream().count();
+    resultset.close();
 
     session.begin();
     var result =
@@ -48,12 +48,13 @@ public class SQLDeleteTest extends BaseDBTest {
   public void deleteInPool() {
     var db = acquireSession();
 
-    final Long total = db.countClass("Profile");
+    final var total = db.countClass("Profile");
 
     var resultset =
         db.query("select from Profile where sex = 'male' and salary > 120 and salary <= 133");
 
     var queryCount = resultset.stream().count();
+    resultset.close();
 
     db.begin();
     var records =

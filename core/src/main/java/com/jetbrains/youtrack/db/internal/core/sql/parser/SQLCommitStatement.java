@@ -41,12 +41,14 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
     var item = new ResultInternal(db);
     item.setProperty("operation", "commit");
 
-    var updateRidsLinkMap = new HashMap<String, RID>();
-    for (var entry : updatedRids.entrySet()) {
-      updateRidsLinkMap.put(entry.getKey().toString(), entry.getValue());
-    }
+    if (updatedRids != null) {
+      var updateRidsLinkMap = new HashMap<String, RID>();
+      for (var entry : updatedRids.entrySet()) {
+        updateRidsLinkMap.put(entry.getKey().toString(), entry.getValue());
+      }
 
-    item.setProperty("updatedRids", updateRidsLinkMap);
+      item.setProperty("updatedRids", updateRidsLinkMap);
+    }
 
     return ExecutionStream.singleton(item);
   }
