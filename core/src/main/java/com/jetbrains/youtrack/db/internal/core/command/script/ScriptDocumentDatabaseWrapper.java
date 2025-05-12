@@ -91,10 +91,6 @@ public class ScriptDocumentDatabaseWrapper {
     return session.getSharedContext().getIndexManager().getIndex(name);
   }
 
-  public boolean exists() {
-    return session.exists();
-  }
-
   public EntityImpl newInstance() {
     return session.newInstance();
   }
@@ -119,13 +115,6 @@ public class ScriptDocumentDatabaseWrapper {
     return session.browseClass(iClassName, iPolymorphic);
   }
 
-  public DatabaseSession setStatus(STATUS iStatus) {
-    return session.setStatus(iStatus);
-  }
-
-  public void drop() {
-    session.drop();
-  }
 
   public String getName() {
     return session.getDatabaseName();
@@ -143,9 +132,6 @@ public class ScriptDocumentDatabaseWrapper {
     return session.isClosed();
   }
 
-  public DatabaseSession open(String iUserName, String iUserPassword) {
-    return session.open(iUserName, iUserPassword);
-  }
 
   public EntityImpl save(final Map<String, Object> iObject) {
     var entity = session.newInstance();
@@ -155,10 +141,6 @@ public class ScriptDocumentDatabaseWrapper {
 
   public Entity save(final String iString) {
     return session.createOrLoadEntityFromJson(iString);
-  }
-
-  public DatabaseSession create() {
-    return session.create();
   }
 
   public void close() {

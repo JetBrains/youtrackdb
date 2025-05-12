@@ -22,9 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -62,7 +60,6 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -81,7 +78,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.TimerTask;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -212,8 +208,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void setNoTxMode();
 
   DatabaseSessionInternal copy();
-
-  void recycle(DBRecord record);
 
   boolean assertIfNotActive();
 
@@ -491,16 +485,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   void setInternal(ATTRIBUTES attribute, Object iValue);
 
-  /**
-   * Opens a database using an authentication token received as an argument.
-   *
-   * @param iToken Authentication token
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession open(final Token iToken);
-
   SharedContext getSharedContext();
 
   default DatabaseStats getStats() {
@@ -509,78 +493,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default void resetRecordLoadStats() {
   }
-
-  /**
-   * creates an interrupt timer task for this db instance (without scheduling it!)
-   *
-   * @return the timer task. Null if this operation is not supported for current db impl.
-   */
-  @Nullable
-  default TimerTask createInterruptTimerTask() {
-    return null;
-  }
-
-  /**
-   * Opens a database using the user and password received as arguments.
-   *
-   * @param iUserName     Username to login
-   * @param iUserPassword Password associated to the user
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession open(final String iUserName, final String iUserPassword);
-
-  /**
-   * Creates a new database.
-   *
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create();
-
-  /**
-   * Creates new database from database backup. Only incremental backups are supported.
-   *
-   * @param incrementalBackupPath Path to incremental backup
-   * @return he Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create(String incrementalBackupPath);
-
-  /**
-   * Creates a new database passing initial settings.
-   *
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create(Map<GlobalConfiguration, Object> iInitialSettings);
-
-  /**
-   * Drops a database.
-   *
-   * @throws DatabaseException if database is closed. @Deprecated use instead
-   *                           {@link YouTrackDB#drop}
-   */
-  @Deprecated
-  void drop();
-
-  /**
-   * Checks if the database exists.
-   *
-   * @return True if already exists, otherwise false.
-   */
-  @Deprecated
-  boolean exists();
-
-  /**
-   * Set the current status of database. deprecated since 2.2
-   */
-  @Deprecated
-  DatabaseSession setStatus(STATUS iStatus);
 
   /**
    * Returns the total size of records contained in the collection defined by its name.

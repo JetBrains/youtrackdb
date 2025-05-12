@@ -58,6 +58,7 @@ import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
@@ -87,6 +88,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrack.db.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -104,7 +106,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncrypt
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryProxy;
@@ -220,6 +221,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
+  //those two fields are used in the remote session wrapper to track state when embedded session
+  //is opened in remote mode.
+  private boolean openedAsRemoteSession;
+  private int remoteCallsCount;
+
   public DatabaseSessionEmbedded(final Storage storage) {
     super(false);
 
@@ -252,11 +258,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           new DatabaseException(
               getDatabaseName(), "Error on opening database "), t, getDatabaseName());
     }
-  }
-
-  @Override
-  public DatabaseSession open(final String iUserName, final String iUserPassword) {
-    throw new UnsupportedOperationException("Use YouTrackDB");
   }
 
   public void init(YouTrackDBConfigImpl config, SharedContext sharedContext) {
@@ -381,23 +382,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /**
-   * Opens a database using an authentication token received as an argument.
-   *
-   * @param iToken Authentication token
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Override
-  @Deprecated
-  public DatabaseSession open(final Token iToken) {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create() {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
 
   /**
    * {@inheritDoc}
@@ -456,6 +440,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void set(final ATTRIBUTES iAttribute, final Object iValue) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -542,6 +529,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public DatabaseSession setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if ("clear".equalsIgnoreCase(name) && iValue == null) {
       clearCustomInternal();
     } else {
@@ -557,33 +547,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * {@inheritDoc}
-   */
-  @Override
-  public DatabaseSession create(String incrementalBackupPath) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public DatabaseSession create(final Map<GlobalConfiguration, Object> iInitialSettings) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void drop() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  /**
    * Returns a copy of current database if it's open. The returned instance can be used by another
    * thread without affecting current instance. The database copy is not set in thread local.
    */
   @Override
   public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var storage = (Storage) getSharedContext().getStorage();
     storage.open(this, null, null, getConfiguration());
     String user;
@@ -603,17 +576,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public boolean exists() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
   public boolean isClosed() {
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
 
   public void rebuildIndexes() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var indexManager = sharedContext.getIndexManager();
     if (indexManager.autoRecreateIndexesAfterCrash(this)) {
       indexManager.recreateIndexes(this);
@@ -639,6 +611,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public ResultSet query(String query, Object... args) {
     checkOpenness();
+    checkOpenedAsRemoteSession();
+
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -677,8 +651,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -714,8 +691,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet execute(String query, Object... args) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -753,8 +732,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -794,8 +775,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet computeScript(String language, String script, Object... args) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -847,8 +831,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public ResultSet computeScript(String language, String script, Map<String, ?> args) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -892,8 +879,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute query transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -924,11 +914,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  @Override
-  public void queryStarted(String id, ResultSet resultSet) {
-    // to nothing just compatibility
-  }
-
   public YouTrackDBConfig getConfig() {
     assert assertIfNotActive();
     return config;
@@ -936,13 +921,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   @Override
-  public void recycle(final DBRecord record) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void addBlobCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     int id;
     if (!existsCollection(iCollectionName)) {
       id = addCollection(iCollectionName, iParameters);
@@ -956,6 +940,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public Blob newBlob(byte[] bytes) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var blob = new RecordBytes(this, bytes);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
 
@@ -968,6 +955,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Blob newBlob() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var blob = new RecordBytes(this);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -988,6 +978,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public EntityImpl newInstance(final String className) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
@@ -1017,6 +1010,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public EntityImpl newInternalInstance() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
     var rid = new ChangeableRecordId();
@@ -1133,6 +1129,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a regular edge class");
@@ -1148,6 +1148,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a lightweight edge class");
@@ -1166,7 +1170,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
       int collectionId) {
     assert assertIfNotActive();
+
     checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var firstPosition = storage.ceilingPhysicalPositions(this, collectionId,
         new PhysicalPosition(0), 1);
@@ -1218,7 +1224,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
       int collectionId) {
     assert assertIfNotActive();
+
     checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var lastPosition = storage.floorPhysicalPositions(this, collectionId,
         new PhysicalPosition(Long.MAX_VALUE), 1);
@@ -1267,8 +1275,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Nullable
   public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
       boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     RecordId previousRid = null;
     RecordId nextRid = null;
@@ -1529,6 +1539,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
     if (cl == null || !cl.isEdgeType()) {
@@ -1541,12 +1555,19 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
   }
 
   @Override
   public Vertex newVertex(final String className) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
@@ -1570,22 +1591,32 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EmbeddedEntityImpl(schemaClass, this);
   }
 
   @Override
   public EmbeddedEntity newEmbeddedEntity() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EmbeddedEntityImpl(this);
   }
 
   private FrontendTransactionImpl newTxInstance(long txId) {
     assert assertIfNotActive();
+
     return new FrontendTransactionImpl(this, txId, false);
   }
 
   private FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
     assert assertIfNotActive();
+
     return new FrontendTransactionImpl(this, txId, true);
   }
 
@@ -1601,6 +1632,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public FrontendTransaction begin() {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isActive()) {
       currentTx.beginInternal();
       return currentTx;
@@ -1612,6 +1646,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void beginReadOnly() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       return;
@@ -1641,8 +1678,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void delete(@Nonnull DBRecord record) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     record.delete();
   }
@@ -1757,6 +1796,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
       java.lang.String collectionName) {
     assert assertIfNotActive();
+
     checkSecurity(Role.PERMISSION_DELETE, recordAbstract, collectionName);
 
     if (recordAbstract instanceof EntityImpl entity) {
@@ -1780,6 +1820,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void afterDeleteOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
+
     if (recordAbstract instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
@@ -1801,12 +1842,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
+
     callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
+
     if (identifiable instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
@@ -1911,6 +1954,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
@@ -1948,6 +1994,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var collectionId = record.getIdentity().getCollectionId();
     if (collectionId == RID.COLLECTION_ID_INVALID) {
       // COMPUTE THE COLLECTION ID
@@ -1980,8 +2029,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public boolean executeExists(@Nonnull RID rid) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       checkSecurity(
           Rule.ResourceGeneric.COLLECTION,
@@ -2029,6 +2081,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       final int iOperation) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (user != null) {
       try {
         user.allow(this, resourceGeneric, resourceSpecific, iOperation);
@@ -2060,6 +2115,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       final Object... iResourcesSpecific) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (iResourcesSpecific == null || iResourcesSpecific.length == 0) {
       checkSecurity(iResourceGeneric, null, iOperation);
     } else {
@@ -2077,8 +2135,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
       final Object iResourceSpecific) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     checkSecurity(
         iResourceGeneric,
@@ -2090,6 +2150,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Deprecated
   public void checkSecurity(final String iResource, final int iOperation) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -2106,6 +2170,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object iResourceSpecific) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
     if (iResourceSpecific == null || iResourceSpecific.equals("*")) {
@@ -2120,6 +2188,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object... iResourcesSpecific) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
     checkSecurity(resourceGeneric, iOperation, iResourcesSpecific);
@@ -2128,24 +2200,37 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public int addCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.addCollection(this, iCollectionName, iParameters);
   }
 
   @Override
   public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
   @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
+
     return getStorageInfo().getRecordConflictStrategy();
   }
 
   @Override
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     storage.setConflictStrategy(
         YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
     return this;
@@ -2154,6 +2239,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     storage.setConflictStrategy(iResolver);
     return this;
   }
@@ -2161,6 +2250,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       return storage.getCollectionRecordsSizeByName(collectionName);
     } catch (Exception e) {
@@ -2174,6 +2267,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long getCollectionRecordSizeById(final int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       return storage.getCollectionRecordsSizeById(collectionId);
     } catch (Exception e) {
@@ -2190,6 +2287,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var name = getCollectionNameById(iCollectionId);
     if (name == null) {
       return 0;
@@ -2205,6 +2306,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     String name;
     for (var iCollectionId : iCollectionIds) {
       name = getCollectionNameById(iCollectionId);
@@ -2218,8 +2323,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public long countCollectionElements(final String iCollectionName) {
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
     final var collectionId = getCollectionIdByName(iCollectionName);
     if (collectionId < 0) {
@@ -2231,6 +2340,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var collectionId = getCollectionIdByName(iCollectionName);
     var schema = metadata.getSchema();
 
@@ -2256,6 +2369,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     checkSecurity(
         Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
@@ -2292,12 +2408,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.dropCollection(this, collectionId);
   }
 
   @Override
   public long getSize() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getSize(this);
   }
 
@@ -2332,8 +2456,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public String incrementalBackup(final Path path) throws UnsupportedOperationException {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
     return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
@@ -2342,14 +2469,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Nullable
   @Override
   public TimeZone getDatabaseTimeZone() {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getConfiguration().getTimeZone();
   }
 
   @Override
   public RecordMetadata getRecordMetadata(final RID rid) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getRecordMetadata(this, rid);
   }
 
@@ -2358,8 +2492,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void freeze(final boolean throwException) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
           .error(
@@ -2393,8 +2530,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public void release() {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
           .error(
@@ -2439,6 +2579,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void reload() {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (this.isClosed()) {
       throw new DatabaseException(getDatabaseName(), "Cannot reload a closed db");
     }
@@ -2449,6 +2592,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
+
     this.storage.commit(transaction);
   }
 
@@ -2495,12 +2639,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getCollectionRecordConflictStrategy(collectionId);
   }
 
   @Override
   public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getCollectionsIds(filterCollections);
   }
 
@@ -2519,6 +2671,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long truncateClass(String name, boolean polimorfic) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
     int[] collectionIds;
@@ -2550,6 +2706,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long truncateCollectionInternal(String collectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
 
     var id = getCollectionIdByName(collectionName);
@@ -2577,6 +2737,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void truncateCollection(String collectionName) {
     assert assertIfNotActive();
+
     truncateCollectionInternal(collectionName);
   }
 
@@ -2630,6 +2791,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
       Map<String, ?> args) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var youTrackDb = sharedContext.youtrackDB;
 
     var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
@@ -2645,6 +2811,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var youTrackDb = sharedContext.youtrackDB;
 
     var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
@@ -2692,6 +2863,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public MetadataDefault getMetadata() {
     assert assertIfNotActive();
     checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return metadata;
   }
 
@@ -2717,11 +2890,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   /**
    * {@inheritDoc}
    */
-  @Override
-  public DatabaseSession setStatus(final STATUS status) {
+  public void setStatus(final STATUS status) {
     assert assertIfNotActive();
     this.status = status;
-    return this;
   }
 
   /**
@@ -2738,6 +2909,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public SecurityUser getCurrentUser() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
     return user;
   }
 
@@ -2819,8 +2993,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (!hooks.contains(iHookImpl)) {
       hooks.add(iHookImpl);
@@ -2835,6 +3011,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (hooks.remove(iHookImpl)) {
       iHookImpl.onUnregister();
     }
@@ -2872,13 +3052,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return Collections.unmodifiableList(hooks);
   }
 
   @Override
   public void deleteInternal(@Nonnull RecordAbstract record) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
 
     if (record instanceof EntityImpl entity) {
       ensureEdgeConsistencyOnDeletion(entity);
@@ -2972,12 +3159,27 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public STATUS getStatus() {
+    checkOpenedAsRemoteSession();
+
     return status;
   }
 
   @Override
   public String getDatabaseName() {
+    checkOpenedAsRemoteSession();
+
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
+  }
+
+  @Override
+  public RemoteDatabaseSession asRemoteSession() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    openedAsRemoteSession = true;
+    return new RemoteDatabaseSessionWrapper(this);
   }
 
   @Override
@@ -2988,12 +3190,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public int getCollections() {
     assert assertIfNotActive();
+
+    checkOpenedAsRemoteSession();
     return getStorageInfo().getCollections();
   }
 
   @Override
   public boolean existsCollection(final String iCollectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return getStorageInfo().getCollectionNames()
         .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
@@ -3001,6 +3209,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Collection<String> getCollectionNames() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return getStorageInfo().getCollectionNames();
   }
 
@@ -3011,6 +3223,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
@@ -3021,12 +3237,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
   }
 
   @Override
   public Object setProperty(final String iName, final Object iValue) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (iValue == null) {
       return properties.remove(iName.toLowerCase(Locale.ENGLISH));
     } else {
@@ -3037,18 +3261,29 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Object getProperty(final String iName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return properties.get(iName.toLowerCase(Locale.ENGLISH));
   }
 
   @Override
   public Iterator<Entry<String, Object>> getProperties() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return properties.entrySet().iterator();
   }
 
   @Override
   public Object get(final ATTRIBUTES iAttribute) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -3071,6 +3306,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     final var storage = getStorageInfo();
     if (attribute == ATTRIBUTES_INTERNAL.VALIDATION) {
@@ -3104,6 +3342,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public <RET extends DBRecord> RET load(final RID recordId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return (RET) currentTx.loadRecord(recordId).recordAbstract();
   }
 
@@ -3154,6 +3396,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean exists(RID rid) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return currentTx.exists(rid);
   }
 
@@ -3166,12 +3412,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void setPrefetchRecords(boolean prefetchRecords) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     this.prefetchRecords = prefetchRecords;
   }
 
   @Override
   public boolean isPrefetchRecords() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return prefetchRecords;
   }
 
@@ -3254,7 +3508,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public int begin(FrontendTransactionImpl transaction) {
-    checkOpenness();
     assert assertIfNotActive();
 
     // CHECK IT'S NOT INSIDE A HOOK
@@ -3302,6 +3555,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     //noinspection unchecked
     return (T) JSONSerializerJackson.fromString(this, json);
   }
@@ -3309,6 +3566,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public Entity createOrLoadEntityFromJson(String json) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var result = JSONSerializerJackson.fromString(this, json);
 
     if (result instanceof Entity) {
@@ -3379,6 +3640,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
       boolean forwardDirection) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (getMetadata().getImmutableSchemaSnapshot().getClass(className) == null) {
       throw new IllegalArgumentException(
           "Class '" + className + "' not found in current database");
@@ -3392,6 +3657,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
     return new RecordIteratorClass(this, (SchemaClassInternal) clz,
         true, true);
@@ -3404,6 +3672,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
       final String iCollectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
     return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
@@ -3434,6 +3706,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public long countClass(final String iClassName, final boolean iPolymorphic) {
     assert assertIfNotActive();
+
     final var cls =
         (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
     if (cls == null) {
@@ -3444,8 +3717,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private long countClass(final SchemaImmutableClass cls, final boolean iPolymorphic) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     var totalOnDb = cls.countImpl(iPolymorphic, this);
 
@@ -3497,8 +3772,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   @Override
   public Map<RID, RID> commit() {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
       throw new RollbackException("Transaction is rolling back");
@@ -3604,7 +3881,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    assert assertIfNotActive();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isActive()) {
       // WAKE UP LISTENERS
@@ -3640,6 +3917,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void resetInitialization() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     for (var h : hooks) {
       h.onUnregister();
     }
@@ -3653,6 +3934,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public void checkSecurity(final int operation, final Identifiable record, String collection) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (collection == null) {
       collection = getCollectionNameById(record.getIdentity().getCollectionId());
     }
@@ -3759,6 +4044,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var clazz =
         (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
 
@@ -3830,6 +4119,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean isCollectionEdge(int collection) {
     assert assertIfNotActive();
+
     var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
     return clazz != null && clazz.isEdgeType();
   }
@@ -3837,6 +4127,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public boolean isCollectionVertex(int collection) {
     assert assertIfNotActive();
+
     var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
     return clazz != null && clazz.isVertexType();
   }
@@ -4056,28 +4347,51 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public int activeTxCount() {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var transaction = getTransactionInternal();
     return transaction.amountOfNestedTxs();
   }
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedListImpl<>();
   }
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedListImpl<>(size);
   }
 
   @Override
   public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     //noinspection unchecked
     return (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(list, this);
   }
 
   @Override
   public EmbeddedList<String> newEmbeddedList(String[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<String>(source.length);
     trackedList.addAll(Arrays.asList(source));
     return trackedList;
@@ -4085,6 +4399,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Date>(source.length);
     trackedList.addAll(Arrays.asList(source));
     return trackedList;
@@ -4092,6 +4411,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Byte>(source.length);
     for (var b : source) {
       trackedList.add(b);
@@ -4101,6 +4425,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Short> newEmbeddedList(short[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Short>(source.length);
     for (var s : source) {
       trackedList.add(s);
@@ -4110,6 +4439,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Integer>(source.length);
     for (var i : source) {
       trackedList.add(i);
@@ -4119,6 +4453,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Long> newEmbeddedList(long[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Long>(source.length);
     for (var l : source) {
       trackedList.add(l);
@@ -4128,6 +4467,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Float> newEmbeddedList(float[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Float>(source.length);
     for (var f : source) {
       trackedList.add(f);
@@ -4137,6 +4481,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Double> newEmbeddedList(double[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Double>(source.length);
     for (var d : source) {
       trackedList.add(d);
@@ -4146,6 +4495,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var trackedList = new EntityEmbeddedListImpl<Boolean>(source.length);
     for (var b : source) {
       trackedList.add(b);
@@ -4155,16 +4509,31 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public LinkList newLinkList() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityLinkListImpl(this);
   }
 
   @Override
   public LinkList newLinkList(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityLinkListImpl(this, size);
   }
 
   @Override
   public LinkList newLinkList(Collection<? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var list = new EntityLinkListImpl(this, source.size());
     list.addAll(source);
     return list;
@@ -4172,28 +4541,53 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedSetImpl<>();
   }
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedSetImpl<>(size);
   }
 
   @Override
   public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     //noinspection unchecked
     return (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(set, this);
   }
 
   @Override
   public LinkSet newLinkSet() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityLinkSetImpl(this);
   }
 
 
   @Override
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var linkSet = new EntityLinkSetImpl(this);
     linkSet.addAll(source);
     return linkSet;
@@ -4201,32 +4595,62 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public <V> EmbeddedMap<V> newEmbeddedMap() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedMapImpl<>();
   }
 
   @Override
   public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityEmbeddedMapImpl<>(size);
   }
 
   @Override
   public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     //noinspection unchecked
     return (EmbeddedMap<V>) PropertyTypeInternal.EMBEDDEDMAP.copy(map, this);
   }
 
   @Override
   public LinkMap newLinkMap() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityLinkMapIml(this);
   }
 
   @Override
   public LinkMap newLinkMap(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return new EntityLinkMapIml(size, this);
   }
 
   @Override
   public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var linkMap = new EntityLinkMapIml(source.size(), this);
     linkMap.putAll(source);
     return linkMap;
@@ -4234,6 +4658,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public @Nonnull FrontendTransaction getActiveTransaction() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isActive()) {
       return currentTx;
     }
@@ -4244,6 +4673,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Nullable
   @Override
   public Transaction getActiveTransactionOrNull() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isActive()) {
       return currentTx;
     }
@@ -4630,5 +5064,24 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
+  }
+
+  public void remoteWrapperClosed() {
+    openedAsRemoteSession = false;
+  }
+
+  public void startRemoteCall() {
+    remoteCallsCount++;
+  }
+
+  public void endRemoteCall() {
+    remoteCallsCount--;
+  }
+
+  private void checkOpenedAsRemoteSession() {
+    if (openedAsRemoteSession && remoteCallsCount == 0) {
+      throw new IllegalStateException(
+          "Session is opened as remote session and can not be used till related remote session is closed.");
+    }
   }
 }

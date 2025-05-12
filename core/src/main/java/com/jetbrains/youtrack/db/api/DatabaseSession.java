@@ -1,23 +1,24 @@
 package com.jetbrains.youtrack.db.api;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.transaction.Transaction;
-import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
-import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
-import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
-import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RecordHook;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.util.Collection;
 import java.util.Date;
@@ -423,6 +424,14 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    */
   @Override
   String getDatabaseName();
+
+  /**
+   * Opens the current session in remote mode. This instance cannot be used until the remote session
+   * returned will not be closed.
+   *
+   * @return remote session wrapper around the current instance.
+   */
+  RemoteDatabaseSession asRemoteSession();
 
   <T> EmbeddedList<T> newEmbeddedList();
 

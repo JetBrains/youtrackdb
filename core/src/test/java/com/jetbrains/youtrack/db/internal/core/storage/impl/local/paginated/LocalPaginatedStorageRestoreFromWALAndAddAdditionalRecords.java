@@ -32,7 +32,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -95,23 +94,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
-    if (baseDocumentTx.exists()) {
-      baseDocumentTx.open("admin", "admin");
-      baseDocumentTx.drop();
-    }
-
-    baseDocumentTx.create();
-
     createSchema(baseDocumentTx);
-  }
-
-  @After
-  public void afterMethod() {
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.drop();
-
-    baseDocumentTx.open("admin", "admin");
-    baseDocumentTx.drop();
   }
 
   @Test
