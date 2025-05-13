@@ -314,7 +314,6 @@
       <groupId>org.graalvm.js</groupId>
       <artifactId>js</artifactId>
       <version>${graalvm.version}</version>
-      <type>pom</type>
       <scope>runtime</scope>
     </dependency>
     <dependency>
