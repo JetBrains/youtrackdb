@@ -41,7 +41,7 @@
       -Dyoutrackdb.security.userPasswordSaltIterations=10
       -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
       -Dyoutrackdb.security.createDefaultUsers=false
