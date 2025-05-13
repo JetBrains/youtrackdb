@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImpExpAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImportException;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseTool;
@@ -44,7 +43,7 @@ public class DatabaseImportRemote extends DatabaseImpExpAbstract<DatabaseSession
     var commandOrchestrator = session.getCommandOrchestrator();
     var file = new File(getFileName());
     try {
-      commandOrchestrator.importDatabase((DatabaseSessionRemote) session, options,
+      commandOrchestrator.importDatabase(session, options,
           new FileInputStream(file),
           file.getName(),
           getListener());

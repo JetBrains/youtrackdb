@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.QueryLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -42,7 +43,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   @Override
   public Result next() {
     if (!hasNext()) {
-      throw new IllegalStateException();
+      throw new NoSuchElementException();
     }
 
     return underlyingResultSet.next();

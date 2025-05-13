@@ -3,6 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.db.remotewrapper;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Blob;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import java.util.List;
@@ -29,6 +31,10 @@ public class RemoteResultWrapper implements RemoteResult {
       if (value instanceof Result res) {
         //noinspection unchecked
         return (T) (new RemoteResultWrapper(res, sessionWrapper));
+      } else if (value instanceof Blob blob) {
+        return (T) blob.toStream();
+      } else if (value instanceof Edge) {
+        throw new IllegalStateException("Lightweight edges are not supported in remote mode. ");
       }
 
       //noinspection unchecked
@@ -165,5 +171,40 @@ public class RemoteResultWrapper implements RemoteResult {
       endRemoteCall();
     }
 
+  }
+
+  @Override
+  public boolean isBlob() {
+    startRemoteCall();
+    try {
+      return result.isBlob();
+    } finally {
+      endRemoteCall();
+    }
+
+  }
+
+  @Override
+  public byte[] asBlob() {
+    startRemoteCall();
+    try {
+      return result.asBlob().toStream();
+    } finally {
+      endRemoteCall();
+    }
+  }
+
+  @Override
+  public byte[] asBlobOrNull() {
+    startRemoteCall();
+    try {
+      var blob = result.asBlobOrNull();
+      if (blob != null) {
+        return blob.toStream();
+      }
+      return null;
+    } finally {
+      endRemoteCall();
+    }
   }
 }

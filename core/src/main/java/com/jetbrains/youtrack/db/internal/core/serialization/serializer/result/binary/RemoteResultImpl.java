@@ -342,12 +342,14 @@ public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
     return content.containsKey(propName);
   }
 
+  @Override
   public boolean isBlob() {
     assert checkSession();
 
     return blob != null;
   }
 
+  @Override
   @Nonnull
   public byte[] asBlob() {
     assert checkSession();
@@ -359,6 +361,7 @@ public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
     return blob;
   }
 
+  @Override
   @Nullable
   public byte[] asBlobOrNull() {
     assert checkSession();

@@ -78,11 +78,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/**
- *
- */
 public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDatabaseSession> {
-
   private final Map<String, RemoteCommandsDispatcherImpl> orchestrators = new HashMap<>();
   private final Set<DatabasePoolInternal<RemoteDatabaseSession>> pools = new HashSet<>();
   private final String[] hosts;

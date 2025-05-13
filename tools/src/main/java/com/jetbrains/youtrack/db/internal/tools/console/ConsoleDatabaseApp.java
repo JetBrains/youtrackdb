@@ -22,15 +22,24 @@ package com.jetbrains.youtrack.db.internal.tools.console;
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.WARNING_DEFAULT_USERS;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
+import com.jetbrains.youtrack.db.internal.client.remote.DatabaseImportRemote;
+import com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBInternalRemote;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleApplication;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleProperties;
 import com.jetbrains.youtrack.db.internal.common.console.TTYConsoleReader;
@@ -45,27 +54,30 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImportException;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.util.DatabaseURLConnection;
+import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,11 +90,15 @@ import javax.annotation.Nullable;
 public class ConsoleDatabaseApp extends ConsoleApplication
     implements CommandOutputListener, ProgressListener, TableFormatter.OTableOutput {
 
-  protected DatabaseSessionInternal currentDatabaseSession;
+  protected RemoteDatabaseSession currentDatabaseSession;
+  private DatabaseSessionEmbedded currentEmbeddedDatabaseSession;
+
   protected String currentDatabaseName;
   protected List<RawPair<RID, Object>> currentResultSet;
   protected DatabaseURLConnection urlConnection;
-  protected YouTrackDBImpl youTrackDB;
+
+  protected BasicYouTrackDB<?, ?> basicYouTrackDB;
+
   private int lastPercentStep;
   private String currentDatabaseUserName;
   private String currentDatabaseUserPassword;
@@ -175,55 +191,69 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-//  @ConsoleCommand(
-//      aliases = {"use database"},
-//      description = "Connect to a database or a remote Server instance",
-//      onlineHelp = "Console-Command-Connect")
-//  public void connect(
-//      @ConsoleParameter(
-//          name = "url",
-//          description =
-//              "The url of the remote server or the database to connect to in the format"
-//                  + " '<mode>:<path>'")
-//      String iURL,
-//      @ConsoleParameter(name = "user", description = "User name") String iUserName,
-//      @ConsoleParameter(name = "password", description = "User password", optional = true)
-//      String iUserPassword)
-//      throws IOException {
-//    disconnect();
-//
-//    if (iUserPassword == null) {
-//      message("Enter password: ");
-//      final var br = new BufferedReader(new InputStreamReader(this.in));
-//      iUserPassword = br.readLine();
-//      message("\n");
-//    }
-//
-//    currentDatabaseUserName = iUserName;
-//    currentDatabaseUserPassword = iUserPassword;
-//    urlConnection = URLHelper.parseNew(iURL);
-//    if (urlConnection.getDbName() != null && !"".equals(urlConnection.getDbName())) {
-//      checkDefaultPassword(
-//          urlConnection.getDbName(), currentDatabaseUserName, currentDatabaseUserPassword);
-//    }
-//    youTrackDB =
-//        new YouTrackDBImpl(
-//            urlConnection.getType() + ":" + urlConnection.getPath(),
-//            iUserName,
-//            iUserPassword,
-//            YouTrackDBConfig.defaultConfig());
-//
-//    if (!"".equals(urlConnection.getDbName())) {
-//      // OPEN DB
-//      message("\nConnecting to database [" + iURL + "] with user '" + iUserName + "'...");
-//      currentDatabaseSession =
-//          (DatabaseSessionInternal)
-//              youTrackDB.open(urlConnection.getDbName(), iUserName, iUserPassword);
-//      currentDatabaseName = currentDatabaseSession.getDatabaseName();
-//    }
-//
-//    message("OK");
-//  }
+  @ConsoleCommand(
+      aliases = {"use database"},
+      description = "Connect to a database or a remote Server instance",
+      onlineHelp = "Console-Command-Connect")
+  public void connect(
+      @ConsoleParameter(
+          name = "url",
+          description =
+              "The url of the remote server or the database to connect to in the format"
+                  + " '<mode>:<path>'")
+      String iURL,
+      @ConsoleParameter(name = "user", description = "User name") String iUserName,
+      @ConsoleParameter(name = "password", description = "User password", optional = true)
+      String iUserPassword)
+      throws IOException {
+    disconnect();
+
+    if (iUserPassword == null) {
+      message("Enter password: ");
+      final var br = new BufferedReader(new InputStreamReader(this.in));
+      iUserPassword = br.readLine();
+      message("\n");
+    }
+
+    currentDatabaseUserName = iUserName;
+    currentDatabaseUserPassword = iUserPassword;
+    urlConnection = URLHelper.parseNew(iURL);
+
+    if (urlConnection.getDbName() != null && !"".equals(urlConnection.getDbName())) {
+      checkDefaultPassword(
+          urlConnection.getDbName(), currentDatabaseUserName, currentDatabaseUserPassword);
+    }
+
+    var connectionType = urlConnection.getType();
+    YouTrackDB embeddedYouTrackDB = null;
+    RemoteYouTrackDB remoteYouTrackDB = null;
+
+    if (connectionType.equalsIgnoreCase("remote")) {
+      remoteYouTrackDB = YourTracks.remote(urlConnection.getUrl(), iUserName, iUserPassword);
+      basicYouTrackDB = remoteYouTrackDB;
+    } else {
+      embeddedYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+      basicYouTrackDB = embeddedYouTrackDB;
+    }
+
+    if (!"".equals(urlConnection.getDbName())) {
+      // OPEN DB
+      message("\nConnecting to database [" + iURL + "] with user '" + iUserName + "'...");
+      if (embeddedYouTrackDB != null) {
+        currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) embeddedYouTrackDB.open(
+            urlConnection.getDbName(), iUserName,
+            iUserPassword);
+        currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+      } else {
+        currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), iUserName,
+            iUserPassword);
+      }
+
+      currentDatabaseName = currentDatabaseSession.getDatabaseName();
+    }
+
+    message("OK");
+  }
 
   @ConsoleCommand(
       aliases = {"close database"},
@@ -233,9 +263,13 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     if (currentDatabaseSession != null) {
       message("\nDisconnecting from the database [" + currentDatabaseName + "]...");
 
-      currentDatabaseSession.activateOnCurrentThread();
       if (!currentDatabaseSession.isClosed()) {
         currentDatabaseSession.close();
+
+        if (currentEmbeddedDatabaseSession != null) {
+          currentEmbeddedDatabaseSession.close();
+          currentEmbeddedDatabaseSession = null;
+        }
       }
 
       currentDatabaseSession = null;
@@ -245,150 +279,136 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       out.println();
     }
     urlConnection = null;
-    if (youTrackDB != null) {
-      youTrackDB.close();
+
+    if (basicYouTrackDB != null) {
+      basicYouTrackDB.close();
     }
   }
 
-//  @ConsoleCommand(
-//      description =
-//          "Create a new database. For encrypted database or portion of database, set the variable"
-//              + " 'youtrackdb.storage.encryptionKey' with the key to use",
-//      onlineHelp = "Console-Command-Create-Database")
-//  public void createDatabase(
-//      @ConsoleParameter(
-//          name = "database-url",
-//          description = "The url of the database to create in the format '<mode>:<path>'")
-//      String databaseURL,
-//      @ConsoleParameter(name = "user", optional = true, description = "Server administrator name")
-//      String userName,
-//      @ConsoleParameter(
-//          name = "password",
-//          optional = true,
-//          description = "Server administrator password")
-//      String userPassword,
-//      @ConsoleParameter(
-//          name = "storage-type",
-//          optional = true,
-//          description =
-//              "The type of the storage: 'disk' for disk-based databases and 'memory' for"
-//                  + " in-memory database")
-//      String storageType,
-//      @ConsoleParameter(
-//          name = "db-type",
-//          optional = true,
-//          description =
-//              "The type of the database used between 'document' and 'graph'. By default is"
-//                  + " graph.")
-//      String databaseType,
-//      @ConsoleParameter(
-//          name = "[options]",
-//          optional = true,
-//          description = "Additional options, example: -encryption=aes -compression=nothing") final String options)
-//      throws IOException {
-//
-//    disconnect();
-//
-//    if (userName == null) {
-//      userName = SecurityUserImpl.ADMIN;
-//    }
-//    if (userPassword == null) {
-//      userPassword = SecurityUserImpl.ADMIN;
-//    }
-//
-//    currentDatabaseUserName = userName;
-//    currentDatabaseUserPassword = userPassword;
-//    final var omap = parseCommandOptions(options);
-//
-//    urlConnection = URLHelper.parseNew(databaseURL);
-//    var config = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
-//
-//    DatabaseType type;
-//    if (storageType != null) {
-//      type = DatabaseType.valueOf(storageType.toUpperCase());
-//    } else {
-//      type = urlConnection.getDbType().orElse(DatabaseType.DISK);
-//    }
-//
-//    message("\nCreating database [" + databaseURL + "] using the storage type [" + type + "]...");
-//    var conn = urlConnection.getType() + ":" + urlConnection.getPath();
-//    if (youTrackDB != null) {
-//      var contectSession = YouTrackDBInternal.extract(youTrackDB);
-//      var user = YouTrackDBInternal.extractUser(youTrackDB);
-//      if (!contectSession.getConnectionUrl().equals(conn)
-//          || user == null
-//          || !user.equals(userName)) {
-//        youTrackDB =
-//            new YouTrackDBImpl(
-//                conn, currentDatabaseUserName, currentDatabaseUserPassword, config.build());
-//      }
-//    } else {
-//      youTrackDB =
-//          new YouTrackDBImpl(conn, currentDatabaseUserName, currentDatabaseUserPassword,
-//              config.build());
-//    }
-//
-//    final var backupPath = omap.remove("-restore");
-//
-//    if (backupPath != null) {
-//      var internal = YouTrackDBInternal.extract(youTrackDB);
-//      internal.restore(
-//          urlConnection.getDbName(),
-//          currentDatabaseUserName,
-//          currentDatabaseUserPassword,
-//          type,
-//          backupPath,
-//          config.build());
-//    } else {
-//      var internal = YouTrackDBInternal.extract(youTrackDB);
-//      if (internal.isEmbedded()) {
-//        youTrackDB.createIfNotExists(
-//            urlConnection.getDbName(),
-//            type,
-//            currentDatabaseUserName,
-//            currentDatabaseUserPassword,
-//            "admin");
-//      } else {
-//        youTrackDB.create(urlConnection.getDbName(), type);
-//      }
-//    }
-//    currentDatabaseSession =
-//        (DatabaseSessionInternal) youTrackDB.open(urlConnection.getDbName(), userName,
-//            userPassword);
-//    currentDatabaseName = currentDatabaseSession.getDatabaseName();
-//
-//    message("\nDatabase created successfully.");
-//    message("\n\nCurrent database is: " + databaseURL);
-//  }
-//
-//  @SuppressWarnings("MethodMayBeStatic")
-//  protected Map<String, String> parseCommandOptions(
-//      @ConsoleParameter(
-//          name = "[options]",
-//          optional = true,
-//          description = "Additional options, example: -encryption=aes -compression=nothing")
-//      String options) {
-//    final Map<String, String> omap = new HashMap<String, String>();
-//    if (options != null) {
-//      final var kvOptions = StringSerializerHelper.smartSplit(options, ',', false);
-//      for (var option : kvOptions) {
-//        final var values = option.split("=");
-//        if (values.length == 2) {
-//          omap.put(values[0], values[1]);
-//        } else {
-//          omap.put(values[0], null);
-//        }
-//      }
-//    }
-//    return omap;
-//  }
+  @ConsoleCommand(
+      description =
+          "Create a new database. For encrypted database or portion of database, set the variable"
+              + " 'youtrackdb.storage.encryptionKey' with the key to use",
+      onlineHelp = "Console-Command-Create-Database")
+  public void createDatabase(
+      @ConsoleParameter(
+          name = "database-url",
+          description = "The url of the database to create in the format '<mode>:<path>'")
+      String databaseURL,
+      @ConsoleParameter(name = "user", optional = true, description = "Server administrator name")
+      String userName,
+      @ConsoleParameter(
+          name = "password",
+          optional = true,
+          description = "Server administrator password")
+      String userPassword,
+      @ConsoleParameter(
+          name = "storage-type",
+          optional = true,
+          description =
+              "The type of the storage: 'disk' for disk-based databases and 'memory' for"
+                  + " in-memory database")
+      String storageType,
+      @ConsoleParameter(
+          name = "[options]",
+          optional = true,
+          description = "Additional options, example: -encryption=aes -compression=nothing") final String options)
+      throws IOException {
+
+    disconnect();
+
+    if (userName == null) {
+      userName = SecurityUserImpl.ADMIN;
+    }
+    if (userPassword == null) {
+      userPassword = SecurityUserImpl.ADMIN;
+    }
+
+    currentDatabaseUserName = userName;
+    currentDatabaseUserPassword = userPassword;
+
+    final var omap = parseCommandOptions(options);
+
+    urlConnection = URLHelper.parseNew(databaseURL);
+    var configBuilder = YouTrackDBConfig.builder();
+
+    DatabaseType type;
+    if (storageType != null) {
+      type = DatabaseType.valueOf(storageType.toUpperCase());
+    } else {
+      type = urlConnection.getDbType().orElse(DatabaseType.DISK);
+    }
+
+    message("\nCreating database [" + databaseURL + "] using the storage type [" + type + "]...");
+
+    var connectionType = urlConnection.getType();
+    if (connectionType.equalsIgnoreCase("remote")) {
+      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), userName, userPassword);
+    } else {
+      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+    }
+
+    final var backupPath = omap.remove("-restore");
+    if (backupPath != null) {
+      basicYouTrackDB.restore(
+          urlConnection.getDbName(),
+          currentDatabaseUserName,
+          currentDatabaseUserPassword,
+          backupPath,
+          configBuilder.build());
+    } else {
+      basicYouTrackDB.createIfNotExists(
+          urlConnection.getDbName(),
+          type,
+          currentDatabaseUserName,
+          currentDatabaseUserPassword,
+          "admin");
+      if (basicYouTrackDB instanceof YouTrackDB youTrackDB) {
+        currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) youTrackDB.open(
+            urlConnection.getDbName(), userName,
+            userPassword);
+        currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+      } else {
+        basicYouTrackDB.create(urlConnection.getDbName(), type);
+        var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
+        currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), userName,
+            userPassword);
+      }
+    }
+    currentDatabaseName = currentDatabaseSession.getDatabaseName();
+
+    message("\nDatabase created successfully.");
+    message("\n\nCurrent database is: " + databaseURL);
+  }
+
+  protected static Map<String, String> parseCommandOptions(
+      @ConsoleParameter(
+          name = "[options]",
+          optional = true,
+          description = "Additional options, example: -encryption=aes -compression=nothing")
+      String options) {
+
+    final Map<String, String> omap = new HashMap<>();
+    if (options != null) {
+      final var kvOptions = StringSerializerHelper.smartSplit(options, ',', false);
+      for (var option : kvOptions) {
+        final var values = option.split("=");
+        if (values.length == 2) {
+          omap.put(values[0], values[1]);
+        } else {
+          omap.put(values[0], null);
+        }
+      }
+    }
+    return omap;
+  }
 
   @ConsoleCommand(
       description = "List all the databases available on the connected server",
       onlineHelp = "Console-Command-List-Databases")
   public void listDatabases() throws IOException {
-    if (youTrackDB != null) {
-      final var databases = youTrackDB.listDatabases();
+    if (basicYouTrackDB != null) {
+      final var databases = basicYouTrackDB.listDatabases();
       message(String.format("\nFound %d databases:\n", databases.size()));
       for (var database : databases) {
         message(String.format("\n* %s ", database));
@@ -402,184 +422,113 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     out.println();
   }
 
-//  @ConsoleCommand(
-//      description = "List all the active connections to the server",
-//      onlineHelp = "Console-Command-List-Connections")
-//  public void listConnections() {
-//    checkForRemoteServer();
-//    var remote = (YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDB);
-//    final var serverInfo =
-//        remote.getServerInfo(currentDatabaseUserName, currentDatabaseUserPassword);
-//
-//    List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-//
-//    @SuppressWarnings("unchecked") final var connections = (List<Map<String, Object>>) serverInfo.get(
-//        "connections");
-//    for (var conn : connections) {
-//
-//      var commandDetail = new StringBuilder();
-//      var commandInfo = (String) conn.get("commandInfo");
-//      if (commandInfo != null) {
-//        commandDetail.append(commandInfo);
-//      }
-//
-//      if (((String) conn.get("commandDetail")).length() > 1) {
-//        commandDetail.append(" (").append(conn.get("commandDetail")).append(")");
-//      }
-//
-//      var row = Map.of(
-//          "ID",
-//          conn.get("connectionId"),
-//          "REMOTE_ADDRESS",
-//          conn.get("remoteAddress"),
-//          "PROTOC",
-//          conn.get("protocol"),
-//          "LAST_OPERATION_ON",
-//          conn.get("lastCommandOn"),
-//          "DATABASE",
-//          conn.get("db"),
-//          "USER",
-//          conn.get("user"),
-//          "COMMAND",
-//          commandDetail.toString(),
-//          "TOT_REQS",
-//          conn.get("totalRequests"));
-//
-//      resultSet.add(new RawPair<>(new ChangeableRecordId(), row));
-//    }
-//
-//    resultSet.sort((o1, o2) -> {
-//      @SuppressWarnings("unchecked") final var o1s = ((Map<String, String>) o1.second()).get(
-//          "LAST_OPERATION_ON");
-//      @SuppressWarnings("unchecked") final var o2s = ((Map<String, String>) o2.second()).get(
-//          "LAST_OPERATION_ON");
-//      return o2s.compareTo(o1s);
-//    });
-//
-//    final var formatter = new TableFormatter(this);
-//    formatter.setMaxWidthSize(getConsoleWidth());
-//    formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-//
-//    formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-//
-//    out.println();
-//  }
-
-  @ConsoleCommand(description = "Reload the database schema")
-  public void reloadSchema() throws IOException {
-    message("\nreloading database schema...");
-    updateDatabaseInfo();
-    message("\n\nDone.");
-  }
-
   @ConsoleCommand(
-      splitInWords = false,
-      description =
-          "Create a new collection in the current database. The collection can be physical or memory")
-  public void createCollection(
-      @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText) {
-    sqlCommand("create", iCommandText, "\nCollection created correctly in %.2f seconds\n", false);
-    updateDatabaseInfo();
-  }
+      description = "List all the active connections to the server",
+      onlineHelp = "Console-Command-List-Connections")
+  public void listConnections() {
+    checkForRemoteServer();
+    var remote = (YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+        (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB);
+    final var serverInfo =
+        remote.getServerInfo(currentDatabaseUserName, currentDatabaseUserPassword);
+    List<RawPair<RID, Object>> resultSet = new ArrayList<>();
 
-  @ConsoleCommand(
-      description =
-          "Remove a collection in the current database. The collection can be physical or memory")
-  public void dropCollection(
-      @ConsoleParameter(
-          name = "collection-name",
-          description = "The name or the id of the collection to remove")
-      String iCollectionName) {
-    checkForDatabase();
-
-    message("\nDropping collection [" + iCollectionName + "] in database " + currentDatabaseName
-        + "...");
-
-    var result = currentDatabaseSession.dropCollection(iCollectionName);
-
-    if (!result) {
-      // TRY TO GET AS COLLECTION ID
-      try {
-        var collectionId = Integer.parseInt(iCollectionName);
-        if (collectionId > -1) {
-          result = currentDatabaseSession.dropCollection(collectionId);
-        }
-      } catch (Exception ignored) {
+    @SuppressWarnings("unchecked") final var connections = (List<Map<String, Object>>) serverInfo.get(
+        "connections");
+    for (var conn : connections) {
+      var commandDetail = new StringBuilder();
+      var commandInfo = (String) conn.get("commandInfo");
+      if (commandInfo != null) {
+        commandDetail.append(commandInfo);
       }
+
+      if (((String) conn.get("commandDetail")).length() > 1) {
+        commandDetail.append(" (").append(conn.get("commandDetail")).append(")");
+      }
+
+      var row = Map.of(
+          "ID",
+          conn.get("connectionId"),
+          "REMOTE_ADDRESS",
+          conn.get("remoteAddress"),
+          "PROTOC",
+          conn.get("protocol"),
+          "LAST_OPERATION_ON",
+          conn.get("lastCommandOn"),
+          "DATABASE",
+          conn.get("db"),
+          "USER",
+          conn.get("user"),
+          "COMMAND",
+          commandDetail.toString(),
+          "TOT_REQS",
+          conn.get("totalRequests"));
+
+      resultSet.add(new RawPair<>(new ChangeableRecordId(), row));
     }
 
-    if (result) {
-      message("\nCollection correctly removed");
-    } else {
-      message("\nCannot find the collection to remove");
-    }
-    updateDatabaseInfo();
-  }
+    resultSet.sort((o1, o2) -> {
+      @SuppressWarnings("unchecked") final var o1s = ((Map<String, String>) o1.second()).get(
+          "LAST_OPERATION_ON");
+      @SuppressWarnings("unchecked") final var o2s = ((Map<String, String>) o2.second()).get(
+          "LAST_OPERATION_ON");
+      return o2s.compareTo(o1s);
+    });
 
-  @ConsoleCommand(
-      splitInWords = false,
-      description =
-          "Alters a collection in the current database. The collection can be physical or memory")
-  public void alterCollection(
-      @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText) {
-    sqlCommand("alter", iCommandText, "\nCollection updated successfully.\n", false);
-    updateDatabaseInfo();
+    final var formatter = new TableFormatter(this);
+    formatter.setMaxWidthSize(getConsoleWidth());
+    formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
+
+    formatter.writeRecords(resultSet, -1, currentDatabaseSession);
+
+    out.println();
   }
 
   @ConsoleCommand(description = "Begins a transaction. All the changes will remain local")
   public void begin() throws IOException {
     checkForDatabase();
 
-    if (currentDatabaseSession.getTransactionInternal().isActive()) {
-      message(
-          "\nError: an active transaction is currently open (id="
-              + currentDatabaseSession.getTransactionInternal().getId()
-              + "). Commit or rollback before starting a new one.");
-      return;
-    }
-
-    currentDatabaseSession.begin();
+    var result = currentDatabaseSession.execute("begin").findFirst();
     message(
-        "\nTransaction " + currentDatabaseSession.getTransactionInternal().getId() + " is running");
+        "\nTransaction " + result.getLong("txId") + " is running");
   }
 
   @ConsoleCommand(description = "Commits transaction changes to the database")
   public void commit() throws IOException {
     checkForDatabase();
 
-    if (!currentDatabaseSession.getTransactionInternal().isActive()) {
-      message("\nError: no active transaction is currently open.");
-      return;
-    }
-
     final var begin = System.currentTimeMillis();
 
-    final var txId = currentDatabaseSession.getTransactionInternal().getId();
-    currentDatabaseSession.commit();
+    var result = currentDatabaseSession.execute("commit").findFirst();
+    var txId = result.getLong("txId");
+    var activeTxCount = result.getInt("activeTxCount");
 
-    message(
-        "\nTransaction "
-            + txId
-            + " has been committed in "
-            + (System.currentTimeMillis() - begin)
-            + "ms");
+    if (activeTxCount == 0) {
+      message(
+          "\nTransaction "
+              + txId
+              + " has been committed in "
+              + (System.currentTimeMillis() - begin)
+              + "ms");
+    } else {
+      message(
+          "\nNested transaction "
+              + txId
+              + " has been committed in "
+              + (System.currentTimeMillis() - begin)
+              + "ms. There are " + activeTxCount + " nested transactions running.");
+    }
   }
 
   @ConsoleCommand(description = "Rolls back transaction changes to the previous state")
   public void rollback() throws IOException {
     checkForDatabase();
 
-    if (!currentDatabaseSession.getTransactionInternal().isActive()) {
-      message("\nError: no active transaction is running right now.");
-      return;
-    }
-
     final var begin = System.currentTimeMillis();
 
-    final var txId = currentDatabaseSession.getTransactionInternal().getId();
-    currentDatabaseSession.rollback();
+    var result = currentDatabaseSession.execute("rollback").findFirst();
+    var txId = result.getLong("txId");
+
     message(
         "\nTransaction "
             + txId
@@ -727,19 +676,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("update", iCommandText, "\nUpdated record(s) '%s' in %f sec(s).\n", true);
-    updateDatabaseInfo();
-    currentDatabaseSession.getLocalCache().invalidate();
   }
 
-  @ConsoleCommand(
-      splitInWords = false,
-      description = "High Availability commands",
-      onlineHelp = "SQL-HA")
-  public void ha(
-      @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText) {
-    sqlCommand("ha", iCommandText, "\nExecuted '%s' in %f sec(s).\n", true);
-  }
 
   @ConsoleCommand(
       splitInWords = false,
@@ -775,8 +713,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("delete", iCommandText, "\nDelete record(s) '%s' in %f sec(s).\n", true);
-    updateDatabaseInfo();
-    currentDatabaseSession.getLocalCache().invalidate();
   }
 
   @ConsoleCommand(
@@ -825,87 +761,72 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("alter", iCommandText, "\nDatabase updated successfully.\n", false);
-    updateDatabaseInfo();
   }
 
-//  @ConsoleCommand(
-//      description = "Freeze database and flush on the disk",
-//      onlineHelp = "Console-Command-Freeze-Database")
-//  public void freezeDatabase(
-//      @ConsoleParameter(
-//          name = "storage-type",
-//          description = "Storage type of server database",
-//          optional = true)
-//      String storageType)
-//      throws IOException {
-//    checkForDatabase();
-//
-//    final var dbName = currentDatabaseSession.getDatabaseName();
-//
-//    if (currentDatabaseSession.isRemote()) {
-//      if (storageType == null) {
-//        storageType = "disk";
-//      }
-//
-//      new ServerAdmin(currentDatabaseSession.getURL())
-//          .connect(currentDatabaseUserName, currentDatabaseUserPassword)
-//          .freezeDatabase(storageType);
-//    } else {
-//      // LOCAL CONNECTION
-//      currentDatabaseSession.freeze();
-//    }
-//
-//    message("\n\nDatabase '" + dbName + "' was frozen successfully");
-//  }
+  @ConsoleCommand(
+      description = "Freeze database and flush on the disk",
+      onlineHelp = "Console-Command-Freeze-Database")
+  public void freezeDatabase(
+      @ConsoleParameter(
+          name = "storage-type",
+          description = "Storage type of server database",
+          optional = true)
+      String storageType) {
+    checkForDatabase();
 
-//  @ConsoleCommand(
-//      description = "Release database after freeze",
-//      onlineHelp = "Console-Command-Release-Db")
-//  public void releaseDatabase(
-//      @ConsoleParameter(
-//          name = "storage-type",
-//          description = "Storage type of server database",
-//          optional = true)
-//      String storageType)
-//      throws IOException {
-//    checkForDatabase();
-//
-//    final var dbName = currentDatabaseSession.getDatabaseName();
-//
-//    if (currentDatabaseSession.isRemote()) {
-//      if (storageType == null) {
-//        storageType = "disk";
-//      }
-//
-//      new ServerAdmin(currentDatabaseSession.getURL())
-//          .connect(currentDatabaseUserName, currentDatabaseUserPassword)
-//          .releaseDatabase(storageType);
-//    } else {
-//      // LOCAL CONNECTION
-//      currentDatabaseSession.release();
-//    }
-//
-//    message("\n\nDatabase '" + dbName + "' was released successfully");
-//  }
+    final var dbName = currentDatabaseSession.getDatabaseName();
+    if (currentEmbeddedDatabaseSession != null) {
+      currentDatabaseSession.freeze();
+    } else {
+      var youTrackDBInternalRemoteImpl = (YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+          (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB);
+      youTrackDBInternalRemoteImpl.freezeDatabase(dbName, currentDatabaseUserName,
+          currentDatabaseUserPassword);
+    }
+    message("\n\nDatabase '" + dbName + "' was frozen successfully");
+  }
 
-//  @ConsoleCommand(description = "Flushes all database content to the disk")
-//  public void flushDatabase(
-//      @ConsoleParameter(
-//          name = "storage-type",
-//          description = "Storage type of server database",
-//          optional = true)
-//      String storageType)
-//      throws IOException {
-//    freezeDatabase(storageType);
-//    releaseDatabase(storageType);
-//  }
+  @ConsoleCommand(
+      description = "Release database after freeze",
+      onlineHelp = "Console-Command-Release-Db")
+  public void releaseDatabase(
+      @ConsoleParameter(
+          name = "storage-type",
+          description = "Storage type of server database",
+          optional = true)
+      String storageType) {
+    checkForDatabase();
+    final var dbName = currentDatabaseSession.getDatabaseName();
+
+    if (currentEmbeddedDatabaseSession != null) {
+      // LOCAL CONNECTION
+      currentDatabaseSession.release();
+    } else {
+      var youTrackDBInternalRemoteImpl = (YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+          (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB);
+      youTrackDBInternalRemoteImpl.releaseDatabase(dbName, currentDatabaseUserName,
+          currentDatabaseUserPassword);
+    }
+
+    message("\n\nDatabase '" + dbName + "' was released successfully");
+  }
+
+  @ConsoleCommand(description = "Flushes all database content to the disk")
+  public void flushDatabase(
+      @ConsoleParameter(
+          name = "storage-type",
+          description = "Storage type of server database",
+          optional = true)
+      String storageType) {
+    freezeDatabase(storageType);
+    releaseDatabase(storageType);
+  }
 
   @ConsoleCommand(splitInWords = false, description = "Alter a class in the database schema")
   public void alterClass(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("alter", iCommandText, "\nClass updated successfully.\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -916,7 +837,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("create", iCommandText, "\nClass created successfully.\n", true);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(splitInWords = false, description = "Create a sequence in the database")
@@ -924,7 +844,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("create", iCommandText, "\nSequence created successfully.\n", true);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(splitInWords = false, description = "Alter an existent sequence in the database")
@@ -932,7 +851,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("alter", iCommandText, "\nSequence altered successfully.\n", true);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(splitInWords = false, description = "Remove a sequence from the database")
@@ -940,7 +858,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("drop", iCommandText, "Sequence removed successfully.\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -951,7 +868,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("create", iCommandText, "\nUser created successfully.\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(splitInWords = false, description = "Drop a user", onlineHelp = "SQL-Drop-User")
@@ -959,7 +875,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("drop", iCommandText, "\nUser dropped successfully.\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -970,7 +885,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("alter", iCommandText, "\nProperty updated successfully.\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -981,7 +895,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("create", iCommandText, "\nProperty created successfully.\n", true);
-    updateDatabaseInfo();
   }
 
   /**
@@ -997,7 +910,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
       String iCommandText) {
     sqlCommand("create", iCommandText, "\nFunction created successfully with id=%s.\n", true);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -1069,7 +981,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       while (rs.hasNext()) {
         var item = rs.next();
         if (item.isBlob()) {
-          result.add(new RawPair<>(item.getIdentity(), item.asBlob().toStream()));
+          result.add(new RawPair<>(item.getIdentity(), item.asBlob()));
         } else {
           result.add(new RawPair<>(item.getIdentity(), item.toMap()));
         }
@@ -1320,58 +1232,52 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\n\nCreating index...");
 
     sqlCommand("create", iCommandText, "\nCreated index successfully in %f sec(s).\n", false);
-    updateDatabaseInfo();
     message("\n\nIndex created successfully");
   }
 
   @ConsoleCommand(
       description = "Delete the current database",
       onlineHelp = "Console-Command-Drop-Database")
+  public void dropDatabase()
+      throws IOException {
+    checkForDatabase();
+
+    final var dbName = currentDatabaseSession.getDatabaseName();
+    currentDatabaseSession.close();
+    currentDatabaseSession = null;
+
+    if (currentEmbeddedDatabaseSession != null) {
+      currentEmbeddedDatabaseSession.close();
+      currentEmbeddedDatabaseSession = null;
+    }
+
+    basicYouTrackDB.drop(dbName);
+
+    currentDatabaseName = null;
+    message("\n\nDatabase '" + dbName + "' deleted successfully");
+  }
+
+  @ConsoleCommand(
+      description = "Delete the specified database",
+      onlineHelp = "Console-Command-Drop-Database")
   public void dropDatabase(
+      @ConsoleParameter(
+          name = "database-url",
+          description = "The url of the database to drop in the format '<mode>:<path>'")
+      String iDatabaseURL,
+      @ConsoleParameter(name = "user", description = "Server administrator name") String iUserName,
+      @ConsoleParameter(name = "password", description = "Server administrator password")
+      String iUserPassword,
       @ConsoleParameter(
           name = "storage-type",
           description = "Storage type of server database",
           optional = true)
       String storageType)
       throws IOException {
-    checkForDatabase();
 
-    final var dbName = currentDatabaseSession.getDatabaseName();
-    currentDatabaseSession.close();
-    if (storageType != null
-        && !"disk".equalsIgnoreCase(storageType)
-        && !"local".equalsIgnoreCase(storageType)
-        && !"memory".equalsIgnoreCase(storageType)) {
-      message("\n\nInvalid storage type for db: '" + storageType + "'");
-      return;
-    }
-    youTrackDB.drop(dbName);
-    currentDatabaseSession = null;
-    currentDatabaseName = null;
-    message("\n\nDatabase '" + dbName + "' deleted successfully");
+    connect(iDatabaseURL, iUserName, iUserPassword);
+    dropDatabase();
   }
-
-//  @ConsoleCommand(
-//      description = "Delete the specified database",
-//      onlineHelp = "Console-Command-Drop-Database")
-//  public void dropDatabase(
-//      @ConsoleParameter(
-//          name = "database-url",
-//          description = "The url of the database to drop in the format '<mode>:<path>'")
-//      String iDatabaseURL,
-//      @ConsoleParameter(name = "user", description = "Server administrator name") String iUserName,
-//      @ConsoleParameter(name = "password", description = "Server administrator password")
-//      String iUserPassword,
-//      @ConsoleParameter(
-//          name = "storage-type",
-//          description = "Storage type of server database",
-//          optional = true)
-//      String storageType)
-//      throws IOException {
-//
-//    connect(iDatabaseURL, iUserName, iUserPassword);
-//    dropDatabase(null);
-//  }
 
   @ConsoleCommand(
       splitInWords = false,
@@ -1379,12 +1285,10 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       onlineHelp = "SQL-Drop-Index")
   public void dropIndex(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText)
-      throws IOException {
+      String iCommandText) {
     message("\n\nRemoving index...");
 
     sqlCommand("drop", iCommandText, "\nDropped index in %f sec(s).\n", false);
-    updateDatabaseInfo();
     message("\n\nIndex removed successfully");
   }
 
@@ -1394,13 +1298,11 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       onlineHelp = "SQL-Rebuild-Index")
   public void rebuildIndex(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText)
-      throws IOException {
+      String iCommandText) {
     message("\n\nRebuilding index(es)...");
 
     sqlCommand(
         "rebuild", iCommandText, "\nRebuilt index(es). Found %d link(s) in %f sec(s).\n", true);
-    updateDatabaseInfo();
     message("\n\nIndex(es) rebuilt successfully");
   }
 
@@ -1413,7 +1315,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       String iCommandText)
       throws IOException {
     sqlCommand("drop", iCommandText, "\nRemoved class in %f sec(s).\n", false);
-    updateDatabaseInfo();
   }
 
   @ConsoleCommand(
@@ -1422,753 +1323,15 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       onlineHelp = "SQL-Drop-Property")
   public void dropProperty(
       @ConsoleParameter(name = "command-text", description = "The command text to execute")
-      String iCommandText)
-      throws IOException {
+      String iCommandText) {
     sqlCommand("drop", iCommandText, "\nRemoved class property in %f sec(s).\n", false);
-    updateDatabaseInfo();
   }
-
-  @ConsoleCommand(
-      description = "Browse all records of a class",
-      onlineHelp = "Console-Command-Browse-Class")
-  public void browseClass(
-      @ConsoleParameter(name = "class-name", description = "The name of the class") final String iClassName) {
-    checkForDatabase();
-
-    resetResultSet();
-
-    final var it = currentDatabaseSession.browseClass(iClassName);
-
-    browseRecords(it);
-  }
-//
-//  @ConsoleCommand(
-//      description = "Browse all records of a collection",
-//      onlineHelp = "Console-Command-Browse-Collection")
-//  public void browseCollection(
-//      @ConsoleParameter(name = "collection-name", description = "The name of the collection") final String iCollectionName) {
-//    checkForDatabase();
-//
-//    resetResultSet();
-//
-//    final RecordIteratorCollection<?> it = currentDatabaseSession.browseCollection(iCollectionName);
-//
-//    browseRecords(it);
-//  }
-//
-//  @ConsoleCommand(
-//      aliases = {"status"},
-//      description = "Display information about the database",
-//      onlineHelp = "Console-Command-Info")
-//  public void info() {
-//    if (currentDatabaseName != null) {
-//      message(
-//          "\nCurrent database: " + currentDatabaseName + " (url=" + currentDatabaseSession.getURL()
-//              + ")");
-//
-//      currentDatabaseSession.getMetadata().reload();
-//
-//      listProperties();
-//      listCollections(null);
-//      listClasses();
-//      listIndexes();
-//    }
-//  }
-
-  @ConsoleCommand(description = "Display the database properties")
-  public void listProperties() {
-    if (currentDatabaseSession == null) {
-      return;
-    }
-
-    final var dbCfg = currentDatabaseSession.getStorageInfo().getConfiguration();
-
-    message("\n\nDATABASE PROPERTIES");
-
-    if (dbCfg.getProperties() != null) {
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      if (dbCfg.getName() != null) {
-        resultSet.add(new RawPair<>(null,
-            Map.of("NAME", "Name", "VALUE", dbCfg.getName())));
-      }
-
-      resultSet.add(new RawPair<>(null, Map.of("NAME", "Version"
-          , "VALUE", dbCfg.getVersion())));
-      resultSet.add(
-          new RawPair<>(null, Map.of("NAME", "Date-Format",
-              "VALUE", dbCfg.getDateFormat())));
-      resultSet.add(
-          new RawPair<>(null, Map.of("NAME", "Datetime-Format"
-              , "VALUE", dbCfg.getDateTimeFormat())));
-      resultSet.add(new RawPair<>(null, Map.of("NAME", "Timezone",
-          "VALUE", dbCfg.getTimeZone().getID())));
-      resultSet.add(new RawPair<>(null, Map.of("NAME", "Locale-Country",
-          "VALUE", dbCfg.getLocaleCountry())));
-      resultSet.add(new RawPair<>(null, Map.of("NAME", "Locale-Language",
-          "VALUE", dbCfg.getLocaleLanguage())));
-      resultSet.add(new RawPair<>(null, Map.of("NAME", "Charset"
-          , "VALUE", dbCfg.getCharset())));
-      resultSet.add(new RawPair<>(null,
-          Map.of("NAME", "Schema-RID", "VALUE", dbCfg.getSchemaRecordId())));
-      resultSet.add(
-          new RawPair<>(null,
-              Map.of("NAME", "Index-Manager-RID", "VALUE", dbCfg.getIndexMgrRecordId())));
-
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-
-      message("\n");
-
-      if (!dbCfg.getProperties().isEmpty()) {
-        message("\n\nDATABASE CUSTOM PROPERTIES:");
-
-        final List<RawPair<RID, Object>> dbResultSet = new ArrayList<>();
-        for (var cfg : dbCfg.getProperties()) {
-          dbResultSet.add(
-              new RawPair<>(null, Map.of("NAME", cfg.name, "VALUE", cfg.value)));
-        }
-
-        final var dbFormatter = new TableFormatter(this);
-        formatter.setMaxWidthSize(getConsoleWidth());
-        formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-        dbFormatter.writeRecords(dbResultSet, -1, currentDatabaseSession);
-      }
-    }
-  }
-
-  @ConsoleCommand(
-      aliases = {"desc"},
-      description = "Display a class in the schema",
-      onlineHelp = "Console-Command-Info-Class")
-  public void infoClass(
-      @ConsoleParameter(name = "class-name", description = "The name of the class") final String iClassName) {
-    checkForDatabase();
-
-    currentDatabaseSession.getMetadata().reload();
-
-    final var cls =
-        currentDatabaseSession.getMetadata().getImmutableSchemaSnapshot()
-            .getClassInternal(iClassName);
-
-    if (cls == null) {
-      message(
-          "\n! Class '"
-              + iClassName
-              + "' does not exist in the database '"
-              + currentDatabaseName
-              + "'");
-      return;
-    }
-
-    message("\nCLASS '" + cls.getName() + "'\n");
-
-    final var count = currentDatabaseSession.countClass(cls.getName(), false);
-    message("\nRecords..............: " + count);
-
-    if (cls.hasSuperClasses()) {
-      message("\nSuper classes........: " + Arrays.toString(
-          cls.getSuperClassesNames().toArray()));
-    }
-
-    message(
-        "\nDefault collection......: "
-            + currentDatabaseSession.getCollectionNameById(
-            cls.getCollectionIds()[0])
-            + " (id="
-            + cls.getCollectionIds()[0]
-            + ")");
-
-    final var collections = new StringBuilder();
-    for (var clId : cls.getCollectionIds()) {
-      if (!collections.isEmpty()) {
-        collections.append(", ");
-      }
-
-      collections.append(currentDatabaseSession.getCollectionNameById(clId));
-      collections.append("(");
-      collections.append(clId);
-      collections.append(")");
-    }
-
-    message("\nSupported collections...: " + collections);
-    if (!cls.getSubclasses().isEmpty()) {
-      message("\nSubclasses.........: ");
-      var i = 0;
-      for (var c : cls.getSubclasses()) {
-        if (i > 0) {
-          message(", ");
-        }
-        message(c.getName());
-        ++i;
-      }
-      out.println();
-    }
-
-    if (!cls.getProperties().isEmpty()) {
-      message("\n\nPROPERTIES");
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      for (final var p : cls.getProperties()) {
-        try {
-          var row = new HashMap<>();
-          resultSet.add(new RawPair<>(null, row));
-
-          row.put("NAME", p.getName());
-          row.put("TYPE", p.getType());
-          row.put(
-              "LINKED-TYPE/CLASS",
-              p.getLinkedClass() != null ? p.getLinkedClass(
-              )
-                  : p.getLinkedType());
-          row.put("MANDATORY", p.isMandatory());
-          row.put("READONLY", p.isReadonly());
-          row.put("NOT-NULL", p.isNotNull());
-          row.put("MIN",
-              p.getMin() != null ? p.getMin() : "");
-          row.put("MAX",
-              p.getMax() != null ? p.getMax() : "");
-          row.put("COLLATE",
-              p.getCollate() != null ? p.getCollate()
-                  .getName() : "");
-          row.put("DEFAULT",
-              p.getDefaultValue() != null ? p.getDefaultValue(
-              ) : "");
-
-        } catch (Exception ignored) {
-        }
-      }
-
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-    }
-
-    final var indexes = cls.getClassIndexes();
-    if (!indexes.isEmpty()) {
-      message("\n\nINDEXES (" + indexes.size() + " altogether)");
-
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      for (final var index : indexes) {
-        var row = new HashMap<>();
-        resultSet.add(new RawPair<>(null, row));
-
-        row.put("NAME", index);
-      }
-
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-    }
-
-    if (!cls.getCustomKeys().isEmpty()) {
-      message("\n\nCUSTOM ATTRIBUTES");
-
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      for (final var k : cls.getCustomKeys()) {
-        try {
-          var row = new HashMap<>();
-          resultSet.add(new RawPair<>(null, row));
-
-          row.put("NAME", k);
-          row.put("VALUE", cls.getCustom(k));
-
-        } catch (Exception ignored) {
-          // IGNORED
-        }
-      }
-
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-    }
-  }
-
-  @ConsoleCommand(
-      description = "Display a class property",
-      onlineHelp = "Console-Command-Info-Property")
-  public void infoProperty(
-      @ConsoleParameter(
-          name = "property-name",
-          description = "The name of the property as <class>.<property>") final String iPropertyName) {
-    checkForDatabase();
-
-    if (iPropertyName.indexOf('.') == -1) {
-      throw new SystemException("Property name is in the format <class>.<property>");
-    }
-
-    final var parts = iPropertyName.split("\\.");
-
-    final var cls =
-        currentDatabaseSession.getMetadata().getImmutableSchemaSnapshot()
-            .getClassInternal(parts[0]);
-
-    if (cls == null) {
-      message(
-          "\n! Class '"
-              + parts[0]
-              + "' does not exist in the database '"
-              + currentDatabaseName
-              + "'");
-      return;
-    }
-
-    var prop = cls.getPropertyInternal(parts[1]);
-
-    if (prop == null) {
-      message("\n! Property '" + parts[1] + "' does not exist in class '" + parts[0] + "'");
-      return;
-    }
-
-    message("\nPROPERTY '" + prop.getFullName() + "'\n");
-    message("\nType.................: " + prop.getType());
-    message("\nMandatory............: " + prop.isMandatory());
-    message("\nNot null.............: " + prop.isNotNull());
-    message("\nRead only............: " + prop.isReadonly());
-    message("\nDefault value........: " + prop.getDefaultValue());
-    message("\nMinimum value........: " + prop.getMin());
-    message("\nMaximum value........: " + prop.getMax());
-    message("\nREGEXP...............: " + prop.getRegexp());
-    message("\nCollate..............: " + prop.getCollate());
-    message("\nLinked class.........: " + prop.getLinkedClass());
-    message("\nLinked type..........: " + prop.getLinkedType());
-
-    if (!prop.getCustomKeys().isEmpty()) {
-      message("\n\nCUSTOM ATTRIBUTES");
-
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      for (final var k : prop.getCustomKeys()) {
-        try {
-          var row = new HashMap<>();
-          resultSet.add(new RawPair<>(null, row));
-
-          row.put("NAME", k);
-          row.put("VALUE", prop.getCustom(k));
-
-        } catch (Exception ignored) {
-        }
-      }
-
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-    }
-
-    final var indexes = prop.getAllIndexes();
-    if (!indexes.isEmpty()) {
-      message("\n\nINDEXES (" + indexes.size() + " altogether)");
-
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      for (final var index : indexes) {
-        var row = new HashMap<>();
-        resultSet.add(new RawPair<>(null, row));
-
-        row.put("NAME", index);
-      }
-      final var formatter = new TableFormatter(this);
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-    }
-  }
-
-//  @ConsoleCommand(
-//      description = "Display all indexes",
-//      aliases = {"indexes"},
-//      onlineHelp = "Console-Command-List-Indexes")
-//  public void listIndexes() {
-//    if (currentDatabaseName != null) {
-//      message("\n\nINDEXES");
-//
-//      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-//
-//      var totalIndexes = 0;
-//      long totalRecords = 0;
-//
-//      final List<Index> indexes =
-//          new ArrayList<Index>(
-//              currentDatabaseSession.getSharedContext().getIndexManager().getIndexes(
-//                  currentDatabaseSession));
-//      indexes.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
-//
-//      long totalIndexedRecords = 0;
-//
-//      for (final var index : indexes) {
-//        var row = new HashMap<String, Object>();
-//        resultSet.add(new RawPair<>(null, row));
-//
-//        final var indexSize = index.getSize(
-//            currentDatabaseSession); // getInternal doesn't work in remote...
-//        totalIndexedRecords += indexSize;
-//
-//        row.put("NAME", index.getName());
-//        row.put("TYPE", index.getType());
-//        row.put("RECORDS", indexSize);
-//        try {
-//          final var indexDefinition = index.getDefinition();
-//          final var size = index.size(currentDatabaseSession);
-//          if (indexDefinition != null) {
-//            row.put("CLASS", indexDefinition.getClassName());
-//            row.put("COLLATE", indexDefinition.getCollate().getName());
-//
-//            final var fields = indexDefinition.getFields();
-//            final var buffer = new StringBuilder();
-//            for (var i = 0; i < fields.size(); ++i) {
-//              if (!buffer.isEmpty()) {
-//                buffer.append(",");
-//              }
-//
-//              buffer.append(fields.get(i));
-//              buffer.append("(");
-//              buffer.append(indexDefinition.getTypes()[i]);
-//              buffer.append(")");
-//            }
-//
-//            row.put("FIELDS", buffer.toString());
-//          }
-//
-//          totalIndexes++;
-//          totalRecords += size;
-//        } catch (Exception ignored) {
-//        }
-//      }
-//
-//      final var formatter = new TableFormatter(this);
-//      formatter.setMaxWidthSize(getConsoleWidth());
-//      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-//
-//      formatter.setColumnAlignment("RECORDS", TableFormatter.ALIGNMENT.RIGHT);
-//
-//      var footer = Map.of("NAME", "TOTAL",
-//          "RECORDS", String.valueOf(totalIndexedRecords));
-//      formatter.setFooter(footer);
-//
-//      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-//
-//    } else {
-//      message("\nNo database selected yet.");
-//    }
-//  }
-
-//  @ConsoleCommand(
-//      description = "Display all the configured collections",
-//      aliases = {"collections"},
-//      onlineHelp = "Console-Command-List-Collections")
-//  public void listCollections(
-//      @ConsoleParameter(
-//          name = "[options]",
-//          optional = true,
-//          description = "Additional options, example: -v=verbose") final String options) {
-//    final var commandOptions = parseCommandOptions(options);
-//
-//    if (currentDatabaseName != null) {
-//      message("\n\nCOLLECTIONS (collections)");
-//
-//      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-//
-//      int collectionId;
-//      long totalElements = 0;
-//      long totalSpaceUsed = 0;
-//      long totalTombstones = 0;
-//      long count;
-//
-//      final List<String> collections = new ArrayList<>(currentDatabaseSession.getCollectionNames());
-//      Collections.sort(collections);
-//
-//      final var isRemote = currentDatabaseSession.isRemote();
-//      for (var collectionName : collections) {
-//        try {
-//          var row = new HashMap<String, Object>();
-//          resultSet.add(new RawPair<>(null, row));
-//
-//          collectionId = currentDatabaseSession.getCollectionIdByName(collectionName);
-//
-//          final var conflictStrategy =
-//              Optional.ofNullable(
-//                      currentDatabaseSession.getCollectionRecordConflictStrategy(collectionId))
-//                  .orElse("");
-//
-//          count = currentDatabaseSession.countCollectionElements(collectionName);
-//          totalElements += count;
-//
-//          final var cls =
-//              currentDatabaseSession
-//                  .getMetadata()
-//                  .getImmutableSchemaSnapshot()
-//                  .getClassByCollectionId(collectionId);
-//          final var className = Optional.ofNullable(cls)
-//              .map(schemaClass -> schemaClass.getName())
-//              .orElse(null);
-//
-//          row.put("NAME", collectionName);
-//          row.put("ID", collectionId);
-//          row.put("CLASS", className);
-//          row.put("COUNT", count);
-//        } catch (Exception e) {
-//          if (e instanceof YTIOException) {
-//            break;
-//          }
-//          throw e;
-//        }
-//      }
-//
-//      final var formatter = new TableFormatter(this);
-//      formatter.setMaxWidthSize(getConsoleWidth());
-//      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-//
-//      formatter.setColumnAlignment("ID", TableFormatter.ALIGNMENT.RIGHT);
-//      formatter.setColumnAlignment("COUNT", TableFormatter.ALIGNMENT.RIGHT);
-//
-//      var footer = new HashMap<String, String>();
-//      footer.put("NAME", "TOTAL");
-//      footer.put("COUNT", String.valueOf(totalElements));
-//      formatter.setFooter(footer);
-//
-//      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-//
-//      message("\n");
-//
-//    } else {
-//      message("\nNo database selected yet.");
-//    }
-//  }
-
-  @ConsoleCommand(
-      description = "Display all the configured classes",
-      aliases = {"classes"},
-      onlineHelp = "Console-Command-List-Classes")
-  public void listClasses() {
-    if (currentDatabaseName != null) {
-      message("\n\nCLASSES");
-
-      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-      long totalElements = 0;
-      long count;
-
-      currentDatabaseSession.getMetadata().reload();
-      final List<SchemaClass> classes =
-          new ArrayList<>(
-              currentDatabaseSession.getMetadata().getImmutableSchemaSnapshot()
-                  .getClasses());
-      classes.sort(
-          (o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName(
-          )));
-
-      for (var cls : classes) {
-        try {
-          final var row = new HashMap<String, Object>();
-          resultSet.add(new RawPair<>(null, row));
-
-          final var collections = new StringBuilder(1024);
-          if (cls.isAbstract()) {
-            collections.append("-");
-          } else {
-            var collectionIds = cls.getCollectionIds();
-            for (var i = 0; i < collectionIds.length; ++i) {
-              if (i > 0) {
-                collections.append(",");
-              }
-
-              collections.append(currentDatabaseSession.getCollectionNameById(collectionIds[i]));
-              collections.append("(");
-              collections.append(collectionIds[i]);
-              collections.append(")");
-            }
-          }
-
-          count = currentDatabaseSession.countClass(cls.getName(), false);
-          totalElements += count;
-
-          final var superClasses =
-              cls.hasSuperClasses() ? Arrays.toString(
-                  cls.getSuperClassesNames().toArray()) : "";
-
-          row.put("NAME", cls.getName());
-          row.put("SUPER-CLASSES", superClasses);
-          row.put("COLLECTIONS", collections);
-          row.put("COUNT", count);
-
-        } catch (Exception ignored) {
-          // IGNORED
-        }
-      }
-
-      final var formatter = new TableFormatter(this);
-
-      formatter.setMaxWidthSize(getConsoleWidth());
-      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-
-      formatter.setColumnAlignment("COUNT", TableFormatter.ALIGNMENT.RIGHT);
-
-      var footer = new HashMap<String, String>();
-      footer.put("NAME", "TOTAL");
-      footer.put("COUNT", String.valueOf(totalElements));
-      formatter.setFooter(footer);
-
-      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-
-      message("\n");
-
-    } else {
-      message("\nNo database selected yet.");
-    }
-  }
-
-  @ConsoleCommand(description = "Check database integrity", splitInWords = false)
-  public void checkDatabase(
-      @ConsoleParameter(name = "options", description = "Options: -v", optional = true) final String iOptions)
-      throws IOException {
-    checkForDatabase();
-
-    if (currentDatabaseSession.getStorage().isRemote()) {
-      message("\nCannot check integrity of non-local database. Connect to it using local mode.");
-      return;
-    }
-
-    var verbose = iOptions != null && iOptions.contains("-v");
-
-    message("\nChecking storage.");
-    try {
-      ((AbstractStorage) currentDatabaseSession.getStorage()).check(verbose, this);
-    } catch (DatabaseImportException e) {
-      printError(e);
-    }
-  }
-
-//  @ConsoleCommand(description = "Repair database structure", splitInWords = false)
-//  public void repairDatabase(
-//      @ConsoleParameter(
-//          name = "options",
-//          description =
-//              "Options: [--fix-graph] [--force-embedded-ridbags] [--fix-links] [-v]]"
-//                  + " [--fix-ridbags] [--fix-bonsai]",
-//          optional = true)
-//      String iOptions)
-//      throws IOException {
-//    checkForDatabase();
-//    final var force_embedded =
-//        iOptions == null || iOptions.contains("--force-embedded-ridbags");
-//    final var fix_graph = iOptions == null || iOptions.contains("--fix-graph");
-//    if (force_embedded) {
-//      GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(Integer.MAX_VALUE);
-//      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(Integer.MAX_VALUE);
-//    }
-//    if (fix_graph || force_embedded) {
-//      // REPAIR GRAPH
-//      final var options = parseOptions(iOptions);
-//      new GraphRepair().repair(currentDatabaseSession, this, options);
-//    }
-//
-//    final var fix_links = iOptions == null || iOptions.contains("--fix-links");
-//    if (fix_links) {
-//      // REPAIR DATABASE AT LOW LEVEL
-//      var verbose = iOptions != null && iOptions.contains("-v");
-//
-//      new DatabaseRepair(currentDatabaseSession)
-//          .setDatabaseSession(currentDatabaseSession)
-//          .setOutputListener(
-//              new CommandOutputListener() {
-//                @Override
-//                public void onMessage(String iText) {
-//                  message(iText);
-//                }
-//              })
-//          .setVerbose(verbose)
-//          .run();
-//    }
-//
-//    if (!currentDatabaseSession.getURL().startsWith("disk")) {
-//      message("\n fix-bonsai can be run only on disk connection \n");
-//      return;
-//    }
-//
-//    final var fix_ridbags = iOptions == null || iOptions.contains("--fix-ridbags");
-//    final var fix_bonsai = iOptions == null || iOptions.contains("--fix-bonsai");
-//    if (fix_ridbags || fix_bonsai || force_embedded) {
-//      var repairer = new BonsaiTreeRepair();
-//      BonsaiTreeRepair.repairDatabaseRidbags(currentDatabaseSession, this);
-//    }
-//  }
-
-//  @ConsoleCommand(description = "Compare two databases")
-//  public void compareDatabases(
-//      @ConsoleParameter(name = "db1-url", description = "URL of the first database") final String iDb1URL,
-//      @ConsoleParameter(name = "db2-url", description = "URL of the second database") final String iDb2URL,
-//      @ConsoleParameter(name = "username", description = "User name", optional = false) final String iUserName,
-//      @ConsoleParameter(name = "password", description = "User password", optional = false) final String iUserPassword,
-//      @ConsoleParameter(
-//          name = "detect-mapping-data",
-//          description =
-//              "Whether RID mapping data after DB import should be tried to found on the disk",
-//          optional = true)
-//      String autoDiscoveringMappingData)
-//      throws IOException {
-//    var firstUrl = URLHelper.parseNew(iDb1URL);
-//    var secondUrl = URLHelper.parseNew(iDb2URL);
-//    YouTrackDB firstContext =
-//        new YouTrackDBImpl(
-//            firstUrl.getType() + ":" + firstUrl.getPath(),
-//            iUserName,
-//            iUserPassword,
-//            YouTrackDBConfig.defaultConfig());
-//    YouTrackDB secondContext;
-//    if (!firstUrl.getType().equals(secondUrl.getType())
-//        || !firstUrl.getPath().equals(secondUrl.getPath())) {
-//      secondContext =
-//          new YouTrackDBImpl(
-//              secondUrl.getType() + ":" + secondUrl.getPath(),
-//              iUserName,
-//              iUserPassword,
-//              YouTrackDBConfig.defaultConfig());
-//    } else {
-//      secondContext = firstContext;
-//    }
-//    try (var firstDB =
-//        (DatabaseSessionInternal)
-//            firstContext.open(firstUrl.getDbName(), iUserName, iUserPassword)) {
-//
-//      try (var secondDB =
-//          (DatabaseSessionInternal)
-//              secondContext.open(secondUrl.getDbName(), iUserName, iUserPassword)) {
-//        final var compare = new DatabaseCompare(firstDB, secondDB, this);
-//
-//        compare.setAutoDetectExportImportMap(
-//            autoDiscoveringMappingData == null || Boolean.parseBoolean(autoDiscoveringMappingData));
-//        compare.setCompareIndexMetadata(true);
-//        compare.compare();
-//      } catch (DatabaseExportException e) {
-//        printError(e);
-//      }
-//    }
-//    firstContext.close();
-//    secondContext.close();
-//  }
 
   @ConsoleCommand(
       description = "Load a sql script into the current database",
-      splitInWords = true,
       onlineHelp = "Console-Command-Load-Script")
   public void loadScript(
-      @ConsoleParameter(name = "scripPath", description = "load script scriptPath") final String scriptPath)
-      throws IOException {
+      @ConsoleParameter(name = "scripPath", description = "load script scriptPath") final String scriptPath) {
 
     checkForDatabase();
 
@@ -2179,53 +1342,53 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     message("\nLoaded script " + scriptPath);
   }
 
-//  @ConsoleCommand(
-//      description = "Import a database into the current one",
-//      splitInWords = false,
-//      onlineHelp = "Console-Command-Import")
-//  public void importDatabase(
-//      @ConsoleParameter(name = "options", description = "Import options") final String text)
-//      throws IOException {
-//    checkForDatabase();
-//
-//    message("\nImporting database " + text + "...");
-//
-//    final var items = StringSerializerHelper.smartSplit(text, ' ');
-//    final var fileName =
-//        items.size() <= 0 || (items.get(1)).charAt(0) == '-' ? null : items.get(1);
-//    final var options =
-//        fileName != null
-//            ? text.substring((items.get(0)).length() + (items.get(1)).length() + 1).trim()
-//            : text;
-//
-//    try {
-//      if (currentDatabaseSession.isRemote()) {
-//        var databaseImport =
-//            new DatabaseImportRemote(currentDatabaseSession, fileName, this);
-//
-//        databaseImport.setOptions(options);
-//        databaseImport.importDatabase();
-//        databaseImport.close();
-//
-//      } else {
-//        var databaseImport = new DatabaseImport(currentDatabaseSession, fileName, this);
-//
-//        databaseImport.setOptions(options);
-//        databaseImport.importDatabase();
-//        databaseImport.close();
-//      }
-//    } catch (DatabaseImportException e) {
-//      printError(e);
-//    }
-//  }
+  @ConsoleCommand(
+      description = "Import a database into the current one",
+      splitInWords = false,
+      onlineHelp = "Console-Command-Import")
+  public void importDatabase(
+      @ConsoleParameter(name = "options", description = "Import options") final String text)
+      throws IOException {
+    checkForDatabase();
+
+    message("\nImporting database " + text + "...");
+
+    final var items = StringSerializerHelper.smartSplit(text, ' ');
+    final var fileName =
+        items.size() <= 0 || (items.get(1)).charAt(0) == '-' ? null : items.get(1);
+    final var options =
+        fileName != null
+            ? text.substring((items.get(0)).length() + (items.get(1)).length() + 1).trim()
+            : text;
+
+    try {
+      if (currentEmbeddedDatabaseSession == null) {
+        var databaseImport =
+            new DatabaseImportRemote((DatabaseSessionRemote) currentDatabaseSession, fileName,
+                this);
+
+        databaseImport.setOptions(options);
+        databaseImport.importDatabase();
+        databaseImport.close();
+
+      } else {
+        var databaseImport = new DatabaseImport(currentEmbeddedDatabaseSession, fileName, this);
+
+        databaseImport.setOptions(options);
+        databaseImport.importDatabase();
+        databaseImport.close();
+      }
+    } catch (DatabaseImportException e) {
+      printError(e);
+    }
+  }
 
   @ConsoleCommand(
       description = "Backup a database",
       splitInWords = false,
       onlineHelp = "Console-Command-Backup")
   public void backupDatabase(
-      @ConsoleParameter(name = "options", description = "Backup options") final String iText)
-      throws IOException {
+      @ConsoleParameter(name = "options", description = "Backup options") final String iText) {
     checkForDatabase();
 
     final var items = StringSerializerHelper.smartSplit(iText, ' ', ' ');
@@ -2253,29 +1416,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     var compressionLevel =
         Integer.parseInt(properties.get(ConsoleProperties.BACKUP_COMPRESSION_LEVEL));
 
-    for (var i = 2; i < items.size(); ++i) {
-      final var item = items.get(i);
-      final var sep = item.indexOf('=');
-
-      final String parName;
-      final String parValue;
-      if (sep > -1) {
-        parName = item.substring(1, sep);
-        parValue = item.substring(sep + 1);
-      } else {
-        parName = item.substring(1);
-        parValue = null;
-      }
-
-      if (parName.equalsIgnoreCase("bufferSize")) {
-        bufferSize = Integer.parseInt(parValue);
-      } else if (parName.equalsIgnoreCase("compressionLevel")) {
-        compressionLevel = Integer.parseInt(parValue);
-      }
-    }
-
     final var startTime = System.currentTimeMillis();
-    String fName = null;
+    String fName;
     try {
       out.println(
           "Executing incremental backup of database '"
@@ -2294,53 +1436,148 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-//  @ConsoleCommand(
-//      description = "Export a database",
-//      splitInWords = false,
-//      onlineHelp = "Console-Command-Export")
-//  public void exportDatabase(
-//      @ConsoleParameter(name = "options", description = "Export options") final String iText)
-//      throws IOException {
-//    checkForDatabase();
-//
-//    out.println("Exporting current database to: " + iText + " in GZipped JSON format ...");
-//    final var items = StringSerializerHelper.smartSplit(iText, ' ');
-//    final var fileName =
-//        items.size() <= 1 || items.get(1).charAt(0) == '-' ? null : items.get(1);
-//    final var options =
-//        fileName != null
-//            ? iText.substring(items.get(0).length() + items.get(1).length() + 1).trim()
-//            : iText;
-//
-//    try {
-//      new DatabaseExport(currentDatabaseSession, fileName, this)
-//          .setOptions(options)
-//          .exportDatabase()
-//          .close();
-//    } catch (DatabaseExportException e) {
-//      printError(e);
-//    }
-//  }
+  @ConsoleCommand(
+      description = "Export a database",
+      splitInWords = false,
+      onlineHelp = "Console-Command-Export")
+  public void exportDatabase(
+      @ConsoleParameter(name = "options", description = "Export options") final String iText)
+      throws IOException {
+    checkForDatabase();
 
-  @ConsoleCommand(description = "Return all configured properties")
-  public void properties() {
-    message("\nPROPERTIES:");
-
-    final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-
-    for (var p : properties.entrySet()) {
-      final var row = new HashMap<>();
-      resultSet.add(new RawPair<>(null, row));
-
-      row.put("NAME", p.getKey());
-      row.put("VALUE", p.getValue());
+    if (currentEmbeddedDatabaseSession == null) {
+      error("\nExporting of database is supported only for embedded databases");
+      return;
     }
 
-    final var formatter = new TableFormatter(this);
-    formatter.setMaxWidthSize(getConsoleWidth());
-    formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
+    out.println("Exporting current database to: " + iText + " in GZipped JSON format ...");
+    final var items = StringSerializerHelper.smartSplit(iText, ' ');
+    final var fileName =
+        items.size() <= 1 || items.get(1).charAt(0) == '-' ? null : items.get(1);
+    final var options =
+        fileName != null
+            ? iText.substring(items.get(0).length() + items.get(1).length() + 1).trim()
+            : iText;
 
-    formatter.writeRecords(resultSet, -1, currentDatabaseSession);
+    try {
+      new DatabaseExport(currentEmbeddedDatabaseSession, fileName, this)
+          .setOptions(options)
+          .exportDatabase()
+          .close();
+    } catch (DatabaseExportException e) {
+      printError(e);
+    }
+  }
+
+
+  @ConsoleCommand(description = "Return the value of a configuration value")
+  public void configGet(
+      @ConsoleParameter(name = "config-name", description = "Name of the configuration") final String iConfigName) {
+    final var config = GlobalConfiguration.findByKey(iConfigName);
+    if (config == null) {
+      throw new IllegalArgumentException(
+          "Configuration variable '" + iConfigName + "' wasn't found");
+    }
+
+    final String value;
+    if (!YouTrackDBInternal.extract(
+            (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB)
+        .isEmbedded()) {
+      value =
+          ((YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+              (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB))
+              .getGlobalConfiguration(currentDatabaseUserName, currentDatabaseUserPassword, config);
+      message("\nRemote configuration: ");
+    } else {
+      value = config.getValueAsString();
+      message("\nLocal configuration: ");
+    }
+
+    out.println(iConfigName + " = " + value);
+  }
+
+  @SuppressWarnings("MethodMayBeStatic")
+  @ConsoleCommand(description = "Sleep X milliseconds")
+  public void sleep(final String iTime) {
+    try {
+      Thread.sleep(Long.parseLong(iTime));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  @ConsoleCommand(description = "Change the value of a configuration value")
+  public void configSet(
+      @ConsoleParameter(name = "config-name", description = "Name of the configuration") final String iConfigName,
+      @ConsoleParameter(name = "config-value", description = "Value to set") final String iConfigValue) {
+    final var config = GlobalConfiguration.findByKey(iConfigName);
+    if (config == null) {
+      throw new IllegalArgumentException("Configuration variable '" + iConfigName + "' not found");
+    }
+
+    if (basicYouTrackDB != null && !YouTrackDBInternal.extract(
+            (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB)
+        .isEmbedded()) {
+      ((YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+          (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB))
+          .setGlobalConfiguration(
+              currentDatabaseUserName, currentDatabaseUserPassword, config, iConfigValue);
+      message("\nRemote configuration value changed correctly");
+    } else {
+      config.setValue(iConfigValue);
+      message("\nLocal configuration value changed correctly");
+    }
+    out.println();
+  }
+
+  @ConsoleCommand(description = "Return all the configuration values")
+  public void config() throws IOException {
+    if (!YouTrackDBInternal.extract(
+            (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB)
+        .isEmbedded()) {
+      final var values =
+          ((YouTrackDBInternalRemote) YouTrackDBInternal.extract(
+              (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB))
+              .getGlobalConfigurations(currentDatabaseUserName, currentDatabaseUserPassword);
+
+      message("\nREMOTE SERVER CONFIGURATION");
+
+      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
+
+      for (var p : values.entrySet()) {
+        var row = new HashMap<String, Object>();
+        resultSet.add(new RawPair<>(null, row));
+
+        row.put("NAME", p.getKey());
+        row.put("VALUE", p.getValue());
+      }
+
+      final var formatter = new TableFormatter(this);
+      formatter.setMaxWidthSize(getConsoleWidth());
+      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
+
+      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
+
+    } else {
+      // LOCAL STORAGE
+      message("\nLOCAL SERVER CONFIGURATION");
+
+      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
+
+      for (var cfg : GlobalConfiguration.values()) {
+        var row = new HashMap<>();
+        resultSet.add(new RawPair<>(null, row));
+
+        row.put("NAME", cfg.getKey());
+        row.put("VALUE", cfg.getValue());
+      }
+
+      final var formatter = new TableFormatter(this);
+      formatter.setMaxWidthSize(getConsoleWidth());
+      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
+
+      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
+    }
 
     message("\n");
   }
@@ -2385,125 +1622,11 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-//  @ConsoleCommand(description = "Return the value of a configuration value")
-//  public void configGet(
-//      @ConsoleParameter(name = "config-name", description = "Name of the configuration") final String iConfigName)
-//      throws IOException {
-//    final var config = GlobalConfiguration.findByKey(iConfigName);
-//    if (config == null) {
-//      throw new IllegalArgumentException(
-//          "Configuration variable '" + iConfigName + "' wasn't found");
-//    }
-//
-//    final String value;
-//    if (!YouTrackDBInternal.extract(youTrackDB).isEmbedded()) {
-//      value =
-//          ((YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDB))
-//              .getGlobalConfiguration(currentDatabaseUserName, currentDatabaseUserPassword, config);
-//      message("\nRemote configuration: ");
-//    } else {
-//      value = config.getValueAsString();
-//      message("\nLocal configuration: ");
-//    }
-//    out.println(iConfigName + " = " + value);
-//  }
-
-  @SuppressWarnings("MethodMayBeStatic")
-  @ConsoleCommand(description = "Sleep X milliseconds")
-  public void sleep(final String iTime) {
-    try {
-      Thread.sleep(Long.parseLong(iTime));
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-  }
-
-//  @ConsoleCommand(description = "Change the value of a configuration value")
-//  public void configSet(
-//      @ConsoleParameter(name = "config-name", description = "Name of the configuration") final String iConfigName,
-//      @ConsoleParameter(name = "config-value", description = "Value to set") final String iConfigValue)
-//      throws IOException {
-//    final var config = GlobalConfiguration.findByKey(iConfigName);
-//    if (config == null) {
-//      throw new IllegalArgumentException("Configuration variable '" + iConfigName + "' not found");
-//    }
-//
-//    if (youTrackDB != null && !YouTrackDBInternal.extract(youTrackDB).isEmbedded()) {
-//      ((YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDB))
-//          .setGlobalConfiguration(
-//              currentDatabaseUserName, currentDatabaseUserPassword, config, iConfigValue);
-//      message("\nRemote configuration value changed correctly");
-//    } else {
-//      config.setValue(iConfigValue);
-//      message("\nLocal configuration value changed correctly");
-//    }
-//    out.println();
-//  }
-
-//  @ConsoleCommand(description = "Return all the configuration values")
-//  public void config() throws IOException {
-//    if (!YouTrackDBInternal.extract(youTrackDB).isEmbedded()) {
-//      final var values =
-//          ((YouTrackDBRemote) YouTrackDBInternal.extract(youTrackDB))
-//              .getGlobalConfigurations(currentDatabaseUserName, currentDatabaseUserPassword);
-//
-//      message("\nREMOTE SERVER CONFIGURATION");
-//
-//      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-//
-//      for (var p : values.entrySet()) {
-//        var row = new HashMap<String, Object>();
-//        resultSet.add(new RawPair<>(null, row));
-//
-//        row.put("NAME", p.getKey());
-//        row.put("VALUE", p.getValue());
-//      }
-//
-//      final var formatter = new TableFormatter(this);
-//      formatter.setMaxWidthSize(getConsoleWidth());
-//      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-//
-//      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-//
-//    } else {
-//      // LOCAL STORAGE
-//      message("\nLOCAL SERVER CONFIGURATION");
-//
-//      final List<RawPair<RID, Object>> resultSet = new ArrayList<>();
-//
-//      for (var cfg : GlobalConfiguration.values()) {
-//        var row = new HashMap<>();
-//        resultSet.add(new RawPair<>(null, row));
-//
-//        row.put("NAME", cfg.getKey());
-//        row.put("VALUE", cfg.getValue());
-//      }
-//
-//      final var formatter = new TableFormatter(this);
-//      formatter.setMaxWidthSize(getConsoleWidth());
-//      formatter.setMaxMultiValueEntries(getMaxMultiValueEntries());
-//
-//      formatter.writeRecords(resultSet, -1, currentDatabaseSession);
-//    }
-//
-//    message("\n");
-//  }
-
   /**
    * Should be used only by console commands
    */
-  public DatabaseSession getCurrentDatabaseSession() {
+  public RemoteDatabaseSession getCurrentDatabaseSession() {
     return currentDatabaseSession;
-  }
-
-  /**
-   * Pass an existent database instance to be used as current.
-   */
-  public ConsoleDatabaseApp setCurrentDatabaseSession(
-      final DatabaseSessionInternal iCurrentDatabase) {
-    currentDatabaseSession = iCurrentDatabase;
-    currentDatabaseName = iCurrentDatabase.getDatabaseName();
-    return this;
   }
 
   /**
@@ -2548,98 +1671,37 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       @ConsoleParameter(name = "user", description = "The database user") final String user,
       @ConsoleParameter(name = "password", description = "The database password") final String password) {
 
-    if (youTrackDB == null) {
+    if (basicYouTrackDB == null) {
       message("Invalid context. Please use 'connect env' first");
       return;
     }
 
-    currentDatabaseSession = (DatabaseSessionInternal) youTrackDB.open(dbName, user, password);
+    if (basicYouTrackDB instanceof YouTrackDB embeddedYouTrackDB) {
+      if (currentDatabaseSession != null) {
+        currentDatabaseSession.close();
+      }
+      if (currentEmbeddedDatabaseSession != null) {
+        currentEmbeddedDatabaseSession.close();
+      }
+
+      currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) embeddedYouTrackDB.open(dbName,
+          user,
+          password);
+      currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+    } else {
+      var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
+      currentDatabaseSession = remoteYouTrackDB.open(dbName, user, password);
+    }
 
     currentDatabaseName = currentDatabaseSession.getDatabaseName();
     message("OK");
   }
 
-//  @Override
-//  protected RESULT executeServerCommand(String iCommand) {
-//    if (super.executeServerCommand(iCommand) == RESULT.NOT_EXECUTED) {
-//      iCommand = iCommand.trim();
-//      if (iCommand.toLowerCase().startsWith("connect ")) {
-//        if (iCommand.substring("connect ".length()).trim().toLowerCase().startsWith("env ")) {
-//          return connectEnv(iCommand);
-//        }
-//        return RESULT.NOT_EXECUTED;
-//      }
-//      if (youTrackDB != null) {
-//        var displayLimit = 20;
-//        try {
-//          if (properties.get(ConsoleProperties.LIMIT) != null) {
-//            displayLimit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
-//          }
-//          var rs = youTrackDB.execute(iCommand);
-//          var count = 0;
-//          List<RawPair<RID, Object>> result = new ArrayList<>();
-//          while (rs.hasNext() && (displayLimit < 0 || count < displayLimit)) {
-//            var item = rs.next();
-//            if (item.isBlob()) {
-//              result.add(new RawPair<>(item.getIdentity(), item.asBlob()));
-//            } else {
-//              result.add(new RawPair<>(item.getIdentity(), item.toMap()));
-//            }
-//          }
-//          currentResultSet = result;
-//          dumpResultSet(displayLimit);
-//          return RESULT.OK;
-//        } catch (CommandExecutionException e) {
-//          printError(e);
-//          return RESULT.ERROR;
-//        } catch (Exception e) {
-//          if (e.getCause() instanceof CommandExecutionException) {
-//            printError(e);
-//            return RESULT.ERROR;
-//          }
-//          return RESULT.NOT_EXECUTED;
-//        }
-//      }
-//    }
-//    return RESULT.NOT_EXECUTED;
-//  }
-
-  /**
-   * console command to open an YouTrackDB context
-   *
-   * <p>usage: <code>
-   * connect env URL serverUser serverPwd
-   * </code> eg. <code>
-   * connect env remote:localhost root root
-   * <p>
-   * connect env embedded:. root root
-   * </code>
-   */
-//  private RESULT connectEnv(String iCommand) {
-//    var p = iCommand.split(" ");
-//    var parts = Arrays.stream(p).filter(x -> !x.isEmpty()).toList();
-//    if (parts.size() < 3) {
-//      error(String.format("\n!Invalid syntax: '%s'", iCommand));
-//      return RESULT.ERROR;
-//    }
-//    var url = parts.get(2);
-//    String user = null;
-//    String pw = null;
-//
-//    if (parts.size() > 4) {
-//      user = parts.get(3);
-//      pw = parts.get(4);
-//    }
-//
-//    youTrackDB = new YouTrackDBImpl(url, user, pw, YouTrackDBConfig.defaultConfig());
-//    return RESULT.OK;
-//  }
-
   /**
    * Should be used only by console commands
    */
   protected void checkForRemoteServer() {
-    if (youTrackDB == null || YouTrackDBInternal.extract(youTrackDB).isEmbedded()) {
+    if (basicYouTrackDB == null || basicYouTrackDB instanceof YouTrackDB) {
       throw new SystemException(
           "Remote server is not connected. Use 'connect remote:<host>[:<port>][/<database-name>]'"
               + " to connect");
@@ -2736,16 +1798,96 @@ public class ConsoleDatabaseApp extends ConsoleApplication
    */
   public void close() {
     if (currentDatabaseSession != null) {
-      currentDatabaseSession.activateOnCurrentThread();
       currentDatabaseSession.close();
       currentDatabaseSession = null;
     }
-    if (youTrackDB != null) {
-      youTrackDB.close();
+    if (basicYouTrackDB != null) {
+      basicYouTrackDB.close();
     }
     currentResultSet = null;
     commandBuffer.setLength(0);
   }
+
+
+  @Override
+  protected RESULT executeServerCommand(String iCommand) {
+    if (super.executeServerCommand(iCommand) == RESULT.NOT_EXECUTED) {
+      iCommand = iCommand.trim();
+      if (iCommand.toLowerCase().startsWith("connect ")) {
+        if (iCommand.substring("connect ".length()).trim().toLowerCase().startsWith("env ")) {
+          return connectEnv(iCommand);
+        }
+        return RESULT.NOT_EXECUTED;
+      }
+      if (basicYouTrackDB != null) {
+        var displayLimit = 20;
+        try {
+          if (properties.get(ConsoleProperties.LIMIT) != null) {
+            displayLimit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
+          }
+          var rs = basicYouTrackDB.execute(iCommand);
+          var count = 0;
+          List<RawPair<RID, Object>> result = new ArrayList<>();
+          while (rs.hasNext() && (displayLimit < 0 || count < displayLimit)) {
+            var item = rs.next();
+            result.add(new RawPair<>(item.getIdentity(), item.toMap()));
+          }
+
+          currentResultSet = result;
+          dumpResultSet(displayLimit);
+          return RESULT.OK;
+        } catch (CommandExecutionException e) {
+          printError(e);
+          return RESULT.ERROR;
+        } catch (Exception e) {
+          if (e.getCause() instanceof CommandExecutionException) {
+            printError(e);
+            return RESULT.ERROR;
+          }
+          return RESULT.NOT_EXECUTED;
+        }
+      }
+    }
+    return RESULT.NOT_EXECUTED;
+  }
+
+  /**
+   * console command to open an YouTrackDB context
+   *
+   * <p>usage: <code>
+   * connect env URL serverUser serverPwd
+   * </code> eg. <code>
+   * connect env remote:localhost root root
+   * <p>
+   * connect env embedded:. root root
+   * </code>
+   */
+  private RESULT connectEnv(String iCommand) {
+    var p = iCommand.split(" ");
+    var parts = Arrays.stream(p).filter(x -> !x.isEmpty()).toList();
+    if (parts.size() < 3) {
+      error(String.format("\n!Invalid syntax: '%s'", iCommand));
+      return RESULT.ERROR;
+    }
+    var url = parts.get(2);
+    String user = null;
+    String pw = null;
+
+    if (parts.size() > 4) {
+      user = parts.get(3);
+      pw = parts.get(4);
+    }
+
+    var urlConnection = URLHelper.parseNew(url);
+    if (urlConnection.getType().equalsIgnoreCase("remote")) {
+      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), user, pw);
+    } else {
+      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+    }
+
+    return RESULT.OK;
+  }
+
 
   @Override
   protected boolean isCollectingCommands(final String iLine) {
@@ -2808,24 +1950,13 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
   }
 
-  protected void updateDatabaseInfo() {
-    currentDatabaseSession.reload();
-  }
-
   @Override
   protected String getContext() {
     final var buffer = new StringBuilder(64);
 
     if (currentDatabaseSession != null && currentDatabaseName != null) {
-      currentDatabaseSession.activateOnCurrentThread();
-
       buffer.append(" {db=");
       buffer.append(currentDatabaseName);
-      if (currentDatabaseSession.getTransactionInternal().isActive()) {
-        buffer.append(" tx=[");
-        buffer.append(currentDatabaseSession.getTransactionInternal().getEntryCount());
-        buffer.append(" entries]");
-      }
     } else if (urlConnection != null) {
       buffer.append(" {server=");
       buffer.append(urlConnection.getUrl());
@@ -2880,7 +2011,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   }
 
   protected Map<String, List<String>> parseOptions(final String iOptions) {
-    final Map<String, List<String>> options = new HashMap<String, List<String>>();
+    final Map<String, List<String>> options = new HashMap<>();
     if (iOptions != null) {
       final var opts = StringSerializerHelper.smartSplit(iOptions, ' ');
       for (var o : opts) {
@@ -2906,38 +2037,6 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     return maxMultiValueEntries;
   }
 
-//  private void printSupportedSerializerFormat() {
-//    message("\nSupported formats are:");
-//
-//    for (var s : RecordSerializerFactory.instance().getFormats()) {
-//      if (s instanceof RecordSerializerStringAbstract) {
-//        message("\n- " + s);
-//      }
-//    }
-//  }
-
-  private void browseRecords(final Iterator<? extends RecordAbstract> it) {
-    final var limit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
-    final var tableFormatter =
-        new TableFormatter(this)
-            .setMaxWidthSize(getConsoleWidth())
-            .setMaxMultiValueEntries(maxMultiValueEntries);
-
-    currentResultSet = new ArrayList<>();
-    while (it.hasNext() && currentResultSet.size() <= limit) {
-      var identifialble = it.next();
-      var transaction = currentDatabaseSession.getActiveTransaction();
-      var record = transaction.load(identifialble);
-      if (record instanceof Entity entity) {
-        currentResultSet.add(new RawPair<>(identifialble.getIdentity(), entity.toMap()));
-      } else if (record instanceof Blob blob) {
-        currentResultSet.add(new RawPair<>(identifialble.getIdentity(), blob.toStream()));
-      }
-    }
-
-    tableFormatter.writeRecords(currentResultSet, limit, currentDatabaseSession);
-  }
-
   @Nullable
   private List<Map<String, ?>> sqlCommand(
       final String iExpectedCommand,
@@ -2959,7 +2058,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     List<Map<String, ?>> result;
     try (var rs = currentDatabaseSession.execute(iReceivedCommand)) {
-      result = rs.stream().map(Result::toMap).collect(Collectors.toList());
+      result = rs.stream().map(RemoteResult::toMap).collect(Collectors.toList());
     }
     var elapsedSeconds = getElapsedSecs(start);
 

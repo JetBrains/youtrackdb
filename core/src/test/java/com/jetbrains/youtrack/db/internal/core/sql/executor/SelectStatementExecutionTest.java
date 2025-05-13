@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -38,6 +39,7 @@ import org.junit.Test;
 
 
 public class SelectStatementExecutionTest extends DbTestBase {
+
   @Test
   public void testSelectNoTarget() {
     session.begin();
@@ -1130,7 +1132,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try {
       Assert.assertNotNull(result.next());
       Assert.fail();
-    } catch (IllegalStateException e) {
+    } catch (NoSuchElementException e) {
       //expected
     }
     Assert.assertFalse(result.hasNext());
@@ -1154,7 +1156,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try {
       Assert.assertNotNull(result.next());
       Assert.fail();
-    } catch (IllegalStateException e) {
+    } catch (NoSuchElementException e) {
       //expected
     }
 

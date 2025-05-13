@@ -2,6 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -35,10 +36,18 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabaseSession();
-    var updatedRids = db.commit();
+    var session = ctx.getDatabaseSession();
+    var txInternal = session.getTransactionInternal();
 
-    var item = new ResultInternal(db);
+    if (txInternal == null || !txInternal.isActive()) {
+      throw new CommandExecutionException("No active transaction");
+    }
+
+    var activeTxCount = txInternal.activeTxCount();
+    var item = new ResultInternal(session);
+    item.setProperty("txId", txInternal.getId());
+
+    var updatedRids = session.commit();
     item.setProperty("operation", "commit");
 
     if (updatedRids != null) {
@@ -50,6 +59,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       item.setProperty("updatedRids", updateRidsLinkMap);
     }
 
+    item.setProperty("activeTxCount", activeTxCount - 1);
     return ExecutionStream.singleton(item);
   }
 
