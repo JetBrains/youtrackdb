@@ -93,8 +93,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         });
   }
 
-  public void addCollectionToIndex(DatabaseSessionInternal session, final String collectionName,
-      final String indexName) {
+  public void addCollectionToIndex(
+      DatabaseSessionInternal session,
+      final String collectionName,
+      final String indexName,
+      boolean requireEmpty
+  ) {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
@@ -114,7 +118,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               "Index with name " + indexName + " does not exist.");
         }
         if (!index.getCollections().contains(collectionName)) {
-          index.addCollection(transaction, collectionName);
+          index.addCollection(transaction, collectionName, requireEmpty);
         }
       } finally {
         releaseExclusiveLock(session, true);
@@ -299,7 +303,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
             || indexDefinition.getFields() == null
             || indexDefinition.getFields().isEmpty();
     if (manualIndexesAreUsed) {
-      throw new UnsupportedOperationException("Manual indexes are not supported");
+      throw new UnsupportedOperationException("Manual indexes are not supported: " + iName);
     } else {
       checkSecurityConstraintsForIndexCreate(session, indexDefinition);
     }

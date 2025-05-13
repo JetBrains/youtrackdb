@@ -101,7 +101,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
         db.rollback();
       }
 
-      var batch = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+      var batch = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
       var tx = (Boolean) batch.get("transaction");
       if (tx == null) {
@@ -247,7 +247,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Error (%s) on serializing result of batch command:\n%s",
                 e,
-                JSONSerializerJackson.mapToJson(batch));
+                JSONSerializerJackson.INSTANCE.mapToJson(batch));
         throw e;
       }
 

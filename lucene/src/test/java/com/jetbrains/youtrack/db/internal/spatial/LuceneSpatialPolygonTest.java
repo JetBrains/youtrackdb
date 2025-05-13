@@ -67,7 +67,7 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     session.begin();
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("germany.json");
 
-    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
 

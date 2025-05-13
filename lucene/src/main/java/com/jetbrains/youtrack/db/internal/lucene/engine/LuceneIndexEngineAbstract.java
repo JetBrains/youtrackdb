@@ -263,7 +263,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
           searcher.search(new TermQuery(new Term("_CLASS", "JSON_METADATA")), 1);
       var jsonFactory = new JsonFactory();
       if (topDocs.totalHits == 0) {
-        var metaAsJson = JSONSerializerJackson.mapToJson(metadata);
+        var metaAsJson = JSONSerializerJackson.INSTANCE.mapToJson(metadata);
 
         String defAsJson;
         var jsonWriter = new StringWriter();

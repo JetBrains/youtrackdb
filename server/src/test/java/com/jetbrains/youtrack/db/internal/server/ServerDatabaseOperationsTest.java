@@ -53,7 +53,7 @@ public class ServerDatabaseOperationsTest {
     try (var session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName())) {
 
-      var map = JSONSerializerJackson.mapFromJson(IOUtils.readStreamAsString(
+      var map = JSONSerializerJackson.INSTANCE.mapFromJson(IOUtils.readStreamAsString(
           this.getClass().getClassLoader().getResourceAsStream("security.json")));
       server.getSecurity().reload(session, map);
     } finally {

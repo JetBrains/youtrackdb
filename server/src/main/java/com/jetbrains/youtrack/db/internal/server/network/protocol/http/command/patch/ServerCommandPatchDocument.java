@@ -63,7 +63,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 }
 
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
-                var content = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+                var content = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
                 final int recordVersion;
 
                 if (iRequest.getIfMatch() != null)

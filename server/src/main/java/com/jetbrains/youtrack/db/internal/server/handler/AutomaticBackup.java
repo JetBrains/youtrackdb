@@ -291,7 +291,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       // READ THE FILE
       try {
         final var configurationContent = IOUtils.readFileAsString(f);
-        configuration = JSONSerializerJackson.mapFromJson(configurationContent);
+        configuration = JSONSerializerJackson.INSTANCE.mapFromJson(configurationContent);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new ConfigurationException((String) null,
@@ -306,7 +306,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       try {
         f.getParentFile().mkdirs();
         f.createNewFile();
-        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configuration));
+        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configuration));
 
         LogManager.instance()
             .info(this, "Automatic Backup: migrated configuration to file '%s'", f);

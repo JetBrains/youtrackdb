@@ -1321,6 +1321,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
           if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
             return value;
           }
+          // skipping the update if the value is the same instance of a multi-value type,
+          // otherwise the code below will remove any tracking data from it, and we can lose
+          // an update.
+          if (oldValue == value) {
+            return value;
+          }
         }
       } catch (Exception e) {
         LogManager.instance()

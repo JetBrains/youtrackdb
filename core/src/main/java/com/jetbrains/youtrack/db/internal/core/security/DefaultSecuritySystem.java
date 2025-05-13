@@ -918,7 +918,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         var f = new File(configFile);
-        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configEntity));
+        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
       }
     } catch (Exception ex) {
       configEntity.put(section, oldSection);
@@ -943,7 +943,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
             final var buffer = new byte[(int) file.length()];
             fis.read(buffer);
 
-            securityEntity = JSONSerializerJackson.mapFromJson(new String(buffer));
+            securityEntity = JSONSerializerJackson.INSTANCE.mapFromJson(new String(buffer));
           }
         } else {
           if (file.exists()) {

@@ -654,16 +654,20 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName) {
+  public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName,
+      boolean requireEmpty) {
     acquireExclusiveLock();
     try {
       var session = transaction.getDatabaseSession();
       if (collectionsToIndex.add(collectionName)) {
-        // INDEX SINGLE COLLECTION
-        var collectionId = session.getCollectionIdByName(collectionName);
-        if (session.countCollectionElements(collectionId) > 0) {
-          throw new IndexException("Collection " + collectionName
-              + " is not empty. Please remove all records from it before adding to index");
+
+        if (requireEmpty) {
+          // INDEX SINGLE COLLECTION
+          var collectionId = session.getCollectionIdByName(collectionName);
+          if (session.countCollectionElements(collectionId) > 0) {
+            throw new IndexException("Collection " + collectionName
+                + " is not empty. Please remove all records from it before adding to index");
+          }
         }
 
         save(transaction);

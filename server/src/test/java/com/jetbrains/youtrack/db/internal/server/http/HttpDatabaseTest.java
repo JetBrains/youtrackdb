@@ -50,7 +50,7 @@ public class HttpDatabaseTest extends BaseHttpTest {
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(JSONSerializerJackson.mapToJson(pass), CONTENT.JSON)
+            .payload(JSONSerializerJackson.INSTANCE.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 
@@ -78,7 +78,7 @@ public class HttpDatabaseTest extends BaseHttpTest {
         setUserName("root")
             .setUserPassword("root")
             .post("database/" + getDatabaseName() + "/memory")
-            .payload(JSONSerializerJackson.mapToJson(pass), CONTENT.JSON)
+            .payload(JSONSerializerJackson.INSTANCE.mapToJson(pass), CONTENT.JSON)
             .getResponse()
             .getCode());
 

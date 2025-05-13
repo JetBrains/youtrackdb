@@ -115,7 +115,7 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     final var payload = new HashMap<String, String>();
     payload.put("command", "select from E");
     payload.put("mode", "graph");
-    json = JSONSerializerJackson.mapToJson(payload);
+    json = JSONSerializerJackson.INSTANCE.mapToJson(payload);
 
     response =
         post("command/" + getDatabaseName() + "/sql/").payload(json, CONTENT.JSON).getResponse();

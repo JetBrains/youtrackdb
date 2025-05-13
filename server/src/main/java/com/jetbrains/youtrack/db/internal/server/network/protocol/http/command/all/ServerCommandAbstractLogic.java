@@ -78,7 +78,7 @@ public abstract class ServerCommandAbstractLogic extends ServerCommandAuthentica
         if (args.length == 0 && iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
           // PARSE PARAMETERS FROM CONTENT PAYLOAD
           try {
-            final var params = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+            final var params = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
             functionResult = f.executeInContext(context, params);
           } catch (Exception e) {
             throw BaseException.wrapException(

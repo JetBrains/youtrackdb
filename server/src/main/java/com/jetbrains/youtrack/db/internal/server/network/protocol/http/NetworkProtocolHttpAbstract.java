@@ -541,7 +541,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
 
     response.put("errors", errors);
 
-    binaryContent = JSONSerializerJackson.mapToJson(response).getBytes(utf8);
+    binaryContent = JSONSerializerJackson.INSTANCE.mapToJson(response).getBytes(utf8);
 
     writeLine(
         HttpUtils.HEADER_CONTENT_LENGTH + binaryContent.length);

@@ -24,15 +24,18 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.MapType;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -57,44 +60,85 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang.StringUtils;
 
 public class JSONSerializerJackson {
 
-  private static final JsonFactory JSON_FACTORY = new JsonFactory();
+  private final JsonFactory jsonFactory;
 
-  public static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-  public static final MapType MAP_TYPE_REFERENCE =
-      OBJECT_MAPPER.getTypeFactory().constructMapType(HashMap.class, String.class, Object.class);
+  private final ObjectMapper objectMapper = new ObjectMapper();
+  private final MapType mapTypeReference =
+      objectMapper.getTypeFactory().constructMapType(HashMap.class, String.class, Object.class);
 
+  /**
+   * Default JSON serializer.
+   */
+  public static final JSONSerializerJackson INSTANCE =
+      new JSONSerializerJackson(false, false, false, Set.of());
 
-  public static final String NAME = "jackson";
-  public static final JSONSerializerJackson INSTANCE = new JSONSerializerJackson();
+  /**
+   * JSON serializer that is used by DatabaseImport tool. It allows creating graph structures
+   * (vertex and edge records and their in/out properties).
+   */
+  public static final JSONSerializerJackson IMPORT_INSTANCE =
+      new JSONSerializerJackson(false, false, true, Set.of());
 
-  public static Map<String, Object> mapFromJson(@Nonnull String value) {
+  /**
+   * JSON serializer with a set of relaxed rules that is used by DatabaseImport tool in backward
+   * compatibility mode.
+   */
+  public static final JSONSerializerJackson IMPORT_BACKWARDS_COMPAT_INSTANCE =
+      new JSONSerializerJackson(true, true, true, Set.of('$'));
+
+  private final boolean readOldFieldTypesFormat;
+  private final Set<Character> readPrefixUnderscoreReplacements;
+  private final boolean readAllowGraphStructure; // allowing to import Vertex and Edge classes and create edges.
+
+  private JSONSerializerJackson(
+      boolean readUnescapedControlChars,
+      boolean readOldFieldTypesFormat,
+      boolean readAllowGraphStructure,
+      Set<Character> readPrefixUnderscoreReplacements
+  ) {
+    this.readOldFieldTypesFormat = readOldFieldTypesFormat;
+    this.readPrefixUnderscoreReplacements = readPrefixUnderscoreReplacements;
+    this.readAllowGraphStructure = readAllowGraphStructure;
+    final var b = JsonFactory.builder();
+    if (readUnescapedControlChars) {
+      b.enable(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS);
+    }
+
+    jsonFactory = b.build();
+  }
+
+  public Map<String, Object> mapFromJson(@Nonnull String value) {
     try {
-      return OBJECT_MAPPER.readValue(value, MAP_TYPE_REFERENCE);
+      return objectMapper.readValue(value, mapTypeReference);
     } catch (JsonProcessingException e) {
       throw BaseException.wrapException(
           new SerializationException("Error on unmarshalling JSON content"), e, (String) null);
     }
   }
 
-  public static Map<String, Object> mapFromJson(@Nonnull InputStream stream) throws IOException {
+  public Map<String, Object> mapFromJson(@Nonnull InputStream stream) throws IOException {
     try {
-      return OBJECT_MAPPER.readValue(stream, MAP_TYPE_REFERENCE);
+      return objectMapper.readValue(stream, mapTypeReference);
     } catch (JsonProcessingException e) {
       throw BaseException.wrapException(
           new SerializationException("Error on unmarshalling JSON content"), e, (String) null);
@@ -102,23 +146,23 @@ public class JSONSerializerJackson {
   }
 
   @Nonnull
-  public static String mapToJson(@Nonnull Map<String, ?> value) {
+  public String mapToJson(@Nonnull Map<String, ?> value) {
     try {
-      return OBJECT_MAPPER.writeValueAsString(value);
+      return objectMapper.writeValueAsString(value);
     } catch (JsonProcessingException e) {
       throw BaseException.wrapException(
           new SerializationException("Error on marshalling JSON content"), e, (String) null);
     }
   }
 
-  public static RecordAbstract fromString(
+  public RecordAbstract fromString(
       @Nonnull DatabaseSessionInternal session,
       @Nonnull String source
   ) {
     return fromStringWithMetadata(session, source, null, false).first();
   }
 
-  public static RecordAbstract fromString(
+  public RecordAbstract fromString(
       @Nonnull DatabaseSessionInternal session,
       @Nonnull String source,
       @Nullable RecordAbstract record
@@ -127,13 +171,13 @@ public class JSONSerializerJackson {
   }
 
   @Nonnull
-  public static RawPair<RecordAbstract, RecordMetadata> fromStringWithMetadata(
+  public RawPair<RecordAbstract, RecordMetadata> fromStringWithMetadata(
       @Nonnull DatabaseSessionInternal session,
       @Nonnull String source,
       @Nullable RecordAbstract record,
       boolean ignoreRid
   ) {
-    try (var jsonParser = JSON_FACTORY.createParser(source)) {
+    try (var jsonParser = jsonFactory.createParser(source)) {
       return recordFromJson(session, record, jsonParser, ignoreRid);
     } catch (Exception e) {
       if (record != null && record.getIdentity().isValidPosition()) {
@@ -151,7 +195,7 @@ public class JSONSerializerJackson {
   }
 
   @Nonnull
-  private static RawPair<RecordAbstract, RecordMetadata> recordFromJson(
+  private RawPair<RecordAbstract, RecordMetadata> recordFromJson(
       @Nonnull DatabaseSessionInternal session,
       @Nullable RecordAbstract record,
       @Nonnull JsonParser jsonParser,
@@ -199,7 +243,7 @@ public class JSONSerializerJackson {
     return new RawPair<>(result, recordMetaData);
   }
 
-  private static RecordAbstract createRecordFromJsonAfterMetadata(
+  private RecordAbstract createRecordFromJsonAfterMetadata(
       DatabaseSessionInternal session,
       RecordAbstract record,
       RecordMetadata recordMetaData,
@@ -233,7 +277,11 @@ public class JSONSerializerJackson {
             if (schemaClass.isVertexType()) {
               record = (RecordAbstract) session.newVertex(schemaClass);
             } else if (schemaClass.isEdgeType()) {
-              throw new UnsupportedEncodingException("Edges can not be created from JSON");
+              if (readAllowGraphStructure) {
+                record = session.newStatefulEdgeInternal(schemaClass.getName());
+              } else {
+                throw new UnsupportedEncodingException("Edges can not be created from JSON");
+              }
             } else {
               record = (RecordAbstract) session.newEntity(schemaClass);
             }
@@ -245,8 +293,6 @@ public class JSONSerializerJackson {
               "Unsupported record type: " + recordMetaData.recordType);
         }
       }
-
-      final var rec = record;
     } else {
       if (record.getRecordType() != recordMetaData.recordType) {
         throw new SerializationException(session,
@@ -264,7 +310,7 @@ public class JSONSerializerJackson {
         if (!Objects.equals(className, recordMetaData.className)) {
           if (recordMetaData.className == null) {
             throw new SerializationException(session,
-                "Record class name mismatch: " + className + " != " + recordMetaData.className);
+                "Record class name mismatch: " + className + " != " + null);
           }
 
           var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
@@ -300,29 +346,33 @@ public class JSONSerializerJackson {
     return record;
   }
 
-  private static void parseProperties(DatabaseSessionInternal session, RecordAbstract record,
+  private void parseProperties(DatabaseSessionInternal session, RecordAbstract record,
       RecordMetadata recordMetaData, JsonParser jsonParser) throws IOException {
     JsonToken token;
     token = jsonParser.currentToken();
 
     while (token != JsonToken.END_OBJECT) {
-      if (token == JsonToken.FIELD_NAME) {
-        var fieldName = jsonParser.currentName();
-        if (!fieldName.isEmpty() && fieldName.charAt(0) == '@') {
-          throw new SerializationException(session, "Invalid property name: " + fieldName);
-        }
-
-        jsonParser.nextToken();//jump to value
-        parseProperty(session, recordMetaData.fieldTypes, record, jsonParser, fieldName);
-      } else {
+      if (token != JsonToken.FIELD_NAME) {
         throw new SerializationException(session, "Expected field name");
       }
+      var fieldName = jsonParser.currentName();
+      jsonParser.nextToken();//jump to value
+
+      if (readOldFieldTypesFormat && "@fieldTypes".equals(fieldName)) {
+        // ignore the value
+        parseValue(session, null, jsonParser, PropertyTypeInternal.STRING, null);
+      } else if (!fieldName.isEmpty() && fieldName.charAt(0) == '@') {
+          throw new SerializationException(session, "Invalid property name: " + fieldName);
+      } else {
+        parseProperty(session, recordMetaData.fieldTypes, record, jsonParser, fieldName);
+      }
+
       token = jsonParser.nextToken();
     }
   }
 
   @Nullable
-  private static RecordMetadata parseRecordMetadata(
+  private RecordMetadata parseRecordMetadata(
       @Nonnull DatabaseSessionInternal session,
       @Nullable JsonParser jsonParser,
       @Nullable String defaultClassName,
@@ -523,33 +573,48 @@ public class JSONSerializerJackson {
     );
   }
 
-  private static Map<String, String> parseFieldTypes(JsonParser jsonParser) throws IOException {
+  private Map<String, String> parseFieldTypes(JsonParser jsonParser) throws IOException {
     var map = new HashMap<String, String>();
 
     var token = jsonParser.nextToken();
-    if (token != JsonToken.START_OBJECT) {
-      throw new SerializationException("Expected start of object");
-    }
+    if (token == JsonToken.START_OBJECT) {
 
-    while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
-      var fieldName = jsonParser.currentName();
-      token = jsonParser.nextToken();
-      if (token != JsonToken.VALUE_STRING) {
-        throw new SerializationException("Expected field value as string");
+      while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
+        var fieldName = jsonParser.currentName();
+        token = jsonParser.nextToken();
+        if (token != JsonToken.VALUE_STRING) {
+          throw new SerializationException("Expected field value as string");
+        }
+
+        map.put(fieldName, jsonParser.getText());
       }
+    } else if (readOldFieldTypesFormat && token == JsonToken.VALUE_STRING) {
+      // old format
 
-      map.put(fieldName, jsonParser.getText());
+      Arrays
+          .stream(StringUtils.split(jsonParser.getText(), ','))
+          .map(ft -> StringUtils.split(ft, '='))
+          .filter(ft -> ft != null && ft.length == 2)
+          .forEach(ft -> map.put(ft[0], ft[1]));
+
+    } else {
+      throw new SerializationException("Bad @fieldTypes format");
     }
 
     return map;
   }
 
-  private static void parseProperty(
+  private void parseProperty(
       DatabaseSessionInternal session,
       Map<String, String> fieldTypes,
       RecordAbstract record,
       JsonParser jsonParser,
       String fieldName) throws IOException {
+
+    if (!fieldName.isEmpty() && readPrefixUnderscoreReplacements.contains(fieldName.charAt(0))) {
+      fieldName = '_' + fieldName.substring(1);
+    }
+
     // RECORD ATTRIBUTES
     if (!(record instanceof EntityImpl entity)) {
       if (fieldName.equals("value")) {
@@ -560,8 +625,12 @@ public class JSONSerializerJackson {
             record.fromStream(CommonConst.EMPTY_BYTE_ARRAY);
           } else if (record instanceof Blob) {
             // BYTES
+            // we can do better here: read and decode base64 at the same time without creating
+            // intermediate structures.
             final var iBuffer = jsonParser.getBinaryValue();
-            record.fill(record.getIdentity(), record.getVersion(), iBuffer, true);
+            if (iBuffer != null && iBuffer.length > 0) {
+              ((Blob) record).fromInputStream(new ByteArrayInputStream(iBuffer));
+            }
           } else {
             throw new SerializationException(session,
                 "Unsupported type of record : " + record.getClass().getName());
@@ -582,21 +651,40 @@ public class JSONSerializerJackson {
         throw new SerializationException(
             "System property can not be updated from JSON: " + fieldName);
       }
+
       var type =
           determineType(entity, fieldName, fieldTypes.get(fieldName), schemaProperty);
 
-      entity.setPropertyInternal(
-          fieldName,
-          parseValue(session, entity, jsonParser, type, schemaProperty),
-          type, null, true);
+      final var isVertex = entity.isVertex();
+      final var isEdge = entity.isEdge();
+
+      final var isGraphField = readAllowGraphStructure && (
+          isVertex && (
+              fieldName.startsWith(Vertex.DIRECTION_IN_PREFIX) ||
+                  fieldName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
+          ) ||
+              isEdge && (
+                  fieldName.equals(Edge.DIRECTION_IN) ||
+                      fieldName.equals(Edge.DIRECTION_OUT)
+              )
+      );
+
+      final var value = parseValue(session, entity, jsonParser, type, schemaProperty);
+
+      if (isGraphField && isVertex && type == null) {
+        type = PropertyTypeInternal.LINKBAG;
+      }
+
+      // skipping validation when importing graph fields
+      entity.setPropertyInternal(fieldName, value, type, null, !isGraphField);
     }
   }
 
-  public static StringWriter toString(
+  public StringWriter toString(
       DatabaseSessionInternal session, final DBRecord record,
       final StringWriter output,
       final String format) {
-    try (var jsonGenerator = JSON_FACTORY.createGenerator(output)) {
+    try (var jsonGenerator = jsonFactory.createGenerator(output)) {
       final var settings = new FormatSettings(format);
       recordToJson(session, record, jsonGenerator, settings);
       return output;
@@ -607,7 +695,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  public static void recordToJson(DatabaseSessionInternal session, DBRecord record,
+  public void recordToJson(DatabaseSessionInternal session, DBRecord record,
       JsonGenerator jsonGenerator,
       @Nullable String format) {
     try {
@@ -620,7 +708,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private static void recordToJson(DatabaseSessionInternal session, DBRecord record,
+  private void recordToJson(DatabaseSessionInternal session, DBRecord record,
       JsonGenerator jsonGenerator,
       FormatSettings formatSettings) throws IOException {
     jsonGenerator.writeStartObject();
@@ -710,7 +798,7 @@ public class JSONSerializerJackson {
       if (formatSettings.keepTypes) {
         var fieldTypes = new HashMap<String, String>();
         for (var propertyName : entity.getPropertyNames()) {
-          var type = fetchPropertyType(session, entity,
+          var type = fetchPropertyType(entity,
               propertyName, schemaClass);
 
           if (type != null) {
@@ -743,10 +831,11 @@ public class JSONSerializerJackson {
     }
   }
 
-  private static PropertyTypeInternal fetchPropertyType(DatabaseSessionInternal session,
+  private static PropertyTypeInternal fetchPropertyType(
       EntityImpl entity,
       String propertyName,
-      SchemaClass schemaClass) {
+      SchemaClass schemaClass
+  ) {
     PropertyTypeInternal type = null;
     if (schemaClass != null) {
       var property = schemaClass.getProperty(propertyName);
@@ -792,7 +881,7 @@ public class JSONSerializerJackson {
 
   @Override
   public String toString() {
-    return NAME;
+    return "jackson";
   }
 
   @Nullable
@@ -836,10 +925,10 @@ public class JSONSerializerJackson {
       return type;
     }
 
-    return PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(fieldName));
+    return entity.getPropertyTypeInternal(fieldName);
   }
 
-  private static void serializeValue(DatabaseSessionInternal session, JsonGenerator jsonGenerator,
+  private void serializeValue(DatabaseSessionInternal session, JsonGenerator jsonGenerator,
       Object propertyValue,
       FormatSettings formatSettings)
       throws IOException {
@@ -858,6 +947,7 @@ public class JSONSerializerJackson {
         case Boolean booleanValue -> jsonGenerator.writeBoolean(booleanValue);
 
         case byte[] byteArray -> jsonGenerator.writeBinary(byteArray);
+        case Blob blob -> serializeLink(jsonGenerator, blob.getIdentity());
         case Entity entityValue -> {
           if (entityValue.isEmbedded()) {
             recordToJson(session, entityValue, jsonGenerator, formatSettings);
@@ -924,7 +1014,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  public static void serializeEmbeddedMap(DatabaseSessionInternal session,
+  public void serializeEmbeddedMap(DatabaseSessionInternal session,
       JsonGenerator jsonGenerator,
       Map<String, ?> trackedMap, String format) {
     try {
@@ -937,7 +1027,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private static void serializeEmbeddedMap(DatabaseSessionInternal db, JsonGenerator jsonGenerator,
+  private void serializeEmbeddedMap(DatabaseSessionInternal db, JsonGenerator jsonGenerator,
       FormatSettings formatSettings,
       Map<String, ?> trackedMap) throws IOException {
     jsonGenerator.writeStartObject();
@@ -949,7 +1039,7 @@ public class JSONSerializerJackson {
   }
 
   @Nullable
-  private static Object parseValue(
+  private Object parseValue(
       @Nonnull DatabaseSessionInternal session,
       @Nullable final EntityImpl entity,
       @Nonnull JsonParser jsonParser,
@@ -1027,7 +1117,7 @@ public class JSONSerializerJackson {
     };
   }
 
-  private static RecordElement parseAnyList(@Nonnull DatabaseSessionInternal session,
+  private RecordElement parseAnyList(@Nonnull DatabaseSessionInternal session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
       @Nullable SchemaProperty schemaProperty) throws IOException {
 
@@ -1048,7 +1138,7 @@ public class JSONSerializerJackson {
     }
   }
 
-  private static RecordElement parseObjectOrMap(@Nonnull DatabaseSessionInternal session,
+  private RecordElement parseObjectOrMap(@Nonnull DatabaseSessionInternal session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
       @Nullable SchemaProperty schemaProperty) throws IOException {
     var recordMetaData =
@@ -1103,7 +1193,7 @@ public class JSONSerializerJackson {
   }
 
   @Nonnull
-  private static EmbeddedEntityImpl parseEmbeddedEntity(@Nonnull DatabaseSessionInternal db,
+  private EmbeddedEntityImpl parseEmbeddedEntity(@Nonnull DatabaseSessionInternal db,
       @Nonnull JsonParser jsonParser, @Nullable RecordMetadata metadata,
       SchemaProperty schemaProperty) throws IOException {
 
@@ -1136,7 +1226,7 @@ public class JSONSerializerJackson {
     return embedded;
   }
 
-  private static EntityEmbeddedMapImpl<Object> parseEmbeddedMap(
+  private EntityEmbeddedMapImpl<Object> parseEmbeddedMap(
       @Nonnull DatabaseSessionInternal session,
       @Nullable EntityImpl entity,
       @Nonnull JsonParser jsonParser,
@@ -1202,7 +1292,7 @@ public class JSONSerializerJackson {
     return bag;
   }
 
-  private static EntityEmbeddedListImpl<Object> parseEmbeddedList(
+  private EntityEmbeddedListImpl<Object> parseEmbeddedList(
       DatabaseSessionInternal session,
       EntityImpl entity,
       JsonParser jsonParser,
@@ -1224,7 +1314,7 @@ public class JSONSerializerJackson {
     return list;
   }
 
-  private static EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
+  private EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
       EntityImpl entity,
       JsonParser jsonParser, SchemaProperty schemaProperty) throws IOException {
     var list = new EntityEmbeddedSetImpl<>(entity);

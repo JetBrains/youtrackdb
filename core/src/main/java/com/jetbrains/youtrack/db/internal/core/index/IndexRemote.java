@@ -152,7 +152,8 @@ public class IndexRemote implements Index {
   }
 
   @Override
-  public Index addCollection(FrontendTransaction transaction, String collectionName) {
+  public Index addCollection(FrontendTransaction transaction, String collectionName,
+      boolean requireEmpty) {
     throw new UnsupportedOperationException();
   }
 

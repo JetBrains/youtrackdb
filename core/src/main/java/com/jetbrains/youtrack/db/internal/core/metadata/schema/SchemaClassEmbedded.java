@@ -163,7 +163,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 + "' as superclass");
       }
 
-      superClass.addBaseClass(session, this);
+      superClass.addBaseClass(session, this, true);
       superClasses.add(superClass);
     } finally {
       releaseSchemaWriteLock(session);
@@ -220,7 +220,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
     acquireSchemaWriteLock(session);
     try {
-      setSuperClassesInternal(session, classes);
+      setSuperClassesInternal(session, classes, true);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -229,7 +229,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes) {
+      final List<SchemaClassImpl> classes, boolean validateIndexes) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
       if (!classes.contains(owner.getClass(session, SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
@@ -266,7 +266,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       toRemove.removeBaseClassInternal(session, this);
     }
     for (var addTo : toAddList) {
-      addTo.addBaseClass(session, this);
+      addTo.addBaseClass(session, this, validateIndexes);
     }
     superClasses.clear();
     superClasses.addAll(newSuperClasses);
@@ -573,7 +573,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
         for (var clazz : getAllSubclasses(database)) {
           if (clazz instanceof SchemaClassImpl) {
-            addPolymorphicCollectionIds(database, clazz);
+            addPolymorphicCollectionIds(database, clazz, true);
           } else {
             LogManager.instance()
                 .warn(this, "Warning: cannot set polymorphic collection IDs for class " + name);
@@ -637,7 +637,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     polymorphicCollectionIds[polymorphicCollectionIds.length - 1] = collectionId;
     Arrays.sort(polymorphicCollectionIds);
 
-    addCollectionIdToIndexes(session, collectionId);
+    addCollectionIdToIndexes(session, collectionId, true);
 
     for (var superClass : superClasses) {
       ((SchemaClassEmbedded) superClass).addPolymorphicCollectionId(session, collectionId);
@@ -645,7 +645,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId) {
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
+      boolean requireEmpty) {
     var collectionName = session.getCollectionNameById(iId);
     final List<String> indexesToAdd = new ArrayList<>();
 
@@ -656,7 +657,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     final var indexManager =
         session.getSharedContext().getIndexManager();
     for (var indexName : indexesToAdd) {
-      indexManager.addCollectionToIndex(session, collectionName, indexName);
+      indexManager.addCollectionToIndex(session, collectionName, indexName, requireEmpty);
     }
   }
 }

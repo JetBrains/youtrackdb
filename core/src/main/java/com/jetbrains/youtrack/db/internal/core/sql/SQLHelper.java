@@ -188,7 +188,7 @@ public class SQLHelper {
         } else {
           entity = session.newEntity(schemaClass);
         }
-        fieldValue = JSONSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
+        fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
       } else {
         final var items =
             StringSerializerHelper.smartSplit(
@@ -265,7 +265,7 @@ public class SQLHelper {
             entity = session.newEntity();
           }
 
-          fieldValue = JSONSerializerJackson.fromString(session, iValue, (RecordAbstract) entity);
+          fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
         } else {
           fieldValue = map;
         }

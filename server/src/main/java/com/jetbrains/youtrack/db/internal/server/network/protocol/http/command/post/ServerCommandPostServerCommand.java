@@ -59,7 +59,7 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var content = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+        final var content = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
         text = (String) content.get("command");
         params = content.get("parameters");
 

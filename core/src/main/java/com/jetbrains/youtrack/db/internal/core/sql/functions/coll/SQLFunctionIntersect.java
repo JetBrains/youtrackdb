@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -46,6 +47,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     super(NAME, 1, -1);
   }
 
+  @Override
   @Nullable
   public Object execute(
       Object iThis,
@@ -94,25 +96,35 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     // IN-LINE MODE (STATELESS)
     var iterator = MultiValue.getMultiValueIterator(value);
 
-    for (var i = 1; i < iParams.length; ++i) {
-      value = iParams[i];
-
-      if (value instanceof SQLFilterItemVariable fi) {
-        value = fi.getValue(iCurrentRecord, iCurrentResult, iContext);
+    if (iParams.length == 1) {
+      // using LinkedHasSet here to 1) preserve the order, 2) remove duplicates.
+      final var result = new LinkedHashSet<>();
+      while (iterator.hasNext()) {
+        result.add(iterator.next());
       }
 
-      value = intersectWith(iterator, value);
-      iterator = MultiValue.getMultiValueIterator(value);
-    }
+      // still need to return a list here, because returning a Set can
+      // break the order, as some of our code performs collection copying based on
+      // "instanceof Set" check.
+      return new ArrayList<>(result);
+    } else {
+      for (var i = 1; i < iParams.length; ++i) {
+        value = iParams[i];
 
-    // using linked hash set because we want
-    // 1) to remove duplicates when there is a single argument to the function
-    // 2) to preserve order of the input collection
-    final Set<Object> result = new LinkedHashSet<>();
-    while (iterator.hasNext()) {
-      result.add(iterator.next());
+        if (value instanceof SQLFilterItemVariable fi) {
+          value = fi.getValue(iCurrentRecord, iCurrentResult, iContext);
+        }
+
+        value = intersectWith(iterator, value);
+        iterator = MultiValue.getMultiValueIterator(value);
+      }
+
+      final List<Object> result = new ArrayList<>();
+      while (iterator.hasNext()) {
+        result.add(iterator.next());
+      }
+      return result;
     }
-    return result;
   }
 
   @Override
@@ -125,7 +137,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
 
     if (!(value instanceof Set)
         && (!(value instanceof SupportsContains)
-        || !((SupportsContains) value).supportsFastContains())) {
+            || !((SupportsContains) value).supportsFastContains())) {
       value = MultiValue.toSet(value);
     }
 
@@ -149,6 +161,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     return tempSet;
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "intersect(<field>*)";
   }
