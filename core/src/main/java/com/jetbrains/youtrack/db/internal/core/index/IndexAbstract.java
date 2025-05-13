@@ -190,6 +190,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * Creates the index.
    */
+  @Override
   public Index create(
       FrontendTransaction transaction, final IndexMetadata indexMetadata) {
     acquireExclusiveLock();
@@ -269,6 +270,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
+  @Override
   public long rebuild(DatabaseSessionInternal session) {
     return rebuild(session, new IndexRebuildOutputListener(this));
   }
@@ -280,6 +282,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * @return number of entries in the index.
    */
+  @Override
   @Deprecated
   public long getSize(DatabaseSessionInternal session) {
     return size(session);
@@ -288,6 +291,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * Counts the entries for the key.
    */
+  @Override
   @Deprecated
   public long count(DatabaseSessionInternal session, Object iKey) {
     try (var stream =
@@ -299,6 +303,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * @return Number of keys in index
    */
+  @Override
   @Deprecated
   public long getKeySize() {
     try (var stream = keyStream()) {
@@ -309,11 +314,13 @@ public abstract class IndexAbstract implements Index {
   /**
    * Flushes in-memory changes to disk.
    */
+  @Override
   @Deprecated
   public void flush() {
     // do nothing
   }
 
+  @Override
   @Deprecated
   public long getRebuildVersion() {
     return 0;
@@ -323,11 +330,13 @@ public abstract class IndexAbstract implements Index {
    * @return Indicates whether index is rebuilding at the moment.
    * @see #getRebuildVersion()
    */
+  @Override
   @Deprecated
   public boolean isRebuilding() {
     return false;
   }
 
+  @Override
   @Deprecated
   @Nullable
   public Object getFirstKey() {
@@ -341,6 +350,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   @Deprecated
   @Nullable
   public Object getLastKey(DatabaseSessionInternal session) {
@@ -354,6 +364,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   @Deprecated
   public IndexCursor cursor(DatabaseSessionInternal session) {
     return new IndexCursorStream(stream(session));
@@ -416,6 +427,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
+  @Override
   public long rebuild(DatabaseSessionInternal session,
       final ProgressListener progressListener) {
     long entitiesIndexed;
@@ -531,12 +543,14 @@ public abstract class IndexAbstract implements Index {
     return doRemove(storage, key, session);
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, Object key, final Identifiable rid) {
     key = getCollatingValue(key);
     transaction.addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
     return true;
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, Object key) {
     key = getCollatingValue(key);
 
@@ -551,6 +565,7 @@ public abstract class IndexAbstract implements Index {
     return storage.removeKeyFromIndex(indexId, key);
   }
 
+  @Override
   public Index delete(FrontendTransaction transaction) {
     acquireExclusiveLock();
 
@@ -617,10 +632,12 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public String getName() {
     return im.getName();
   }
 
+  @Override
   public String getType() {
     return im.getType();
   }
@@ -645,6 +662,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public Set<String> getCollections() {
     acquireSharedLock();
     try {
@@ -654,6 +672,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName,
       boolean requireEmpty) {
     acquireExclusiveLock();
@@ -678,6 +697,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public void removeCollection(FrontendTransaction transaction, String collectionName) {
     acquireExclusiveLock();
     try {
@@ -685,7 +705,7 @@ public abstract class IndexAbstract implements Index {
       var collectionId = session.getCollectionIdByName(collectionName);
       if (session.countCollectionElements(collectionId) > 0) {
         throw new IndexException("Collection " + collectionName
-            + " is not empty. Please remove all records from it before adding to index");
+            + " is not empty. Please remove all records from it before removing it from index");
       }
 
       if (collectionsToIndex.remove(collectionName)) {
@@ -741,11 +761,13 @@ public abstract class IndexAbstract implements Index {
    * @param changes the changes to interpret.
    * @return the interpreted index key changes.
    */
+  @Override
   public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes) {
     return changes.getEntriesAsList();
   }
 
+  @Override
   public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     acquireSharedLock();
     try {
@@ -784,6 +806,7 @@ public abstract class IndexAbstract implements Index {
     return false;
   }
 
+  @Override
   public boolean isAutomatic() {
     acquireSharedLock();
     try {
@@ -793,6 +816,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public PropertyTypeInternal[] getKeyTypes() {
     acquireSharedLock();
     try {
@@ -822,6 +846,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public IndexDefinition getDefinition() {
     return im.getIndexDefinition();
   }
@@ -855,14 +880,17 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public int getIndexId() {
     return indexId;
   }
 
+  @Override
   public String getDatabaseName() {
     return storage.getName();
   }
 
+  @Override
   public Object getCollatingValue(final Object key) {
     if (key != null && im.getIndexDefinition() != null) {
       return im.getIndexDefinition().getCollate().transform(key);
