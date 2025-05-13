@@ -1028,7 +1028,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return entity;
   }
 
-  private StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
+  @Override
+  public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
@@ -3560,7 +3561,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     //noinspection unchecked
-    return (T) JSONSerializerJackson.fromString(this, json);
+    return (T) JSONSerializerJackson.INSTANCE.fromString(this, json);
   }
 
   @Override
@@ -3570,7 +3571,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var result = JSONSerializerJackson.fromString(this, json);
+    var result = JSONSerializerJackson.INSTANCE.fromString(this, json);
 
     if (result instanceof Entity) {
       return (Entity) result;
@@ -4150,26 +4151,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public <T, X extends Exception> void executeInTxBatches(
       Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
-    var ok = false;
-    assert assertIfNotActive();
-    var counter = 0;
-
-    var tx = begin();
-    try {
-      for (var t : iterable) {
-        consumer.accept(tx, t);
-        counter++;
-
-        if (counter % batchSize == 0) {
-          commit();
-          begin();
-        }
-      }
-
-      ok = true;
-    } finally {
-      finishTx(ok);
-    }
+    executeInTxBatches(iterable.iterator(), batchSize, consumer);
   }
 
   @Override

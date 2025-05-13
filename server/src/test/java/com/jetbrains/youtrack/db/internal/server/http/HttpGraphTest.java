@@ -44,7 +44,7 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     var operation = Map.of("type", "script", "language", "SQL", "script", script);
     scriptPayload.put("operations", List.of(operation));
 
-    var json = JSONSerializerJackson.mapToJson(scriptPayload);
+    var json = JSONSerializerJackson.INSTANCE.mapToJson(scriptPayload);
     var response =
         post("batch/" + getDatabaseName() + "/sql/")
             .payload(json, CONTENT.JSON)
@@ -60,7 +60,6 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     var created = res.get(0).get("value").get(0);
     Assert.assertEquals("foo1", created.get("name").asText());
     Assert.assertEquals(1, created.get("@version").asInt());
-
 
     var createdNode = created.<ObjectNode>deepCopy();
     createdNode.put("name", "fooUpdated");
@@ -104,7 +103,7 @@ public class HttpGraphTest extends BaseHttpDatabaseTest {
     var operation = Map.of("type", "script", "language", "SQL", "script", script);
     scriptPayload.put("operations", List.of(operation));
 
-    var json = JSONSerializerJackson.mapToJson(scriptPayload);
+    var json = JSONSerializerJackson.INSTANCE.mapToJson(scriptPayload);
 
     var response =
         post("batch/" + getDatabaseName() + "/sql/")

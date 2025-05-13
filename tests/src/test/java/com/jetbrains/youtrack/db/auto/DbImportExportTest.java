@@ -33,12 +33,10 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
@@ -51,7 +49,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -314,7 +311,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     try (
         var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
-        var imported = createAndOpen(youTrackDB, "imported");
+        var imported = createAndOpen(youTrackDB, "imported")
     ) {
       final var vClass = original.getSchema().createVertexClass("AVertex");
       final var eClass = original.getSchema().createEdgeClass("AnEdge");
@@ -335,10 +332,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         v3.addLightWeightEdge(v2, leClass);
       });
 
-      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
           .exportDatabase();
 
-      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
           .importDatabase();
 
       assertTrue(imported.getSchema().getClass("AVertex").isVertexType());
@@ -393,7 +390,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     try (
         var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
-        var imported = createAndOpen(youTrackDB, "imported");
+        var imported = createAndOpen(youTrackDB, "imported")
     ) {
 
       original.getSchema().createClass("WithBlob");
@@ -411,10 +408,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         withNonEmpty.setLink("blob", nonEmptyBlob);
       });
 
-      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
           .exportDatabase();
 
-      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
           .importDatabase();
 
       imported.executeInTx(tx -> {

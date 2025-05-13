@@ -218,7 +218,7 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
     var jsonMap = new HashMap<String, Object>();
     jsonMap.put("config", configMap);
 
-    var json = JSONSerializerJackson.mapToJson(jsonMap);
+    var json = JSONSerializerJackson.INSTANCE.mapToJson(jsonMap);
     queryString.append(" ").append(json);
   }
 
