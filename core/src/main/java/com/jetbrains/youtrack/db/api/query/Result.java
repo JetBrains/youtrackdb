@@ -1,9 +1,13 @@
 package com.jetbrains.youtrack.db.api.query;
 
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -13,11 +17,6 @@ import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
-import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -170,7 +169,7 @@ public interface Result extends BasicResult {
 
   @Override
   @Nullable
-  default   <T> Map<String, T> getEmbeddedMap(@Nonnull String name) {
+  default <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedMap(name);
     }
@@ -180,9 +179,9 @@ public interface Result extends BasicResult {
       return null;
     }
 
-    if (value instanceof Map<?, ?> map && !PropertyTypeInternal.checkLinkCollection(map.values())) {
+    if (value instanceof EmbeddedMap<?> map) {
       //noinspection unchecked
-      return (Map<String, T>) map;
+      return (EmbeddedMap<T>) map;
     }
 
     throw new DatabaseException(

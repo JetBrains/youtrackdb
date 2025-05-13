@@ -2,16 +2,45 @@ package com.jetbrains.youtrack.db.api.common.query;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import java.util.Map;
 import javax.annotation.Nonnull;
 
+/// Interface that is used to notify about changes in the database. Records that are monitored are
+/// expressed using the `select` query syntax.
+///
+/// In the case of a remote session, there is no guarantee that all changes will be notified as some
+/// of them can be lost due to network issues.
+///
+/// So this functionality can be used for notification logic but not for business processing logic.
+///
+/// [com.jetbrains.youtrack.db.api.query.Result] instance passed in listener methods is detached
+/// from the database and represents a projection expressed in `select` query.
+///
+/// @see com.jetbrains.youtrack.db.api.YouTrackDB#live(String, String, String, String,
+/// BasicLiveQueryResultListener, Map)
+/// @see com.jetbrains.youtrack.db.api.YouTrackDB#live(String, String, String, String,
+/// BasicLiveQueryResultListener, Object...)
+/// @see LiveQueryMonitor#unSubscribe()
 public interface BasicLiveQueryResultListener<S extends BasicDatabaseSession<R, ?>, R extends BasicResult> {
+
+  /// Method is called by the database when the record satisfied by the query conditions is
+  /// created.
   void onCreate(@Nonnull S session, @Nonnull R data);
 
-  void onUpdate(@Nonnull S session, @Nonnull R before,  @Nonnull R after);
+  /// Method is called by the database when the record satisfied by the query conditions is
+  /// updated.
+  void onUpdate(@Nonnull S session, @Nonnull R before, @Nonnull R after);
 
+  /// Method is called by the database when the record satisfied by the query conditions is
+  /// deleted.
   void onDelete(@Nonnull S session, @Nonnull R data);
 
+  /// Method is called in case of error during handling events of the provided query. Typically
+  /// network errors are reported here.
   void onError(@Nonnull S session, @Nonnull BaseException exception);
 
+  /// Method is called when the user requests to stop listening to the query.
+  ///
+  /// @see LiveQueryMonitor#unSubscribe()
   void onEnd(@Nonnull S session);
 }

@@ -601,7 +601,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   @Nullable
-  public <T> Map<String, T> getEmbeddedMap(@Nonnull String name) {
+  public <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -609,7 +609,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     if (value instanceof EntityEmbeddedMapImpl<?> map) {
-      return (Map<String, T>) map;
+      return (EmbeddedMap<T>) map;
     }
 
     throw new DatabaseException(

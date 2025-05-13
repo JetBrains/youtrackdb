@@ -1,14 +1,14 @@
 package com.jetbrains.youtrack.db.api.common.query;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
@@ -16,15 +16,43 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+/// Interface that represents both the result execution of a single SQL query and
+/// [com.jetbrains.youtrack.db.api.record.Entity] in the database.
+///
+/// Instances of this object are not thread-safe and cannot be used concurrently. Results are always
+/// attached to the current [com.jetbrains.youtrack.db.api.transaction.Transaction] if you want to
+/// use it outside of the transaction call [#detach()] method.
+///
+///
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#query(String, Map)
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#query(String, Object...)
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#execute(String, Map)
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#execute(String, Object...)
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#command(String, Map)
+/// @see com.jetbrains.youtrack.db.api.transaction.Transaction#command(String, Object...)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#query(String, Map)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#query(String, Object...)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#execute(String, Map)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#execute(String, Object...)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#command(String, Map)
+/// @see com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession#command(String, Object...)
 public interface BasicResult {
 
-  /**
-   * @param name the property name
-   * @return the property value.
-   */
+  /// Returns either value of a single property in [com.jetbrains.youtrack.db.api.record.Entity] or
+  /// value of a single projection property returned by a query.
+  ///
+  /// All types expressed in [com.jetbrains.youtrack.db.api.schema.PropertyType] are supported.
+  /// Except for the listed above types, SQL queries can return nested results.
+  ///
+  /// @see #getResult(String)
   @Nullable
   <T> T getProperty(@Nonnull String name);
 
+  /// Returns `boolean` property value associated with
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#BOOLEAN] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Boolean getBoolean(@Nonnull String name) {
     var value = getProperty(name);
@@ -39,6 +67,11 @@ public interface BasicResult {
         "Property " + name + " is not a boolean type, but " + value.getClass().getName());
   }
 
+  /// Returns `byte` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#BYTE] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Byte getByte(@Nonnull String name) {
     var value = getProperty(name);
@@ -53,6 +86,11 @@ public interface BasicResult {
         "Property " + name + " is not a byte type, but " + value.getClass().getName());
   }
 
+  /// Returns `short` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#SHORT] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Short getShort(@Nonnull String name) {
     var value = getProperty(name);
@@ -67,6 +105,11 @@ public interface BasicResult {
         "Property " + name + " is not a short type, but " + value.getClass().getName());
   }
 
+  /// Returns `int` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#INTEGER] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Integer getInt(@Nonnull String name) {
     var value = getProperty(name);
@@ -82,6 +125,11 @@ public interface BasicResult {
 
   }
 
+  /// Returns `long` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#LONG] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Long getLong(@Nonnull String name) {
     var value = getProperty(name);
@@ -97,6 +145,11 @@ public interface BasicResult {
         "Property " + name + " is not a long type, but " + value.getClass().getName());
   }
 
+  /// Returns `float` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#FLOAT] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Float getFloat(@Nonnull String name) {
     var value = getProperty(name);
@@ -111,6 +164,11 @@ public interface BasicResult {
         "Property " + name + " is not a float type, but " + value.getClass().getName());
   }
 
+  /// Returns `double` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#DOUBLE] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default Double getDouble(@Nonnull String name) {
     var value = getProperty(name);
@@ -125,6 +183,11 @@ public interface BasicResult {
         "Property " + name + " is not a double type, but " + value.getClass().getName());
   }
 
+  /// Returns `string` property value associated with the
+  /// [com.jetbrains.youtrack.db.api.schema.PropertyType#STRING] type contained in
+  /// [com.jetbrains.youtrack.db.api.record.Entity] or in a result of a query projection.
+  ///
+  /// @see #getProperty(String)
   @Nullable
   default String getString(@Nonnull String name) {
     var value = getProperty(name);
@@ -250,15 +313,15 @@ public interface BasicResult {
   }
 
   @Nullable
-  default <T> Map<String, T> getEmbeddedMap(@Nonnull String name) {
+  default <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
     var value = getProperty(name);
     if (value == null) {
       return null;
     }
 
-    if (value instanceof Map<?, ?> map && !PropertyTypeInternal.checkLinkCollection(map.values())) {
+    if (value instanceof EmbeddedMap<?> map) {
       //noinspection unchecked
-      return (Map<String, T>) map;
+      return (EmbeddedMap<T>) map;
     }
 
     throw new DatabaseException(
