@@ -149,7 +149,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -157,7 +157,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s linkedclass %s",
               getFullNameQuoted(session),
-              quoteString(linkedClass.getName(session)));
+              quoteString(linkedClass.getName()));
       session.execute(cmd).close();
 
     } finally {
@@ -170,7 +170,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -315,7 +315,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var relatedIndexes = new ArrayList<Index>();
-    for (final var index : indexManager.getClassIndexes(session, owner.getName(session))) {
+    for (final var index : indexManager.getClassIndexes(session, owner.getName())) {
       final var definition = index.getDefinition();
 
       if (Collections.indexOf(

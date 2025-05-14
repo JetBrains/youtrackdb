@@ -62,7 +62,7 @@ public class ImmutableSchema implements SchemaInternal {
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
       @Nonnull DatabaseSessionInternal session) {
     version = schemaShared.getVersion();
-    identity = schemaShared.getIdentity(session);
+    identity = schemaShared.getIdentity();
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
     collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
@@ -79,13 +79,13 @@ public class ImmutableSchema implements SchemaInternal {
     }
 
     properties = new ArrayList<>();
-    properties.addAll(schemaShared.getGlobalProperties(session));
+    properties.addAll(schemaShared.getGlobalProperties());
 
     for (SchemaClass cl : classes.values()) {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blogCollections = schemaShared.getBlobCollections(session);
+    this.blogCollections = schemaShared.getBlobCollections();
 
     var indexManager = session.getSharedContext().getIndexManager();
     var internalIndexes = indexManager.getIndexes();
