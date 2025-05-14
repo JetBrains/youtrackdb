@@ -2,18 +2,17 @@ package com.jetbrains.youtrack.db.internal.core.storage;
 
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.io.File;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.Assert;
@@ -23,8 +22,6 @@ public class StorageEncryptionTestIT {
 
   @Test
   public void testEncryption() {
-    final var dbDirectoryFile = cleanAndGetDirectory();
-
     final var youTrackDBConfig =
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
@@ -32,9 +29,11 @@ public class StorageEncryptionTestIT {
             .build();
     try (final var youTrackDB =
         YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), youTrackDBConfig)) {
-      youTrackDB.execute(
-          "create database encryption disk users ( admin identified by 'admin' role admin)");
-      try (var session = (DatabaseSessionInternal) youTrackDB.open("encryption", "admin",
+      youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
+          youTrackDBConfig,
+          "admin", "admin", "admin");
+      try (var session = (DatabaseSessionInternal) youTrackDB.open(
+          StorageEncryptionTestIT.class.getSimpleName(), "admin",
           "admin")) {
         final var schema = session.getSchema();
         final var cls = schema.createClass("EncryptedData");
@@ -96,7 +95,8 @@ public class StorageEncryptionTestIT {
         YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
             wrongKeyOneYouTrackDBConfig)) {
       try {
-        try (final var session = youTrackDB.open("encryption", "admin", "admin")) {
+        try (final var session = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+            "admin", "admin")) {
           Assert.fail();
         }
       } catch (Exception e) {
@@ -114,7 +114,8 @@ public class StorageEncryptionTestIT {
         YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
             wrongKeyTwoYouTrackDBConfig)) {
       try {
-        try (final var session = youTrackDB.open("encryption", "admin", "admin")) {
+        try (final var session = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName()
+            , "admin", "admin")) {
           Assert.fail();
         }
       } catch (Exception e) {
@@ -123,9 +124,10 @@ public class StorageEncryptionTestIT {
     }
 
     try (final var youTrackDB =
-        YourTracks.embedded(DbTestBase.embeddedDBUrl(getClass()), youTrackDBConfig)) {
+        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), youTrackDBConfig)) {
       try (final var session =
-          (DatabaseSessionEmbedded) youTrackDB.open("encryption", "admin", "admin")) {
+          (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+              "admin", "admin")) {
         final var indexManager = session.getSharedContext().getIndexManager();
         final var treeIndex = indexManager.getIndex("EncryptedTree");
         final var hashIndex = indexManager.getIndex("EncryptedHash");
@@ -157,29 +159,13 @@ public class StorageEncryptionTestIT {
     }
   }
 
-  private static File cleanAndGetDirectory() {
-    final var dbDirectory =
-        "./target/databases" + File.separator + StorageEncryptionTestIT.class.getSimpleName();
-    final var dbDirectoryFile = new File(dbDirectory);
-    FileUtils.deleteRecursively(dbDirectoryFile);
-    return dbDirectoryFile;
-  }
-
   @Test
   public void testEncryptionSingleDatabase() {
-    final var dbDirectoryFile = cleanAndGetDirectory();
-
     try (final var youTrackDB =
         YourTracks.embedded(
             DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig())) {
-      final var youTrackDBConfig =
-          YouTrackDBConfig.builder()
-              .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
-                  "T1JJRU5UREJfSVNfQ09PTA==")
-              .build();
-
-      youTrackDB.execute(
-          "create database encryption disk users ( admin identified by 'admin' role admin)");
+      youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
+          "admin", "admin", "admin");
     }
     try (final var youTrackDB =
         YourTracks.embedded(
@@ -189,8 +175,9 @@ public class StorageEncryptionTestIT {
               .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
                   "T1JJRU5UREJfSVNfQ09PTA==")
               .build();
-      try (var db =
-          (DatabaseSessionInternal) youTrackDB.open("encryption", "admin", "admin",
+      try (var session =
+          (DatabaseSessionInternal) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
+              "admin", "admin",
               youTrackDBConfig)) {
         final var schema = session.getSchema();
         final var cls = schema.createClass("EncryptedData");
