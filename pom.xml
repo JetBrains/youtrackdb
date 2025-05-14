@@ -97,20 +97,11 @@
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <kotlin.version>2.1.0</kotlin.version>
-    <kotlin.compiler.incremental>true</kotlin.compiler.incremental>
-    <kotlin.compiler.jvmTarget>21</kotlin.compiler.jvmTarget>
   </properties>
 
 
   <dependencyManagement>
     <dependencies>
-      <dependency>
-        <groupId>org.jetbrains.kotlin</groupId>
-        <artifactId>kotlin-stdlib</artifactId>
-        <version>${kotlin.version}</version>
-        <scope>test</scope>
-      </dependency>
       <dependency>
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-collections4</artifactId>
@@ -159,11 +150,6 @@
   <build>
     <pluginManagement>
       <plugins>
-        <plugin>
-          <artifactId>kotlin-maven-plugin</artifactId>
-          <groupId>org.jetbrains.kotlin</groupId>
-          <version>${kotlin.version}</version>
-        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-failsafe-plugin</artifactId>
