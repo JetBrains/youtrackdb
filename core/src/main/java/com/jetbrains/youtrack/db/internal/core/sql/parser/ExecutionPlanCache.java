@@ -1,10 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
@@ -88,7 +89,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
     return result;
   }
 
-  public static void put(String statement, ExecutionPlan plan, DatabaseSessionInternal db) {
+  public static void put(String statement, ExecutionPlan plan, DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -100,7 +101,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
     resource.putInternal(statement, plan, db);
   }
 
-  public void putInternal(String statement, ExecutionPlan plan, DatabaseSessionInternal db) {
+  public void putInternal(String statement, ExecutionPlan plan, DatabaseSessionEmbedded db) {
     if (statement == null) {
       return;
     }

@@ -19,8 +19,9 @@ public class SchemaEmbedded extends SchemaShared {
     super();
   }
 
+  @Override
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       SchemaClassImpl... superClasses) {
@@ -51,8 +52,9 @@ public class SchemaEmbedded extends SchemaShared {
     return result;
   }
 
+  @Override
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int collections,
       SchemaClassImpl... superClasses) {
@@ -71,7 +73,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   private SchemaClassImpl doCreateClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       final int collections,
       SchemaClassImpl... superClasses) {
@@ -107,7 +109,7 @@ public class SchemaEmbedded extends SchemaShared {
         collectionIds = new int[]{-1};
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -215,9 +217,10 @@ public class SchemaEmbedded extends SchemaShared {
     return new SchemaClassEmbedded(this, className, collectionIds);
   }
 
+  @Override
   @Nullable
   public SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName,
+      DatabaseSessionEmbedded session, final String iClassName,
       final SchemaClassImpl... superClasses) {
     if (iClassName == null) {
       return null;
@@ -263,7 +266,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected SchemaClassImpl doCreateClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       int retry,
@@ -302,7 +305,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -387,7 +390,8 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
-  public void dropClass(DatabaseSessionInternal session, final String className) {
+  @Override
+  public void dropClass(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
       if (session.getTransactionInternal().isActive()) {
@@ -429,11 +433,11 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
-  protected void doDropClass(DatabaseSessionInternal session, String className) {
+  protected void doDropClass(DatabaseSessionEmbedded session, String className) {
     dropClassInternal(session, className);
   }
 
-  protected void dropClassInternal(DatabaseSessionInternal session, final String className) {
+  protected void dropClassInternal(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
       if (session.getTransactionInternal().isActive()) {
@@ -475,7 +479,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      dropClassIndexes((DatabaseSessionEmbedded) session, cls);
+      dropClassIndexes(session, cls);
 
       classes.remove(key);
 
@@ -497,6 +501,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassEmbedded(this, name);
   }
@@ -536,6 +541,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   public void checkEmbedded(DatabaseSessionInternal session) {
   }
 

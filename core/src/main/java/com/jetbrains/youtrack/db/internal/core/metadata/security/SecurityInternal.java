@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -126,7 +127,7 @@ public interface SecurityInternal {
    * @return the list of the properties that are hidden (ie. not allowed to be read) on current
    * entity for current session
    */
-  Set<String> getFilteredProperties(DatabaseSessionInternal session, EntityImpl entity);
+  Set<String> getFilteredProperties(DatabaseSessionEmbedded session, EntityImpl entity);
 
   /**
    * For property-level security
@@ -136,18 +137,18 @@ public interface SecurityInternal {
    * @param propertyName the property to check for write access
    * @return
    */
-  boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName);
 
-  boolean canCreate(DatabaseSessionInternal session, DBRecord record);
+  boolean canCreate(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canRead(DatabaseSessionInternal session, DBRecord record);
+  boolean canRead(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canUpdate(DatabaseSessionInternal session, DBRecord record);
+  boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canDelete(DatabaseSessionInternal session, DBRecord record);
+  boolean canDelete(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canExecute(DatabaseSessionInternal session, Function function);
+  boolean canExecute(DatabaseSessionEmbedded session, Function function);
 
   /**
    * checks if for current session a resource is restricted by security resources (ie. READ policies
@@ -158,7 +159,7 @@ public interface SecurityInternal {
    * @return true if a restriction of any type exists for this session and this resource. False
    * otherwise
    */
-  boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource);
+  boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource);
 
   /**
    * returns the list of all the filtered properties (for any role defined in the db)
@@ -166,11 +167,11 @@ public interface SecurityInternal {
    * @param database
    * @return
    */
-  Set<SecurityResourceProperty> getAllFilteredProperties(DatabaseSessionInternal database);
+  Set<SecurityResourceProperty> getAllFilteredProperties(DatabaseSessionEmbedded database);
 
-  SecurityUser securityAuthenticate(DatabaseSessionInternal session, String userName,
+  SecurityUser securityAuthenticate(DatabaseSessionEmbedded session, String userName,
       String password);
 
   SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo);
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo);
 }

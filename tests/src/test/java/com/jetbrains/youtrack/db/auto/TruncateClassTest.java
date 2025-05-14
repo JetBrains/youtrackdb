@@ -29,17 +29,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class TruncateClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public TruncateClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @SuppressWarnings("unchecked")
   @Test
@@ -109,8 +102,11 @@ public class TruncateClassTest extends BaseDBTest {
       Assert.fail();
     } catch (Exception e) {
     }
+
+    session.begin();
     var result = session.query("select from TestTruncateVertexClass");
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
 
     session.execute("truncate class TestTruncateVertexClass unsafe").close();
     result = session.query("select from TestTruncateVertexClass");
@@ -132,16 +128,23 @@ public class TruncateClassTest extends BaseDBTest {
     session.execute("insert into TestTruncateVertexClassSubclass set name = 'bar'").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from TestTruncateVertexClassSuperclass");
     Assert.assertEquals(result.stream().count(), 2);
+    session.commit();
 
     session.execute("truncate class TestTruncateVertexClassSuperclass ").close();
+
+    session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
     Assert.assertEquals(result.stream().count(), 1);
+    session.commit();
 
     session.execute("truncate class TestTruncateVertexClassSuperclass polymorphic").close();
+    session.begin();
     result = session.query("select from TestTruncateVertexClassSubclass");
     Assert.assertEquals(result.stream().count(), 0);
+    session.commit();
   }
 
   @Test
@@ -187,14 +190,14 @@ public class TruncateClassTest extends BaseDBTest {
 
   private Index getOrCreateIndex(SchemaClass testClass) {
     var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "test_class_by_data");
+        session.getSharedContext().getIndexManager().getIndex("test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
       testClass.createIndex("test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
           "data");
     }
     return session.getSharedContext().getIndexManager()
-        .getIndex(session, "test_class_by_data");
+        .getIndex("test_class_by_data");
   }
 
   private SchemaClass getOrCreateClass(Schema schema) {
@@ -223,13 +226,17 @@ public class TruncateClassTest extends BaseDBTest {
         .setPropertyInChain("data", session.newEmbeddedList(List.of(3, 0)));
     session.commit();
 
+    session.begin();
     var result = session.query("select from test_class");
     Assert.assertEquals(result.stream().count(), 2);
+    session.commit();
 
     session.execute("truncate class test_class").close();
 
+    session.begin();
     result = session.query("select from test_class");
     Assert.assertEquals(result.stream().count(), 0);
+    session.commit();
 
     schema.dropClass("test_class");
   }

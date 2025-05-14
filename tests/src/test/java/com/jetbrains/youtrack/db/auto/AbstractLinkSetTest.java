@@ -4,10 +4,10 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -22,11 +22,6 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public abstract class AbstractLinkSetTest extends BaseDBTest {
-
-  public AbstractLinkSetTest(Boolean remote) {
-    super(remote);
-  }
-
 
   @Test
   public void testAdd() {

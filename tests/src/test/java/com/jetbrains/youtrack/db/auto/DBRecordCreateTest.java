@@ -9,12 +9,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class DBRecordCreateTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DBRecordCreateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testNewRecord() {
     final var entityId = session.computeInTx(tx -> {

@@ -4,13 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
@@ -25,19 +25,20 @@ import org.junit.Test;
 
 public class StatementIndexFinderTest {
 
-  private DatabaseSessionInternal session;
-  private YouTrackDB youTrackDb;
+  private DatabaseSessionEmbedded session;
+  private YouTrackDBImpl youTrackDb;
 
   @Before
   public void before() {
-    this.youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    this.youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     this.youTrackDb.execute(
         "create database "
             + StatementIndexFinderTest.class.getSimpleName()
             + " memory users (admin identified by 'adminpwd' role admin)");
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             this.youTrackDb.open(
                 StatementIndexFinderTest.class.getSimpleName(), "admin", "adminpwd");
   }

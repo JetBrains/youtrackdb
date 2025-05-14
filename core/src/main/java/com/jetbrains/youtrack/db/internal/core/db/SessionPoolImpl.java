@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.SessionPool;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
@@ -48,10 +48,11 @@ import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
  *
  * <p>
  */
-public class SessionPoolImpl implements SessionPool {
+public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
+    SessionPool<S> {
 
-  private final YouTrackDBImpl youTrackDb;
-  private final DatabasePoolInternal internal;
+  private final YouTrackDBAbstract<?, S> youTrackDb;
+  private final DatabasePoolInternal<S> internal;
   private final boolean autoclose;
 
   /**
@@ -62,7 +63,7 @@ public class SessionPoolImpl implements SessionPool {
    * @param user        the database user for the current pool of databases.
    * @param password    the password relative to the user name
    */
-  public SessionPoolImpl(YouTrackDBImpl environment, String database, String user,
+  public SessionPoolImpl(YouTrackDBAbstract<?, S> environment, String database, String user,
       String password) {
     this(environment, database, user, password,
         (YouTrackDBConfigImpl) YouTrackDBConfig.defaultConfig());
@@ -79,7 +80,7 @@ public class SessionPoolImpl implements SessionPool {
    * @param configuration the configuration relative for the current pool.
    */
   public SessionPoolImpl(
-      YouTrackDBImpl environment,
+      YouTrackDBAbstract<?, S> environment,
       String database,
       String user,
       String password,
@@ -115,8 +116,10 @@ public class SessionPoolImpl implements SessionPool {
   public SessionPoolImpl(String url, String user, String password,
       YouTrackDBConfigImpl configuration) {
     var val = URLHelper.parseNew(url);
-    youTrackDb = new YouTrackDBImpl(val.getType() + ":" + val.getPath(),
-        configuration);
+    //noinspection unchecked
+    youTrackDb = (YouTrackDBAbstract<?, S>)
+        YouTrackDBInternal.fromUrl(val.getType() + ":" + val.getPath(), configuration)
+            .newYouTrackDb();
     autoclose = true;
     internal = youTrackDb.openPool(val.getDbName(), user, password, configuration);
   }
@@ -153,12 +156,14 @@ public class SessionPoolImpl implements SessionPool {
       String user,
       String password,
       YouTrackDBConfigImpl configuration) {
-    youTrackDb = new YouTrackDBImpl(environment, configuration);
+    //noinspection unchecked
+    youTrackDb = (YouTrackDBAbstract<?, S>) YouTrackDBInternal.fromUrl(environment, configuration)
+        .newYouTrackDb();
     autoclose = true;
     internal = youTrackDb.openPool(database, user, password, configuration);
   }
 
-  public SessionPoolImpl(YouTrackDBImpl environment, DatabasePoolInternal internal) {
+  public SessionPoolImpl(YouTrackDBAbstract<?, S> environment, DatabasePoolInternal<S> internal) {
     this.youTrackDb = environment;
     this.internal = internal;
     autoclose = false;
@@ -172,7 +177,7 @@ public class SessionPoolImpl implements SessionPool {
    * @throws AcquireTimeoutException in case the timeout for waiting for a session is reached.
    */
   @Override
-  public DatabaseSession acquire() throws AcquireTimeoutException {
+  public S acquire() throws AcquireTimeoutException {
     return internal.acquire();
   }
 

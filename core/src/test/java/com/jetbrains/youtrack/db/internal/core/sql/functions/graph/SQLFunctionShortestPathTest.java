@@ -7,7 +7,8 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
@@ -18,7 +19,7 @@ import org.junit.Test;
 public class SQLFunctionShortestPathTest {
 
   private YouTrackDB youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   private Map<Integer, Vertex> vertices = new HashMap<Integer, Vertex>();
   private SQLFunctionShortestPath function;
@@ -38,11 +39,11 @@ public class SQLFunctionShortestPathTest {
 
   private void setUpDatabase() {
     youTrackDB =
-        CreateDatabaseUtil.createDatabase(
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             "SQLFunctionShortestPath", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     session =
-        (DatabaseSessionInternal) youTrackDB.open("SQLFunctionShortestPath", "admin",
+        (DatabaseSessionEmbedded) youTrackDB.open("SQLFunctionShortestPath", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     session.createEdgeClass("Edge1");

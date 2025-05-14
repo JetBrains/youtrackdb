@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -50,7 +51,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
   public Object[] configuredParameters;
   public Object[] runtimeParameters;
 
-  public SQLMethodRuntime(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public SQLMethodRuntime(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iText) {
     super(session, iQueryToParse, iText);
   }
@@ -167,7 +168,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
   }
 
   @Override
-  protected void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  protected void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iText) {
     final var beginParenthesis = iText.indexOf('(');
 
@@ -191,7 +192,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
     setParameters(session, configuredParameters, true);
   }
 
-  public SQLMethodRuntime setParameters(DatabaseSessionInternal session,
+  public SQLMethodRuntime setParameters(DatabaseSessionEmbedded session,
       final Object[] iParameters, final boolean iEvaluate) {
     if (iParameters != null) {
       var context = new BasicCommandContext();

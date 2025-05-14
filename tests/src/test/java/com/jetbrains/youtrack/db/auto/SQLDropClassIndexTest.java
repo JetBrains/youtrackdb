@@ -19,21 +19,15 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLDropClassIndexTest extends BaseDBTest {
-
   private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
   private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
-  @Parameters(value = "remote")
-  public SQLDropClassIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -56,7 +50,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
 
     session.execute("DROP CLASS SQLDropClassTestClass").close();
 
@@ -65,7 +59,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
     session.close();
     session = createSessionInstance();
     Assert.assertNull(session.getMetadata().getSchema().getClass("SQLDropClassTestClass"));
@@ -73,6 +67,6 @@ public class SQLDropClassIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SQLDropClassCompositeIndex"));
+            .getIndex("SQLDropClassCompositeIndex"));
   }
 }

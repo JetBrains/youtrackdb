@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.server.query;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -14,64 +13,72 @@ import org.junit.Test;
 
 public class RemoteGraphLiveQueryTest extends BaseServerMemoryDatabase {
 
+  @Override
   public void beforeTest() {
     super.beforeTest();
-    session.createClassIfNotExist("FirstV", "V");
-    session.createClassIfNotExist("SecondV", "V");
-    session.createClassIfNotExist("TestEdge", "E");
+
+    session.executeSQLScript("""
+        create class FirstV if not exists extends V;
+        create class SecondV if not exists extends V;
+        create class TestEdge if not exists extends E;
+        """);
   }
 
   @Test
   public void testLiveQuery() throws InterruptedException {
-
-    session.begin();
+    session.command("begin");
     session.execute("create vertex FirstV set id = '1'").close();
     session.execute("create vertex SecondV set id = '2'").close();
-    session.commit();
+    session.command("commit");
 
-    session.begin();
     try (var resultSet =
-        session.execute(
-            "create edge TestEdge  from (select from FirstV) to (select from SecondV)")) {
+        session.computeSQLScript(
+            """
+                begin;
+                let $res = create edge TestEdge from (select from FirstV) to (select from SecondV);
+                commit;
+                return $res;
+                """)) {
       var result = resultSet.stream().iterator().next();
-
-      Assert.assertTrue(result.isStatefulEdge());
+      Assert.assertTrue(result.isIdentifiable());
     }
-    session.commit();
 
     var l = new AtomicLong(0);
 
     context.live(session.getDatabaseName(), "admin", "adminpwd",
         "select from SecondV",
-        new LiveQueryResultListener() {
+        new RemoteLiveQueryResultListener() {
 
           @Override
-          public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-              @Nonnull Result after) {
+          public void onUpdate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult before,
+              @Nonnull RemoteResult after) {
             l.incrementAndGet();
           }
 
           @Override
-          public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
+          public void onError(@Nonnull RemoteDatabaseSession session,
+              @Nonnull BaseException exception) {
           }
 
           @Override
-          public void onEnd(@Nonnull DatabaseSession session) {
+          public void onEnd(@Nonnull RemoteDatabaseSession session) {
           }
 
           @Override
-          public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+          public void onDelete(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
           }
 
           @Override
-          public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+          public void onCreate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
           }
         },
         new HashMap<String, String>());
 
-    session.begin();
-    session.execute("update SecondV set id = 3");
-    session.commit();
+    session.executeSQLScript("""
+        begin;
+        update SecondV set id = 3;
+        commit;
+        """);
 
     Thread.sleep(100);
 

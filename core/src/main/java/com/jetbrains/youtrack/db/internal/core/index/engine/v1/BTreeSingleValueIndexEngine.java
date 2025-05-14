@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
@@ -204,7 +205,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionInternal db, Object rangeFrom,
+      DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,

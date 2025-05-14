@@ -124,7 +124,7 @@ public class RecreateIndexesTask implements Runnable {
   }
 
   private void rebuildNonDurableAutomaticIndex(
-      DatabaseSessionInternal session, Map<String, ?> indexMap,
+      DatabaseSessionEmbedded session, Map<String, ?> indexMap,
       Index index,
       IndexMetadata indexMetadata,
       IndexDefinition indexDefinition) {

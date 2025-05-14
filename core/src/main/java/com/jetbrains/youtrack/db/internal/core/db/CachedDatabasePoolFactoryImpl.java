@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
@@ -10,7 +11,7 @@ import java.util.TimerTask;
 /**
  * Default implementation of {@link CachedDatabasePoolFactory}
  *
- * <p>Used in {@link YouTrackDBEmbedded} by default
+ * <p>Used in {@link YouTrackDBInternalEmbedded} by default
  *
  * <p>Works like LRU cache
  *
@@ -18,7 +19,8 @@ import java.util.TimerTask;
  * pool 4. First we will remove pool which used long time ago from pool cache 5. Then we add new
  * pool from point 3 to pool cache
  */
-public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory {
+public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>> implements
+    CachedDatabasePoolFactory<S> {
 
   /**
    * Max size of connections which one pool can contains

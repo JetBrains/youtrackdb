@@ -32,7 +32,7 @@ public class LuceneNullTest extends LuceneBaseTest {
     doc.newEmbeddedList("names", new String[]{"foo"});
     session.commit();
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Test.names");
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
 
     session.begin();
     Assert.assertEquals(1, index.size(session));
@@ -54,7 +54,7 @@ public class LuceneNullTest extends LuceneBaseTest {
     session.commit();
 
     session.begin();
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Test.names");
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
     Assert.assertEquals(0, index.size(session));
     session.commit();
   }

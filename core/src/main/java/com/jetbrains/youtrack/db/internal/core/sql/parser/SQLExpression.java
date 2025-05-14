@@ -54,6 +54,19 @@ public class SQLExpression extends SimpleNode {
     mathExpression = new SQLBaseExpression(attr, modifier);
   }
 
+  public boolean isStatement() {
+    return mathExpression instanceof SQLParenthesisExpression sqlParenthesisExpression
+        && sqlParenthesisExpression.statement != null;
+  }
+
+  public SQLStatement asStatement() {
+    if (!isStatement()) {
+      throw new IllegalStateException("This expression is not a statement");
+    }
+
+    return ((SQLParenthesisExpression) mathExpression).statement;
+  }
+
   @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (isNull) {
@@ -203,6 +216,7 @@ public class SQLExpression extends SimpleNode {
     return identifier;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (isNull) {
       builder.append("null");
@@ -335,8 +349,8 @@ public class SQLExpression extends SimpleNode {
    * tests if current expression is an indexed function AND that function can also be executed
    * without using the index
    *
-   * @param target   the query target
-   * @param context  the execution context
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -353,8 +367,8 @@ public class SQLExpression extends SimpleNode {
    * tests if current expression is an indexed function AND that function can be used on this
    * target
    *
-   * @param target   the query target
-   * @param context  the execution context
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -470,6 +484,7 @@ public class SQLExpression extends SimpleNode {
     }
   }
 
+  @Override
   public SQLExpression copy() {
 
     var result = new SQLExpression(-1);

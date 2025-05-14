@@ -8,12 +8,6 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class LinksConsistencyTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinksConsistencyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void selfModificationsAreProhibitedForOnBefore() {
     session.getSchema().createClass("SelfModificationsAreProhibited");

@@ -7,18 +7,11 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SchemaIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SchemaIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
@@ -49,7 +42,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
 
     session.getMetadata().getSchema().dropClass("SchemaIndexTest");
     session.getSharedContext().getIndexManager().reload(session);
@@ -61,7 +54,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
   @Test
@@ -89,7 +82,7 @@ public class SchemaIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "SchemaSharedIndexCompositeIndex"));
+            .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
 

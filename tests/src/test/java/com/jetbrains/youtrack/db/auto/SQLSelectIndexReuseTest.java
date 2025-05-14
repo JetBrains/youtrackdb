@@ -17,8 +17,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Ignore;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -27,11 +25,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   private static final Logger log = LoggerFactory.getLogger(SQLSelectIndexReuseTest.class);
 
-  @Parameters(value = "remote")
-  public SQLSelectIndexReuseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -172,6 +166,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {
@@ -2747,9 +2742,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     try (var rs = session.query(
         "select count(*) as count from CountFunctionWithNotUniqueIndexTest where a = 'a' and"
             + " b = 'c'")) {
-      if (!remoteDB) {
-        Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
-      }
+      Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
       Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 0L);
     }
   }
@@ -2792,9 +2785,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     try (var rs = session.query(
         "select count(*) as count from CountFunctionWithUniqueIndexTest where a = 'a' and b"
             + " = 'c'")) {
-      if (!remoteDB) {
-        Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
-      }
+      Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
       Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 2L);
     }
 

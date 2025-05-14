@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.common.stream;
 
-import com.jetbrains.youtrack.db.api.record.Element;
 import java.util.Comparator;
 import java.util.Spliterator;
 import java.util.function.Consumer;

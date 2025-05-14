@@ -30,10 +30,10 @@ public class SQLDropIndexStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     List<Result> rs = new ArrayList<>();
-    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     var idxMgr = session.getSharedContext().getIndexManager();
     if (all) {
-      for (var idx : idxMgr.getIndexes(session)) {
+      for (var idx : idxMgr.getIndexes()) {
         idxMgr.dropIndex(session, idx.getName());
         var result = new ResultInternal(session);
         result.setProperty("operation", "drop index");
@@ -42,7 +42,7 @@ public class SQLDropIndexStatement extends DDLStatement {
       }
 
     } else {
-      if (!idxMgr.existsIndex(session, name.getValue()) && !ifExists) {
+      if (!idxMgr.existsIndex(name.getValue()) && !ifExists) {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Index not found: " + name.getValue());
       }

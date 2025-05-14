@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.string;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.StringWriter;
 
@@ -26,7 +27,7 @@ public interface StringSerializer {
 
   StringWriter toStream(DatabaseSessionInternal session, StringWriter iOutput, Object iSource);
 
-  Object fromStream(DatabaseSessionInternal session, String iSource);
+  Object fromStream(DatabaseSessionEmbedded session, String iSource);
 
   String getName();
 }

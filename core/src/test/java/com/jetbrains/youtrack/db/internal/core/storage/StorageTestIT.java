@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.storage;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -8,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -50,7 +52,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -101,7 +103,7 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
@@ -116,7 +118,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -164,7 +166,7 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
@@ -179,7 +181,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -242,7 +244,7 @@ public class StorageTestIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -301,8 +303,8 @@ public class StorageTestIT {
   @Test
   public void testCreatedVersionIsStored() {
     youTrackDB =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()), YouTrackDBConfig.defaultConfig());
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()

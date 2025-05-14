@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -18,7 +18,7 @@ import org.junit.Test;
  */
 public class TransactionQueryIndexTests {
 
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private DatabaseSessionInternal database;
 
   @Before

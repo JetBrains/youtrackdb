@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
@@ -65,7 +66,7 @@ public class SQLHelper {
   public static final String NOT_NULL = "_NOT_NULL_";
   public static final String DEFINED = "_DEFINED_";
 
-  public static Object parseDefaultValue(DatabaseSessionInternal session, EntityImpl iRecord,
+  public static Object parseDefaultValue(DatabaseSessionEmbedded session, EntityImpl iRecord,
       final String iWord, @Nonnull SchemaProperty schemaProperty) {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
@@ -400,7 +401,7 @@ public class SQLHelper {
   }
 
   @Nullable
-  public static SQLFunctionRuntime getFunction(DatabaseSessionInternal session,
+  public static SQLFunctionRuntime getFunction(DatabaseSessionEmbedded session,
       final BaseParser iCommand, final String iWord) {
     final var separator = iWord.indexOf('.');
     final var beginParenthesis = iWord.indexOf(StringSerializerHelper.EMBEDDED_BEGIN);

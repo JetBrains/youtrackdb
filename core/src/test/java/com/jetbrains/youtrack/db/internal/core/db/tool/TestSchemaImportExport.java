@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -23,7 +24,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     var output = new ByteArrayOutputStream();
     try (var db =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("some", PropertyType.STRING);
@@ -45,7 +46,8 @@ public class TestSchemaImportExport extends DbTestBase {
             context.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var imp =
           new DatabaseImport(
-              sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
+              (DatabaseSessionEmbedded) sessionOne, new ByteArrayInputStream(output.toByteArray()),
+              new MockOutputListener());
       imp.importDatabase();
       var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
       Assert.assertNotNull(clas1);
@@ -66,7 +68,7 @@ public class TestSchemaImportExport extends DbTestBase {
     var output = new ByteArrayOutputStream();
 
     try (var db =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.createProperty("bla", PropertyType.STRING).setDefaultValue("something");
@@ -83,7 +85,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin",
         "admin");
     try (var sessionOne =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             context.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var imp =
           new DatabaseImport(
@@ -110,7 +112,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     var output = new ByteArrayOutputStream();
     try (var db =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             context.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSchema().createClass("Test");
       clazz.addSuperClass(db.getMetadata().getSchema().getClass("O"));
@@ -129,7 +131,7 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin",
         "admin");
     try (var sessionOne =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             context.open("imp_" + TestSchemaImportExport.class.getSimpleName(),
                 "admin", "admin")) {
       var imp =

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -18,7 +18,6 @@ import javax.annotation.Nullable;
  *
  */
 public class DDLExecutionPlan implements InternalExecutionPlan {
-
   private final DDLStatement statement;
   private final CommandContext ctx;
 
@@ -81,8 +80,8 @@ public class DDLExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var result = new ResultInternal((DatabaseSessionInternal) db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
     result.setProperty("type", "DDLExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("stmText", statement.toString());

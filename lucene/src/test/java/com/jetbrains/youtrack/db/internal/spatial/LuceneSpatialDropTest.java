@@ -42,8 +42,8 @@ public class LuceneSpatialDropTest {
       test.createProperty("name", PropertyType.STRING);
       test.createProperty("latitude", PropertyType.DOUBLE).setMandatory(false);
       test.createProperty("longitude", PropertyType.DOUBLE).setMandatory(false);
-      db.runScript("sql", "create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
-      db.runScript("sql", "create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE")
+      db.computeScript("sql", "create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
+      db.computeScript("sql", "create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE")
           .close();
     }
   }

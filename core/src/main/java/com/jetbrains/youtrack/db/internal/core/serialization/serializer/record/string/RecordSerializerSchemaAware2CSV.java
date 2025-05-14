@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
@@ -78,7 +79,7 @@ public class RecordSerializerSchemaAware2CSV extends RecordSerializerCSVAbstract
 
   @Override
   public RecordAbstract fromString(
-      DatabaseSessionInternal session, String iContent, final RecordAbstract iRecord,
+      DatabaseSessionEmbedded session, String iContent, final RecordAbstract iRecord,
       final String[] iFields) {
     iContent = iContent.trim();
 

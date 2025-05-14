@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImpExpAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImportException;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseTool;
@@ -15,12 +14,12 @@ import java.io.FileNotFoundException;
 /**
  *
  */
-public class DatabaseImportRemote extends DatabaseImpExpAbstract {
+public class DatabaseImportRemote extends DatabaseImpExpAbstract<DatabaseSessionRemote> {
 
   private String options;
 
   public DatabaseImportRemote(
-      DatabaseSessionInternal iDatabase, String iFileName, CommandOutputListener iListener) {
+      DatabaseSessionRemote iDatabase, String iFileName, CommandOutputListener iListener) {
     super(iDatabase, iFileName, iListener);
   }
 
@@ -34,21 +33,24 @@ public class DatabaseImportRemote extends DatabaseImpExpAbstract {
   }
 
   @Override
-  public DatabaseTool setOptions(String iOptions) {
+  public DatabaseTool<DatabaseSessionRemote> setOptions(String iOptions) {
     this.options = iOptions;
-    return super.setOptions(iOptions);
+    super.setOptions(iOptions);
+    return this;
   }
 
   public void importDatabase() throws DatabaseImportException {
-    var storage = (StorageRemote) getDatabase().getStorage();
+    var commandOrchestrator = session.getCommandOrchestrator();
     var file = new File(getFileName());
     try {
-      storage.importDatabase((DatabaseSessionRemote) session, options, new FileInputStream(file),
+      commandOrchestrator.importDatabase(session, options,
+          new FileInputStream(file),
           file.getName(),
           getListener());
     } catch (FileNotFoundException e) {
       throw BaseException.wrapException(
-          new DatabaseImportException("Error importing the database"), e, storage.getName());
+          new DatabaseImportException("Error importing the database"), e,
+          commandOrchestrator.getName());
     }
   }
 

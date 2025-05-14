@@ -10,7 +10,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
@@ -23,20 +23,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexManagerTest extends BaseDBTest {
-
   private static final String CLASS_NAME = "classForIndexManagerTest";
 
-  @Parameters(value = "remote")
-  public IndexManagerTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -125,7 +118,7 @@ public class IndexManagerTest extends BaseDBTest {
           }
 
           @Override
-          public void onCompletition(DatabaseSessionInternal session, final Object iTask,
+          public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
               final boolean iSucceed) {
             atomicInteger.incrementAndGet();
           }
@@ -769,12 +762,12 @@ public class IndexManagerTest extends BaseDBTest {
         null,
         null);
 
-    assertNotNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNotNull(indexManager.getIndex("anotherproperty"));
     assertNotNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
 
     indexManager.dropIndex(session, "anotherproperty");
 
-    assertNull(indexManager.getIndex(session, "anotherproperty"));
+    assertNull(indexManager.getIndex("anotherproperty"));
     assertNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
   }
 

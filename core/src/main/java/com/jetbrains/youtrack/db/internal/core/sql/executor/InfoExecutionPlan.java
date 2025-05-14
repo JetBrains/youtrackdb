@@ -33,7 +33,7 @@ public class InfoExecutionPlan implements ExecutionPlan {
 
   @Nonnull
   @Override
-  public Result toResult(@Nullable DatabaseSession db) {
+  public Result toResult(@Nullable DatabaseSession session) {
     return null;
   }
 

@@ -15,7 +15,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
   @Before
   public void setUp() throws Exception {
     final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    session.runScript("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
     session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
   }
 

@@ -592,7 +592,7 @@ public enum GlobalConfiguration {
       "Set the minimum enabled binary protocol version and disable all backward compatible"
           + " behaviour for version previous the one specified",
       Integer.class,
-      26,
+      1,
       false),
 
   NETWORK_BINARY_DEBUG(
@@ -776,12 +776,6 @@ public enum GlobalConfiguration {
       Integer.class,
       1000),
 
-  QUERY_REMOTE_SEND_EXECUTION_PLAN(
-      "youtrackdb.query.remoteResultSet.sendExecutionPlan",
-      "Send the execution plan details or not. False by default",
-      Boolean.class,
-      false),
-
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
@@ -920,12 +914,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       Boolean.FALSE,
       true),
-
-  DB_ENTITY_SERIALIZER(
-      "youtrackdb.entity.serializer",
-      "The default record serializer used by the database",
-      String.class,
-      "RecordSerializerBinary"),
 
   CLIENT_KRB5_CONFIG(
       "youtrackdb.client.krb5.config", "Location of the Kerberos configuration file", String.class,

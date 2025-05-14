@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.LiveQueryBatchResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
@@ -18,9 +18,6 @@ import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
 class ServerLiveQueryResultListener implements LiveQueryBatchResultListener {
 
   private final NetworkProtocolBinary protocol;
@@ -44,18 +41,18 @@ class ServerLiveQueryResultListener implements LiveQueryBatchResultListener {
   }
 
   @Override
-  public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+  public void onCreate(@Nonnull DatabaseSession session, @Nonnull Result data) {
     addEvent(new LiveQueryResult(LiveQueryResult.CREATE_EVENT, data, null));
   }
 
   @Override
-  public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+  public void onUpdate(@Nonnull DatabaseSession session, @Nonnull Result before,
       @Nonnull Result after) {
     addEvent(new LiveQueryResult(LiveQueryResult.UPDATE_EVENT, after, before));
   }
 
   @Override
-  public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+  public void onDelete(@Nonnull DatabaseSession session, @Nonnull Result data) {
     addEvent(new LiveQueryResult(LiveQueryResult.DELETE_EVENT, data, null));
   }
 
@@ -68,7 +65,7 @@ class ServerLiveQueryResultListener implements LiveQueryBatchResultListener {
       if (exception instanceof CoreException) {
         code = ((CoreException) exception).getErrorCode();
       }
-      protocol.push((DatabaseSessionInternal) session,
+      protocol.push((DatabaseSessionEmbedded) session,
           new LiveQueryPushRequest(monitorId, errorIdentifier, code, exception.getMessage()));
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -80,7 +77,7 @@ class ServerLiveQueryResultListener implements LiveQueryBatchResultListener {
   @Override
   public void onEnd(@Nonnull DatabaseSession session) {
     try {
-      protocol.push((DatabaseSessionInternal) session,
+      protocol.push((DatabaseSessionEmbedded) session,
           new LiveQueryPushRequest(monitorId, LiveQueryPushRequest.END, Collections.emptyList()));
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -102,7 +99,7 @@ class ServerLiveQueryResultListener implements LiveQueryBatchResultListener {
     toSend = new ArrayList<>();
 
     try {
-      protocol.push((DatabaseSessionInternal) session,
+      protocol.push((DatabaseSessionEmbedded) session,
           new LiveQueryPushRequest(monitorId, LiveQueryPushRequest.HAS_MORE, events));
     } catch (IOException e) {
       sharedContext.getLiveQueryOpsV2().getSubscribers().remove(monitorId);

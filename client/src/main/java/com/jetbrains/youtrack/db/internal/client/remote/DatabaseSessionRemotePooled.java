@@ -1,19 +1,16 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
+import com.jetbrains.youtrack.db.internal.core.db.PooledSession;
 
-public class DatabaseSessionRemotePooled extends DatabaseSessionRemote {
-  private final DatabasePoolInternal pool;
+public class DatabaseSessionRemotePooled extends DatabaseSessionRemote implements PooledSession {
+
+  private final DatabasePoolInternal<DatabaseSessionRemote> pool;
 
   public DatabaseSessionRemotePooled(
-      DatabasePoolInternal pool, StorageRemote storage,
-      SharedContext<IndexManagerRemote> sharedContext) {
-    super(storage, sharedContext);
+      DatabasePoolInternal<DatabaseSessionRemote> pool, RemoteCommandsDispatcherImpl storage) {
+    super(storage);
     this.pool = pool;
   }
 
@@ -28,20 +25,19 @@ public class DatabaseSessionRemotePooled extends DatabaseSessionRemote {
   }
 
   @Override
-  public DatabaseSessionInternal copy() {
-    assertIfNotActive();
-    return (DatabaseSessionInternal) pool.acquire();
+  public boolean isBackendClosed() {
+    return getCommandOrchestrator().isClosed(this);
   }
 
   @Override
   public void reuse() {
     activateOnCurrentThread();
-    setStatus(DatabaseSession.STATUS.OPEN);
+    this.status = STATUS.OPEN;
   }
 
   @Override
   public void realClose() {
-      activateOnCurrentThread();
-      super.close();
+    activateOnCurrentThread();
+    super.close();
   }
 }

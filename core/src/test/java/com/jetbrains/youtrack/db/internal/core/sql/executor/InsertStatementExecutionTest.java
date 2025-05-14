@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -414,7 +415,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
       var o = ((List) list).get(0);
       Assert.assertTrue(o instanceof Result);
-      Assert.assertEquals("foo", ((Result) o).getProperty("name"));
+      Assert.assertEquals("foo", ((BasicResult) o).getProperty("name"));
       Assert.assertEquals(className1,
           ((Result) o).asEntity().getSchemaClassName());
     }
@@ -451,7 +452,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
 
       var o = ((List) list).get(0);
       Assert.assertTrue(o instanceof Result);
-      Assert.assertEquals("foo", ((Result) o).getProperty("name"));
+      Assert.assertEquals("foo", ((BasicResult) o).getProperty("name"));
       Assert.assertEquals(className1,
           ((Result) o).asEntity().getSchemaClassName());
     }

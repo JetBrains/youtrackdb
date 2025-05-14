@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
@@ -21,7 +22,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   private int hashCode = 0;
 
   public SchemaPropertyProxy(SchemaPropertyImpl iDelegate,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     super(iDelegate, session);
   }
 

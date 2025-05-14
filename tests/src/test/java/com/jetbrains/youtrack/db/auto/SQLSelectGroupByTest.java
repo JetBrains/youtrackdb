@@ -20,18 +20,10 @@ import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Ignore;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectGroupByTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectGroupByTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {

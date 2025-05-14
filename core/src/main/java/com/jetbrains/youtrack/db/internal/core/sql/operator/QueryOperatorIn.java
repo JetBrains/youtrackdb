@@ -191,14 +191,14 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iLeft);
-      ridSize = MultiValue.getSize(iLeft);
+      ridSize = (int) MultiValue.getSize(iLeft);
     } else if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof SQLFilterItem) {
         iRight = ((SQLFilterItem) iRight).getValue(null, null, null);
       }
       ridCollection = MultiValue.getMultiValueIterable(iRight);
-      ridSize = MultiValue.getSize(iRight);
+      ridSize = (int) MultiValue.getSize(iRight);
     } else {
       return null;
     }
@@ -220,7 +220,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iLeft);
-      ridSize = MultiValue.getSize(iLeft);
+      ridSize = (int) MultiValue.getSize(iLeft);
     } else if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof SQLFilterItem) {
@@ -228,7 +228,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iRight);
-      ridSize = MultiValue.getSize(iRight);
+      ridSize = (int) MultiValue.getSize(iRight);
     } else {
       return null;
     }

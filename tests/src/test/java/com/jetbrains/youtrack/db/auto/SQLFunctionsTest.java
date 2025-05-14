@@ -46,12 +46,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLFunctionsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLFunctionsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {

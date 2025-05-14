@@ -20,6 +20,7 @@ public class IndexCandidateImpl implements IndexCandidate {
     this.property = prop;
   }
 
+  @Override
   public String getName() {
     return name;
   }
@@ -38,14 +39,15 @@ public class IndexCandidateImpl implements IndexCandidate {
     return Optional.of(this);
   }
 
+  @Override
   public Operation getOperation() {
     return operation;
   }
 
   @Override
   public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
-    var index = session.getSharedContext().getIndexManager().getIndex(session, name);
+    var session = ctx.getDatabaseSession();
+    var index = session.getSharedContext().getIndexManager().getIndex(name);
     if (property.getName().equals(index.getDefinition().getFields().getFirst())) {
       return Optional.of(this);
     } else {

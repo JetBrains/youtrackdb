@@ -1,18 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 
 /**
  *
  */
-public interface DatabasePoolInternal extends AutoCloseable {
-
-  DatabaseSession acquire();
+public interface DatabasePoolInternal<S extends BasicDatabaseSession<?, ?>> extends AutoCloseable {
+  S acquire();
 
   @Override
   void close();
 
-  void release(DatabaseSessionInternal database);
+  void release(S database);
 
   YouTrackDBConfigImpl getConfig();
 
@@ -25,15 +24,11 @@ public interface DatabasePoolInternal extends AutoCloseable {
 
   /**
    * Check that all resources owned by the pool are in the pool
-   *
-   * @return
    */
   boolean isUnused();
 
   /**
    * Check last time that a resource was returned to the pool
-   *
-   * @return
    */
   long getLastCloseTime();
 }

@@ -29,12 +29,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class DateTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testDateConversion() throws ParseException {
     final var begin = System.currentTimeMillis();

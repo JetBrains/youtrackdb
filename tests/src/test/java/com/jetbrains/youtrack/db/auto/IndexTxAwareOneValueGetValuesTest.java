@@ -12,16 +12,13 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
-  @Parameters(value = "remote")
-  public IndexTxAwareOneValueGetValuesTest(@Optional Boolean remote) {
-    super(remote != null && remote, true);
+  public IndexTxAwareOneValueGetValuesTest() {
+    super(true);
   }
 
   @Test

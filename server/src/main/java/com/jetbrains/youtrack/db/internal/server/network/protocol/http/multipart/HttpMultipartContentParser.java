@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
 import java.util.Map;
@@ -29,6 +29,6 @@ public interface HttpMultipartContentParser<T> {
       HttpRequest iRequest,
       Map<String, String> headers,
       HttpMultipartContentInputStream in,
-      DatabaseSessionInternal db)
+      DatabaseSessionEmbedded db)
       throws IOException;
 }

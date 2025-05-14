@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.exception;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 
@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
  * @since 9/28/2015
  */
 public abstract class CoreException extends BaseException {
-
   private final ErrorCode errorCode;
 
   private String componentName;
@@ -32,7 +31,7 @@ public abstract class CoreException extends BaseException {
     this(dbName, message, null, null);
   }
 
-  public CoreException(DatabaseSession session, final String message) {
+  public CoreException(BasicDatabaseSession<?, ?> session, final String message) {
     this(session != null ? session.getDatabaseName() : null, message, null, null);
   }
 
@@ -66,7 +65,7 @@ public abstract class CoreException extends BaseException {
     final var builder = new StringBuilder(msg != null ? msg : "");
 
     if (getDbName() != null) {
-      builder.append("\r\n\t").append("DB name=\"").append(getDbName()).append("\"");
+      builder.append("\r\n\t").append("DB Name=\"").append(getDbName()).append("\"");
     }
     if (componentName != null) {
       builder.append("\r\n\t").append("Component Name=\"").append(componentName).append("\"");

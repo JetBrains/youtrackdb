@@ -30,6 +30,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
@@ -131,7 +132,7 @@ public abstract class SchemaPropertyImpl {
    *                <li>FULLTEXT: Indexes single word for full text search
    *              </ul>
    */
-  public String createIndex(DatabaseSessionInternal session, final INDEX_TYPE iType) {
+  public String createIndex(DatabaseSessionEmbedded session, final INDEX_TYPE iType) {
     return createIndex(session, iType.toString());
   }
 
@@ -142,7 +143,7 @@ public abstract class SchemaPropertyImpl {
    *
    * @return the index name
    */
-  public String createIndex(DatabaseSessionInternal session, final String iType) {
+  public String createIndex(DatabaseSessionEmbedded session, final String iType) {
     acquireSchemaReadLock(session);
     try {
       var indexName = getFullName(session);
@@ -154,12 +155,12 @@ public abstract class SchemaPropertyImpl {
   }
 
 
-  public String createIndex(DatabaseSessionInternal session, INDEX_TYPE iType,
+  public String createIndex(DatabaseSessionEmbedded session, INDEX_TYPE iType,
       Map<String, Object> metadata) {
     return createIndex(session, iType.name(), metadata);
   }
 
-  public String createIndex(DatabaseSessionInternal session, String iType,
+  public String createIndex(DatabaseSessionEmbedded session, String iType,
       Map<String, Object> metadata) {
     acquireSchemaReadLock(session);
     try {
@@ -424,7 +425,7 @@ public abstract class SchemaPropertyImpl {
     };
   }
 
-  public void set(DatabaseSessionInternal session, final ATTRIBUTES attribute,
+  public void set(DatabaseSessionEmbedded session, final ATTRIBUTES attribute,
       final Object iValue) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -526,7 +527,7 @@ public abstract class SchemaPropertyImpl {
 
   public abstract void setDescription(DatabaseSessionInternal session, String iDescription);
 
-  public abstract void setCollate(DatabaseSessionInternal session, String iCollateName);
+  public abstract void setCollate(DatabaseSessionEmbedded session, String iCollateName);
 
   private static String removeQuotes(String s) {
     s = s.trim();
@@ -553,7 +554,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public void setCollate(DatabaseSessionInternal session, final Collate collate) {
+  public void setCollate(DatabaseSessionEmbedded session, final Collate collate) {
     setCollate(session, collate.getName());
   }
 
@@ -727,10 +728,7 @@ public abstract class SchemaPropertyImpl {
   }
 
   public static void checkEmbedded(DatabaseSessionInternal session) {
-    if (session.isRemote()) {
-      throw new SchemaException(session.getDatabaseName(),
-          "'Internal' schema modification methods can be used only inside of embedded database");
-    }
+
   }
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {

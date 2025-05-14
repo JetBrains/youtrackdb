@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -78,7 +79,7 @@ public abstract class StringSerializerHelper {
 
   @Nullable
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal db, final EntityImpl entity, PropertyTypeInternal iType,
+      DatabaseSessionEmbedded db, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
@@ -1193,7 +1194,7 @@ public abstract class StringSerializerHelper {
     return params;
   }
 
-  public static Map<String, String> getMap(DatabaseSessionInternal db, final String iText) {
+  public static Map<String, String> getMap(DatabaseSessionEmbedded db, final String iText) {
     var openPos = iText.indexOf(MAP_BEGIN);
     if (openPos == -1) {
       return Collections.emptyMap();

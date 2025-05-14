@@ -28,12 +28,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class QueryLocalCacheIntegrationTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public QueryLocalCacheIntegrationTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeMethod
   public void beforeMeth() {
     session.getMetadata().getSchema().createClass("FetchClass");

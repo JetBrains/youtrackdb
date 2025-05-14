@@ -18,6 +18,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
@@ -41,7 +42,7 @@ public class ServerCommandPostImportDatabase
   protected static final String[] NAMES = {"POST|import/*"};
   protected StringWriter buffer;
   protected InputStream importData;
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionEmbedded database;
 
   @Override
   public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {

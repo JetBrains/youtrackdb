@@ -173,7 +173,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   @Nullable
   private static LuceneFullTextIndex searchForIndex(CommandContext ctx, String indexName) {
     final var database = ctx.getDatabaseSession();
-    var index = database.getSharedContext().getIndexManager().getIndex(database, indexName);
+    var index = database.getSharedContext().getIndexManager().getIndex(indexName);
 
     if (index instanceof LuceneFullTextIndex) {
       return (LuceneFullTextIndex) index;

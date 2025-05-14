@@ -40,7 +40,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.RecordOperationType;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
@@ -55,7 +55,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
@@ -80,7 +79,7 @@ public class FrontendTransactionImpl implements
   private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
   protected TXSTATUS status = TXSTATUS.INVALID;
 
   protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
@@ -120,17 +119,17 @@ public class FrontendTransactionImpl implements
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
-  public FrontendTransactionImpl(final DatabaseSessionInternal iDatabase) {
+  public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
     this(iDatabase, false);
   }
 
-  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, boolean readOnly) {
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, boolean readOnly) {
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
   }
 
-  public FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long txId,
+  public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
       boolean readOnly) {
     this.session = session;
     this.id = txId;
@@ -138,7 +137,7 @@ public class FrontendTransactionImpl implements
   }
 
 
-  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionInternal session, long id) {
+  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long id) {
     this.session = session;
     this.id = id;
     readOnly = false;
@@ -175,8 +174,8 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void commitInternal() {
-    commitInternal(false);
+  public Map<RID, RID> commitInternal() {
+    return commitInternal(false);
   }
 
   /**
@@ -184,10 +183,12 @@ public class FrontendTransactionImpl implements
    * commit happens only after the same amount of {@code commit()} calls
    *
    * @param force commit transaction even
+   * @return Map between generated rids of new records and ones generated during records commit.
    */
   @Override
-  public void commitInternal(final boolean force) {
+  public Map<RID, RID> commitInternal(final boolean force) {
     checkTransactionValid();
+
     if (txStartCounter < 0) {
       throw new TransactionException(session.getDatabaseName(),
           "Invalid value of tx counter: " + txStartCounter);
@@ -203,13 +204,15 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      doCommit();
+      return doCommit();
     } else {
       if (txStartCounter < 0) {
         throw new TransactionException(session,
             "Transaction was committed more times than it was started.");
       }
     }
+
+    return null;
   }
 
   @Override
@@ -251,10 +254,6 @@ public class FrontendTransactionImpl implements
 
   @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(final String indexName) {
-    if (session.isRemote()) {
-      return null;
-    }
-
     return getIndexChanges(indexName);
   }
 
@@ -304,7 +303,7 @@ public class FrontendTransactionImpl implements
             new FrontendTransactionRecordIndexOperation(iIndexName, key, iOperation));
       }
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
   }
@@ -324,27 +323,63 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void rollbackInternal() {
-    rollbackInternal(false, -1);
-  }
-
-  @Override
-  public void internalRollback() {
-    status = TXSTATUS.ROLLBACKING;
-
-    if (isWriteTransaction()) {
-      session.transactionMeters()
-          .writeRollbackTransactions()
-          .record();
+    if (txStartCounter < 0) {
+      throw new TransactionException(session, "Invalid value of TX counter");
     }
 
-    invalidateChangesInCacheDuringRollback();
+    switch (status) {
+      case ROLLBACKING -> {
+        //do nothing
+      }
+      case ROLLED_BACK -> {
+        throw new IllegalStateException("Transaction is already rolled back");
+      }
+      case BEGUN, COMMITTING -> {
+        status = TXSTATUS.ROLLBACKING;
 
-    close();
-    status = TXSTATUS.ROLLED_BACK;
+        if (isWriteTransaction()) {
+          session.transactionMeters()
+              .writeRollbackTransactions()
+              .record();
+        }
+
+        //There are could be exceptions during session opening
+        // that will force to rollback of txs started during this process.
+        //Session is active only if it is opened successfully.
+        if (session.isActiveOnCurrentThread()) {
+          session.beforeRollbackOperations();
+        }
+
+        invalidateChangesInCacheDuringRollback();
+        clear();
+      }
+      case INVALID, COMPLETED -> {
+        throw new IllegalStateException("Transaction is in invalid state: " + status);
+      }
+      default -> {
+        throw new IllegalStateException("Transaction is in unknown state: " + status);
+      }
+    }
+
+    if (txStartCounter > 0) {
+      txStartCounter--;
+    }
+
+    if (txStartCounter == 0) {
+      close();
+      status = TXSTATUS.ROLLED_BACK;
+
+      //There are could be exceptions during session opening
+      // that will force to rollback of txs started during this process.
+      //Session is active only if it is opened successfully.
+      if (session.isActiveOnCurrentThread()) {
+        session.afterRollbackOperations();
+      }
+    }
   }
 
+
   private void invalidateChangesInCacheDuringRollback() {
-    var recordsSize = recordOperations.size();
     for (final var v : recordOperations.values()) {
       final var rec = v.record;
       rec.unsetDirty();
@@ -354,28 +389,6 @@ public class FrontendTransactionImpl implements
     var localCache = session.getLocalCache();
     localCache.unloadRecords();
     localCache.clear();
-  }
-
-  @Override
-  public void rollbackInternal(boolean force, int commitLevelDiff) {
-    if (txStartCounter < 0) {
-      throw new TransactionException(session, "Invalid value of TX counter");
-    }
-    checkTransactionValid();
-
-    txStartCounter += commitLevelDiff;
-    status = TXSTATUS.ROLLBACKING;
-
-    if (!force && txStartCounter > 0) {
-      return;
-    }
-
-    if (session.isRemote()) {
-      final var storage = session.getStorage();
-      ((StorageProxy) storage).rollback(FrontendTransactionImpl.this);
-    }
-
-    internalRollback();
   }
 
   @Override
@@ -417,7 +430,7 @@ public class FrontendTransactionImpl implements
       //execute it here because after this operation record will be unloaded
       preProcessRecordsAndExecuteCallCallbacks();
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
   }
@@ -538,17 +551,17 @@ public class FrontendTransactionImpl implements
         operationsBetweenCallbacks.put(record.getIdentity(), txEntry);
       }
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
 
     return txEntry;
   }
 
-  private void doCommit() {
+  private Map<RID, RID> doCommit() {
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
       if (status == TXSTATUS.ROLLBACKING) {
-        internalRollback();
+        rollbackInternal();
       }
 
       throw new RollbackException(
@@ -571,12 +584,15 @@ public class FrontendTransactionImpl implements
       }
 
     } catch (Exception e) {
-      rollbackInternal(true, 0);
+      rollbackInternal();
       throw e;
     }
 
+    var result = new HashMap<RID, RID>(originalChangedRecordIdMap);
     close();
     status = TXSTATUS.COMPLETED;
+
+    return result;
   }
 
   @Override
@@ -717,12 +733,12 @@ public class FrontendTransactionImpl implements
       try {
         if (recordOperation.type == RecordOperation.CREATED) {
           if (recordOperation.recordBeforeCallBackDirtyCounter == 0) {
-            if (className != null && !session.isRemote()) {
+            if (className != null) {
               ClassIndexManager.checkIndexesAfterCreate(entityImpl, this);
             }
             session.beforeCreateOperations(record, collectionName);
           } else {
-            if (className != null && !session.isRemote()) {
+            if (className != null) {
               ClassIndexManager.checkIndexesAfterUpdate(entityImpl, this);
             }
             session.beforeUpdateOperations(record, collectionName);
@@ -754,7 +770,7 @@ public class FrontendTransactionImpl implements
 
       recordOperation.record.processingInCallback = true;
       try {
-        if (className != null && !session.isRemote()) {
+        if (className != null) {
           ClassIndexManager.checkIndexesAfterDelete(entityImpl, this);
         }
         session.beforeDeleteOperations(record, collectionName);
@@ -795,7 +811,15 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
+    clear();
+
+    session.setNoTxMode();
+    status = TXSTATUS.INVALID;
+  }
+
+  private void clear() {
     session.closeActiveQueries();
+
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {
       var record = txEntry.record;
@@ -817,8 +841,6 @@ public class FrontendTransactionImpl implements
     clearUnfinishedChanges();
 
     recordSerializationContext.clear();
-
-    status = TXSTATUS.INVALID;
   }
 
   private void clearUnfinishedChanges() {
@@ -829,7 +851,6 @@ public class FrontendTransactionImpl implements
 
     newRecordsPositionsGenerator = -2;
 
-    session.setDefaultTransactionMode();
     userData.clear();
   }
 
@@ -841,30 +862,28 @@ public class FrontendTransactionImpl implements
       return true;
     }
     final var database = session;
-    if (!database.isRemote()) {
-      final var indexManager = database.getSharedContext().getIndexManager();
-      for (var entry : indexEntries.entrySet()) {
-        final var index = indexManager.getIndex(database, entry.getKey());
-        if (index == null) {
-          throw new TransactionException(session,
-              "Cannot find index '" + entry.getValue() + "' while committing transaction");
-        }
+    final var indexManager = database.getSharedContext().getIndexManager();
+    for (var entry : indexEntries.entrySet()) {
+      final var index = indexManager.getIndex(entry.getKey());
+      if (index == null) {
+        throw new TransactionException(session,
+            "Cannot find index '" + entry.getValue() + "' while committing transaction");
+      }
 
-        final var fieldRidDependencies = getIndexFieldRidDependencies(index);
-        if (!isIndexMayDependOnRids(fieldRidDependencies)) {
-          continue;
-        }
+      final var fieldRidDependencies = getIndexFieldRidDependencies(index);
+      if (!isIndexMayDependOnRids(fieldRidDependencies)) {
+        continue;
+      }
 
-        final var indexChanges = entry.getValue();
-        for (final var keyChanges : indexChanges.changesPerKey.values()) {
-          assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
-              "Index key " + keyChanges.key
-                  + " may depend on RID " + oldRid
-                  + ", but it was not updated during record update. Index: "
-                  + index.getName()
-                  + ", key: "
-                  + keyChanges.key;
-        }
+      final var indexChanges = entry.getValue();
+      for (final var keyChanges : indexChanges.changesPerKey.values()) {
+        assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
+            "Index key " + keyChanges.key
+                + " may depend on RID " + oldRid
+                + ", but it was not updated during record update. Index: "
+                + index.getName()
+                + ", key: "
+                + keyChanges.key;
       }
     }
 
@@ -1276,12 +1295,12 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nonnull
-  public final DatabaseSessionInternal getDatabaseSession() {
+  public final DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 
   @Override
-  public void setSession(@Nonnull DatabaseSessionInternal session) {
+  public void setSession(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -1667,7 +1686,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean commit() throws TransactionException {
+  public Map<RID, RID> commit() throws TransactionException {
     checkIfActive();
     return session.commit();
   }

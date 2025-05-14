@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
@@ -92,7 +92,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
   private void init() {
-    delegate = topThreshold >= 0 || session.isRemote() ?
+    delegate = topThreshold >= 0 ?
         new EmbeddedLinkBag(session, 1) :
         new BTreeBasedLinkBag(session, 1);
   }
@@ -269,14 +269,12 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   }
 
   public void checkAndConvert(FrontendTransaction transaction) {
-    if (!session.isRemote()) {
-      if (isEmbedded()
-          && session.getBTreeCollectionManager() != null
-          && delegate.size() >= topThreshold) {
-        convertToTree(transaction);
-      } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
-        convertToEmbedded(transaction);
-      }
+    if (isEmbedded()
+        && session.getBTreeCollectionManager() != null
+        && delegate.size() >= topThreshold) {
+      convertToTree(transaction);
+    } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
+      convertToEmbedded(transaction);
     }
   }
 

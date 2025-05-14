@@ -1,11 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -28,7 +32,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,8 +45,10 @@ import org.junit.Test;
 public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   private static File buildDir;
-  private DatabaseSessionInternal testDocumentTx;
-  private DatabaseSessionInternal baseDocumentTx;
+
+  private static YouTrackDB youTrackDB;
+  private DatabaseSessionEmbedded testDocumentTx;
+  private DatabaseSessionEmbedded baseDocumentTx;
   private final ExecutorService executorService = Executors.newCachedThreadPool();
 
   @BeforeClass
@@ -59,40 +64,37 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     }
 
     buildDir.mkdir();
+
+    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
+    youTrackDB.create("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
+        DatabaseType.DISK,
+        YouTrackDBConfig.defaultConfig(), "admin",
+        "admin", "asdmin");
   }
 
   @AfterClass
   public static void afterClass() throws IOException {
-    //    Files.delete(buildDir.toPath());
+    youTrackDB.drop(
+        "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
+    youTrackDB.close();
     FileUtils.deleteRecursively(buildDir);
   }
 
   @Before
   public void beforeMethod() throws IOException {
-    FileUtils.deleteRecursively(buildDir);
-
-    baseDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:"
-                + buildDir.getAbsolutePath()
-                + "/baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
-    if (baseDocumentTx.exists()) {
-      baseDocumentTx.open("admin", "admin");
-      baseDocumentTx.drop();
+    if (youTrackDB.exists(
+        "testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords")) {
+      youTrackDB.drop("testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
     }
 
-    baseDocumentTx.create();
+    youTrackDB.create("testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
+        DatabaseType.DISK,
+        YouTrackDBConfig.defaultConfig(), "admin",
+        "admin", "asdmin");
 
+    baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
     createSchema(baseDocumentTx);
-  }
-
-  @After
-  public void afterMethod() {
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.drop();
-
-    baseDocumentTx.open("admin", "admin");
-    baseDocumentTx.drop();
   }
 
   @Test
@@ -109,7 +111,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     }
 
     for (var seed : seeds) {
-      futures.add(executorService.submit(new DataPropagationTask(seed)));
+      futures.add(executorService.submit(new DataPropagationTask(seed, youTrackDB)));
     }
 
     for (var future : futures) {
@@ -125,17 +127,14 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     storage.close(baseDocumentTx);
 
     testDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:"
-                + buildDir.getAbsolutePath()
-                + "/testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
-    testDocumentTx.open("admin", "admin");
+        (DatabaseSessionEmbedded) youTrackDB.open(
+            "testLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
     testDocumentTx.close();
 
     var dataAddSeed = random.nextLong();
     System.out.println("Data add seed = " + dataAddSeed);
     for (var i = 0; i < 1; i++) {
-      futures.add(executorService.submit(new DataPropagationTask(dataAddSeed)));
+      futures.add(executorService.submit(new DataPropagationTask(dataAddSeed, youTrackDB)));
     }
 
     for (var future : futures) {
@@ -266,19 +265,21 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   public class DataPropagationTask implements Callable<Void> {
 
-    private final DatabaseSessionInternal baseDB;
-    private DatabaseSessionInternal testDB;
+    private final DatabaseSessionEmbedded baseDB;
+    private DatabaseSessionEmbedded testDB;
+
     private final long seed;
 
-    public DataPropagationTask(long seed) {
+    public DataPropagationTask(long seed, YouTrackDB youTrackDB) {
       this.seed = seed;
 
-      baseDB = new DatabaseDocumentTx(baseDocumentTx.getURL());
-      baseDB.open("admin", "admin");
+      baseDB = (DatabaseSessionEmbedded)
+          youTrackDB.open("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
+              "admin", "admin");
 
       if (testDocumentTx != null) {
-        testDB = new DatabaseDocumentTx(testDocumentTx.getURL());
-        testDB.open("admin", "admin");
+        testDB = (DatabaseSessionEmbedded) youTrackDB.open(testDocumentTx.getDatabaseName(),
+            "admin", "admin");
       }
     }
 

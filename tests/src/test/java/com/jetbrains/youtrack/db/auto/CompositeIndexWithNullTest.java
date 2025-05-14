@@ -15,11 +15,6 @@ import org.testng.annotations.Parameters;
  */
 public class CompositeIndexWithNullTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public CompositeIndexWithNullTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testPointQuery() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = (SchemaClassInternal) schema.createClass(
@@ -128,10 +123,6 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryInMiddleTx() {
-    if (remoteDB) {
-      return;
-    }
-
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
@@ -236,10 +227,6 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQueryInMiddleTx() {
-    if (remoteDB) {
-      return;
-    }
-
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
@@ -355,10 +342,6 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryNullInTheMiddleInMiddleTx() {
-    if (remoteDB) {
-      return;
-    }
-
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass");

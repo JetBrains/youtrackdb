@@ -3,25 +3,29 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class MetadataOnlyTest {
 
-  private YouTrackDBImpl youTrackDb;
+  private YouTrackDB youTrackDb;
 
   @Before
   public void before() {
     youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
                 .build());
@@ -38,7 +42,8 @@ public class MetadataOnlyTest {
         };
     ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage()).metadataOnly(blob);
     db.close();
-    YouTrackDBInternal.extract(youTrackDb).forceDatabaseClose("testMetadataOnly");
+    YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDb).forceDatabaseClose(
+        "testMetadataOnly");
     db = youTrackDb.open("testMetadataOnly", "admin", "admin");
     var loaded =
         ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())

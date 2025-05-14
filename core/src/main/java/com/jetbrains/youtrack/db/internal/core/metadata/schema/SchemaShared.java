@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStor
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.CollectionSelectionFactory;
@@ -237,53 +238,53 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
 
-  public SchemaClassImpl createClass(DatabaseSessionInternal sesion, final String className) {
+  public SchemaClassImpl createClass(DatabaseSessionEmbedded sesion, final String className) {
     return createClass(sesion, className, null, (int[]) null);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl iSuperClass) {
+      DatabaseSessionEmbedded session, final String iClassName, final SchemaClassImpl iSuperClass) {
     return createClass(session, iClassName, iSuperClass, null);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+      DatabaseSessionEmbedded session, String iClassName, SchemaClassImpl... superClasses) {
     return createClass(session, iClassName, null, superClasses);
   }
 
-  public SchemaClassImpl getOrCreateClass(DatabaseSessionInternal session,
+  public SchemaClassImpl getOrCreateClass(DatabaseSessionEmbedded session,
       final String iClassName) {
     return getOrCreateClass(session, iClassName, (SchemaClassImpl) null);
   }
 
   public SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl superClass) {
+      DatabaseSessionEmbedded session, final String iClassName, final SchemaClassImpl superClass) {
     return getOrCreateClass(
         session, iClassName,
         superClass == null ? new SchemaClassImpl[0] : new SchemaClassImpl[]{superClass});
   }
 
   public abstract SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName,
+      DatabaseSessionEmbedded session, final String iClassName,
       final SchemaClassImpl... superClasses);
 
-  public SchemaClassImpl createAbstractClass(DatabaseSessionInternal session,
+  public SchemaClassImpl createAbstractClass(DatabaseSessionEmbedded session,
       final String className) {
     return createClass(session, className, null, new int[]{-1});
   }
 
   public SchemaClassImpl createAbstractClass(
-      DatabaseSessionInternal session, final String className, final SchemaClassImpl superClass) {
+      DatabaseSessionEmbedded session, final String className, final SchemaClassImpl superClass) {
     return createClass(session, className, superClass, new int[]{-1});
   }
 
   public SchemaClassImpl createAbstractClass(
-      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+      DatabaseSessionEmbedded session, String iClassName, SchemaClassImpl... superClasses) {
     return createClass(session, iClassName, new int[]{-1}, superClasses);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       final SchemaClassImpl superClass,
       int[] collectionIds) {
@@ -291,13 +292,13 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public abstract SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       SchemaClassImpl... superClasses);
 
   public abstract SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int collections,
       SchemaClassImpl... superClasses);
@@ -342,7 +343,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public abstract void dropClass(DatabaseSessionInternal session, final String className);
+  public abstract void dropClass(DatabaseSessionEmbedded session, final String className);
 
   /**
    * Reloads the schema inside a storage's shared lock.
@@ -444,11 +445,8 @@ public abstract class SchemaShared implements CloseableInStorage {
       lock.writeLock().unlock();
       session.endExclusiveMetadataChange();
     }
-    assert count >= 0;
 
-    if (count == 0 && session.isRemote()) {
-      session.getStorage().reload(session);
-    }
+    assert count >= 0;
   }
 
   void changeClassName(

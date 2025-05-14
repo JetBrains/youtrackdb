@@ -27,69 +27,83 @@ public class SQLValueExpression extends SQLExpression {
     this.value = val;
   }
 
+  @Override
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     return value;
   }
 
+  @Override
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     return value;
   }
 
+  @Override
   public boolean isBaseIdentifier() {
     return false;
   }
 
-  public boolean isEarlyCalculated() {
+  public static boolean isEarlyCalculated() {
     return true;
   }
 
+  @Override
   public SQLIdentifier getDefaultAlias() {
     return new SQLIdentifier(String.valueOf(value));
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(value);
   }
 
+  @Override
   public boolean supportsBasicCalculation() {
     return true;
   }
 
+  @Override
   public boolean isIndexedFunctionCal(DatabaseSessionInternal session) {
     return false;
   }
 
+  @Override
   public boolean canExecuteIndexedFunctionWithoutIndex(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean allowsIndexedFunctionExecutionOnTarget(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean executeIndexedFunctionAfterIndexSearch(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean isExpand() {
     return false;
   }
 
+  @Override
   @Nullable
   public SQLValueExpression getExpandContent() {
     return null;
   }
 
+  @Override
   public boolean needsAliases(Set<String> aliases) {
     return false;
   }
 
+  @Override
   public boolean isAggregate(DatabaseSessionInternal session) {
     return false;
   }
@@ -98,10 +112,12 @@ public class SQLValueExpression extends SQLExpression {
     return this;
   }
 
+  @Override
   public AggregationContext getAggregationContext(CommandContext ctx) {
     throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot aggregate on " + this);
   }
 
+  @Override
   public SQLValueExpression copy() {
 
     var result = new SQLValueExpression(-1);
@@ -127,53 +143,65 @@ public class SQLValueExpression extends SQLExpression {
     return 1;
   }
 
+  @Override
   public void extractSubQueries(SubQueryCollector collector) {
   }
 
+  @Override
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {
   }
 
+  @Override
   public boolean refersToParent() {
 
     return false;
   }
 
+  @Override
   @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
 
+  @Override
   public void applyRemove(ResultInternal result, CommandContext ctx) {
     throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot apply REMOVE " + this);
   }
 
+  @Override
   public boolean isCount() {
     return false;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     throw new UnsupportedOperationException(
         "Cannot serialize value expression (not supported yet)");
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     throw new UnsupportedOperationException(
         "Cannot deserialize value expression (not supported yet)");
   }
 
+  @Override
   public boolean isDefinedFor(Result currentRecord) {
     return true;
   }
 
+  @Override
   public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     return true;
   }
 
+  @Override
   @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return null;
   }
 
+  @Override
   public boolean isCacheable(DatabaseSessionInternal session) {
     return true;
   }

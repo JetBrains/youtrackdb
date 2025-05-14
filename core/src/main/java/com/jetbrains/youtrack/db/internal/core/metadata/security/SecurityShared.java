@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
@@ -193,10 +194,9 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     SecurityUser user = null;
     final var dbName = session.getDatabaseName();
-    assert !session.isRemote();
     user = security.authenticate(session, authenticationInfo);
 
     if (user != null) {
@@ -220,10 +220,9 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, String userName, String password) {
+      DatabaseSessionEmbedded session, String userName, String password) {
     SecurityUser user;
     final var dbName = session.getDatabaseName();
-    assert !session.isRemote();
     user = security.authenticate(session, userName, password);
 
     if (user != null) {
@@ -254,6 +253,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   // Token MUST be validated before being passed to this method.
+  @Override
   public SecurityUserImpl authenticate(final DatabaseSessionInternal session,
       final Token authToken) {
     final var dbName = session.getDatabaseName();
@@ -279,6 +279,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   @Nullable
   public SecurityUserImpl getUser(final DatabaseSession session, final RID iRecordId) {
     if (iRecordId == null) {
@@ -293,6 +294,7 @@ public class SecurityShared implements SecurityInternal {
     return new SecurityUserImpl((DatabaseSessionInternal) session, result);
   }
 
+  @Override
   public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String iUserName,
@@ -310,6 +312,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   public SecurityUserImpl createUser(
       final DatabaseSessionInternal session,
       final String userName,
@@ -327,6 +330,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
+  @Override
   public boolean dropUser(final DatabaseSession session, final String iUserName) {
     final Number removed;
     try (var res = session.getActiveTransaction().
@@ -337,6 +341,7 @@ public class SecurityShared implements SecurityInternal {
     return removed != null && removed.intValue() > 0;
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final Identifiable iRole) {
     try {
@@ -356,6 +361,7 @@ public class SecurityShared implements SecurityInternal {
     return null;
   }
 
+  @Override
   @Nullable
   public Role getRole(final DatabaseSession session, final String iRoleName) {
     if (iRoleName == null) {
@@ -398,6 +404,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public Role createRole(
       final DatabaseSessionInternal session, final String iRoleName) {
     return createRole(session, iRoleName, null);
@@ -413,6 +420,7 @@ public class SecurityShared implements SecurityInternal {
     return role;
   }
 
+  @Override
   public boolean dropRole(final DatabaseSession session, final String iRoleName) {
     return session.computeInTx(transaction -> {
       final Number removed;
@@ -426,6 +434,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllUsers(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from OUser")) {
@@ -435,6 +444,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
+  @Override
   public List<EntityImpl> getAllRoles(final DatabaseSession session) {
     return session.computeInTx(transaction -> {
       try (var rs = transaction.query("select from " + Role.CLASS_NAME)) {
@@ -599,6 +609,7 @@ public class SecurityShared implements SecurityInternal {
     return resource; // TODO
   }
 
+  @Override
   @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
@@ -1049,6 +1060,7 @@ public class SecurityShared implements SecurityInternal {
     return roleClass;
   }
 
+  @Override
   public void load(DatabaseSessionInternal session) {
     final var userClass = session.getMetadata().getSchema()
         .getClassInternal("OUser");
@@ -1320,7 +1332,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public Set<String> getFilteredProperties(DatabaseSessionInternal session,
+  public Set<String> getFilteredProperties(DatabaseSessionEmbedded session,
       EntityImpl entity) {
     if (session.getCurrentUser() == null) {
       return Collections.emptySet();
@@ -1367,7 +1379,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  public boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName) {
 
     if (session.getCurrentUser() == null) {
@@ -1443,7 +1455,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canCreate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canCreate(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1486,7 +1498,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canRead(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canRead(DatabaseSessionEmbedded session, DBRecord record) {
     // TODO what about server users?
     if (session.getCurrentUser() == null) {
       // executeNoAuth
@@ -1532,7 +1544,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canUpdate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1638,7 +1650,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canDelete(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canDelete(DatabaseSessionEmbedded session, DBRecord record) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1680,7 +1692,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean canExecute(DatabaseSessionInternal session, Function function) {
+  public boolean canExecute(DatabaseSessionEmbedded session, Function function) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return true;
@@ -1726,7 +1738,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
     var sessionInternal = (DatabaseSessionInternal) session;
     if (sessionInternal.getCurrentUser() == null) {
       // executeNoAuth
@@ -1741,7 +1753,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public synchronized Set<SecurityResourceProperty> getAllFilteredProperties(
-      DatabaseSessionInternal database) {
+      DatabaseSessionEmbedded database) {
     if (filteredProperties == null) {
       updateAllFilteredProperties(database);
     }

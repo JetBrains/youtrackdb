@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.util;
 
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.text.DateFormat;
@@ -34,9 +35,9 @@ public class DateHelper {
     return Calendar.getInstance(getDatabaseTimeZone(session));
   }
 
-  public static TimeZone getDatabaseTimeZone(final DatabaseSessionInternal session) {
+  public static TimeZone getDatabaseTimeZone(final BasicDatabaseSession<?,?> session) {
     if (session != null && !session.isClosed()) {
-      return session.getStorageInfo().getConfiguration().getTimeZone();
+      return session.getDatabaseTimeZone();
     }
     return TimeZone.getDefault();
   }

@@ -64,12 +64,12 @@ public class ScriptDatabaseWrapper {
   }
 
   public ResultSet runScript(String language, final String script, final Object... iParameters) {
-    return this.database.runScript(language, script, iParameters);
+    return this.database.computeScript(language, script, iParameters);
   }
 
   public ResultSet runScript(String language, final String script,
       Map<String, Object> iParameters) {
-    return this.database.runScript(language, script, iParameters);
+    return this.database.computeScript(language, script, iParameters);
   }
 
   public Entity newInstance() {

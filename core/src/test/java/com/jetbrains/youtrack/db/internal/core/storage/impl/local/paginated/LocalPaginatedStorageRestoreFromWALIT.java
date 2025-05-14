@@ -1,11 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -25,7 +29,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -37,9 +40,10 @@ import org.junit.Test;
  */
 public class LocalPaginatedStorageRestoreFromWALIT {
 
+  private static YouTrackDB youTrackDB;
   private static File buildDir;
-  private DatabaseSessionInternal testDocumentTx;
-  private DatabaseSessionInternal baseDocumentTx;
+  private DatabaseSessionEmbedded testDocumentTx;
+  private DatabaseSessionEmbedded baseDocumentTx;
   private final ExecutorService executorService = Executors.newCachedThreadPool();
 
   private static void copyFile(String from, String to) throws IOException {
@@ -73,36 +77,32 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     }
 
     buildDir.mkdir();
+
+    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
   }
 
   @AfterClass
   public static void afterClass() {
+    youTrackDB.close();
     buildDir.delete();
   }
 
   @Before
   public void beforeMethod() {
-    baseDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
-    if (baseDocumentTx.exists()) {
-      baseDocumentTx.open("admin", "admin");
-      baseDocumentTx.drop();
+    if (youTrackDB.exists("baseLocalPaginatedStorageRestoreFromWAL")) {
+      youTrackDB.drop("baseLocalPaginatedStorageRestoreFromWAL");
     }
 
-    baseDocumentTx.create();
+    youTrackDB.create("baseLocalPaginatedStorageRestoreFromWAL", DatabaseType.DISK,
+        YouTrackDBConfig.defaultConfig(),
+        "admin", "admin", "admin");
 
+    baseDocumentTx =
+        (DatabaseSessionEmbedded) youTrackDB.open("baseLocalPaginatedStorageRestoreFromWAL",
+            "admin", "admin");
     createSchema(baseDocumentTx);
   }
 
-  @After
-  public void afterMethod() {
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.drop();
-
-    baseDocumentTx.open("admin", "admin");
-    baseDocumentTx.drop();
-  }
 
   @Test
   public void testSimpleRestore() throws Exception {
@@ -122,20 +122,15 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     baseDocumentTx.close();
     baseStorage.close(baseDocumentTx);
 
-    testDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
-    testDocumentTx.open("admin", "admin");
+    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
     testDocumentTx.close();
 
-    testDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromWAL");
-    testDocumentTx.open("admin", "admin");
-    baseDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromWAL");
-    baseDocumentTx.open("admin", "admin");
+    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
+    baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "baseLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
+
     var databaseCompare =
         new DatabaseCompare(testDocumentTx, baseDocumentTx, System.out::println);
     databaseCompare.setCompareIndexMetadata(true);
@@ -307,9 +302,8 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
       var random = new Random();
 
-      final DatabaseSessionInternal db = new DatabaseDocumentTx(baseDocumentTx.getURL());
-      db.open("admin", "admin");
-      try {
+      try (var db = (DatabaseSessionEmbedded) youTrackDB.open(baseDocumentTx.getDatabaseName(),
+          "admin", "admin")) {
         List<RID> testTwoList = new ArrayList<RID>();
         List<RID> firstDocs = new ArrayList<RID>();
 
@@ -370,8 +364,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
             db.delete(entityToDelete);
           }
         }
-      } finally {
-        db.close();
       }
 
       return null;

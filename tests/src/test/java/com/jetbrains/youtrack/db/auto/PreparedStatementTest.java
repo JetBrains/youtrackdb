@@ -27,12 +27,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class PreparedStatementTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public PreparedStatementTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {

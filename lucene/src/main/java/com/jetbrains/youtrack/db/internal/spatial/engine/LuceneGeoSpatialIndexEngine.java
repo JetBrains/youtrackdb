@@ -19,6 +19,7 @@ import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuild
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
@@ -26,7 +27,6 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneResultSet;
@@ -60,12 +60,12 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   }
 
   @Override
-  public Object get(DatabaseSessionInternal db, Object key) {
+  public Object get(DatabaseSessionEmbedded db, Object key) {
     return getInTx(db, key, null);
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     updateLastAccess();
     openIfClosed(session.getStorage());
@@ -87,7 +87,7 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
     return new LuceneResultSetEmpty();
   }
 
-  private Set<Identifiable> newGeoSearch(DatabaseSessionInternal db, Map<String, Object> key,
+  private Set<Identifiable> newGeoSearch(DatabaseSessionEmbedded db, Map<String, Object> key,
       LuceneTxChanges changes)
       throws Exception {
 

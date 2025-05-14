@@ -4,16 +4,13 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
-  @Parameters(value = "remote")
-  public IndexTxAwareOneValueGetTest(@Optional Boolean remote) {
-    super(remote != null && remote, true);
+  public IndexTxAwareOneValueGetTest() {
+    super(true);
   }
 
   @Test
@@ -262,7 +259,7 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     session.execute("CREATE INDEX " + className + ".name UNIQUE").close();
 
     session
-        .runScript(
+        .computeScript(
             "SQL",
             "begin;\n"
                 + "insert into "

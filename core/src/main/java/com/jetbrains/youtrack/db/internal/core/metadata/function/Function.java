@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.RetryQueryException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -57,7 +58,7 @@ public class Function extends IdentityWrapper {
   /**
    * Creates a new function.
    */
-  public Function(DatabaseSessionInternal session) {
+  public Function(DatabaseSessionEmbedded session) {
     super(session, CLASS_NAME);
     this.language = "SQL";
   }
@@ -67,7 +68,7 @@ public class Function extends IdentityWrapper {
    *
    * @param entity Document to assign
    */
-  public Function(DatabaseSessionInternal db, final EntityImpl entity) {
+  public Function(final EntityImpl entity) {
     super(entity);
     fromEntity(entity);
   }
@@ -77,7 +78,7 @@ public class Function extends IdentityWrapper {
    *
    * @param iRid RID of the function to load
    */
-  public Function(DatabaseSessionInternal session, final RecordId iRid) {
+  public Function(DatabaseSessionEmbedded session, final RecordId iRid) {
     super((EntityImpl) session.getActiveTransaction().loadEntity(iRid));
     var transaction = session.getActiveTransaction();
     var entity = transaction.loadEntity(iRid);
@@ -238,7 +239,7 @@ public class Function extends IdentityWrapper {
   }
 
   @Deprecated
-  public Object execute(DatabaseSessionInternal session, final Map<Object, Object> iArgs) {
+  public Object execute(DatabaseSessionEmbedded session, final Map<Object, Object> iArgs) {
     Object result;
 
     while (true) {

@@ -5,12 +5,12 @@ import static junit.framework.TestCase.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -23,8 +23,8 @@ public class BrowseCollectionTest {
   @Before
   public void before() {
     youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)

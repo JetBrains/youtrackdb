@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBatch;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCreateEdgeStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
@@ -15,6 +14,9 @@ import java.util.List;
 
 public class CreateEdgeExecutionPlanner {
 
+  public static final String FROM_VERTICES_ALIAS = "$__YOUTRACKDB_CREATE_EDGE_fromV";
+  public static final String TO_VERTICES_ALIAS = "$__YOUTRACKDB_CREATE_EDGE_toV";
+
   private final SQLCreateEdgeStatement statement;
   protected SQLIdentifier targetClass;
   protected SQLExpression leftExpression;
@@ -23,9 +25,7 @@ public class CreateEdgeExecutionPlanner {
   protected boolean upsert = false;
 
   protected SQLInsertBody body;
-  protected Number retry;
-  protected Number wait;
-  protected SQLBatch batch;
+
 
   public CreateEdgeExecutionPlanner(SQLCreateEdgeStatement statement) {
     this.statement = statement;
@@ -37,9 +37,6 @@ public class CreateEdgeExecutionPlanner {
         statement.getRightExpression() == null ? null : statement.getRightExpression().copy();
     this.upsert = statement.isUpsert();
     this.body = statement.getBody() == null ? null : statement.getBody().copy();
-    this.retry = statement.getRetry();
-    this.wait = statement.getWait();
-    this.batch = statement.getBatch() == null ? null : statement.getBatch().copy();
   }
 
   public InsertExecutionPlan createExecutionPlan(
@@ -62,18 +59,22 @@ public class CreateEdgeExecutionPlanner {
 
     handleCheckType(result, ctx, enableProfiling);
 
-    handleGlobalLet(
-        result,
-        new SQLIdentifier("$__YOUTRACKDB_CREATE_EDGE_fromV"),
-        leftExpression,
-        ctx,
-        enableProfiling);
-    handleGlobalLet(
-        result,
-        new SQLIdentifier("$__YOUTRACKDB_CREATE_EDGE_toV"),
-        rightExpression,
-        ctx,
-        enableProfiling);
+    if (!leftExpression.isStatement()) {
+      handleGlobalLet(
+          result,
+          new SQLIdentifier(FROM_VERTICES_ALIAS),
+          leftExpression,
+          ctx,
+          enableProfiling);
+    }
+    if (!rightExpression.isStatement()) {
+      handleGlobalLet(
+          result,
+          new SQLIdentifier(TO_VERTICES_ALIAS),
+          rightExpression,
+          ctx,
+          enableProfiling);
+    }
 
     String uniqueIndexName = null;
     if (upsert) {
@@ -110,11 +111,10 @@ public class CreateEdgeExecutionPlanner {
         new CreateEdgesStep(
             targetClass,
             uniqueIndexName,
-            new SQLIdentifier("$__YOUTRACKDB_CREATE_EDGE_fromV"),
-            new SQLIdentifier("$__YOUTRACKDB_CREATE_EDGE_toV"),
-            wait,
-            retry,
-            batch,
+            !leftExpression.isStatement() ? new SQLIdentifier(FROM_VERTICES_ALIAS) : null,
+            !rightExpression.isStatement() ? new SQLIdentifier(TO_VERTICES_ALIAS) : null,
+            leftExpression.isStatement() ? leftExpression.asStatement() : null,
+            rightExpression.isStatement() ? rightExpression.asStatement() : null,
             ctx,
             enableProfiling));
 
@@ -131,7 +131,7 @@ public class CreateEdgeExecutionPlanner {
     return result;
   }
 
-  private void handleGlobalLet(
+  private static void handleGlobalLet(
       InsertExecutionPlan result,
       SQLIdentifier name,
       SQLExpression expression,

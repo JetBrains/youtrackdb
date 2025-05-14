@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.LazyIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -86,7 +87,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       // JUST THE REFERENCE
       rid = (RecordId) iLinked;
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
       resultRid = rid;
     } else {
@@ -107,7 +108,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       var iLinkedRecord = transaction.load(((Identifiable) iLinked));
       rid = (RecordId) iLinkedRecord.getIdentity();
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition() || session.isRemote()
+      assert ((RecordId) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
 
       if (iParentRecord != null) {
@@ -128,7 +129,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   @Nullable
   public Object fieldFromStream(
-      DatabaseSessionInternal session, final RecordAbstract iSourceRecord,
+      DatabaseSessionEmbedded session, final RecordAbstract iSourceRecord,
       final PropertyTypeInternal iType,
       SchemaClass iLinkedClass,
       PropertyTypeInternal iLinkedType,
@@ -262,7 +263,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   @Nullable
   public static Map<String, Object> embeddedMapFromStream(
-      DatabaseSessionInternal session, final EntityImpl iSourceDocument,
+      DatabaseSessionEmbedded session, final EntityImpl iSourceDocument,
       final PropertyTypeInternal iLinkedType,
       final String iValue,
       final String iName) {
@@ -625,7 +626,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
   @Nullable
   public Object embeddedCollectionFromStream(
-      DatabaseSessionInternal session, final EntityImpl e,
+      DatabaseSessionEmbedded session, final EntityImpl e,
       final PropertyTypeInternal iType,
       SchemaClass iLinkedClass,
       final PropertyTypeInternal iLinkedType,
@@ -790,7 +791,6 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
           assert linkedType == PropertyTypeInternal.EMBEDDED
               || ((RecordId) id.getIdentity()).isValidPosition()
-              || session.isRemote()
               : "Impossible to serialize invalid link " + id.getIdentity();
 
           SchemaImmutableClass result = null;
@@ -856,7 +856,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     iOutput.append(StringSerializerHelper.SET_END);
   }
 
-  private EntityLinkListImpl unserializeList(DatabaseSessionInternal db,
+  private EntityLinkListImpl unserializeList(DatabaseSessionEmbedded db,
       final EntityImpl iSourceRecord,
       final String value) {
     final var coll = new EntityLinkListImpl(iSourceRecord);
@@ -881,7 +881,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     return coll;
   }
 
-  private EntityLinkSetImpl unserializeSet(DatabaseSessionInternal db,
+  private EntityLinkSetImpl unserializeSet(DatabaseSessionEmbedded db,
       final EntityImpl iSourceRecord,
       final String value) {
     final var coll = new EntityLinkSetImpl(iSourceRecord);

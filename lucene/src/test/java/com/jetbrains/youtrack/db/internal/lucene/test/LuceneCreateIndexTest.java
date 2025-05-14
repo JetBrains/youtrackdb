@@ -32,7 +32,7 @@ public class LuceneCreateIndexTest extends BaseLuceneTest {
   public void loadAndTest() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.runScript("sql", getScriptFromStream(stream)).close();
+    session.computeScript("sql", getScriptFromStream(stream)).close();
 
     session.execute(
             "create index Song.title on Song (title) FULLTEXT ENGINE LUCENE METADATA"
@@ -70,7 +70,7 @@ public class LuceneCreateIndexTest extends BaseLuceneTest {
 
   protected void testMetadata() {
     var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "Song.title")
+        session.getSharedContext().getIndexManager().getIndex("Song.title")
             .getMetadata();
 
     Assert.assertEquals(index.get("analyzer"), StandardAnalyzer.class.getName());

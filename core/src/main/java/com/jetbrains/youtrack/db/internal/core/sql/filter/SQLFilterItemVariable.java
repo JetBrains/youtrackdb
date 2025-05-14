@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nullable;
 
@@ -33,7 +34,7 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
 
   protected String name;
 
-  public SQLFilterItemVariable(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public SQLFilterItemVariable(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iName) {
     super(session, iQueryToParse, iName.substring(1));
   }
@@ -52,7 +53,7 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
     return name;
   }
 
-  public void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     this.name = iRoot;
   }

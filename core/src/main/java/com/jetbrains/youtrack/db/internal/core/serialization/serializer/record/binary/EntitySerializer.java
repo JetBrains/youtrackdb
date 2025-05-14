@@ -21,6 +21,7 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
@@ -40,12 +41,12 @@ public interface EntitySerializer {
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
-  void deserialize(DatabaseSessionInternal db, EntityImpl entity, BytesContainer bytes);
+  void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes);
 
-  void deserializePartial(DatabaseSessionInternal db, EntityImpl entity, BytesContainer bytes,
+  void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes,
       String[] iFields);
 
-  Object deserializeValue(DatabaseSessionInternal db, BytesContainer bytes,
+  Object deserializeValue(DatabaseSessionEmbedded db, BytesContainer bytes,
       PropertyTypeInternal type,
       RecordElement owner);
 
@@ -72,14 +73,14 @@ public interface EntitySerializer {
   boolean isSerializingClassNameByDefault();
 
   <RET> RET deserializeFieldTyped(
-      DatabaseSessionInternal session, BytesContainer record,
+      DatabaseSessionEmbedded session, BytesContainer record,
       String iFieldName,
       boolean isEmbedded,
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
   void deserializeDebug(
-      DatabaseSessionInternal db, BytesContainer bytes,
+      DatabaseSessionEmbedded db, BytesContainer bytes,
       RecordSerializationDebug debugInfo,
       ImmutableSchema schema);
 }

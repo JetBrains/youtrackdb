@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -408,7 +409,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
   }
 
   protected void exportDatabase(
-      final String dbURL, final String iPath, final DatabaseSessionInternal db)
+      final String dbURL, final String iPath, final DatabaseSessionEmbedded db)
       throws IOException {
 
     LogManager.instance()

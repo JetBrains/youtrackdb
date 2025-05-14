@@ -29,11 +29,10 @@ import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.text.SocketChannelTextServer;
@@ -110,7 +109,6 @@ import java.util.InputMismatchException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -301,34 +299,12 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     connection.getStats().lastCommandInfo = connection.getData().commandInfo;
     connection.getStats().lastCommandDetail = connection.getData().commandDetail;
 
-    connection.getStats().activeQueries = getActiveQueries(connection.getDatabaseSession());
-
     connection.getStats().lastCommandExecutionTime = System.currentTimeMillis() - begin;
     connection.getStats().totalCommandExecutionTime +=
         connection.getStats().lastCommandExecutionTime;
 
     // request type does not have
     ServerPluginHelper.invokeHandlerCallbackOnAfterClientRequest(server, connection, (byte) -1);
-  }
-
-  @Nullable
-  private List<String> getActiveQueries(DatabaseSessionInternal database) {
-    if (database == null) {
-      return null;
-    }
-    try {
-
-      var queries = database.getActiveQueries();
-      return queries.values().stream()
-          .map(x -> x.getResultSet().getExecutionPlan())
-          .filter(x -> (x instanceof InternalExecutionPlan))
-          .map(InternalExecutionPlan.class::cast)
-          .map(InternalExecutionPlan::getStatement)
-          .collect(Collectors.toList());
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    return null;
   }
 
   @Override
@@ -1077,7 +1053,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
   }
 
   @Override
-  public void setDatabase(DatabaseSessionInternal db) {
+  public void setDatabase(DatabaseSessionEmbedded db) {
     connection.setSession(db);
   }
 }

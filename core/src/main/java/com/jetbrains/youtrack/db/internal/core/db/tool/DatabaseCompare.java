@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -40,8 +40,8 @@ import java.util.stream.Stream;
 
 public class DatabaseCompare extends DatabaseImpExpAbstract {
 
-  private final DatabaseSessionInternal sessionOne;
-  private final DatabaseSessionInternal sessionTwo;
+  private final DatabaseSessionEmbedded sessionOne;
+  private final DatabaseSessionEmbedded sessionTwo;
 
   private boolean compareEntriesForAutomaticIndexes = false;
   private boolean autoDetectExportImportMap = true;
@@ -54,15 +54,10 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private int collectionDifference = 0;
 
   public DatabaseCompare(
-      DatabaseSessionInternal sessionOne,
-      DatabaseSessionInternal sessionTwo,
+      DatabaseSessionEmbedded sessionOne,
+      DatabaseSessionEmbedded sessionTwo,
       final CommandOutputListener iListener) {
     super(null, null, iListener);
-
-    if (sessionOne.isRemote() || sessionTwo.isRemote()) {
-      throw new IllegalArgumentException(
-          "Only databases open in local environment are supported for comparison.");
-    }
 
     listener.onMessage(
         "\nComparing two local databases:\n1) "
@@ -352,12 +347,12 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     final var indexManagerOne = sessionOne.getSharedContext().getIndexManager();
     final var indexManagerTwo = sessionTwo.getSharedContext().getIndexManager();
 
-    final var indexesOne = indexManagerOne.getIndexes(sessionOne);
+    final var indexesOne = indexManagerOne.getIndexes();
     var indexesSizeOne = indexesOne.size();
 
-    var indexesSizeTwo = indexManagerTwo.getIndexes(sessionTwo).size();
+    var indexesSizeTwo = indexManagerTwo.getIndexes().size();
 
-    if (indexManagerTwo.getIndex(sessionTwo, DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
+    if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
       indexesSizeTwo--;
     }
 
@@ -376,7 +371,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      final var indexTwo = indexManagerTwo.getIndex(sessionTwo, indexOne.getName());
+      final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
       if (indexTwo == null) {
         ok = false;
         listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");

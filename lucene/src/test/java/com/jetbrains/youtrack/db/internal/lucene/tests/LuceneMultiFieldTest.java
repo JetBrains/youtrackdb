@@ -34,7 +34,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
   public void init() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection deprecation
-      session.runScript("sql", getScriptFromStream(stream)).close();
+      session.computeScript("sql", getScriptFromStream(stream)).close();
     }
 
     //noinspection resource
@@ -51,7 +51,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
             + "\"}");
 
     var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "Song.title_author")
+        session.getSharedContext().getIndexManager().getIndex("Song.title_author")
             .getMetadata();
 
     assertThat(index.get("author_index")).isEqualTo(StandardAnalyzer.class.getName());
@@ -117,7 +117,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
             commit;
             """;
 
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
 
     try (var resultSet = session.query("select * from Item where search_class('te*')=true")) {
       assertThat(resultSet).hasSize(1);
@@ -132,7 +132,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
     }
 
     // index
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Item.fulltext");
+    var index = session.getSharedContext().getIndexManager().getIndex("Item.fulltext");
     try (var stream = index.getRids(session, "title:test")) {
       assertThat(stream.count()).isEqualTo(1);
     }

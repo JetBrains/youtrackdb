@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.collection.v2;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -24,7 +24,7 @@ public class FreeSpaceMapTestIT {
 
   protected FreeSpaceMap freeSpaceMap;
 
-  protected static YouTrackDB youTrackDB;
+  protected static BasicYouTrackDB youTrackDB;
   protected static String dbName;
   protected static AbstractStorage storage;
   private static AtomicOperationsManager atomicOperationsManager;
@@ -41,7 +41,7 @@ public class FreeSpaceMapTestIT {
 
     dbName = "freeSpaceMapTest";
 
-    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory,
+    youTrackDB = YourTracks.embedded(buildDirectory,
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
