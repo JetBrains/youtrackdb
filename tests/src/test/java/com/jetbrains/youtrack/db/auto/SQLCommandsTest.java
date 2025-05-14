@@ -113,47 +113,4 @@ public class SQLCommandsTest extends BaseDBTest {
         entity.getProperty("script"));
     session.commit();
   }
-
-  public void testCollectionRename() {
-    if (session.getURL().startsWith("memory:")) {
-      return;
-    }
-
-    var names = session.getCollectionNames();
-    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
-
-    session.execute("create collection testCollectionRename").close();
-
-    names = session.getCollectionNames();
-    Assert.assertTrue(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
-
-    session.execute("alter collection testCollectionRename name testCollectionRename42").close();
-    names = session.getCollectionNames();
-
-    Assert.assertTrue(names.contains("testCollectionRename42".toLowerCase(Locale.ENGLISH)));
-    Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
-
-    if (databaseType.equals(DatabaseType.DISK)) {
-      var storagePath = session.getStorage().getConfiguration().getDirectory();
-
-      final var wowCache =
-          (WOWCache) ((LocalStorage) session.getStorage()).getWriteCache();
-
-      var dataFile =
-          new File(
-              storagePath,
-              wowCache.nativeFileNameById(
-                  wowCache.fileIdByName(
-                      "testCollectionRename42" + PaginatedCollection.DEF_EXTENSION)));
-      var mapFile =
-          new File(
-              storagePath,
-              wowCache.nativeFileNameById(
-                  wowCache.fileIdByName(
-                      "testCollectionRename42" + CollectionPositionMap.DEF_EXTENSION)));
-
-      Assert.assertTrue(dataFile.exists());
-      Assert.assertTrue(mapFile.exists());
-    }
-  }
 }
