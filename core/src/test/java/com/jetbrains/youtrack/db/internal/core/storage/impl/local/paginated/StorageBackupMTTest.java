@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -12,6 +12,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
@@ -35,7 +36,7 @@ public class StorageBackupMTTest {
   private final Stack<CountDownLatch> backupIterationRecordCount = new Stack<>();
   private final CountDownLatch finished = new CountDownLatch(1);
 
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private String dbName;
 
   @Test
@@ -108,8 +109,8 @@ public class StorageBackupMTTest {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
@@ -217,8 +218,8 @@ public class StorageBackupMTTest {
 
       final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
@@ -267,8 +268,7 @@ public class StorageBackupMTTest {
 
       System.out.println(Thread.currentThread() + " - start writing");
 
-      try (var session = youTrackDB.open(dbName, "admin", "admin")) {
-
+      try (var session = (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin")) {
         var random = new Random();
         List<RID> ids = new ArrayList<>();
         while (!producerIterationRecordCount.isEmpty()) {

@@ -1,12 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -19,9 +18,9 @@ public class CreateDatabaseStatementExecutionTest {
   public void testPlain() {
     final var dbName = "OCreateDatabaseStatementExecutionTest_testPlain";
 
-    final YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    final var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -52,7 +51,7 @@ public class CreateDatabaseStatementExecutionTest {
   @Test
   public void testNoDefaultUsers() {
     var dbName = "OCreateDatabaseStatementExecutionTest_testNoDefaultUsers";
-    YouTrackDB youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     try (var result =
         youTrackDb.execute(

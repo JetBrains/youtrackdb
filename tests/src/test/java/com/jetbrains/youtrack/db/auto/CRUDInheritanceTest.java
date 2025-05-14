@@ -28,11 +28,6 @@ import org.testng.annotations.Test;
 @Test
 public class CRUDInheritanceTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public CRUDInheritanceTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -99,7 +94,7 @@ public class CRUDInheritanceTest extends BaseDBTest {
     // DELETE ALL THE RECORD IN THE COLLECTION
     session.begin();
     var companyCollectionIterator = session.browseClass("Company");
-    while (companyCollectionIterator.hasNext() ) {
+    while (companyCollectionIterator.hasNext()) {
       var obj = companyCollectionIterator.next();
       if (obj.<Integer>getProperty("id") == 1) {
         session.delete(obj);

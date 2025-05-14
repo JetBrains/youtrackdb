@@ -14,7 +14,7 @@
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
@@ -22,17 +22,12 @@ import java.util.Arrays;
 import java.util.Map;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.DoubleValuesSource;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
-import org.apache.lucene.spatial.SpatialStrategy;
 import org.apache.lucene.spatial.query.SpatialArgs;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.locationtech.spatial4j.distance.DistanceUtils;
 import org.locationtech.spatial4j.shape.Point;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -47,7 +42,7 @@ public class SpatialQueryBuilderDistanceSphere extends SpatialQueryBuilderAbstra
   }
 
   @Override
-  public SpatialQueryContext build(DatabaseSessionInternal db, Map<String, Object> query)
+  public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
       throws Exception {
     var shape = parseShape(query);
 

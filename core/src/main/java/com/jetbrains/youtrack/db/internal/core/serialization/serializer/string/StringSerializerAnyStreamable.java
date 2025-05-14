@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.string;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -40,7 +41,7 @@ public class StringSerializerAnyStreamable implements StringSerializer {
    * parameter.
    */
   @Nullable
-  public Object fromStream(DatabaseSessionInternal session, final String iStream) {
+  public Object fromStream(DatabaseSessionEmbedded session, final String iStream) {
     if (iStream == null || iStream.length() == 0)
     // NULL VALUE
     {

@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.lucene.integration;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
+import java.util.List;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -14,14 +14,14 @@ import org.junit.Test;
 public class LuceneCreateIndexIntegrationTest {
 
   private YouTrackDBServer server0;
-  private YouTrackDB remote;
+  private RemoteYouTrackDB remote;
 
   @Before
   public void before() throws Exception {
     server0 =
         YouTrackDBServer.startFromClasspathConfig(
             "com/orientechnologies/lucene/integration/youtrackdb-simple-server-config.xml");
-    remote = new YouTrackDBImpl("remote:localhost", "root", "test",
+    remote = YourTracks.remote("remote:localhost", "root", "test",
         YouTrackDBConfig.defaultConfig());
 
     remote.execute(
@@ -30,15 +30,15 @@ public class LuceneCreateIndexIntegrationTest {
     final var session =
         remote.open("LuceneCreateIndexIntegrationTest", "admin", "admin");
 
-    session.runScript("sql", "create class Person");
-    session.runScript("sql", "create property Person.name STRING");
-    session.runScript("sql", "create property Person.surname STRING");
+    session.computeScript("sql", "create class Person");
+    session.computeScript("sql", "create property Person.name STRING");
+    session.computeScript("sql", "create property Person.surname STRING");
 
-    session.executeInTx(transaction -> {
-      final var doc = transaction.newEntity("Person");
-      doc.setProperty("name", "Jon");
-      doc.setProperty("surname", "Snow");
-    });
+    session.executeSQLScript("""
+        begin;
+        insert into Person set name = 'Jon', surname = 'Snow';
+        commit;
+        """);
 
     session.close();
   }
@@ -46,29 +46,23 @@ public class LuceneCreateIndexIntegrationTest {
   @Test
   public void testCreateIndexJavaAPI() {
     final var session =
-        (DatabaseSessionInternal) remote.open("LuceneCreateIndexIntegrationTest", "admin",
+        remote.open("LuceneCreateIndexIntegrationTest", "admin",
             "admin");
-    var person = session.getMetadata().getSchema().getClass("Person");
+    session.execute("create class Person if not exists");
+    session.execute("create property Person.name if not exists STRING");
+    session.execute("create property Person.surname if not exists STRING");
+    session.execute(
+        "create index Person.firstName_lastName on Person (name, surname) FULLTEXT ENGINE LUCENE");
 
-    if (person == null) {
-      person = session.getMetadata().getSchema().createClass("Person");
+    try (var rs = session.query(
+        "select from metadata:indexes where name = 'Person.firstName_lastName'")) {
+      Assert.assertTrue(rs.hasNext());
+      var result = rs.next();
+      Assert.assertEquals("Person.firstName_lastName", result.getString("name"));
+      Assert.assertEquals("Person", result.getString("className"));
+      Assert.assertEquals(List.of("name", "surname"), result.<String>getEmbeddedList("properties"));
+      Assert.assertEquals(INDEX_TYPE.FULLTEXT.name(), result.getString("type"));
     }
-    if (!person.existsProperty("name")) {
-      person.createProperty("name", PropertyType.STRING);
-    }
-    if (!person.existsProperty("surname")) {
-      person.createProperty("surname", PropertyType.STRING);
-    }
-
-    person.createIndex(
-        "Person.firstName_lastName",
-        "FULLTEXT",
-        null,
-        null,
-        "LUCENE", new String[]{"name", "surname"});
-    Assert.assertTrue(
-        session.getMetadata().getSchema().getClassInternal("Person")
-            .areIndexed(session, "name", "surname"));
   }
 
   @After

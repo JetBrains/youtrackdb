@@ -1,10 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import org.junit.After;
@@ -20,11 +21,13 @@ import org.junit.Test;
 public class RevokeStatementExecutionTest {
 
   static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   @BeforeClass
   public static void beforeClass() {
-    youTrackDB = new YouTrackDBImpl("disk:.", YouTrackDBConfig.defaultConfig());
+    youTrackDB = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(RevokeStatementExecutionTest.class),
+        YouTrackDBConfig.defaultConfig());
   }
 
   @AfterClass
@@ -35,7 +38,7 @@ public class RevokeStatementExecutionTest {
   @Before
   public void before() {
     CreateDatabaseUtil.createDatabase("test", youTrackDB, CreateDatabaseUtil.TYPE_MEMORY);
-    this.session = (DatabaseSessionInternal) youTrackDB.open("test", "admin",
+    this.session = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 

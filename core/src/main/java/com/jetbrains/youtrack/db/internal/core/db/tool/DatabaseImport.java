@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
@@ -97,7 +97,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Import data from a file into a database.
  */
-public class DatabaseImport extends DatabaseImpExpAbstract {
+public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   private static final Logger logger = LoggerFactory.getLogger(DatabaseImport.class);
   public static final String EXPORT_IMPORT_CLASS_NAME = "___exportImportRIDMap";
@@ -124,7 +124,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private int maxRidbagStringSizeBeforeLazyImport = 100_000_000;
 
   public DatabaseImport(
-      final DatabaseSessionInternal database,
+      final DatabaseSessionEmbedded database,
       final String fileName,
       final CommandOutputListener outputListener)
       throws IOException {
@@ -146,7 +146,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   }
 
   public DatabaseImport(
-      final DatabaseSessionInternal database,
+      final DatabaseSessionEmbedded database,
       final InputStream inputStream,
       final CommandOutputListener outputListener)
       throws IOException {
@@ -217,7 +217,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       session.getSharedContext().getIndexManager().reload(session);
 
       for (final var index :
-          session.getSharedContext().getIndexManager().getIndexes(session)) {
+          session.getSharedContext().getIndexManager().getIndexes()) {
         if (index.isAutomatic()) {
           indexesToRebuild.add(index.getName());
         }
@@ -330,7 +330,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     listener.onMessage("\nRebuild of stale indexes...");
     for (var indexName : indexesToRebuild) {
 
-      if (indexManager.getIndex(session, indexName) == null) {
+      if (indexManager.getIndex(indexName) == null) {
         listener.onMessage(
             "\nIndex " + indexName + " is skipped because it is absent in imported DB.");
         continue;
@@ -450,7 +450,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       }
     }
 
-    final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+    final var indexManager = session.getSharedContext()
         .getIndexManager();
     for (final var indexName : indexNames) {
       indexManager.dropIndex(session, indexName);
@@ -935,7 +935,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       session
           .getSharedContext()
           .getIndexManager()
-          .getIndex(session, indexName)
+          .getIndex(indexName)
           .rebuild(session,
               new ProgressListener() {
                 private long last = 0;
@@ -964,7 +964,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
                 }
 
                 @Override
-                public void onCompletition(DatabaseSessionInternal session, Object iTask,
+                public void onCompletition(DatabaseSessionEmbedded session, Object iTask,
                     boolean iSucceed) {
                   listener.onMessage(" Index " + indexName + " was successfully rebuilt.");
                 }
@@ -985,7 +985,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
       Schema beforeImportSchemaSnapshot
   ) throws Exception {
 
-    ((DatabaseSessionEmbedded) session).disableLinkConsistencyCheck();
+    session.disableLinkConsistencyCheck();
     session.begin();
     var ok = true;
     RID rid = null;
@@ -1081,7 +1081,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
           session.rollback();
         }
       } finally {
-        ((DatabaseSessionEmbedded) session).enableLinkConsistencyCheck();
+        session.enableLinkConsistencyCheck();
       }
     }
 
@@ -1301,7 +1301,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
   private void importIndexes() throws IOException, ParseException {
     listener.onMessage("\n\nImporting indexes ...");
 
-    var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext().getIndexManager();
+    var indexManager = session.getSharedContext().getIndexManager();
     indexManager.reload(session);
 
     jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
@@ -1495,7 +1495,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
             .collect(Collectors.toSet());
 
     final var linksUpdated = new DatabaseRecordWalker(
-        ((DatabaseSessionEmbedded) session), ridMapCollections)
+        session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
             (colName, colSize, seenInCol, colDone, seenTotal, speed) ->
@@ -1514,7 +1514,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract {
     listener.onMessage(String.format("\nTotal links updated: %,d", linksUpdated));
 
     final var linksRecovered = new DatabaseRecordWalker(
-        ((DatabaseSessionEmbedded) session), ridMapCollections)
+        session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
             (colName, colSize, seenInCol, colDone, seenTotal, speed) ->

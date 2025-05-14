@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
@@ -35,7 +34,7 @@ public class InvalidRemovedFileIdsIT {
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    YouTrackDB youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
+    var youTrackDB = YourTracks.embedded(buildDirectory, config);
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
@@ -76,7 +75,7 @@ public class InvalidRemovedFileIdsIT {
 
     fileMap.close();
 
-    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
+    youTrackDB = YourTracks.embedded(buildDirectory, config);
     db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();

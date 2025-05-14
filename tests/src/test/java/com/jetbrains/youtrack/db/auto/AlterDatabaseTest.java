@@ -20,17 +20,10 @@
 package com.jetbrains.youtrack.db.auto;
 
 import java.io.IOException;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class AlterDatabaseTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public AlterDatabaseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   public void alterDateFormatOk() throws IOException {
     session.execute("alter database dateformat 'yyyy-MM-dd';").close();

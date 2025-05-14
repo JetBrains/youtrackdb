@@ -18,7 +18,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
     //    db.runScript("sql", getScriptFromStream(stream)).close();
-    session.runScript("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
     session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
     session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");

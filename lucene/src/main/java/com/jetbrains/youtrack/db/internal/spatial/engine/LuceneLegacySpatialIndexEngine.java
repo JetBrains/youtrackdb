@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
@@ -181,7 +182,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     try {
       updateLastAccess();
@@ -194,7 +195,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   @Override
-  public Object get(DatabaseSessionInternal db, Object key) {
+  public Object get(DatabaseSessionEmbedded db, Object key) {
     return getInTx(db, key, null);
   }
 

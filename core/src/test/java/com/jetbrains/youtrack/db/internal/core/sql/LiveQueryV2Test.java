@@ -20,12 +20,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -45,23 +45,23 @@ public class LiveQueryV2Test extends DbTestBase {
       this.latch = latch;
     }
 
-    public List<Result> ops = new ArrayList<>();
+    public List<BasicResult> ops = new ArrayList<>();
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(data);
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull Result before,
         @Nonnull Result after) {
       ops.add(after);
       latch.countDown();
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(data);
       latch.countDown();
     }

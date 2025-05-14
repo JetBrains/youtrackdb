@@ -1,16 +1,14 @@
 package com.jetbrains.youtrack.db.internal.server.network;
 
-import static org.junit.Assert.assertNotEquals;
-
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
+import java.util.HashSet;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
  *
  */
 public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
-
   @Test
   public void testSequences() {
     var database = session;
@@ -26,15 +24,24 @@ public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
         .close();
     database.execute("CREATE CLASS CV1 extends SV").close();
     database.execute("CREATE CLASS CV2 extends SV").close();
-    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
-    database.execute("CREATE INDEX testid ON SV (testID) UNIQUE").close();
-    database.reload();
 
-    database.begin();
-    var doc = ((EntityImpl) session.newVertex("CV1"));
-    doc.setProperty("testID", 1);
-    var doc1 = ((EntityImpl) session.newVertex("CV1"));
-    doc1.setProperty("testID", 1);
-    assertNotEquals(doc1.getProperty("uniqueID"), doc.getProperty("uniqueID"));
+    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
+
+    database.execute("CREATE INDEX testID1 ON CV1 (testID) UNIQUE").close();
+    database.execute("CREATE INDEX testID2 ON CV2 (testID) UNIQUE").close();
+
+    database.executeSQLScript("""
+        begin;
+        let $v1 = create vertex CV1 set testID = 1;
+        let $v2 = create vertex CV2 set testID = 1;
+        commit;
+        """);
+
+    var result =
+        database.query("select unionAll(uniqueID) as ids from SV")
+            .findFirst(
+                remoteResult -> remoteResult.getEmbeddedList("ids"));
+
+    Assert.assertEquals(2, new HashSet<>(result).size());
   }
 }

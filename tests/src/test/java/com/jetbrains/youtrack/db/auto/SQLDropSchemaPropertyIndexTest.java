@@ -16,7 +16,6 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
@@ -24,21 +23,14 @@ import java.util.Arrays;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
-
   private static final PropertyTypeInternal EXPECTED_PROP1_TYPE = PropertyTypeInternal.DOUBLE;
   private static final PropertyTypeInternal EXPECTED_PROP2_TYPE = PropertyTypeInternal.INTEGER;
 
-  @Parameters(value = "remote")
-  public SQLDropSchemaPropertyIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
@@ -49,6 +41,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.execute("drop class DropPropertyIndexTestClass").close();

@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.storage;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
@@ -10,7 +9,10 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -29,10 +31,10 @@ public class StorageEncryptionTestIT {
                 "T1JJRU5UREJfSVNfQ09PTA==")
             .build();
     try (final var youTrackDB =
-        YourTracks.embedded(dbDirectoryFile.getAbsolutePath(), youTrackDBConfig)) {
-      youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(), DatabaseType.DISK,
-          "admin", "admin", "admin");
-      try (var session = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(), "admin",
+        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), youTrackDBConfig)) {
+      youTrackDB.execute(
+          "create database encryption disk users ( admin identified by 'admin' role admin)");
+      try (var session = (DatabaseSessionInternal) youTrackDB.open("encryption", "admin",
           "admin")) {
         final var schema = session.getSchema();
         final var cls = schema.createClass("EncryptedData");
@@ -71,9 +73,9 @@ public class StorageEncryptionTestIT {
       }
     }
 
-    try (var youTrackDB =
+    try (final var youTrackDB =
         YourTracks.embedded(
-            dbDirectoryFile.getAbsolutePath(), YouTrackDBConfig.defaultConfig())) {
+            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig())) {
       try {
         try (final var session = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
             "admin", "admin")) {
@@ -91,7 +93,8 @@ public class StorageEncryptionTestIT {
                 "DD0ViGecppQOx4ijWL4XGBwun9NAfbqFaDnVpn9+lj8=")
             .build();
     try (final var youTrackDB =
-        YourTracks.embedded(dbDirectoryFile.getAbsolutePath(), wrongKeyOneYouTrackDBConfig)) {
+        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
+            wrongKeyOneYouTrackDBConfig)) {
       try {
         try (final var session = youTrackDB.open("encryption", "admin", "admin")) {
           Assert.fail();
@@ -108,7 +111,8 @@ public class StorageEncryptionTestIT {
                 "DD0ViGecppQOx4ijWL4XGBwun9NAfbqFaDnVpn9+lj8")
             .build();
     try (final var youTrackDB =
-        YourTracks.embedded(dbDirectoryFile.getAbsolutePath(), wrongKeyTwoYouTrackDBConfig)) {
+        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
+            wrongKeyTwoYouTrackDBConfig)) {
       try {
         try (final var session = youTrackDB.open("encryption", "admin", "admin")) {
           Assert.fail();
@@ -119,13 +123,12 @@ public class StorageEncryptionTestIT {
     }
 
     try (final var youTrackDB =
-        YourTracks.embedded(dbDirectoryFile.getAbsolutePath(), youTrackDBConfig)) {
+        YourTracks.embedded(DbTestBase.embeddedDBUrl(getClass()), youTrackDBConfig)) {
       try (final var session =
-          (DatabaseSessionInternal) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
-              "admin", "admin")) {
+          (DatabaseSessionEmbedded) youTrackDB.open("encryption", "admin", "admin")) {
         final var indexManager = session.getSharedContext().getIndexManager();
-        final var treeIndex = indexManager.getIndex(session, "EncryptedTree");
-        final var hashIndex = indexManager.getIndex(session, "EncryptedHash");
+        final var treeIndex = indexManager.getIndex("EncryptedTree");
+        final var hashIndex = indexManager.getIndex("EncryptedHash");
 
         session.executeInTx(tx -> {
           var entityIterator = session.browseClass("EncryptedData");
@@ -166,25 +169,28 @@ public class StorageEncryptionTestIT {
   public void testEncryptionSingleDatabase() {
     final var dbDirectoryFile = cleanAndGetDirectory();
 
-    final var youTrackDBConfig =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
-                "T1JJRU5UREJfSVNfQ09PTA==")
-            .build();
-
     try (final var youTrackDB =
-        YourTracks.embedded(dbDirectoryFile.getAbsolutePath(),
-            YouTrackDBConfig.defaultConfig())) {
-      youTrackDB.createIfNotExists(StorageEncryptionTestIT.class.getSimpleName(),
-          DatabaseType.DISK,
-          youTrackDBConfig,
-          "admin", "admin", "admin");
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig())) {
+      final var youTrackDBConfig =
+          YouTrackDBConfig.builder()
+              .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
+                  "T1JJRU5UREJfSVNfQ09PTA==")
+              .build();
+
+      youTrackDB.execute(
+          "create database encryption disk users ( admin identified by 'admin' role admin)");
     }
     try (final var youTrackDB =
         YourTracks.embedded(
-            dbDirectoryFile.getAbsolutePath(), YouTrackDBConfig.defaultConfig())) {
-      try (var session =
-          youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(), "admin", "admin",
+            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig())) {
+      final var youTrackDBConfig =
+          (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+              .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
+                  "T1JJRU5UREJfSVNfQ09PTA==")
+              .build();
+      try (var db =
+          (DatabaseSessionInternal) youTrackDB.open("encryption", "admin", "admin",
               youTrackDBConfig)) {
         final var schema = session.getSchema();
         final var cls = schema.createClass("EncryptedData");

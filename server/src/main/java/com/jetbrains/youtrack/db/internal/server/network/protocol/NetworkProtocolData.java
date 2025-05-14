@@ -20,10 +20,8 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkBase;
 
 /**
  * Saves all the important information about the network connection. Useful for monitoring and
@@ -43,34 +41,9 @@ public class NetworkProtocolData {
   public int sessionId = -1;
   public String clientId = null;
   public String currentUserId = null;
-  private String serializationImpl = null;
   public boolean serverUser = false;
   public String serverUsername = null;
   public CommandRequestText command = null;
   public boolean supportsLegacyPushMessages = true;
   public boolean collectStats = true;
-  private RecordSerializerNetwork serializer;
-
-  public String getSerializationImpl() {
-    return serializationImpl;
-  }
-
-  public void setSerializationImpl(String serializationImpl) {
-    if (serializationImpl.equals(RecordSerializerBinary.NAME)) {
-      serializationImpl = RecordSerializerNetworkBase.NAME;
-    }
-
-    this.serializationImpl = serializationImpl;
-    serializer = (RecordSerializerNetwork) RecordSerializerFactory.instance()
-        .getFormat(serializationImpl);
-  }
-
-  public void setSerializer(RecordSerializerNetwork serializer) {
-    this.serializer = serializer;
-    this.serializationImpl = serializer.getName();
-  }
-
-  public RecordSerializerNetwork getSerializer() {
-    return serializer;
-  }
 }

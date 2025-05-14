@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.engine;
 
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 
 public interface Engine {
@@ -31,7 +31,7 @@ public interface Engine {
       long maxWalSegSize,
       long doubleWriteLogMaxSegSize,
       int storageId,
-      YouTrackDBInternal context);
+      YouTrackDBInternalEmbedded context);
 
   void shutdown();
 

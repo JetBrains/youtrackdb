@@ -99,11 +99,6 @@ public class DbListenerTest extends BaseDBTest {
     }
   }
 
-  @Parameters(value = "remote")
-  public DbListenerTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testEmbeddedDbListeners() throws IOException {
     session = createSessionInstance();
@@ -133,52 +128,9 @@ public class DbListenerTest extends BaseDBTest {
     Assert.assertEquals(onAfterTxRollback, 1);
   }
 
-  @Test
-  public void testRemoteDbListeners() throws IOException {
-    if (!remoteDB) {
-      return;
-    }
-
-    session = createSessionInstance();
-
-    var listener = new DbListener();
-    session.registerListener(listener);
-
-    var baseOnBeforeTxBegin = onBeforeTxBegin;
-    session.begin();
-    Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 1);
-
-    session
-        .newInstance();
-
-    var baseOnBeforeTxCommit = onBeforeTxCommit;
-    var baseOnAfterTxCommit = onAfterTxCommit;
-    session.commit();
-    Assert.assertEquals(onBeforeTxCommit, baseOnBeforeTxCommit + 1);
-    Assert.assertEquals(onAfterTxCommit, baseOnAfterTxCommit + 1);
-
-    session.begin();
-    Assert.assertEquals(onBeforeTxBegin, baseOnBeforeTxBegin + 2);
-
-    session
-        .newInstance();
-
-    var baseOnBeforeTxRollback = onBeforeTxRollback;
-    var baseOnAfterTxRollback = onAfterTxRollback;
-    session.rollback();
-    Assert.assertEquals(onBeforeTxRollback, baseOnBeforeTxRollback + 1);
-    Assert.assertEquals(onAfterTxRollback, baseOnAfterTxRollback + 1);
-
-    var baseOnClose = onClose;
-    session.close();
-    Assert.assertEquals(onClose, baseOnClose + 1);
-  }
 
   @Test
   public void testEmbeddedDbListenersTxRecords() throws IOException {
-    if (remoteDB) {
-      return;
-    }
     session = createSessionInstance();
 
     session.begin();

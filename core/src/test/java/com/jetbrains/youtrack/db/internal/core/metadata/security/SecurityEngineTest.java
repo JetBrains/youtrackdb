@@ -1,11 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -16,15 +17,15 @@ import org.junit.Test;
 
 public class SecurityEngineTest {
 
-  static YouTrackDB youTrackDB;
-  private DatabaseSessionInternal session;
+  static YouTrackDBImpl youTrackDB;
+  private DatabaseSessionEmbedded session;
   private static final String DB_NAME = "test";
 
   @BeforeClass
   public static void beforeClass() {
     youTrackDB =
-        new YouTrackDBImpl(
-            "disk:./target/securityEngineTest",
+        (YouTrackDBImpl) YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(SecurityEngineTest.class),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -46,7 +47,7 @@ public class SecurityEngineTest {
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
@@ -230,7 +231,7 @@ public class SecurityEngineTest {
     session.commit();
     session.close();
     session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     var security = session.getSharedContext().getSecurity();

@@ -4,16 +4,13 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexTxAwareMultiValueGetTest extends IndexTxAwareBaseTest {
 
-  @Parameters(value = "remote")
-  public IndexTxAwareMultiValueGetTest(@Optional Boolean remote) {
-    super(remote != null && remote, false);
+  public IndexTxAwareMultiValueGetTest() {
+    super(false);
   }
 
   @Test

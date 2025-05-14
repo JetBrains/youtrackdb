@@ -19,10 +19,11 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class DatabaseException extends CoreException {
+
   public DatabaseException(DatabaseException exception) {
     super(exception);
   }
@@ -31,7 +32,7 @@ public class DatabaseException extends CoreException {
     super(dbName, message);
   }
 
-  public DatabaseException(DatabaseSession session, String message) {
+  public DatabaseException(BasicDatabaseSession<?, ?> session, String message) {
     super(session, message);
   }
 

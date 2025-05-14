@@ -21,15 +21,15 @@ package com.jetbrains.youtrack.db.internal.tools.console;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ImmutableRecordId;
-import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -83,14 +83,14 @@ public class TableFormatter {
   }
 
   public void writeRecords(List<RawPair<RID, Object>> resultSet,
-      final int limit, DatabaseSessionInternal session) {
+      final int limit, RemoteDatabaseSession session) {
     writeRecords(resultSet, limit, null, session);
   }
 
   public void writeRecords(
       List<RawPair<RID, Object>> resultSet,
       final int limit,
-      final CallableFunction<Object, Object> iAfterDump, DatabaseSessionInternal session) {
+      final CallableFunction<Object, Object> iAfterDump, RemoteDatabaseSession session) {
     final var columns = parseColumns(resultSet, limit, session);
 
     if (columnSorting != null) {
@@ -161,7 +161,7 @@ public class TableFormatter {
 
   public void dumpRecordInTable(
       final int iIndex, RID rid, Object iRecord,
-      final Map<String, Integer> iColumns, DatabaseSessionInternal session) {
+      final Map<String, Integer> iColumns, RemoteDatabaseSession session) {
     if (iIndex == 0) {
       printHeader(iColumns);
     }
@@ -252,7 +252,7 @@ public class TableFormatter {
 
   private Object getFieldValue(
       final int iIndex, RID rid, Object record,
-      final String iColumnName, DatabaseSessionInternal session) {
+      final String iColumnName, RemoteDatabaseSession session) {
 
     Object value;
 
@@ -276,7 +276,7 @@ public class TableFormatter {
   }
 
   public static String getPrettyFieldMultiValue(
-      final Iterator<?> iterator, final int maxMultiValueEntries, DatabaseSessionInternal session) {
+      final Iterator<?> iterator, final int maxMultiValueEntries, RemoteDatabaseSession session) {
     final var value = new StringBuilder("[");
     for (var i = 0; iterator.hasNext(); i++) {
       if (i >= maxMultiValueEntries) {
@@ -308,7 +308,7 @@ public class TableFormatter {
   }
 
   public static Object getPrettyFieldValue(Object value, final int multiValueMaxEntries,
-      DatabaseSessionInternal session) {
+      RemoteDatabaseSession session) {
     if (value instanceof MultiCollectionIterator<?>) {
       value =
           getPrettyFieldMultiValue(
@@ -327,7 +327,9 @@ public class TableFormatter {
         value = identifiable.getIdentity().toString();
       }
     } else if (value instanceof Date) {
-      value = DateHelper.getDateTimeFormatInstance(session).format((Date) value);
+      var dateFormat = new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT);
+      dateFormat.setTimeZone(session.getDatabaseTimeZone());
+      value = dateFormat.format((Date) value);
     } else if (value instanceof byte[]) {
       value = "byte[" + ((byte[]) value).length + "]";
     }
@@ -461,7 +463,7 @@ public class TableFormatter {
    */
   private Map<String, Integer> parseColumns(
       List<RawPair<RID, Object>> resultSet,
-      final int limit, DatabaseSessionInternal session) {
+      final int limit, RemoteDatabaseSession session) {
     final Map<String, Integer> columns = new LinkedHashMap<>();
 
     for (var c : prefixedColumns) {
@@ -600,7 +602,7 @@ public class TableFormatter {
   private Integer getColumnSize(
       final Integer iIndex, RID rid, final Object iRecord,
       final String fieldName,
-      final Integer origSize, DatabaseSessionInternal session) {
+      final Integer origSize, RemoteDatabaseSession session) {
     int newColumnSize;
     if (origSize == null)
     // START FROM THE FIELD NAME SIZE

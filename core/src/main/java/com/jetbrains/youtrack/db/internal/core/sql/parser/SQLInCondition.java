@@ -143,7 +143,7 @@ public class SQLInCondition extends SQLBooleanExpression {
   protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight) {
     if (iRight instanceof InternalResultSet rsRight) {
-      rsRight.reset();
+      rsRight = rsRight.copy(session);
 
       while (rsRight.hasNext()) {
         if (QueryOperatorEquals.equals(session, iLeft, rsRight.next())) {
@@ -210,6 +210,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" IN ");
@@ -226,6 +227,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" IN ");
@@ -440,6 +442,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     this.rightMathExpression = rightMathExpression;
   }
 
+  @Override
   public boolean isIndexAware(IndexSearchInfo info) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
@@ -453,6 +456,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Override
   public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
     var path = left.getPath();
     if (path.isPresent()) {

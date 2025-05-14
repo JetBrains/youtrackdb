@@ -1,15 +1,10 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -17,12 +12,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class OrderByIndexReuseTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public OrderByIndexReuseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {

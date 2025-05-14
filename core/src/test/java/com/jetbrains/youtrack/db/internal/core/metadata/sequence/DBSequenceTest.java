@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.metadata.sequence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
@@ -24,7 +24,7 @@ import org.junit.Test;
 
 public class DBSequenceTest {
 
-  private static YouTrackDB youTrackDB;
+  private static BasicYouTrackDB youTrackDB;
 
   private DatabaseSessionInternal db;
   private SequenceLibrary sequences;

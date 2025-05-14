@@ -3,9 +3,7 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -13,8 +11,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -22,12 +18,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkListIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkListIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     final var linkListIndexTestClass =
@@ -45,6 +35,7 @@ public class LinkListIndexTest extends BaseDBTest {
     session.getMetadata().getSchema().dropClass("LinkListIndexTestClass");
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();

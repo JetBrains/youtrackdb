@@ -15,22 +15,14 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class GEOTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public GEOTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void geoSchema() {
@@ -40,25 +32,19 @@ public class GEOTest extends BaseDBTest {
     mapPointClass.createProperty("y", PropertyType.DOUBLE)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
-    if (!remoteDB) {
-      final var xIndexes =
-          session.getMetadata().getSchema().getClassInternal("MapPoint")
-              .getInvolvedIndexesInternal(session, "x");
-      Assert.assertEquals(xIndexes.size(), 1);
+    final var xIndexes =
+        session.getMetadata().getSchema().getClassInternal("MapPoint")
+            .getInvolvedIndexesInternal(session, "x");
+    Assert.assertEquals(xIndexes.size(), 1);
 
-      final var yIndexes =
-          session.getMetadata().getSchema().getClassInternal("MapPoint")
-              .getInvolvedIndexesInternal(session, "y");
-      Assert.assertEquals(yIndexes.size(), 1);
-    }
+    final var yIndexes =
+        session.getMetadata().getSchema().getClassInternal("MapPoint")
+            .getInvolvedIndexesInternal(session, "y");
+    Assert.assertEquals(yIndexes.size(), 1);
   }
 
   @Test(dependsOnMethods = "geoSchema")
   public void checkGeoIndexes() {
-    if (remoteDB) {
-      return;
-    }
-
     final var xIndexes =
         session.getMetadata().getSchema().getClassInternal("MapPoint").
             getInvolvedIndexesInternal(session, "x");
@@ -80,7 +66,6 @@ public class GEOTest extends BaseDBTest {
 
       point.setProperty("x", 52.20472d + i / 100d);
       point.setProperty("y", 0.14056d + i / 100d);
-
 
       session.commit();
     }

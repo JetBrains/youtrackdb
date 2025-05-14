@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -17,7 +17,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    session.runScript(
+    session.computeScript(
             "sql",
             """
                 create class Address abstract;
@@ -34,7 +34,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
   public void testLinkedValue() {
     session.begin();
     try (var result =
-        session.runScript(
+        session.computeScript(
             "sql",
             "let res = insert into client set name = 'James Bond', phones = ['1234',"
                 + " '34567'], addresses = [{'@class':'Address','city':'Shanghai', 'zip':'3999'},"
@@ -62,7 +62,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
 
       var result = resultSet.next();
 
-      Collection<Result> addresses = result.getProperty("addresses");
+      Collection<BasicResult> addresses = result.getProperty("addresses");
       Assert.assertEquals(4, addresses.size());
 
       for (var a : addresses) {

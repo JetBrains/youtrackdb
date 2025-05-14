@@ -46,6 +46,10 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public void close() {
+    for (var step : steps) {
+      step.close();
+    }
+
     lastStep.close();
   }
 
@@ -107,9 +111,8 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var session = (DatabaseSessionInternal) db;
-    var result = new ResultInternal(session);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
 
     result.setProperty("type", "ScriptExecutionPlan");
     result.setProperty("javaType", getClass().getName());

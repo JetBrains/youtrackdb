@@ -21,6 +21,7 @@
 package com.jetbrains.youtrack.db.internal.core.index.engine;
 
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -34,7 +35,7 @@ public interface IndexEngine extends BaseIndexEngine {
 
   int VERSION = 0;
 
-  Object get(DatabaseSessionInternal db, Object key);
+  Object get(DatabaseSessionEmbedded db, Object key);
 
   void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) throws IOException;

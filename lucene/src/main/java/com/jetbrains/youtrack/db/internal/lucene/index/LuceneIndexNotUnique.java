@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
@@ -83,7 +84,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public long rebuild(DatabaseSessionInternal session, ProgressListener progressListener) {
+  public long rebuild(DatabaseSessionEmbedded session, ProgressListener progressListener) {
     return super.rebuild(session, progressListener);
   }
 
@@ -274,14 +275,14 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Deprecated
   @Override
-  public Collection<Identifiable> get(DatabaseSessionInternal session, final Object key) {
+  public Collection<Identifiable> get(DatabaseSessionEmbedded session, final Object key) {
     try (var stream = getRids(session, key)) {
       return stream.collect(Collectors.toList());
     }
   }
 
   @Override
-  public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
     while (true) {
       try {
         @SuppressWarnings("unchecked")
@@ -297,7 +298,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
     return session.computeInTx(transaction -> {
       while (true) {
         try {
@@ -353,7 +354,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public long size(DatabaseSessionInternal session) {
+  public long size(DatabaseSessionEmbedded session) {
     return session.computeInTx(transaction -> {
       while (true) {
         try {
@@ -373,7 +374,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
 
     @SuppressWarnings("resource")
@@ -391,7 +392,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     while (true) {
       try {
@@ -407,7 +408,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMajor(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
@@ -422,7 +423,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMinor(
-      DatabaseSessionInternal session, Object toKey, boolean toInclusive, boolean ascOrder) {
+      DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
@@ -435,7 +436,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
@@ -447,7 +448,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(

@@ -26,15 +26,10 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLDropIndexTest extends BaseDBTest {
-
   private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
   private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
-  @Parameters(value = "remote")
-  public SQLDropIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -45,6 +40,7 @@ public class SQLDropIndexTest extends BaseDBTest {
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {

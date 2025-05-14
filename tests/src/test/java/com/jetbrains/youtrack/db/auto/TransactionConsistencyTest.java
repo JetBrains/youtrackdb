@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,22 +31,15 @@ import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.ArrayUtils;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class TransactionConsistencyTest extends BaseDBTest {
 
-  protected DatabaseSessionInternal database1;
-  protected DatabaseSessionInternal database2;
+  protected DatabaseSessionEmbedded database1;
+  protected DatabaseSessionEmbedded database2;
 
   public static final String NAME = "name";
-
-  @Parameters(value = "remote")
-  public TransactionConsistencyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void test1RollbackOnConcurrentException() {
@@ -541,29 +534,35 @@ public class TransactionConsistencyTest extends BaseDBTest {
     v.setProperty("address", "test3");
     session.commit();
 
+    session.begin();
     // remove those foos in a transaction
     // Step 3a
     var result =
         session.query("select * from Foo where address = 'test1'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
+    session.commit();
     // Step 4a
     session.begin();
     var activeTx2 = session.getActiveTransaction();
     session.delete(activeTx2.<Entity>load(result.get(0)));
     session.commit();
 
+    session.begin();
     // Step 3b
     result = session.query("select * from Foo where address = 'test2'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
+    session.commit();
     // Step 4b
     session.begin();
     var activeTx1 = session.getActiveTransaction();
     session.delete(activeTx1.<Entity>load(result.get(0)));
     session.commit();
 
+    session.begin();
     // Step 3c
     result = session.query("select * from Foo where address = 'test3'").entityStream().toList();
     Assert.assertEquals(result.size(), 1);
+    session.commit();
     // Step 4c
     session.begin();
     var activeTx = session.getActiveTransaction();

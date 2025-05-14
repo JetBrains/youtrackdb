@@ -23,12 +23,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLCreateLinkTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLCreateLinkTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void createLinktest() {
     session.execute("CREATE CLASS POST").close();

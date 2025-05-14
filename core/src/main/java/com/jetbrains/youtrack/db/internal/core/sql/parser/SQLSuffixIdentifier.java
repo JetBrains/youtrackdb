@@ -48,6 +48,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     this.recordAttribute = attr;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (identifier != null) {
       identifier.toString(params, builder);
@@ -58,6 +59,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (identifier != null) {
       identifier.toGenericStatement(builder);
@@ -146,6 +148,9 @@ public class SQLSuffixIdentifier extends SimpleNode {
         if (result instanceof Resettable resettable && resettable.isResetable()) {
           resettable.reset();
         }
+        if (result instanceof InternalResultSet internalResultSet) {
+          result = internalResultSet.copy(ctx.getDatabaseSession());
+        }
         return result;
       }
       if (iCurrentRecord != null) {
@@ -216,19 +221,13 @@ public class SQLSuffixIdentifier extends SimpleNode {
   }
 
   @Nullable
-  public Object execute(Iterator iterator, CommandContext ctx) {
+  public Object execute(Iterator<?> iterator, CommandContext ctx) {
     if (star) {
       return null;
     }
     List<Object> result = new ArrayList<>();
     while (iterator.hasNext()) {
       result.add(execute(iterator.next(), ctx));
-    }
-    if (iterator instanceof InternalResultSet resultSet) {
-      try {
-        resultSet.reset();
-      } catch (Exception ignore) {
-      }
     }
     return result;
   }
@@ -253,6 +252,9 @@ public class SQLSuffixIdentifier extends SimpleNode {
 
   @Nullable
   public Object execute(Object currentValue, CommandContext ctx) {
+    if (currentValue instanceof InternalResultSet internalResultSet) {
+      return execute(internalResultSet.copy(ctx.getDatabaseSession()), ctx);
+    }
     if (currentValue instanceof Result) {
       return execute((Result) currentValue, ctx);
     }
@@ -323,6 +325,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
         "this operation does not support plain aggregation: " + this);
   }
 
+  @Override
   public SQLSuffixIdentifier copy() {
     var result = new SQLSuffixIdentifier(-1);
     result.identifier = identifier == null ? null : identifier.copy();

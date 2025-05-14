@@ -58,7 +58,7 @@ public class LuceneVsLuceneTest extends BaseLuceneTest {
     directory = NIOFSDirectory.open(getPath().toPath());
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      session.runScript("sql", getScriptFromStream(stream)).close();
+      session.computeScript("sql", getScriptFromStream(stream)).close();
       FileUtils.deleteRecursively(getPath().getAbsoluteFile());
 
       analyzer = new LucenePerFieldAnalyzerWrapper(new StandardAnalyzer());

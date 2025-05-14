@@ -33,11 +33,10 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
@@ -50,7 +49,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -65,19 +63,14 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   private final String exportFilePath;
   private boolean dumpMode = false;
 
-  @Parameters(value = {"remote", "testPath"})
-  public DbImportExportTest(@Optional Boolean remote, String testPath) {
-    super(remote != null && remote);
+  @Parameters(value = {"testPath"})
+  public DbImportExportTest(String testPath) {
     this.testPath = testPath;
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
   @Test
   public void testDbExport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     // ADD A CUSTOM TO THE CLASS
     session.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
@@ -89,10 +82,6 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     final var importDir = new File(testPath + "/" + IMPORT_DB_PATH);
     if (importDir.exists()) {
       for (final var f : importDir.listFiles()) {
@@ -110,7 +99,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var dbImport =
             new DatabaseImport(
-                (DatabaseSessionInternal) importDB, testPath + "/" + exportFilePath, this);
+                (DatabaseSessionEmbedded) importDB, testPath + "/" + exportFilePath, this);
         // UNREGISTER ALL THE HOOKS
         for (final var hook : new ArrayList<>(
             ((DatabaseSessionInternal) importDB).getHooks())) {
@@ -125,15 +114,12 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
-    if (remoteDB) {
-      return;
-    }
     try (var youTrackDBImport =
         YourTracks.embedded(
             testPath + File.separator + IMPORT_DB_PATH, YouTrackDBConfig.defaultConfig())) {
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var databaseCompare =
-            new DatabaseCompare(session, (DatabaseSessionInternal) importDB, this);
+            new DatabaseCompare(session, (DatabaseSessionEmbedded) importDB, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
         databaseCompare.setCompareIndexMetadata(true);
         Assert.assertTrue(databaseCompare.compare());
@@ -143,10 +129,6 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test
   public void testLinksMigration() throws Exception {
-    if (remoteDB) {
-      return;
-    }
-
     final var localTesPath = initExportPath("embeddedListMigration", true);
 
     final var exportPath = new File(localTesPath, "export.json.gz");
@@ -155,14 +137,14 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         new YouTrackDBConfigBuilderImpl()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build();
-    try (final YouTrackDB youTrackDB = new YouTrackDBImpl(
-        "embedded:" + localTesPath.getPath(),
+    try (final var youTrackDB = YourTracks.embedded(
+        localTesPath.getPath(),
         config)) {
       youTrackDB.create("original", DatabaseType.DISK);
 
       final var childDocCount = 50;
 
-      try (final var session = (DatabaseSessionInternal) youTrackDB.open(
+      try (final var session = (DatabaseSessionEmbedded) youTrackDB.open(
           "original", "admin", "admin")) {
         final Schema schema = session.getMetadata().getSchema();
 
@@ -230,7 +212,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       youTrackDB.create("imported", DatabaseType.DISK);
       try (final var session =
-          (DatabaseSessionInternal) youTrackDB.open("imported", "admin", "admin")) {
+          (DatabaseSessionEmbedded) youTrackDB.open("imported", "admin", "admin")) {
         final var databaseImport =
             new DatabaseImport(session, exportPath.getPath(), System.out::println);
         databaseImport.run();
@@ -329,7 +311,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     try (
         var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
-        var imported = createAndOpen(youTrackDB, "imported");
+        var imported = createAndOpen(youTrackDB, "imported")
     ) {
       final var vClass = original.getSchema().createVertexClass("AVertex");
       final var eClass = original.getSchema().createEdgeClass("AnEdge");
@@ -350,10 +332,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         v3.addLightWeightEdge(v2, leClass);
       });
 
-      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
           .exportDatabase();
 
-      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
           .importDatabase();
 
       assertTrue(imported.getSchema().getClass("AVertex").isVertexType());
@@ -408,7 +390,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     try (
         var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
-        var imported = createAndOpen(youTrackDB, "imported");
+        var imported = createAndOpen(youTrackDB, "imported")
     ) {
 
       original.getSchema().createClass("WithBlob");
@@ -426,10 +408,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         withNonEmpty.setLink("blob", nonEmptyBlob);
       });
 
-      new DatabaseExport(((DatabaseSessionInternal) original), exportPath.getPath(), this)
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
           .exportDatabase();
 
-      new DatabaseImport(((DatabaseSessionInternal) imported), exportPath.getPath(), this)
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
           .importDatabase();
 
       imported.executeInTx(tx -> {

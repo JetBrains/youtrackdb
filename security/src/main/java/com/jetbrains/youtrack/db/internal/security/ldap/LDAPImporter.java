@@ -16,8 +16,9 @@ package com.jetbrains.youtrack.db.internal.security.ldap;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityAuthenticator;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityComponent;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
@@ -42,7 +43,7 @@ public class LDAPImporter implements SecurityComponent {
   private boolean debug = false;
   private boolean enabled = true;
 
-  private YouTrackDBInternal context;
+  private YouTrackDBInternalEmbedded context;
 
   private int importPeriod = 60; // Default to 60
   // seconds.
@@ -56,6 +57,7 @@ public class LDAPImporter implements SecurityComponent {
   private SecuritySystem security;
 
   // SecurityComponent
+  @Override
   public void active() {
     // Go through each database entry and check the _OLDAPUsers schema.
     for (var dbEntry : databaseMap.entrySet()) {
@@ -79,7 +81,8 @@ public class LDAPImporter implements SecurityComponent {
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final Map<String, Object> importDoc,
+  @Override
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> importDoc,
       SecuritySystem security) {
     try {
       context = security.getContext();
@@ -266,6 +269,7 @@ public class LDAPImporter implements SecurityComponent {
   }
 
   // SecurityComponent
+  @Override
   public void dispose() {
     if (importTimer != null) {
       importTimer.cancel();
@@ -274,6 +278,7 @@ public class LDAPImporter implements SecurityComponent {
   }
 
   // SecurityComponent
+  @Override
   public boolean isEnabled() {
     return enabled;
   }
@@ -313,7 +318,7 @@ public class LDAPImporter implements SecurityComponent {
     }
   }
 
-  private class Database {
+  private static class Database {
 
     private final String name;
 
@@ -341,7 +346,7 @@ public class LDAPImporter implements SecurityComponent {
     }
   }
 
-  private class DatabaseDomain {
+  private static class DatabaseDomain {
 
     private final String domain;
 
@@ -377,7 +382,7 @@ public class LDAPImporter implements SecurityComponent {
     }
   }
 
-  private class DatabaseUser {
+  private static class DatabaseUser {
 
     private final String user;
     private final Set<String> roles = new LinkedHashSet<String>();
@@ -392,9 +397,7 @@ public class LDAPImporter implements SecurityComponent {
 
     public void addRoles(Set<String> roles) {
       if (roles != null) {
-        for (var role : roles) {
-          this.roles.add(role);
-        }
+        this.roles.addAll(roles);
       }
     }
 
@@ -403,7 +406,7 @@ public class LDAPImporter implements SecurityComponent {
     }
   }
 
-  private class User {
+  private static class User {
 
     private final String baseDN;
     private final String filter;
@@ -426,9 +429,7 @@ public class LDAPImporter implements SecurityComponent {
       this.filter = filter;
 
       // Convert the list into a set, for convenience.
-      for (var role : roleList) {
-        roles.add(role);
-      }
+      roles.addAll(roleList);
     }
   }
 
@@ -503,8 +504,7 @@ public class LDAPImporter implements SecurityComponent {
                   try {
                     // Combine the "users" from security.json's "ldapImporter" and the class
                     // oldapUserClass.
-                    List<User> userList = new ArrayList<User>();
-                    userList.addAll(dd.getUsers());
+                    List<User> userList = new ArrayList<User>(dd.getUsers());
 
                     retrieveLDAPUsers(odb, dd.getDomain(), userList);
 
@@ -592,12 +592,9 @@ public class LDAPImporter implements SecurityComponent {
             deleteUsers(odb, usersToBeDeleted);
           }
         } finally {
-          if (usersMap != null) {
-            usersMap.clear();
-          }
-          if (usersToBeDeleted != null) {
-            usersToBeDeleted.clear();
-          }
+          usersMap.clear();
+          usersToBeDeleted.clear();
+
           if (odb != null) {
             odb.close();
           }

@@ -21,13 +21,7 @@ import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "query")
 public class WrongQueryTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public WrongQueryTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   public void queryFieldOperatorNotSupported() {
     try (var result = session.execute(

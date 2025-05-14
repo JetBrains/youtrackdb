@@ -40,7 +40,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var idx = session.getSharedContext().getIndexManager().getIndex("City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
     var london = newCity(session, "London", -0.1275, 51.507222);
 
@@ -84,7 +84,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
 
     session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
 
-    var idx = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var idx = session.getSharedContext().getIndexManager().getIndex("City.location");
     var rome = newCity(session, "Rome", 12.5, 41.9);
 
     session.begin();

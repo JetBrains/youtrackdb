@@ -1,23 +1,22 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 
-public class QueryDatabaseState {
-
-  private ResultSet resultSet = null;
+public class QueryDatabaseState<RS extends BasicResultSet<?>> {
+  private RS resultSet = null;
 
   public QueryDatabaseState() {
   }
 
-  public QueryDatabaseState(ResultSet resultSet) {
+  public QueryDatabaseState(RS resultSet) {
     this.resultSet = resultSet;
   }
 
-  public void setResultSet(ResultSet resultSet) {
+  public void setResultSet(RS resultSet) {
     this.resultSet = resultSet;
   }
 
-  public ResultSet getResultSet() {
+  public RS getResultSet() {
     return resultSet;
   }
 

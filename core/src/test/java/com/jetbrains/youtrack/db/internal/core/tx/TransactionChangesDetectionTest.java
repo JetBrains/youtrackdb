@@ -6,16 +6,15 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.exception.TransactionException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class TransactionChangesDetectionTest {
 
   private YouTrackDB factory;
@@ -24,7 +23,7 @@ public class TransactionChangesDetectionTest {
   @Before
   public void before() {
     factory =
-        CreateDatabaseUtil.createDatabase(
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             TransactionChangesDetectionTest.class.getSimpleName(),
             DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
@@ -106,7 +105,7 @@ public class TransactionChangesDetectionTest {
     assertEquals(0, currentTx.getTxStartCounter());
   }
 
-  @Test(expected = RollbackException.class)
+  @Test(expected = TransactionException.class)
   public void testTransactionRollbackCommit() {
     db.begin();
     final var currentTx = (FrontendTransactionImpl) db.getTransactionInternal();
@@ -116,7 +115,7 @@ public class TransactionChangesDetectionTest {
     db.rollback();
     assertEquals(1, currentTx.getTxStartCounter());
     db.commit();
-    fail("Should throw an 'RollbackException'.");
+    fail("Should throw an 'TransactionException'.");
   }
 
   @Test

@@ -12,9 +12,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- *
- */
 public class FetchFromRidsStep extends AbstractExecutionStep {
 
   private Collection<RecordId> rids;

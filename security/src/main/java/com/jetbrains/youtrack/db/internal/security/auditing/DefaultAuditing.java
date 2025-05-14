@@ -19,9 +19,11 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassProxy;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
@@ -48,7 +50,7 @@ public class DefaultAuditing
 
   private boolean enabled = true;
   private Integer globalRetentionDays = -1;
-  private YouTrackDBInternal context;
+  private YouTrackDBInternalEmbedded context;
 
   private final Timer timer = new Timer();
   private AuditingHook globalHook;
@@ -280,7 +282,7 @@ public class DefaultAuditing
   }
 
   @Override
-  public void onCreateClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
+  public void onCreateClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {
@@ -289,7 +291,7 @@ public class DefaultAuditing
   }
 
   @Override
-  public void onDropClass(DatabaseSessionInternal session, SchemaClassImpl iClass) {
+  public void onDropClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {
@@ -470,7 +472,7 @@ public class DefaultAuditing
             }));
   }
 
-  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     context = security.getContext();
     this.security = security;

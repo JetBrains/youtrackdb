@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -65,18 +66,18 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected STATUS status = STATUS.NOT_LOADED;
 
   @Nullable
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
 
   @Nullable
   public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session) {
     recordId = new ChangeableRecordId();
     this.session = session;
   }
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session, final byte[] source) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session, final byte[] source) {
     this.source = source;
     size = source.length;
 
@@ -392,7 +393,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
-      case Result result when result.isRecord() -> {
+      case Result result when result.isIdentifiable() -> {
         var resultRecord = result.asRecord();
         return equals(resultRecord);
       }

@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
@@ -10,12 +11,12 @@ import javax.annotation.Nullable;
 
 public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
 
-  public EmbeddedEntityImpl(String clazz, DatabaseSessionInternal session) {
+  public EmbeddedEntityImpl(String clazz, DatabaseSessionEmbedded session) {
     super(session, clazz);
     checkEmbeddable();
   }
 
-  public EmbeddedEntityImpl(DatabaseSessionInternal session) {
+  public EmbeddedEntityImpl(DatabaseSessionEmbedded session) {
     super(session);
     status = STATUS.LOADED;
   }

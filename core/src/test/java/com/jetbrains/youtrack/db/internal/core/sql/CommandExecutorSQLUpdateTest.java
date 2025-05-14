@@ -423,7 +423,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
         """;
 
     session.begin();
-    session.runScript("SQL", script).close();
+    session.computeScript("SQL", script).close();
     session.commit();
 
     try (var result = session.query("select from A")) {

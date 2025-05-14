@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.index;
 
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
@@ -18,13 +19,13 @@ public class TestImmutableIndexLoad {
 
   @Test
   public void testLoadAndUseIndexOnOpen() {
-    YouTrackDB youTrackDB =
-        CreateDatabaseUtil.createDatabase(
+    var youTrackDB =
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             TestImmutableIndexLoad.class.getSimpleName(),
             DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_DISK);
     var db =
-        youTrackDB.open(
+        (DatabaseSessionEmbedded) youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -35,13 +36,13 @@ public class TestImmutableIndexLoad {
     youTrackDB.close();
 
     youTrackDB =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        (YouTrackDBImpl) YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
     db =
-        youTrackDB.open(
+        (DatabaseSessionEmbedded) youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);

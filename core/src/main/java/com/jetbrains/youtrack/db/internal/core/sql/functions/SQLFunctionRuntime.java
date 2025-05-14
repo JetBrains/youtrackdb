@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -50,7 +51,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
   public Object[] configuredParameters;
   public Object[] runtimeParameters;
 
-  public SQLFunctionRuntime(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  public SQLFunctionRuntime(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iText) {
     super(session, iQueryToParse, iText);
   }
@@ -139,7 +140,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
     return transformValue(iCurrentRecord, iContext, functionResult);
   }
 
-  public Object getResult(DatabaseSessionInternal session) {
+  public Object getResult(DatabaseSessionEmbedded session) {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
@@ -218,7 +219,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
   }
 
   @Override
-  protected void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  protected void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iText) {
     final var beginParenthesis = iText.indexOf('(');
 

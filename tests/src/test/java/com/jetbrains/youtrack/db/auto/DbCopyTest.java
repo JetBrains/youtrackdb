@@ -25,12 +25,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
-
-  @Parameters(value = {"remote"})
-  public DbCopyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void checkCopy() throws IOException {
     final var className = "DbCopyTest";

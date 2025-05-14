@@ -1,6 +1,5 @@
 package com.orientechnologies.distribution.integration;
 
-import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;

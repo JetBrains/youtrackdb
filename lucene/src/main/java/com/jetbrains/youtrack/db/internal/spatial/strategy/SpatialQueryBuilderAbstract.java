@@ -13,7 +13,7 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
@@ -41,7 +41,7 @@ public abstract class SpatialQueryBuilderAbstract {
     this.factory = factory;
   }
 
-  public abstract SpatialQueryContext build(DatabaseSessionInternal db, Map<String, Object> query)
+  public abstract SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
       throws Exception;
 
   protected Shape parseShape(Map<String, Object> query) {

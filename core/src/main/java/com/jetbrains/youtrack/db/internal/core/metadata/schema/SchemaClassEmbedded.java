@@ -25,6 +25,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     super(iOwner, iName, iCollectionIds);
   }
 
+  @Override
   public SchemaPropertyImpl addProperty(
       DatabaseSessionInternal session, final String propertyName,
       final PropertyTypeInternal type,
@@ -65,6 +66,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void setCustom(DatabaseSessionInternal session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -77,6 +79,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void clearCustom(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -119,6 +122,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void addSuperClass(DatabaseSessionInternal session,
       final SchemaClassImpl superClass) {
 
@@ -166,6 +170,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void removeSuperClass(DatabaseSessionInternal session, SchemaClassImpl superClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     acquireSchemaWriteLock(session);
@@ -267,6 +272,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     superClasses.addAll(newSuperClasses);
   }
 
+  @Override
   public void setName(DatabaseSessionInternal session, final String name) {
     if (getName(session).equals(name)) {
       return;
@@ -311,6 +317,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   protected SchemaPropertyImpl createPropertyInstance() {
     return new SchemaPropertyEmbedded(this);
   }
@@ -376,6 +383,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
 
+  @Override
   public void setStrictMode(DatabaseSessionInternal session, final boolean isStrict) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -401,6 +409,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void setDescription(DatabaseSessionInternal session, String iDescription) {
     if (iDescription != null) {
       iDescription = iDescription.trim();
@@ -429,6 +438,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
@@ -492,6 +502,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   public void setAbstract(DatabaseSessionInternal session, boolean isAbstract) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -633,6 +644,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
   protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
       boolean requireEmpty) {
     var collectionName = session.getCollectionNameById(iId);
@@ -643,7 +655,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
 
     final var indexManager =
-        ((DatabaseSessionEmbedded) session).getSharedContext().getIndexManager();
+        session.getSharedContext().getIndexManager();
     for (var indexName : indexesToAdd) {
       indexManager.addCollectionToIndex(session, collectionName, indexName, requireEmpty);
     }

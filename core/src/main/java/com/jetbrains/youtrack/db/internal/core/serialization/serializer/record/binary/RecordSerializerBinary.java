@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.
 
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -81,7 +82,7 @@ public class RecordSerializerBinary implements RecordSerializer {
 
   @Override
   public void fromStream(
-      @Nonnull DatabaseSessionInternal session, final @Nonnull byte[] iSource,
+      @Nonnull DatabaseSessionEmbedded session, final @Nonnull byte[] iSource,
       @Nonnull RecordAbstract iRecord,
       final String[] iFields) {
     if (iSource.length == 0) {
@@ -117,7 +118,7 @@ public class RecordSerializerBinary implements RecordSerializer {
     if (record instanceof Blob) {
       return record.toStream();
     } else {
-      var documentToSerialize = (EntityImpl) record;
+      var entityToSerialize = (EntityImpl) record;
 
       final var container = new BytesContainer();
 
@@ -125,7 +126,7 @@ public class RecordSerializerBinary implements RecordSerializer {
       var pos = container.alloc(1);
       container.bytes[pos] = currentSerializerVersion;
       // SERIALIZE RECORD
-      serializerByVersion[currentSerializerVersion].serialize(session, documentToSerialize,
+      serializerByVersion[currentSerializerVersion].serialize(session, entityToSerialize,
           container);
 
       return container.fitBytes();

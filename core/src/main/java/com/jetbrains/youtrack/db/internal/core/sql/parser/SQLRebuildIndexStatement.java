@@ -25,13 +25,13 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    final var session = ctx.getDatabaseSession();
     var result = new ResultInternal(session);
     result.setProperty("operation", "rebuild index");
 
     if (all) {
       long totalIndexed = 0;
-      for (var idx : session.getSharedContext().getIndexManager().getIndexes(session)) {
+      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
         if (idx.isAutomatic()) {
           totalIndexed += idx.rebuild(session);
         }
@@ -39,7 +39,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
       result.setProperty("totalIndexed", totalIndexed);
     } else {
       final var idx =
-          session.getSharedContext().getIndexManager().getIndex(session, name.getValue());
+          session.getSharedContext().getIndexManager().getIndex(name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(session, "Index '" + name + "' not found");
       }

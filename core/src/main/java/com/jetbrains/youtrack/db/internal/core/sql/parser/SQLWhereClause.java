@@ -5,6 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
@@ -138,7 +139,7 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   private static long estimateFromIndex(
-      DatabaseSessionInternal session, Index index, Map<String, Object> conditions,
+      DatabaseSessionEmbedded session, Index index, Map<String, Object> conditions,
       int nMatchingKeys) {
     if (nMatchingKeys < 1) {
       throw new IllegalArgumentException("Cannot estimate from an index with zero keys");

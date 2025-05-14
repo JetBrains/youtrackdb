@@ -25,13 +25,7 @@ import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class BinaryTest extends BaseDBTest {
-
   private RID rid;
-
-  @Parameters(value = "remote")
-  public BinaryTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void testMixedCreateEmbedded() {

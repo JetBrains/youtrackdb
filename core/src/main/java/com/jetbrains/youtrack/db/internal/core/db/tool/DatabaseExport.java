@@ -31,7 +31,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
@@ -56,7 +56,7 @@ import java.util.zip.GZIPOutputStream;
 /**
  * Export data from a database to a file.
  */
-public class DatabaseExport extends DatabaseImpExpAbstract {
+public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   public static final int EXPORTER_VERSION = 14;
 
@@ -72,15 +72,11 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
       Set.of(SchemaClass.VERTEX_CLASS_NAME, SchemaClass.EDGE_CLASS_NAME);
 
   public DatabaseExport(
-      final DatabaseSessionInternal iDatabase,
+      final DatabaseSessionEmbedded iDatabase,
       final String iFileName,
       final CommandOutputListener iListener)
       throws IOException {
     super(iDatabase, iFileName, iListener);
-    if (iDatabase.isRemote()) {
-      throw new DatabaseExportException("Database export can be done only in embedded environment");
-    }
-
     if (fileName == null) {
       throw new IllegalArgumentException("file name missing");
     }
@@ -106,7 +102,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
   }
 
   public DatabaseExport(
-      final DatabaseSessionInternal iDatabase,
+      final DatabaseSessionEmbedded iDatabase,
       final OutputStream iOutputStream,
       final CommandOutputListener iListener)
       throws IOException {
@@ -408,7 +404,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
     final var indexManager = session.getSharedContext().getIndexManager();
     indexManager.reload(session);
 
-    final var indexes = indexManager.getIndexes(session);
+    final var indexes = indexManager.getIndexes();
 
     for (var index : indexes) {
       final var clsName =
@@ -481,8 +477,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract {
         final var n2priority = PRIORITY_EXPORT_CLASSES.contains(n2);
         if (n1priority == n2priority) {
           return n1.compareTo(n2);
-        } else
+        } else {
           return n1priority ? -1 : 1;
+        }
       }));
 
       for (var cls : classes) {

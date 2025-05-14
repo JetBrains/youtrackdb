@@ -24,9 +24,9 @@ import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
@@ -61,7 +61,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, String userName, String password) {
+      DatabaseSessionEmbedded session, String userName, String password) {
     return authenticate(session, userName, password);
   }
 
@@ -269,56 +269,56 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public Set<String> getFilteredProperties(DatabaseSessionInternal session,
+  public Set<String> getFilteredProperties(DatabaseSessionEmbedded session,
       EntityImpl entity) {
     return delegate.getFilteredProperties(session, entity);
   }
 
   @Override
-  public boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  public boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName) {
     return delegate.isAllowedWrite(session, entity, propertyName);
   }
 
   @Override
-  public boolean canCreate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canCreate(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canCreate(session, record);
   }
 
   @Override
-  public boolean canRead(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canRead(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canRead(session, record);
   }
 
   @Override
-  public boolean canUpdate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canUpdate(session, record);
   }
 
   @Override
-  public boolean canDelete(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canDelete(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canDelete(session, record);
   }
 
   @Override
-  public boolean canExecute(DatabaseSessionInternal session, Function function) {
+  public boolean canExecute(DatabaseSessionEmbedded session, Function function) {
     return delegate.canExecute(session, function);
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
     return delegate.isReadRestrictedBySecurityPolicy(session, resource);
   }
 
   @Override
   public Set<SecurityResourceProperty> getAllFilteredProperties(
-      DatabaseSessionInternal database) {
+      DatabaseSessionEmbedded database) {
     return delegate.getAllFilteredProperties(database);
   }
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     return delegate.securityAuthenticate(session, authenticationInfo);
   }
 

@@ -7,20 +7,13 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import org.junit.Test;
 
 public class CompositeKeyTest extends DbTestBase {
-
   @Test
   public void testEqualSameKeys() {
     final var compositeKey = new CompositeKey();
@@ -343,21 +336,5 @@ public class CompositeKeyTest extends DbTestBase {
         CompositeKeySerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory,
             buffer, walChanges, serializationOffset),
         compositeKey);
-  }
-
-  @Test
-  public void testNetworkSerialization() throws IOException {
-    var k1 = "key";
-    var k2 = new CompositeKey(null, new CompositeKey("user1", 12.5));
-    var compositeKey = new CompositeKey(k1, k2);
-    var serializer = RecordSerializerNetworkV37.INSTANCE;
-    var outStream = new ByteArrayOutputStream();
-    var out = new DataOutputStream(outStream);
-    compositeKey.toStream(session, serializer, out);
-    var inStream = new ByteArrayInputStream(outStream.toByteArray());
-    var in = new DataInputStream(inStream);
-    var deserializedCompositeKey = new CompositeKey();
-    deserializedCompositeKey.fromStream(session, serializer, in);
-    assertEquals(compositeKey, deserializedCompositeKey);
   }
 }

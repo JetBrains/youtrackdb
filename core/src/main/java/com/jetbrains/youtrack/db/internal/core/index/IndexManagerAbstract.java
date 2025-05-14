@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStorage;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -58,7 +59,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
 
   public abstract Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
@@ -67,7 +68,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
       Map<String, Object> metadata);
 
   public abstract Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       final String iType,
       IndexDefinition indexDefinition,
@@ -182,34 +183,16 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
 
-  @Nullable
-  public IndexUnique getClassUniqueIndex(DatabaseSessionInternal session, final String className) {
-    final var propertyIndex = getIndexOnProperty(className);
-
-    if (propertyIndex != null) {
-      for (final var propertyIndexes : propertyIndex.values()) {
-        for (final var index : propertyIndexes) {
-          if (index instanceof IndexUnique) {
-            return (IndexUnique) index;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-
-  public Collection<? extends Index> getIndexes(DatabaseSessionInternal session) {
+  public Collection<? extends Index> getIndexes() {
     return indexes.values();
   }
 
 
-  public Index getIndex(DatabaseSessionInternal session, final String iName) {
+  public Index getIndex(final String iName) {
     return indexes.get(iName);
   }
 
-  public boolean existsIndex(DatabaseSessionInternal session, final String iName) {
+  public boolean existsIndex(final String iName) {
     return indexes.containsKey(iName);
   }
 

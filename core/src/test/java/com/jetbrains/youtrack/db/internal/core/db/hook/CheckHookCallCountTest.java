@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.db.hook;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -122,7 +122,7 @@ public class CheckHookCallCountTest extends DbTestBase {
 
     public int readCount;
 
-    public TestHook(DatabaseSession session) {
+    public TestHook(BasicDatabaseSession session) {
       super();
     }
 

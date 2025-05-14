@@ -19,12 +19,13 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.math.BigDecimal;
@@ -41,7 +42,6 @@ import javax.annotation.Nullable;
  * values.
  */
 public interface Entity extends DBRecord, Result {
-
   String DEFAULT_CLASS_NAME = "O";
 
 
@@ -78,7 +78,6 @@ public interface Entity extends DBRecord, Result {
    * @param propertyName the property name
    * @param value        the property value
    * @param propertyType Forced type (not auto-determined)
-   * @return
    */
   Object setProperty(@Nonnull String propertyName, @Nullable Object value,
       @Nonnull PropertyType propertyType);
@@ -217,16 +216,16 @@ public interface Entity extends DBRecord, Result {
       @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> Map<String, T> newEmbeddedMap(@Nonnull String name);
+  <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name);
 
   @Nonnull
-  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
+  <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source);
+  <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name, Map<String, T> source);
 
   @Nonnull
-  <T> Map<String, T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
+  <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name, Map<String, T> source,
       @Nonnull PropertyType linkedType);
 
   @Nonnull
@@ -261,7 +260,7 @@ public interface Entity extends DBRecord, Result {
   <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name, @Nonnull PropertyType linkedType);
 
   @Nonnull
-  <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name);
+  <T> EmbeddedMap<T> getOrCreateEmbeddedMap(@Nonnull String name);
 
   @Nonnull
   <T> Map<String, T> getOrCreateEmbeddedMap(@Nonnull String name, @Nonnull PropertyType linkedType);
@@ -423,7 +422,7 @@ public interface Entity extends DBRecord, Result {
   boolean isVertex();
 
   @Override
-  default boolean isRecord() {
+  default boolean isIdentifiable() {
     return true;
   }
 

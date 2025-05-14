@@ -1,11 +1,12 @@
 package com.jetbrains.youtrack.db.internal.server.handler;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -239,18 +240,18 @@ public class AutomaticBackupTest {
     waitForFile(Paths.get(BACKUPDIR).resolve("fullBackup.zip"));
 
     aBackup.sendShutdown();
-
-    final DatabaseSessionInternal database2 = new DatabaseDocumentTx(URL2);
-    if (database2.exists()) {
-      ((DatabaseSessionInternal) database2.open("admin", "admin")).drop();
-    }
-    database2.create();
-
-    // database2.restore(new FileInputStream(BACKUPDIR + "/fullBackup.zip"), null, null, null);
-
-    Assert.assertEquals(database2.countClass("TestBackup"), 1);
-
-    database2.close();
+//
+//    try(var youTrackDb = YourTracks.embedded())
+//    final DatabaseSessionInternal database2 = ;
+//    if (database2.exists()) {
+//      ((DatabaseSessionInternal) database2.open("admin", "admin")).drop();
+//    }
+//    database2.create();
+// database2.restore(new FileInputStream(BACKUPDIR + "/fullBackup.zip"), null, null, null);
+//
+//    Assert.assertEquals(database2.countClass("TestBackup"), 1);
+//
+//    database2.close();
   }
 
   // @Test

@@ -14,11 +14,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class SelectExecutionPlan implements InternalExecutionPlan {
-
   private String location;
 
   protected CommandContext ctx;
@@ -112,6 +108,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     return 0L;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     var result = new ResultInternal(db);
     result.setProperty("type", "QueryExecutionPlan");
@@ -125,6 +122,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     return result;
   }
 
+  @Override
   public void deserialize(Result serializedExecutionPlan, DatabaseSessionInternal session) {
     List<Result> serializedSteps = serializedExecutionPlan.getProperty("steps");
     for (var serializedStep : serializedSteps) {

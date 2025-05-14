@@ -158,8 +158,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var result = session.query("select from V");
     var before = result.stream().count();
+    result.close();
 
-    session.runScript("sql", cmd).close();
+    session.computeScript("sql", cmd).close();
 
     session.begin();
     result = session.query("select from V");
@@ -227,7 +228,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     cmd += "COMMIT;\n";
     cmd += "RETURN $groupVertices;\n";
 
-    session.runScript("sql", cmd);
+    session.computeScript("sql", cmd);
 
     session.begin();
     var edges = session.query("select from E where name = 'testSqlScriptThatDeletesEdge'");

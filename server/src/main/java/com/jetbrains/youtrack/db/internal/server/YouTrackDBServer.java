@@ -30,12 +30,14 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
@@ -72,14 +74,13 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
-
   private static final String ROOT_PASSWORD_VAR = "YOUTRACKDB_ROOT_PASSWORD";
+
   private static ThreadGroup threadGroup;
-  private static final Map<String, YouTrackDBServer> distributedServers =
-      new ConcurrentHashMap<String, YouTrackDBServer>();
   private CountDownLatch startupLatch;
   private CountDownLatch shutdownLatch;
   private final boolean shutdownEngineOnExit;
+
   protected ReentrantLock lock = new ReentrantLock();
   protected volatile boolean running = false;
   protected volatile boolean rejectRequests = true;
@@ -103,8 +104,10 @@ public class YouTrackDBServer {
   private PushManager pushManager;
   private ClassLoader extensionClassLoader;
   private TokenHandler tokenHandler;
+
   private YouTrackDBImpl context;
-  private YouTrackDBInternal databases;
+  private YouTrackDBInternalEmbedded databases;
+
   protected Date startedOn = new Date();
 
   public YouTrackDBServer() {
@@ -165,10 +168,6 @@ public class YouTrackDBServer {
     server.startup(config);
     server.activate();
     return server;
-  }
-
-  public static YouTrackDBServer getInstance(final String iServerId) {
-    return distributedServers.get(iServerId);
   }
 
   public SecuritySystem getSecurity() {
@@ -323,7 +322,8 @@ public class YouTrackDBServer {
             .setSecurityConfig(new ServerSecurityConfig(this, this.serverCfg))
             .build();
 
-    databases = YouTrackDBInternal.embedded(this.databaseDirectory, config);
+    databases = (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
+        config);
     if (databases instanceof ServerAware) {
       ((ServerAware) databases).init(this);
     }
@@ -762,18 +762,18 @@ public class YouTrackDBServer {
     return this;
   }
 
-  public DatabaseSessionInternal openSession(final String iDbUrl, final ParsedToken iToken) {
+  public DatabaseSessionEmbedded openSession(final String iDbUrl, final ParsedToken iToken) {
     return databases.open(new TokenAuthInfo(iToken), YouTrackDBConfig.defaultConfig());
   }
 
-  public DatabaseSessionInternal openSession(
+  public DatabaseSessionEmbedded openSession(
       final String iDbUrl, final String user, final String password) {
     return openSession(iDbUrl, user, password, null);
   }
 
-  public DatabaseSessionInternal openSession(
+  public DatabaseSessionEmbedded openSession(
       final String iDbUrl, final String user, final String password, NetworkProtocolData data) {
-    final DatabaseSessionInternal database;
+    final DatabaseSessionEmbedded database;
     var serverAuth = false;
     database = databases.open(iDbUrl, user, password);
     if (SecurityUser.SERVER_USER_TYPE.equals(database.getCurrentUser().getUserType())) {
@@ -789,7 +789,7 @@ public class YouTrackDBServer {
     return database;
   }
 
-  public DatabaseSessionInternal openSession(String database) {
+  public DatabaseSessionEmbedded openSession(String database) {
     return databases.openNoAuthorization(database);
   }
 
@@ -863,7 +863,7 @@ public class YouTrackDBServer {
         } else {
           baseUrl = "./";
         }
-        databases.initCustomStorage(stg.name, baseUrl, stg.userName, stg.userPassword);
+        databases.initCustomStorage(stg.name, baseUrl);
       }
     }
   }
@@ -1089,7 +1089,7 @@ public class YouTrackDBServer {
     databases.getSystemDatabase().init();
   }
 
-  public YouTrackDBInternal getDatabases() {
+  public YouTrackDBInternalEmbedded getDatabases() {
     return databases;
   }
 

@@ -7,23 +7,15 @@ import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
  * @since 3/5/2015
  */
-@Test(groups = "SqlSequence")
+@Test
 public class SQLDBSequenceTest extends BaseDBTest {
-
   private static final long FIRST_START = DBSequence.DEFAULT_START;
   private static final long SECOND_START = 31;
-
-  @Parameters(value = "remote")
-  public SQLDBSequenceTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void trivialTest() {

@@ -27,18 +27,10 @@ import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import java.io.File;
 import java.util.Locale;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLCommandsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLCommandsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void createProperty() {
     Schema schema = session.getMetadata().getSchema();
     if (!schema.existsClass("SQLCommandsTest_account")) {
@@ -111,7 +103,7 @@ public class SQLCommandsTest extends BaseDBTest {
     cmd += "return $a;";
 
     final var tx = session.begin();
-    var result = session.runScript("sql", cmd).findFirst(Result::asEntity);
+    var result = session.computeScript("sql", cmd).findFirst(Result::asEntity);
 
     Assert.assertTrue(tx.load(result) instanceof EntityImpl);
     EntityImpl identifiable = tx.load(result);
@@ -141,7 +133,7 @@ public class SQLCommandsTest extends BaseDBTest {
     Assert.assertTrue(names.contains("testCollectionRename42".toLowerCase(Locale.ENGLISH)));
     Assert.assertFalse(names.contains("testCollectionRename".toLowerCase(Locale.ENGLISH)));
 
-    if (!remoteDB && databaseType.equals(DatabaseType.DISK)) {
+    if (databaseType.equals(DatabaseType.DISK)) {
       var storagePath = session.getStorage().getConfiguration().getDirectory();
 
       final var wowCache =

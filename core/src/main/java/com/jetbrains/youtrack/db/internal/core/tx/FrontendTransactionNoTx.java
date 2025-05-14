@@ -36,7 +36,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -64,9 +64,9 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
           + " Please start transaction";
 
   @Nonnull
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
-  public FrontendTransactionNoTx(DatabaseSessionInternal session) {
+  public FrontendTransactionNoTx(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -76,7 +76,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void commitInternal() {
+  public Map<RID, RID> commitInternal() {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -228,7 +228,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void commitInternal(boolean force) {
+  public Map<RID, RID> commitInternal(boolean force) {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -253,7 +253,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean commit() throws TransactionException {
+  public Map<RID, RID> commit() throws TransactionException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -332,7 +332,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void setSession(DatabaseSessionInternal session) {
+  public void setSession(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -421,14 +421,9 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     return 0;
   }
 
-  @Override
-  public void rollbackInternal(boolean force, int commitLevelDiff) {
-    throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
-  }
-
   @Nonnull
   @Override
-  public DatabaseSessionInternal getDatabaseSession() {
+  public DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 
@@ -464,10 +459,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public boolean isDeletedInTx(@Nonnull RID rid) {
     return false;
-  }
-
-  @Override
-  public void internalRollback() {
   }
 
   @Override

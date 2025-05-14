@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.MultiKey;
 import com.jetbrains.youtrack.db.internal.common.util.UncaughtExceptionHandler;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
@@ -61,6 +62,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     super(storage);
   }
 
+  @Override
   public void load(DatabaseSessionInternal session) {
     if (!autoRecreateIndexesAfterCrash(session)) {
       session.executeInTxInternal(transaction -> {
@@ -77,6 +79,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
   }
 
+  @Override
   public void reload(DatabaseSessionInternal session) {
     session.executeInTxInternal(
         transaction -> {
@@ -248,8 +251,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    *                             engine.
    * @return a newly created index instance
    */
+  @Override
   public Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       final String iType,
       final IndexDefinition indexDefinition,
@@ -282,8 +286,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @param algorithm            tip to an index factory what algorithm to use
    * @return a newly created index instance
    */
+  @Override
   public Index createIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String iName,
       String type,
       final IndexDefinition indexDefinition,
@@ -390,7 +395,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   private static void checkSecurityConstraintsForIndexCreate(
-      DatabaseSessionInternal database, IndexDefinition indexDefinition) {
+      DatabaseSessionEmbedded database, IndexDefinition indexDefinition) {
 
     var security = database.getSharedContext().getSecurity();
 
@@ -454,6 +459,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return collectionsToIndex;
   }
 
+  @Override
   public void dropIndex(DatabaseSessionInternal session, final String iIndexName) {
     if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop an index inside a transaction");

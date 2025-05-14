@@ -37,18 +37,12 @@ public class ConcurrentQueriesTest extends BaseDBTest {
   private final AtomicLong counter = new AtomicLong();
   private final AtomicLong totalRetries = new AtomicLong();
 
-  @Parameters(value = "remote")
-  public ConcurrentQueriesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   class CommandExecutor implements Callable<Void> {
 
     @Override
     public Void call() {
       for (var i = 0; i < CYCLES; i++) {
-        DatabaseSession db = acquireSession();
-        try {
+        try (DatabaseSession db = acquireSession()) {
           for (var retry = 0; retry < MAX_RETRIES; ++retry) {
             try {
               db.executeInTx(transaction -> {
@@ -66,8 +60,6 @@ public class ConcurrentQueriesTest extends BaseDBTest {
               }
             }
           }
-        } finally {
-          db.close();
         }
       }
       return null;

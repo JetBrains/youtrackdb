@@ -15,8 +15,6 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Date;
 import java.util.Set;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -25,11 +23,6 @@ import org.testng.annotations.Test;
 public class DefaultValuesTrivialTest extends BaseDBTest {
 
   private static final int DOCUMENT_COUNT = 50;
-
-  @Parameters(value = "remote")
-  public DefaultValuesTrivialTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void test() {

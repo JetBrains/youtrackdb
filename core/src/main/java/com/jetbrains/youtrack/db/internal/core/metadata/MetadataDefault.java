@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibrary;
@@ -36,6 +37,7 @@ import java.io.IOException;
 import javax.annotation.Nullable;
 
 public class MetadataDefault implements MetadataInternal {
+
   public static final String COLLECTION_INTERNAL_NAME = "internal";
   protected int schemaCollectionId;
 
@@ -47,12 +49,12 @@ public class MetadataDefault implements MetadataInternal {
 
   private ImmutableSchema immutableSchema = null;
   private int immutableCount = 0;
-  private DatabaseSessionInternal database;
+  private DatabaseSessionEmbedded database;
 
   public MetadataDefault() {
   }
 
-  public MetadataDefault(DatabaseSessionInternal databaseDocument) {
+  public MetadataDefault(DatabaseSessionEmbedded databaseDocument) {
     this.database = databaseDocument;
   }
 

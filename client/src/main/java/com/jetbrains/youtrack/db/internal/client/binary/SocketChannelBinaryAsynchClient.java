@@ -21,8 +21,9 @@ package com.jetbrains.youtrack.db.internal.client.binary;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteNodeSession;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
+import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
@@ -30,7 +31,6 @@ import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketFactory;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
@@ -177,13 +177,13 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     return rootException;
   }
 
-  public byte[] beginResponse(DatabaseSessionInternal db, final int iRequesterId,
+  public byte[] beginResponse(DatabaseSessionRemote dbSession, final int iRequesterId,
       final boolean token) throws IOException {
-    return beginResponse(db, iRequesterId, timeout, token);
+    return beginResponse(dbSession, iRequesterId, timeout, token);
   }
 
   @Nullable
-  public byte[] beginResponse(DatabaseSessionInternal db, final int iRequesterId,
+  public byte[] beginResponse(DatabaseSessionRemote dbSession, final int iRequesterId,
       final long iTimeout, final boolean token)
       throws IOException {
     try {
@@ -232,7 +232,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
 
       //current message
       readByte();
-      handleStatus(db, currentStatus, currentSessionId);
+      handleStatus(dbSession, currentStatus, currentSessionId);
       return tokenBytes;
     } catch (LockException e) {
       Thread.currentThread().interrupt();
@@ -315,47 +315,46 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     void onException(Throwable ex);
   }
 
-  public int handleStatus(
-      DatabaseSessionInternal db, final byte iResult, final int iClientTxId,
+  public void handleStatus(
+      DatabaseSessionRemote dbSession, final byte iResult, final int iClientTxId,
       ExceptionHandler exceptionHandler)
       throws IOException {
-    if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_OK
-        || iResult == ChannelBinaryProtocol.PUSH_DATA) {
-      return iClientTxId;
-    } else if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
+    if (iResult != ChannelBinaryProtocol.RESPONSE_STATUS_OK
+        && iResult != ChannelBinaryProtocol.PUSH_DATA) {
+      if (iResult == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
+        var response = new Error37Response();
+        response.read(dbSession, this, null);
+        var serializedException = response.getVerbose();
+        Exception previous = null;
+        if (serializedException != null && serializedException.length > 0) {
+          var deserializeException = deserializeException(serializedException);
+          exceptionHandler.onException(deserializeException);
+        }
 
-      var response = new Error37Response();
-      response.read(db, this, null);
-      var serializedException = response.getVerbose();
-      Exception previous = null;
-      if (serializedException != null && serializedException.length > 0) {
-        var deserializeException = deserializeException(serializedException);
-        exceptionHandler.onException(deserializeException);
-      }
+        for (var entry : response.getMessages().entrySet()) {
+          previous = createException(entry.getKey(), entry.getValue(), previous);
+        }
 
-      for (var entry : response.getMessages().entrySet()) {
-        previous = createException(entry.getKey(), entry.getValue(), previous);
-      }
+        if (previous != null) {
+          exceptionHandler.onException(new RuntimeException(previous));
+        } else {
+          exceptionHandler.onException(new NetworkProtocolException("Network response error"));
+        }
 
-      if (previous != null) {
-        exceptionHandler.onException(new RuntimeException(previous));
       } else {
-        exceptionHandler.onException(new NetworkProtocolException("Network response error"));
+        // PROTOCOL ERROR
+        // close();
+        exceptionHandler.onException(
+            new NetworkProtocolException("Error on reading response from the server"));
       }
-
-    } else {
-      // PROTOCOL ERROR
-      // close();
-      exceptionHandler.onException(
-          new NetworkProtocolException("Error on reading response from the server"));
     }
 
-    return iClientTxId;
   }
 
-  public int handleStatus(DatabaseSessionInternal db, final byte iResult, final int iClientTxId)
+  public void handleStatus(DatabaseSessionRemote dbSession, final byte iResult,
+      final int iClientTxId)
       throws IOException {
-    return handleStatus(db, iResult, iClientTxId, this::handleException);
+    handleStatus(dbSession, iResult, iClientTxId, this::handleException);
   }
 
   private void setReadResponseTimeout() throws SocketException {
@@ -417,7 +416,7 @@ public class SocketChannelBinaryAsynchClient extends SocketChannelBinary {
     }
   }
 
-  public void beginRequest(final byte iCommand, final StorageRemoteSession session)
+  public void beginRequest(final byte iCommand, final BinaryProtocolSession session)
       throws IOException {
     final var nodeSession = session.getServerSession(serverURL);
     beginRequest(iCommand, nodeSession);

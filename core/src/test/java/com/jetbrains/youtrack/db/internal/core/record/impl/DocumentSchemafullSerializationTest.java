@@ -3,16 +3,14 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -64,9 +62,11 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     this.serializer = serializer;
   }
 
+  @Override
   public void beforeTest() throws Exception {
-    DatabaseSessionAbstract.setDefaultSerializer(serializer);
     super.beforeTest();
+
+    session.setSerializer(serializer);
     // databaseDocument.getMetadata().
     Schema schema = session.getMetadata().getSchema();
     address = schema.createAbstractClass("Address");
@@ -115,11 +115,11 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     clazzEmbComp.createProperty("addressByStreet", PropertyType.EMBEDDEDMAP, address);
   }
 
+  @Override
   public void afterTest() {
+    session.setSerializer(RecordSerializerBinary.INSTANCE);
+
     super.afterTest();
-    DatabaseSessionAbstract.setDefaultSerializer(
-        RecordSerializerFactory.instance()
-            .getFormat(GlobalConfiguration.DB_ENTITY_SERIALIZER.getValueAsString()));
   }
 
   @Test

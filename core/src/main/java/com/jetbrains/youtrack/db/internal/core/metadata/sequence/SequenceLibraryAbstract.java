@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.sequence;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 
@@ -25,7 +26,7 @@ public abstract class SequenceLibraryAbstract extends ProxedResource<SequenceLib
     implements SequenceLibrary {
 
   public SequenceLibraryAbstract(
-      final SequenceLibraryImpl iDelegate, final DatabaseSessionInternal iDatabase) {
+      final SequenceLibraryImpl iDelegate, final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 }

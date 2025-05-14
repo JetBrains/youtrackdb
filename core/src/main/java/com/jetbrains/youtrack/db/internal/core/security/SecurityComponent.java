@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
@@ -30,7 +30,7 @@ public interface SecurityComponent {
   // Called once the Server is running.
   void active();
 
-  void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
+  void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security);
 
   // Called on removal of the component.

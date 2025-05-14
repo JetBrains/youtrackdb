@@ -47,7 +47,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.compression.impl.ZIPCompressionUtil;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
@@ -222,7 +222,7 @@ public class LocalStorage extends AbstractStorage {
       final ClosableLinkedContainer<Long, File> files,
       final long walMaxSegSize,
       long doubleWriteLogMaxSegSize,
-      YouTrackDBInternal context) {
+      YouTrackDBInternalEmbedded context) {
     super(name, filePath, id, context);
 
     this.walMaxSegSize = walMaxSegSize;
@@ -890,7 +890,7 @@ public class LocalStorage extends AbstractStorage {
             iv,
             aesKey,
             contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC),
-            ((YouTrackDBEmbedded) context).getIoExecutor());
+            ((YouTrackDBInternalEmbedded) context).getIoExecutor());
 
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
@@ -1289,7 +1289,7 @@ public class LocalStorage extends AbstractStorage {
 
     checkOpennessAndMigration();
 
-    if (singleThread && isIcrementalBackupRunning()) {
+    if (singleThread && isIncrementalBackupRunning()) {
       throw new BackupInProgressException(name,
           "You are trying to start incremental backup but it is in progress now, please wait till"
               + " it will be finished",
@@ -2045,7 +2045,7 @@ public class LocalStorage extends AbstractStorage {
   private void waitBackup() {
     backupLock.lock();
     try {
-      while (isIcrementalBackupRunning()) {
+      while (isIncrementalBackupRunning()) {
         try {
           backupIsDone.await();
         } catch (java.lang.InterruptedException e) {

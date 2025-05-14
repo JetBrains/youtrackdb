@@ -235,7 +235,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
             "insert into Place set name = 'TestInsert' , location = ST_GeomFromText('" + WKT + "')")
         .close();
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Place.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("Place.location");
 
     session.getTransactionInternal().preProcessRecordsAndExecuteCallCallbacks();
     Assert.assertEquals(1, index.size(session));

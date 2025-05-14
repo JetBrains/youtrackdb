@@ -3,16 +3,19 @@ package com.jetbrains.youtrack.db.internal.client.remote;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.client.remote.message.LiveQueryPushRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.MockChannel;
 import com.jetbrains.youtrack.db.internal.client.remote.message.live.LiveQueryResult;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,9 +29,9 @@ import org.mockito.MockitoAnnotations;
 /**
  *
  */
-public class RemoteLiveQueryPushTest {
+public class RemoteLiveQueryPushTest extends DbTestBase {
 
-  private static class MockLiveListener implements LiveQueryResultListener {
+  private static class MockLiveListener implements RemoteLiveQueryResultListener {
 
     public int countCreate = 0;
     public int countUpdate = 0;
@@ -36,75 +39,87 @@ public class RemoteLiveQueryPushTest {
     public boolean end;
 
     @Override
-    public void onCreate(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onCreate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
       countCreate++;
     }
 
     @Override
-    public void onUpdate(@Nonnull DatabaseSessionInternal session, @Nonnull Result before,
-        @Nonnull Result after) {
+    public void onUpdate(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult before,
+        @Nonnull RemoteResult after) {
       countUpdate++;
     }
 
     @Override
-    public void onDelete(@Nonnull DatabaseSessionInternal session, @Nonnull Result data) {
+    public void onDelete(@Nonnull RemoteDatabaseSession session, @Nonnull RemoteResult data) {
       countDelete++;
     }
 
     @Override
-    public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
+    public void onError(@Nonnull RemoteDatabaseSession session, @Nonnull BaseException exception) {
     }
 
     @Override
-    public void onEnd(@Nonnull DatabaseSession session) {
+    public void onEnd(@Nonnull RemoteDatabaseSession session) {
       assertFalse(end);
       end = true;
     }
   }
 
-  private StorageRemote storage;
+  private RemoteCommandsDispatcherImpl commandsOrchestrator;
 
   @Mock
   private RemoteConnectionManager connectionManager;
 
   @Mock
-  private DatabasePoolInternal pool;
+  private DatabasePoolInternal<RemoteDatabaseSession> pool;
 
   @Mock
-  private DatabaseSessionInternal session;
+  private RemoteDatabaseSessionInternal remoteDatabaseSession;
+
+  @Mock
+  private DatabaseSessionInternal embeddedDatabaseSession;
 
   @Before
   public void before() throws IOException {
     MockitoAnnotations.initMocks(this);
-    Mockito.when(pool.acquire()).thenReturn(session);
-    Mockito.when(session.assertIfNotActive()).thenReturn(true);
-    storage =
-        new StorageRemote(
+    Mockito.when(pool.acquire()).thenReturn(remoteDatabaseSession);
+    Mockito.when(embeddedDatabaseSession.assertIfNotActive()).thenReturn(true);
+    Mockito.when(remoteDatabaseSession.assertIfNotActive()).thenReturn(true);
+
+    commandsOrchestrator =
+        new RemoteCommandsDispatcherImpl(
             new RemoteURLs(new String[]{}, new ContextConfiguration()),
             "none",
             null,
-            "",
             connectionManager,
             null);
   }
 
   @Test
-  public void testLiveEvents() {
+  public void testLiveEvents() throws Exception {
     var mock = new MockLiveListener();
-    storage.registerLiveListener(10, new LiveQueryClientListener(pool, mock));
+    commandsOrchestrator.registerLiveListener(10, new LiveQueryClientListener(pool, mock));
+
     List<LiveQueryResult> events = new ArrayList<>();
     events.add(
-        new LiveQueryResult(LiveQueryResult.CREATE_EVENT, new ResultInternal(session), null));
+        new LiveQueryResult(LiveQueryResult.CREATE_EVENT, new ResultInternal(
+            session), null));
     events.add(
         new LiveQueryResult(
             LiveQueryResult.UPDATE_EVENT, new ResultInternal(session),
             new ResultInternal(session)));
     events.add(
-        new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(session), null));
-
+        new LiveQueryResult(LiveQueryResult.DELETE_EVENT, new ResultInternal(session),
+            null));
     var request =
         new LiveQueryPushRequest(10, LiveQueryPushRequest.END, events);
-    request.execute(session, storage);
+
+    var channel = new MockChannel();
+    request.write(session, channel);
+    channel.close();
+
+    request.execute(commandsOrchestrator, channel);
+
     assertEquals(1, mock.countCreate);
     assertEquals(1, mock.countUpdate);
     assertEquals(1, mock.countDelete);

@@ -19,7 +19,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -29,7 +29,7 @@ import java.util.List;
 /**
  *
  */
-public class CheckIndexTool extends DatabaseTool {
+public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
 
   //  class Error {
   //
@@ -55,7 +55,7 @@ public class CheckIndexTool extends DatabaseTool {
 
   @Override
   public void run() {
-    for (var index : session.getSharedContext().getIndexManager().getIndexes(session)) {
+    for (var index : session.getSharedContext().getIndexManager().getIndexes()) {
       if (!canCheck(index)) {
         continue;
       }
@@ -82,7 +82,7 @@ public class CheckIndexTool extends DatabaseTool {
     return true;
   }
 
-  private void checkIndex(DatabaseSessionInternal session, Index index) {
+  private void checkIndex(DatabaseSessionEmbedded session, Index index) {
     var fields = index.getDefinition().getFields();
     var className = index.getDefinition().getClassName();
     var clazz = this.session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
@@ -93,7 +93,7 @@ public class CheckIndexTool extends DatabaseTool {
   }
 
   private void checkCollection(
-      DatabaseSessionInternal session, int collectionId, Index index, List<String> fields) {
+      DatabaseSessionEmbedded session, int collectionId, Index index, List<String> fields) {
     var totRecordsForCollection = this.session.countCollectionElements(collectionId);
     var collectionName = this.session.getCollectionNameById(collectionId);
 
@@ -135,7 +135,7 @@ public class CheckIndexTool extends DatabaseTool {
   }
 
   private void checkThatRecordIsIndexed(
-      DatabaseSessionInternal session, EntityImpl entity, Index index, List<String> fields) {
+      DatabaseSessionEmbedded session, EntityImpl entity, Index index, List<String> fields) {
     var vals = new Object[fields.size()];
     RID entityId = entity.getIdentity();
     for (var i = 0; i < vals.length; i++) {

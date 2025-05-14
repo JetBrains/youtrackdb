@@ -88,7 +88,7 @@ public class ImmutableSchema implements SchemaInternal {
     this.blogCollections = schemaShared.getBlobCollections(session);
 
     var indexManager = session.getSharedContext().getIndexManager();
-    var internalIndexes = indexManager.getIndexes(session);
+    var internalIndexes = indexManager.getIndexes();
 
     var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
     for (var index : internalIndexes) {
@@ -117,6 +117,7 @@ public class ImmutableSchema implements SchemaInternal {
     this.indexes = Collections.unmodifiableMap(indexes);
   }
 
+  @Override
   public ImmutableSchema makeSnapshot() {
     return this;
   }
@@ -261,6 +262,7 @@ public class ImmutableSchema implements SchemaInternal {
     return new RecordId(identity);
   }
 
+  @Override
   public Set<SchemaClass> getClassesRelyOnCollection(String collectionName,
       DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);

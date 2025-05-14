@@ -11,9 +11,9 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import java.io.File;
 import java.nio.file.Path;
@@ -98,10 +98,10 @@ public class StorageBackupMTIT {
       youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
           YouTrackDBConfig.defaultConfig());
 
-      final DatabaseCompare compare =
+      final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
@@ -117,7 +117,7 @@ public class StorageBackupMTIT {
         }
       }
       try {
-        youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+        youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.defaultConfig());
         if (youTrackDB.exists(dbName)) {
           youTrackDB.drop(dbName);
@@ -204,10 +204,10 @@ public class StorageBackupMTIT {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), config);
 
-      final DatabaseCompare compare =
+      final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
       System.out.println("compare");
 
@@ -223,7 +223,7 @@ public class StorageBackupMTIT {
         }
       }
       try {
-        youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+        youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
         youTrackDB.drop(dbName);
         youTrackDB.drop(backupDbName);
 

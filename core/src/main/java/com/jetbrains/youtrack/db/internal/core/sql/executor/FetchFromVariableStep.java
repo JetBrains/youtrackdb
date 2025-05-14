@@ -5,12 +5,12 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collections;
-import java.util.Iterator;
 import org.apache.commons.collections4.IteratorUtils;
 
 /**
@@ -37,17 +37,23 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     ExecutionStream source;
     switch (src) {
       case ExecutionStream executionStream -> source = executionStream;
-      case ResultSet resultSet -> source =
-          ExecutionStream.resultIterator(
-                  resultSet.stream().map(result -> loadEntity(session, result)).iterator())
-              .onClose((context) -> ((ResultSet) src).close());
-      case Entity entity -> {
+      case ResultSet resultSet -> {
+        if (resultSet instanceof InternalResultSet internalResultSet) {
+          resultSet = internalResultSet.copy(session);
+        }
+        source =
+            ExecutionStream.resultIterator(
+                    resultSet.stream().map(result -> loadEntity(session, result)).iterator())
+                .onClose((context) -> ((ResultSet) src).close());
+      }
+      case Identifiable identifiable -> {
         //case when we pass variable between txs
-        entity = (Entity) loadEntity(session, entity);
+        identifiable = session.getActiveTransaction().loadEntity(identifiable);
         source =
             ExecutionStream.resultIterator(
                 Collections.singleton(
-                    (Result) new ResultInternal(ctx.getDatabaseSession(), entity)).iterator());
+                        (Result) new ResultInternal(ctx.getDatabaseSession(), identifiable))
+                    .iterator());
       }
       case Result result -> {
         source = ExecutionStream.resultIterator(
@@ -76,12 +82,10 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
       }
     } else if (result instanceof Result sqlResult) {
       if (sqlResult.isEntity()) {
-        var entity = sqlResult.asEntity();
-        if (entity.isUnloaded()) {
-          var tx = session.getActiveTransaction();
-          return tx.loadEntity(entity);
+        var entity = sqlResult.asEntityOrNull();
+        if (entity == null) {
+          return new ResultInternal(session, sqlResult.getIdentity());
         }
-
         return new ResultInternal(session, entity);
       }
     }
