@@ -34,8 +34,10 @@ public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabas
     session.executeInTx(transaction -> {
       session.execute("insert into Foo set bar = ['yep']").close();
     });
+
     var results = session.query("select from Foo where bar = 'yep'");
     assertEquals(1, results.stream().count());
+    results.close();
 
     final var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
     assertEquals(1, index.size(session));
@@ -60,6 +62,7 @@ public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabas
     session.begin();
     var results = session.query("SELECT * FROM Derived WHERE uuid='abcdef'");
     assertEquals(1, results.stream().count());
+    results.close();
     session.commit();
   }
 
@@ -74,19 +77,24 @@ public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabas
 
     var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
 
     session.execute("CREATE INDEX Foo.name UNIQUE").close();
 
     result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
   }
 }
