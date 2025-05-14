@@ -32,6 +32,7 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
@@ -1182,6 +1183,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
     cls.createProperty("key", PropertyType.STRING);
     cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", INDEX_TYPE.UNIQUE, "key");
     final var begin = System.currentTimeMillis();
 
     long totalRecords = 0;
