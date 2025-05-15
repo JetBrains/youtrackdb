@@ -163,7 +163,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
           var definition = index.getDefinition();
 
           final var fields = definition.getFields();
-          if (fields.contains(getName(session))) {
+          if (fields.contains(getName())) {
             indexesToRecreate.add(index);
           }
         }
@@ -283,7 +283,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -313,7 +313,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -404,28 +404,28 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
   private void checkCorrectLimitValue(DatabaseSessionInternal session, final String value) {
     if (value != null) {
-      if (this.getType(session).equals(PropertyType.STRING)
-          || this.getType(session).equals(PropertyType.LINKBAG)
-          || this.getType(session).equals(PropertyType.BINARY)
-          || this.getType(session).equals(PropertyType.EMBEDDEDLIST)
-          || this.getType(session).equals(PropertyType.EMBEDDEDSET)
-          || this.getType(session).equals(PropertyType.LINKLIST)
-          || this.getType(session).equals(PropertyType.LINKSET)
-          || this.getType(session).equals(PropertyType.LINKBAG)
-          || this.getType(session).equals(PropertyType.EMBEDDEDMAP)
-          || this.getType(session).equals(PropertyType.LINKMAP)) {
+      if (this.getType().equals(PropertyType.STRING)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.BINARY)
+          || this.getType().equals(PropertyType.EMBEDDEDLIST)
+          || this.getType().equals(PropertyType.EMBEDDEDSET)
+          || this.getType().equals(PropertyType.LINKLIST)
+          || this.getType().equals(PropertyType.LINKSET)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.EMBEDDEDMAP)
+          || this.getType().equals(PropertyType.LINKMAP)) {
         PropertyTypeInternal.convert(session, value, Integer.class);
-      } else if (this.getType(session).equals(PropertyType.DATE)
-          || this.getType(session).equals(PropertyType.BYTE)
-          || this.getType(session).equals(PropertyType.SHORT)
-          || this.getType(session).equals(PropertyType.INTEGER)
-          || this.getType(session).equals(PropertyType.LONG)
-          || this.getType(session).equals(PropertyType.FLOAT)
-          || this.getType(session).equals(PropertyType.DOUBLE)
-          || this.getType(session).equals(PropertyType.DECIMAL)
-          || this.getType(session).equals(PropertyType.DATETIME)) {
+      } else if (this.getType().equals(PropertyType.DATE)
+          || this.getType().equals(PropertyType.BYTE)
+          || this.getType().equals(PropertyType.SHORT)
+          || this.getType().equals(PropertyType.INTEGER)
+          || this.getType().equals(PropertyType.LONG)
+          || this.getType().equals(PropertyType.FLOAT)
+          || this.getType().equals(PropertyType.DOUBLE)
+          || this.getType().equals(PropertyType.DECIMAL)
+          || this.getType().equals(PropertyType.DATETIME)) {
         PropertyTypeInternal.convert(session, value,
-            PropertyTypeInternal.convertFromPublicType(this.getType(session)).getDefaultJavaType());
+            PropertyTypeInternal.convertFromPublicType(this.getType()).getDefaultJavaType());
       }
     }
   }

@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -36,8 +37,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.Ignore;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -47,6 +46,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLInsertTest extends BaseDBTest {
+
   @Test
   public void insertOperator() {
     if (!session.getMetadata().getSchema().existsClass("Account")) {
@@ -59,14 +59,12 @@ public class SQLInsertTest extends BaseDBTest {
       session.getMetadata().getSchema().createClass("Address");
     }
 
-    var addressId = session.getMetadata().getSchema().getClass("Address").getCollectionIds()[0];
-
     for (var i = 0; i < 30; i++) {
       session.begin();
       session.newEntity("Address");
       session.commit();
     }
-    var positions = getValidPositions(addressId);
+    var links = getValidLinks("Address");
 
     if (!session.getMetadata().getSchema().existsClass("Profile")) {
       session.getMetadata().getSchema().createClass("Profile");
@@ -77,10 +75,8 @@ public class SQLInsertTest extends BaseDBTest {
         session
             .execute(
                 "insert into Profile (name, surname, salary, location, dummy) values"
-                    + " ('Luca','Smith', 109.9, #"
-                    + addressId
-                    + ":"
-                    + positions.get(3)
+                    + " ('Luca','Smith', 109.9, "
+                    + links.get(3)
                     + ", 'hooray')")
             .next()
             .asEntity();
@@ -93,7 +89,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(doc.getProperty("name"), "Luca");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 109.9f);
-    Assert.assertEquals(doc.getProperty("location"), new RecordId(addressId, positions.get(3)));
+    Assert.assertEquals(doc.getProperty("location"), links.get(3));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
     session.commit();
 
@@ -102,10 +98,8 @@ public class SQLInsertTest extends BaseDBTest {
         session
             .execute(
                 "insert into Profile SET name = 'Luca', surname = 'Smith', salary = 109.9,"
-                    + " location = #"
-                    + addressId
-                    + ":"
-                    + positions.get(3)
+                    + " location = "
+                    + links.get(3)
                     + ", dummy =  'hooray'")
             .next()
             .asEntity();
@@ -119,8 +113,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 109.9f);
     Assert.assertEquals(
-        ((Identifiable) doc.getProperty("location")).getIdentity(),
-        new RecordId(addressId, positions.get(3)));
+        ((Identifiable) doc.getProperty("location")).getIdentity(), links.get(3));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
     session.commit();
   }
@@ -129,7 +122,7 @@ public class SQLInsertTest extends BaseDBTest {
   public void insertWithWildcards() {
     var addressId = session.getMetadata().getSchema().getClass("Address").getCollectionIds()[0];
 
-    var positions = getValidPositions(addressId);
+    var links = getValidLinks("Address");
 
     session.begin();
     var doc =
@@ -140,7 +133,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "Marc",
                 "Smith",
                 120.0,
-                new RecordId(addressId, positions.get(3)),
+                links.get(3),
                 "hooray")
             .next()
             .asEntity();
@@ -153,7 +146,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(doc.getProperty("name"), "Marc");
     Assert.assertEquals(doc.getProperty("surname"), "Smith");
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 120.0f);
-    Assert.assertEquals(doc.getProperty("location"), new RecordId(addressId, positions.get(3)));
+    Assert.assertEquals(doc.getProperty("location"), links.get(3));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
     session.commit();
 
@@ -171,7 +164,7 @@ public class SQLInsertTest extends BaseDBTest {
                 "Marc",
                 "Smith",
                 120.0,
-                new RecordId(addressId, positions.get(3)),
+                links.get(3),
                 "hooray")
             .next()
             .asEntity();
@@ -186,7 +179,7 @@ public class SQLInsertTest extends BaseDBTest {
     Assert.assertEquals(((Number) doc.getProperty("salary")).floatValue(), 120.0f);
     Assert.assertEquals(
         ((Identifiable) doc.getProperty("location")).getIdentity(),
-        new RecordId(addressId, positions.get(3)));
+        links.get(3));
     Assert.assertEquals(doc.getProperty("dummy"), "hooray");
     session.commit();
   }
@@ -382,15 +375,15 @@ public class SQLInsertTest extends BaseDBTest {
     }
     session.commit();
 
-    var positions = getValidPositions(3);
+    var links = getValidLinks("O");
 
     session.begin();
     Identifiable result =
         session
             .execute(
                 "  INSERT INTO Account SET id= 3232,name= 'my name',map="
-                    + " {\"key\":\"value\"},dir= '',user= #3:"
-                    + positions.getFirst())
+                    + " {\"key\":\"value\"},dir= '',user= "
+                    + links.getFirst())
             .next()
             .asEntity();
     session.commit();
@@ -404,7 +397,7 @@ public class SQLInsertTest extends BaseDBTest {
     Map<String, String> map = record.getProperty("map");
     Assert.assertEquals(map.get("key"), "value");
     Assert.assertEquals(record.getProperty("dir"), "");
-    Assert.assertEquals(record.getProperty("user"), new RecordId(3, positions.getFirst()));
+    Assert.assertEquals(record.getProperty("user"), links.getFirst());
     session.commit();
   }
 
@@ -791,7 +784,8 @@ public class SQLInsertTest extends BaseDBTest {
     var c = session.getMetadata().getSchema().getOrCreateClass("EmbeddedWithRecordAttributes");
     var cc = session.getMetadata().getSchema().getClass("EmbeddedWithRecordAttributes_Like");
     if (cc == null) {
-      cc = session.getMetadata().getSchema().createAbstractClass("EmbeddedWithRecordAttributes_Like");
+      cc = session.getMetadata().getSchema()
+          .createAbstractClass("EmbeddedWithRecordAttributes_Like");
     }
     if (!c.existsProperty("like")) {
       c.createProperty("like", PropertyType.EMBEDDED, cc);
@@ -827,7 +821,8 @@ public class SQLInsertTest extends BaseDBTest {
         .getOrCreateClass("EmbeddedWithRecordAttributes2");
     var cc = session.getMetadata().getSchema().getClass("EmbeddedWithRecordAttributes2_Like");
     if (cc == null) {
-      cc = session.getMetadata().getSchema().createAbstractClass("EmbeddedWithRecordAttributes2_Like");
+      cc = session.getMetadata().getSchema()
+          .createAbstractClass("EmbeddedWithRecordAttributes2_Like");
     }
     if (!c.existsProperty("like")) {
       c.createProperty("like", PropertyType.EMBEDDED, cc);
@@ -904,21 +899,19 @@ public class SQLInsertTest extends BaseDBTest {
     session.commit();
   }
 
-  private List<Long> getValidPositions(int collectionId) {
+  private List<RID> getValidLinks(String className) {
     session.begin();
-    final List<Long> positions = new ArrayList<Long>();
-
-    final RecordIteratorCollection<?> iteratorCollection =
-        session.browseCollection(session.getCollectionNameById(collectionId));
+    final var links = new ArrayList<RID>();
+    final var classIterator = session.browseClass(className);
 
     for (var i = 0; i < 100; i++) {
-      if (!iteratorCollection.hasNext()) {
+      if (!classIterator.hasNext()) {
         break;
       }
-      var doc = iteratorCollection.next();
-      positions.add(doc.getIdentity().getCollectionPosition());
+      var doc = classIterator.next();
+      links.add(doc.getIdentity());
     }
     session.commit();
-    return positions;
+    return links;
   }
 }
