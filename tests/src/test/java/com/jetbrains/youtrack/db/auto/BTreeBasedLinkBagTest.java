@@ -38,9 +38,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-/**
- *
- */
+
 @Test
 public class BTreeBasedLinkBagTest extends LinkBagTest {
   private int topThreshold;
@@ -81,12 +79,10 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
 
     final var collectionIdOne = session.addCollection("collectionOne");
 
+    session.begin();
     var docCollectionOne = ((EntityImpl) session.newEntity());
     var ridBagCollectionOne = new LinkBag(session);
     docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
-
-    session.begin();
-
     session.commit();
 
     final var directory = session.getStorage().getConfiguration().getDirectory();
@@ -231,6 +227,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
       return;
     }
 
+    session.begin();
     var realDoc = ((EntityImpl) session.newEntity());
     var realDocRidBag = new LinkBag(session);
     realDoc.setProperty("ridBag", realDocRidBag);
@@ -241,9 +238,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     }
 
     assertEmbedded(realDocRidBag.isEmbedded());
-
-    session.begin();
-
     session.commit();
 
     final var collectionId = session.addCollection("ridBagDeleteTest");
@@ -274,6 +268,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     session.freeze();
     session.release();
 
+    session.begin();
     testRidBagFile =
         new File(
             directory,
@@ -286,18 +281,17 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     realDoc = session.load(realDoc.getIdentity());
     LinkBag linkBag = realDoc.getProperty("ridBag");
     Assert.assertEquals(linkBag.size(), 10);
+    session.commit();
   }
 
   private EntityImpl crateTestDeleteDoc(EntityImpl realDoc) {
+    session.begin();
     var testDocument = ((EntityImpl) session.newEntity());
     var highLevelRidBag = new LinkBag(session);
     testDocument.setProperty("ridBag", highLevelRidBag);
     var activeTx = session.getActiveTransaction();
     realDoc = activeTx.load(realDoc);
     testDocument.setProperty("realDoc", realDoc);
-
-    session.begin();
-
     session.commit();
 
     return testDocument;
