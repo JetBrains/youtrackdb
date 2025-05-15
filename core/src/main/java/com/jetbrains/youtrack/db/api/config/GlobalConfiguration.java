@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.config.ConfigurationChangeCallback;
-import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import java.io.PrintStream;
 import java.util.Locale;
 import java.util.Map;
@@ -173,15 +172,15 @@ public enum GlobalConfiguration {
       "Controls the per-page checksum storage and verification done by the file cache. Possible"
           + " modes: 'off' – checksums are completely off; 'store' – checksums are calculated and"
           + " stored on page flushes, no verification is done on page loads, stored checksums are"
-          + " verified only during user-initiated health checks; 'storeAndVerify' – checksums are"
+          + " verified only during user-initiated health checks; 'StoreAndVerify' – checksums are"
           + " calculated and stored on page flushes, verification is performed on each page load,"
-          + " errors are reported in the log; 'storeAndThrow' – same as `storeAndVerify` with"
+          + " errors are reported in the log; 'StoreAndThrow' – same as `storeAndVerify` with"
           + " addition of exceptions thrown on errors, this mode is useful for debugging and"
           + " testing, but should be avoided in a production environment;"
-          + " 'storeAndSwitchReadOnlyMode' (default) - Same as 'storeAndVerify' with addition that"
+          + " 'StoreAndSwitchReadOnlyMode' (default) - Same as 'StoreAndVerify' with addition that"
           + " storage will be switched in read only mode till it will not be repaired.",
-      ChecksumMode.class,
-      ChecksumMode.StoreAndSwitchReadOnlyMode,
+      String.class,
+      "StoreAndSwitchReadOnlyMode",
       false),
 
   STORAGE_EXCLUSIVE_FILE_ACCESS(

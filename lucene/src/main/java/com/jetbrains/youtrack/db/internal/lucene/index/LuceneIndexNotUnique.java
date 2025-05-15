@@ -200,6 +200,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
     return key;
   }
 
+  @Override
   public void doDelete(FrontendTransaction transaction) {
     while (true) {
       try {

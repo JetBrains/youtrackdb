@@ -23,7 +23,7 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import org.junit.Test;
 
-public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabase {
+public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testIndexSqlEmbeddedList() {
@@ -34,8 +34,10 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
     session.executeInTx(transaction -> {
       session.execute("insert into Foo set bar = ['yep']").close();
     });
+
     var results = session.query("select from Foo where bar = 'yep'");
     assertEquals(1, results.stream().count());
+    results.close();
 
     final var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
     assertEquals(1, index.size(session));
@@ -47,14 +49,21 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
 
     session.execute("CREATE CLASS Main ABSTRACT").close();
     session.execute("CREATE PROPERTY Main.uuid String").close();
-    session.execute("CREATE INDEX Main.uuid UNIQUE_HASH_INDEX").close();
+    session.execute("CREATE INDEX Main.uuid UNIQUE").close();
     session.execute("CREATE CLASS Base EXTENDS Main ABSTRACT").close();
     session.execute("CREATE CLASS Derived EXTENDS Main").close();
+    session.execute("BEGIN");
     session.execute("INSERT INTO Derived SET uuid='abcdef'").close();
-    session.execute("ALTER CLASS Derived SUPERCLASSES Base").close();
+    session.command("COMMIT");
+    session.execute("DROP INDEX Main.uuid").close();
+    session.command("ALTER CLASS Derived SUPERCLASSES Base");
+    session.command("CREATE INDEX Main.uuid UNIQUE");
 
+    session.begin();
     var results = session.query("SELECT * FROM Derived WHERE uuid='abcdef'");
     assertEquals(1, results.stream().count());
+    results.close();
+    session.commit();
   }
 
   @Test
@@ -68,19 +77,24 @@ public class CommandExecutorSQLSelectTestIndex extends BaseMemoryInternalDatabas
 
     var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
 
-    session.execute("CREATE INDEX Foo.name UNIQUE_HASH_INDEX").close();
+    session.execute("CREATE INDEX Foo.name UNIQUE").close();
 
     result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
 
     result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
     assertEquals(1, result.stream().count());
+    result.close();
   }
 }

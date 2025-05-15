@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.storage;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -13,7 +12,6 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -48,7 +46,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode)
+                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
@@ -65,11 +63,12 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) session.newEntity("PageBreak"));
-      document.setProperty("value", "value");
-
-    }
+    session.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
+      }
+    });
 
     var storage =
         (LocalStorage) session.getStorage();
@@ -114,7 +113,7 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode)
+                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
@@ -131,11 +130,12 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
-
-    }
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
+      }
+    });
 
     var storage =
         (LocalStorage) db.getStorage();
@@ -177,7 +177,7 @@ public class StorageTestIT {
     var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify)
+                ChecksumMode.StoreAndVerify.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
@@ -194,11 +194,13 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
 
-    }
+      }
+    });
 
     var storage =
         (LocalStorage) db.getStorage();
@@ -228,8 +230,10 @@ public class StorageTestIT {
 
     Thread.sleep(100); // lets wait till event will be propagated
 
-    var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      var document = transaction.newEntity("PageBreak");
+      document.setProperty("value", "value");
+    });
 
     db.close();
   }
@@ -240,7 +244,7 @@ public class StorageTestIT {
     var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify)
+                ChecksumMode.StoreAndVerify.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
@@ -257,11 +261,13 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
 
-    }
+      }
+    });
 
     var storage =
         (LocalStorage) db.getStorage();
@@ -294,8 +300,10 @@ public class StorageTestIT {
 
     Thread.sleep(100); // lets wait till event will be propagated
 
-    var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      var document = transaction.newEntity("PageBreak");
+      document.setProperty("value", "value");
+    });
 
     db.close();
   }
