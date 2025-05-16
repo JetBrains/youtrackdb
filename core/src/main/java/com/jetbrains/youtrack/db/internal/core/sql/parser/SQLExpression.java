@@ -8,12 +8,14 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -161,25 +163,37 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isGraphRelationFunction() {
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
     if (mathExpression != null) {
-      return mathExpression.isGraphRelationFunction();
+      return mathExpression.isGraphRelationFunction(session);
     }
     if (value instanceof SQLMathExpression) { // only backward stuff, remote it
-      return ((SQLMathExpression) value).isGraphRelationFunction();
+      return ((SQLMathExpression) value).isGraphRelationFunction(session);
     }
 
     return false;
   }
 
   @Nullable
-  public IndexMetadataPath getIndexMetadataPath() {
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
     if (mathExpression != null) {
-      return mathExpression.getIndexMetadataPath();
+      return mathExpression.getGraphRelationFunctionProperties(ctx);
+    }
+    if (value instanceof SQLMathExpression) { // only backward stuff, remote it
+      return ((SQLMathExpression) value).getGraphRelationFunctionProperties(ctx);
+    }
+
+    return null;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
+    if (mathExpression != null) {
+      return mathExpression.getIndexMetadataPath(session);
     }
 
     if (value instanceof SQLMathExpression) {
-      return ((SQLMathExpression) value).getIndexMetadataPath();
+      return ((SQLMathExpression) value).getIndexMetadataPath(session);
     }
 
     return null;

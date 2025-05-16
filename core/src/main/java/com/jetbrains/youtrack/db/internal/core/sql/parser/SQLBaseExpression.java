@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -16,6 +17,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSe
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -304,8 +306,25 @@ public class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public IndexMetadataPath getIndexMetadataPath() {
-    if (identifier != null && identifier.isBaseIdentifier()) {
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+    return identifier != null &&
+        modifier == null && identifier.isGraphRelationFunction(session);
+  }
+
+  @Nullable
+  @Override
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+    if (isGraphRelationFunction(ctx.getDatabaseSession())) {
+      return identifier.getGraphRelationFunctionProperties(ctx);
+    }
+
+    return null;
+  }
+
+  @Override
+  public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
+    if (identifier != null && (identifier.isBaseIdentifier() || identifier.isGraphRelationFunction(
+        session))) {
       if (modifier != null) {
         var path = modifier.getIndexMetadataPath();
 

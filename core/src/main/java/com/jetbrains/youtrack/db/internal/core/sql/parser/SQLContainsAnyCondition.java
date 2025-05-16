@@ -368,7 +368,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
         return right.isEarlyCalculated(info.getCtx());
@@ -380,7 +380,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   @Override
   @Nullable
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getIndexMetadataPath();
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
     if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
         var value = right.execute((Result) null, ctx);

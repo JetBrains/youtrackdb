@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
@@ -18,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Deque;
 import java.util.List;
@@ -162,8 +164,8 @@ public class SQLMathExpression extends SimpleNode {
     PLUS(20) {
       @Override
       public Number apply(Integer left, Integer right) {
-        final Integer sum = left + right;
-        if (sum < 0 && left.intValue() > 0 && right.intValue() > 0)
+        final var sum = left + right;
+        if (sum < 0 && left > 0 && right > 0)
         // SPECIAL CASE: UPGRADE TO LONG
         {
           return left.longValue() + right;
@@ -684,17 +686,17 @@ public class SQLMathExpression extends SimpleNode {
       return null;
     }
 
-    if (childExpressions.size() == 0) {
+    if (childExpressions.isEmpty()) {
       return null;
     }
     if (childExpressions.size() == 1) {
-      return childExpressions.get(0).execute(iCurrentRecord, ctx);
+      return childExpressions.getFirst().execute(iCurrentRecord, ctx);
     }
 
     if (childExpressions.size() == 2) {
       var leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
       var rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
-      return operators.get(0).apply(leftValue, rightValue);
+      return operators.getFirst().apply(leftValue, rightValue);
     }
 
     return calculateWithOpPriority(iCurrentRecord, ctx);
@@ -705,27 +707,27 @@ public class SQLMathExpression extends SimpleNode {
     if (childExpressions == null || operators == null) {
       return null;
     }
-    if (childExpressions.size() == 0) {
+    if (childExpressions.isEmpty()) {
       return null;
     }
     if (childExpressions.size() == 1) {
-      return childExpressions.get(0).execute(iCurrentRecord, ctx);
+      return childExpressions.getFirst().execute(iCurrentRecord, ctx);
     }
 
     if (childExpressions.size() == 2) {
       var leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
       var rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
-      return operators.get(0).apply(leftValue, rightValue);
+      return operators.getFirst().apply(leftValue, rightValue);
     }
 
     return calculateWithOpPriority(iCurrentRecord, ctx);
   }
 
   private Object calculateWithOpPriority(Result iCurrentRecord, CommandContext ctx) {
-    Deque valuesStack = new ArrayDeque<>();
+    Deque<Object> valuesStack = new ArrayDeque<>();
     Deque<Operator> operatorsStack = new ArrayDeque<Operator>();
     if (childExpressions != null && operators != null) {
-      var nextExpression = childExpressions.get(0);
+      var nextExpression = childExpressions.getFirst();
       var val = nextExpression.execute(iCurrentRecord, ctx);
       valuesStack.push(val == null ? NULL_VALUE : val);
 
@@ -755,7 +757,7 @@ public class SQLMathExpression extends SimpleNode {
     Deque valuesStack = new ArrayDeque<>();
     Deque<Operator> operatorsStack = new ArrayDeque<Operator>();
     if (childExpressions != null && operators != null) {
-      var nextExpression = childExpressions.get(0);
+      var nextExpression = childExpressions.getFirst();
       var val = nextExpression.execute(iCurrentRecord, ctx);
       valuesStack.push(val == null ? NULL_VALUE : val);
 
@@ -783,7 +785,7 @@ public class SQLMathExpression extends SimpleNode {
   @Nullable
   private Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
     while (true) {
-      if (values.size() == 0) {
+      if (values.isEmpty()) {
         return null;
       }
       if (values.size() == 1) {
@@ -842,7 +844,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public SQLMathExpression unwrapIfNeeded() {
     if (this.childExpressions != null && this.childExpressions.size() == 1) {
-      return this.childExpressions.get(0);
+      return this.childExpressions.getFirst();
     }
     return this;
   }
@@ -996,7 +998,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .executeIndexedFunction(target, context, operator, right);
       }
     }
@@ -1018,7 +1020,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .canExecuteIndexedFunctionWithoutIndex(target, context, operator, right);
       }
     }
@@ -1040,7 +1042,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .allowsIndexedFunctionExecutionOnTarget(target, context, operator, right);
       }
     }
@@ -1065,7 +1067,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .executeIndexedFunctionAfterIndexSearch(target, context, operator, right);
       }
     }
@@ -1075,7 +1077,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isFunctionAny() {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isFunctionAny();
+        return this.childExpressions.getFirst().isFunctionAny();
       }
     }
     return false;
@@ -1084,7 +1086,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isFunctionAll() {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isFunctionAll();
+        return this.childExpressions.getFirst().isFunctionAll();
       }
     }
     return false;
@@ -1100,21 +1102,33 @@ public class SQLMathExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isGraphRelationFunction() {
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.getFirst().isGraphRelationFunction();
+        return childExpressions.getFirst().isGraphRelationFunction(session);
       }
     }
 
     return false;
   }
 
+
   @Nullable
-  public IndexMetadataPath getIndexMetadataPath() {
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.getFirst().getIndexMetadataPath();
+        return childExpressions.getFirst().getGraphRelationFunctionProperties(ctx);
+      }
+    }
+
+    return null;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
+    if (this.childExpressions != null) {
+      if (childExpressions.size() == 1) {
+        return childExpressions.getFirst().getIndexMetadataPath(session);
       }
     }
     return null;
@@ -1124,7 +1138,7 @@ public class SQLMathExpression extends SimpleNode {
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).getCollate(currentRecord, ctx);
+        return childExpressions.getFirst().getCollate(currentRecord, ctx);
       }
     }
     return null;
@@ -1186,7 +1200,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions.size() != 1) {
       return false;
     }
-    return this.childExpressions.get(0).isCount();
+    return this.childExpressions.getFirst().isCount();
   }
 
   public SimpleNode splitForAggregation(
@@ -1307,7 +1321,7 @@ public class SQLMathExpression extends SimpleNode {
         }
       }
     }
-    if (result.size() == 0) {
+    if (result.isEmpty()) {
       return null;
     }
     return result;
@@ -1317,7 +1331,7 @@ public class SQLMathExpression extends SimpleNode {
     if (childExpressions == null || childExpressions.size() != 1) {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot apply REMOVE " + this);
     }
-    childExpressions.get(0).applyRemove(result, ctx);
+    childExpressions.getFirst().applyRemove(result, ctx);
   }
 
   public static SQLMathExpression deserializeFromResult(Result fromResult) {

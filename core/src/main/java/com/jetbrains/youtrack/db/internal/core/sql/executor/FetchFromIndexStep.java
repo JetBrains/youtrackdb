@@ -911,4 +911,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   public String getIndexName() {
     return desc.getIndex().getName();
   }
+
+  public IndexSearchDescriptor getDesc() {
+    return desc;
+  }
 }

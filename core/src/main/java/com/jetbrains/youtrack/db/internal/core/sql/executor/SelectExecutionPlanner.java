@@ -2116,7 +2116,7 @@ public class SelectExecutionPlanner {
       var indexFieldFound = false;
       while (blockIterator.hasNext()) {
         var singleExp = blockIterator.next();
-        if (singleExp.isIndexAware(info)) {
+        if (singleExp.isIndexAware(info, ctx)) {
           indexFieldFound = true;
           indexKeyValue.getSubBlocks().add(singleExp.copy());
           blockIterator.remove();

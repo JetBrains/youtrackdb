@@ -442,7 +442,7 @@ public class SQLInCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
         if (rightMathExpression != null) {
@@ -457,7 +457,7 @@ public class SQLInCondition extends SQLBooleanExpression {
 
   @Override
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getIndexMetadataPath();
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
     if (path != null) {
       if (rightMathExpression != null && rightMathExpression.isEarlyCalculated(ctx)) {
         var value = rightMathExpression.execute((Result) null, ctx);

@@ -521,7 +521,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getIndexMetadataPath();
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
     if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
         var value = right.execute((Result) null, ctx);
@@ -539,9 +539,21 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
-    if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    if (left.isBaseIdentifier() || left.isGraphRelationFunction(ctx.getDatabaseSession())) {
+      String propertyName = null;
+
+      if (left.isBaseIdentifier()) {
+        propertyName = left.getDefaultAlias().getStringValue();
+      } else {
+        var properties = left.getGraphRelationFunctionProperties(ctx);
+
+        if (properties != null && properties.size() == 1) {
+          propertyName = properties.iterator().next();
+        }
+      }
+
+      if (info.getField().equals(propertyName)) {
         if (right.isEarlyCalculated(info.getCtx())) {
           if (operator instanceof SQLEqualsCompareOperator) {
             return true;

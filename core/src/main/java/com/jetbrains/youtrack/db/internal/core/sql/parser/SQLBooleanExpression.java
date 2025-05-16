@@ -315,7 +315,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     return false;
   }
 

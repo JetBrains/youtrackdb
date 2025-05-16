@@ -23,6 +23,9 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsCompareOperator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -4900,6 +4903,33 @@ public class SelectStatementExecutionTest extends DbTestBase {
         var resList = rs.toStatefulEdgeList();
         Assert.assertEquals(1, resList.size());
         Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var fetchFromIndex = steps.getFirst();
+        Assert.assertTrue(fetchFromIndex instanceof FetchFromIndexStep);
+
+        var keyCondition = ((FetchFromIndexStep) fetchFromIndex).getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(2, sqlAndBlock.getSubBlocks().size());
+        var firstExpression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(firstExpression instanceof SQLBinaryCondition);
+
+        var firstBinaryCondition = (SQLBinaryCondition) firstExpression;
+        Assert.assertEquals("inV()", firstBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":inV", firstBinaryCondition.getRight().toString());
+        Assert.assertTrue(firstBinaryCondition.getOperator() instanceof SQLEqualsCompareOperator);
+
+        var secondExpression = sqlAndBlock.getSubBlocks().getLast();
+        Assert.assertTrue(secondExpression instanceof SQLBinaryCondition);
+
+        var secondBinaryCondition = (SQLBinaryCondition) secondExpression;
+        Assert.assertEquals("outV()", secondBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":outV", secondBinaryCondition.getRight().toString());
+        Assert.assertTrue(secondBinaryCondition.getOperator() instanceof SQLEqualsCompareOperator);
       }
     });
   }
