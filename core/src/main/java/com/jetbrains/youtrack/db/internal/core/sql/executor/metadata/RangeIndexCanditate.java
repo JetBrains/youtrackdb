@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class RangeIndexCanditate implements IndexCandidate {
 
@@ -23,8 +22,8 @@ public class RangeIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
-    return Optional.of(this);
+  public IndexCandidate invert() {
+    return this;
   }
 
   @Override
@@ -33,8 +32,8 @@ public class RangeIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    return Optional.of(this);
+  public IndexCandidate normalize(CommandContext ctx) {
+    return this;
   }
 
   @Override

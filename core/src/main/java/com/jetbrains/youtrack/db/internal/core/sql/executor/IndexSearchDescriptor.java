@@ -102,9 +102,6 @@ public class IndexSearchDescriptor {
   /**
    * checks whether the condition has CONTAINSANY or similar expressions, that require multiple
    * index evaluations
-   *
-   * @param keyCondition
-   * @return
    */
   public boolean requiresMultipleIndexLookups() {
     for (var oBooleanExpression : getSubBlocks()) {

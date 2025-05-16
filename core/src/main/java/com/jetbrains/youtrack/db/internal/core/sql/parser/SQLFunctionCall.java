@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
@@ -15,7 +16,9 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.graph.SQLFunctionMove;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.graph.SQLGraphRelationsFunction;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -192,6 +195,41 @@ public class SQLFunctionCall extends SimpleNode {
   public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
     var function = SQLEngine.getFunction(session, name.getStringValue());
     return (function instanceof IndexableSQLFunction);
+  }
+
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+    var function = SQLEngine.getFunction(session, name.getStringValue());
+    return (function instanceof SQLGraphRelationsFunction);
+  }
+
+  @Nullable
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    var function = SQLEngine.getFunction(session, name.getStringValue());
+
+    if (function instanceof SQLGraphRelationsFunction graphRelationsFunction) {
+      var labels = new String[params.size()];
+
+      for (var i = 0; i < params.size(); i++) {
+        var param = params.get(i);
+
+        if (param.isEarlyCalculated(ctx)) {
+          var result = param.execute((Result) null, ctx);
+
+          if (result instanceof String label) {
+            labels[i] = label;
+          } else {
+            return null;
+          }
+        } else {
+          return null;
+        }
+      }
+
+      return graphRelationsFunction.propertyNamesForIndexCandidates(labels);
+    }
+
+    return null;
   }
 
   /**
@@ -564,5 +602,7 @@ public class SQLFunctionCall extends SimpleNode {
     }
     return string.equalsIgnoreCase("bothV");
   }
+
+
 }
 /* JavaCC - OriginalChecksum=290d4e1a3f663299452e05f8db718419 (do not edit this line) */

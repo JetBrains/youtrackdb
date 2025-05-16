@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -443,7 +442,7 @@ public class SQLInCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
         if (rightMathExpression != null) {
@@ -457,16 +456,16 @@ public class SQLInCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (rightMathExpression != null && rightMathExpression.isEarlyCalculated(ctx)) {
         var value = rightMathExpression.execute((Result) null, ctx);
-        return info.findExactIndex(path.get(), value, ctx);
+        return info.findExactIndex(path, value, ctx);
       }
     }
 
-    return Optional.empty();
+    return null;
   }
 
   @Override

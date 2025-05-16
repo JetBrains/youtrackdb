@@ -20,9 +20,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigur
 import java.util.ArrayList;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   public static final String NAME = "move";

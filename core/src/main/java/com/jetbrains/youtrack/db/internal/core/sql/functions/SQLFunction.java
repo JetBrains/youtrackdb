@@ -76,7 +76,9 @@ public interface SQLFunction {
    * A function can act both as transformation or filtering records. If the function may reduce the
    * number final records than it must return true.
    *
-   * <p>Function should return null for the {@linkplain #execute(Object, Result, Object, Object[], CommandContext) execute} method if the record must be excluded.
+   * <p>Function should return null for the
+   * {@linkplain #execute(Object, Result, Object, Object[], CommandContext) execute} method if the
+   * record must be excluded.
    *
    * @return true if the function acts as a record filter.
    */

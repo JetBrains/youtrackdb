@@ -8,12 +8,14 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -21,6 +23,9 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsCompareOperator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -4870,6 +4875,63 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertFalse(rs.hasNext());
     }
     session.commit();
+  }
+
+  @Test
+  public void testIndexWithEdgesFunctions() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestIndexWithEdgesFunctionsVertex");
+    var edgeClass = schema.createEdgeClass("TestIndexWithEdgesFunctionsEdge");
+
+    edgeClass.createIndex("EdgeIndex", INDEX_TYPE.NOTUNIQUE, Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+
+    var rids = session.computeInTx(transaction -> {
+      var v1 = transaction.newVertex(vertexClass);
+      var v2 = transaction.newVertex(vertexClass);
+
+      var edge = v1.addStateFulEdge(v2, edgeClass);
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query(
+          "select from TestIndexWithEdgesFunctionsEdge where inV() = :inV and outV() = :outV",
+          Map.of("outV", rids[0], "inV", rids[1]))) {
+
+        var resList = rs.toStatefulEdgeList();
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var fetchFromIndex = steps.getFirst();
+        Assert.assertTrue(fetchFromIndex instanceof FetchFromIndexStep);
+
+        var keyCondition = ((FetchFromIndexStep) fetchFromIndex).getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(2, sqlAndBlock.getSubBlocks().size());
+        var firstExpression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(firstExpression instanceof SQLBinaryCondition);
+
+        var firstBinaryCondition = (SQLBinaryCondition) firstExpression;
+        Assert.assertEquals("inV()", firstBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":inV", firstBinaryCondition.getRight().toString());
+        Assert.assertTrue(firstBinaryCondition.getOperator() instanceof SQLEqualsCompareOperator);
+
+        var secondExpression = sqlAndBlock.getSubBlocks().getLast();
+        Assert.assertTrue(secondExpression instanceof SQLBinaryCondition);
+
+        var secondBinaryCondition = (SQLBinaryCondition) secondExpression;
+        Assert.assertEquals("outV()", secondBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":outV", secondBinaryCondition.getRight().toString());
+        Assert.assertTrue(secondBinaryCondition.getOperator() instanceof SQLEqualsCompareOperator);
+      }
+    });
   }
 
   @Test

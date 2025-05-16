@@ -18,7 +18,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -369,7 +368,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
         return right.isEarlyCalculated(info.getCtx());
@@ -379,15 +378,16 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
+  @Nullable
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
         var value = right.execute((Result) null, ctx);
-        return info.findExactIndex(path.get(), value, ctx);
+        return info.findExactIndex(path, value, ctx);
       }
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override

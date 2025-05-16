@@ -6,9 +6,11 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -95,6 +97,23 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
           && functionCall.params.isEmpty();
     }
     return false;
+  }
+
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+    if (functionCall != null) {
+      return functionCall.isGraphRelationFunction(session);
+    }
+
+    return false;
+  }
+
+  @Nullable
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+    if (functionCall != null) {
+      return functionCall.getGraphRelationFunctionProperties(ctx);
+    }
+
+    return null;
   }
 
   public long estimateIndexedFunction(
@@ -356,5 +375,6 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     }
     return false;
   }
+
 }
 /* JavaCC - OriginalChecksum=0305fcf120ba9395b4c975f85cdade72 (do not edit this line) */

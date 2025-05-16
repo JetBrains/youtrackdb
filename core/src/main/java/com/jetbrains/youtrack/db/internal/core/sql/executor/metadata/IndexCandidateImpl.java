@@ -2,11 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class IndexCandidateImpl implements IndexCandidate {
 
@@ -26,7 +24,7 @@ public class IndexCandidateImpl implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
+  public IndexCandidate invert() {
     if (this.operation == Operation.Ge) {
       this.operation = Operation.Lt;
     } else if (this.operation == Operation.Gt) {
@@ -36,7 +34,7 @@ public class IndexCandidateImpl implements IndexCandidate {
     } else if (this.operation == Operation.Lt) {
       this.operation = Operation.Ge;
     }
-    return Optional.of(this);
+    return this;
   }
 
   @Override
@@ -45,13 +43,13 @@ public class IndexCandidateImpl implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
+  public IndexCandidate normalize(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var index = session.getSharedContext().getIndexManager().getIndex(name);
     if (property.getName().equals(index.getDefinition().getFields().getFirst())) {
-      return Optional.of(this);
+      return this;
     } else {
-      return Optional.empty();
+      return null;
     }
   }
 
