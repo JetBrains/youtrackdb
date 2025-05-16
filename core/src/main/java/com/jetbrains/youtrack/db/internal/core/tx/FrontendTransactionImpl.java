@@ -510,8 +510,14 @@ public class FrontendTransactionImpl implements
           }
         } else {
           if (txEntry.record != record) {
+            final var desc = switch (record) {
+              case Entity entity -> entity.getSchemaClassName();
+              case Blob ignored -> "BLOB";
+              default -> record.getClass().getSimpleName(); // in case we extend our hierarchy
+            };
             throw new TransactionException(session,
-                "Found record in transaction with the same RID but different instance");
+                "Found record in transaction with the same RID but different instance: " +
+                    desc + " " + record.getIdentity());
           }
           if (record.txEntry != txEntry) {
             throw new TransactionException(session,
