@@ -13,7 +13,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayDeque;
@@ -23,7 +23,6 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -407,6 +406,7 @@ public class SQLMathExpression extends SimpleNode {
         return null;
       }
 
+      @Override
       @Nullable
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -493,6 +493,7 @@ public class SQLMathExpression extends SimpleNode {
         return null;
       }
 
+      @Override
       @Nullable
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
@@ -527,6 +528,7 @@ public class SQLMathExpression extends SimpleNode {
         return left != null ? left : right;
       }
 
+      @Override
       public Object apply(Object left, Object right) {
         return left != null ? left : right;
       }
@@ -856,6 +858,7 @@ public class SQLMathExpression extends SimpleNode {
     this.operators.add(operator);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (childExpressions == null || operators == null) {
       return;
@@ -904,6 +907,7 @@ public class SQLMathExpression extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (childExpressions == null || operators == null) {
       return;
@@ -966,7 +970,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isIndexedFunctionCall(session);
+        return this.childExpressions.getFirst().isIndexedFunctionCall(session);
       }
     }
     return false;
@@ -978,7 +982,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .estimateIndexedFunction(target, context, operator, right);
       }
     }
@@ -1089,19 +1093,31 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isBaseIdentifier() {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).isBaseIdentifier();
+        return childExpressions.getFirst().isBaseIdentifier();
       }
     }
+
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  public boolean isGraphRelationFunction() {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).getPath();
+        return childExpressions.getFirst().isGraphRelationFunction();
       }
     }
-    return Optional.empty();
+
+    return false;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath() {
+    if (this.childExpressions != null) {
+      if (childExpressions.size() == 1) {
+        return childExpressions.getFirst().getIndexMetadataPath();
+      }
+    }
+    return null;
   }
 
   @Nullable
@@ -1211,6 +1227,7 @@ public class SQLMathExpression extends SimpleNode {
         "multiple math expressions do not allow plain aggregation");
   }
 
+  @Override
   public SQLMathExpression copy() {
     SQLMathExpression result = null;
     try {

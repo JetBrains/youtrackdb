@@ -13,11 +13,10 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -162,15 +161,28 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  public boolean isGraphRelationFunction() {
     if (mathExpression != null) {
-      return mathExpression.getPath();
+      return mathExpression.isGraphRelationFunction();
     }
-    if (value instanceof SQLMathExpression) {
-      return ((SQLMathExpression) value).getPath();
+    if (value instanceof SQLMathExpression) { // only backward stuff, remote it
+      return ((SQLMathExpression) value).isGraphRelationFunction();
     }
 
-    return Optional.empty();
+    return false;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath() {
+    if (mathExpression != null) {
+      return mathExpression.getIndexMetadataPath();
+    }
+
+    if (value instanceof SQLMathExpression) {
+      return ((SQLMathExpression) value).getIndexMetadataPath();
+    }
+
+    return null;
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {

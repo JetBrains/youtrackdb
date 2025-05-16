@@ -92,6 +92,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return true;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" ");
@@ -100,6 +101,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     right.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" ");
@@ -108,6 +110,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     right.toGenericStatement(builder);
   }
 
+  @Override
   protected boolean supportsBasicCalculation() {
     if (!operator.supportsBasicCalculation()) {
       return false;
@@ -212,6 +215,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
         target, context, operator, right.execute((Result) null, context));
   }
 
+  @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
@@ -424,6 +428,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Override
   public Result serialize(DatabaseSessionInternal db) {
     var result = new ResultInternal(db);
     result.setProperty("left", left.serialize(db));
@@ -432,6 +437,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     left = new SQLExpression(-1);
     left.deserialize(fromResult.getProperty("left"));
@@ -513,25 +519,26 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
-      var p = path.get();
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath();
+    if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
         var value = right.execute((Result) null, ctx);
         if (operator instanceof SQLEqualsCompareOperator) {
-          return info.findExactIndex(p, value, ctx);
+          return info.findExactIndex(path, value, ctx);
         } else if (operator instanceof SQLContainsKeyOperator) {
-          return info.findByKeyIndex(p, value, ctx);
+          return info.findByKeyIndex(path, value, ctx);
         } else if (operator.isRangeOperator()) {
-          return info.findAllowRangeIndex(p, operator.getOperation(), value, ctx);
+          return info.findAllowRangeIndex(path, operator.getOperation(), value, ctx);
         }
       }
     }
 
-    return Optional.empty();
+    return null;
   }
 
+  @Override
   public boolean isIndexAware(IndexSearchInfo info) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {

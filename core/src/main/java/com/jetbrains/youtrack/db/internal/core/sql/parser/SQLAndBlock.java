@@ -2,11 +2,11 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -128,6 +127,7 @@ public class SQLAndBlock extends SQLBooleanExpression {
     return result;
   }
 
+  @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
@@ -144,6 +144,7 @@ public class SQLAndBlock extends SQLBooleanExpression {
     return result.size() == 0 ? null : result;
   }
 
+  @Override
   public List<SQLAndBlock> flatten() {
     List<SQLAndBlock> result = new ArrayList<SQLAndBlock>();
     var first = true;
@@ -170,6 +171,7 @@ public class SQLAndBlock extends SQLBooleanExpression {
     return result;
   }
 
+  @Override
   protected SQLAndBlock encapsulateInAndBlock(SQLBooleanExpression item) {
     if (item instanceof SQLAndBlock) {
       return (SQLAndBlock) item;
@@ -286,19 +288,20 @@ public class SQLAndBlock extends SQLBooleanExpression {
     return this;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<IndexCandidate> result = Optional.empty();
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    IndexCandidate result = null;
     for (var exp : subBlocks) {
       var singleResult = exp.findIndex(info, ctx);
-      if (singleResult.isPresent()) {
-        if (result.isPresent()) {
-          if (result.get() instanceof MultipleIndexCanditate) {
-            ((MultipleIndexCanditate) result.get()).addCanditate(singleResult.get());
+      if (singleResult != null) {
+        if (result != null) {
+          if (result instanceof MultipleIndexCanditate) {
+            ((MultipleIndexCanditate) result).addCanditate(singleResult);
           } else {
             var mult = new MultipleIndexCanditate();
-            mult.addCanditate(result.get());
-            mult.addCanditate(singleResult.get());
-            result = Optional.of(mult);
+            mult.addCanditate(result);
+            mult.addCanditate(singleResult);
+            result = mult;
           }
         } else {
           result = singleResult;

@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -144,6 +143,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     return result;
   }
 
+  @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
       SchemaClass iSchemaClass, DatabaseSessionInternal database) {
@@ -160,6 +160,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     return result.isEmpty() ? null : result;
   }
 
+  @Override
   public List<SQLAndBlock> flatten() {
     List<SQLAndBlock> result = new ArrayList<>();
     for (var sub : subBlocks) {
@@ -273,28 +274,31 @@ public class SQLOrBlock extends SQLBooleanExpression {
     return this;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<IndexCandidate> result = Optional.empty();
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    IndexCandidate result = null;
     var first = true;
     for (var exp : subBlocks) {
       var singleResult = exp.findIndex(info, ctx);
-      if (singleResult.isPresent()) {
+
+      if (singleResult != null) {
         if (first) {
           result = singleResult;
 
         } else {
-          if (result.get() instanceof RequiredIndexCanditate) {
-            ((RequiredIndexCanditate) result.get()).addCanditate(singleResult.get());
+          if (result instanceof RequiredIndexCanditate) {
+            ((RequiredIndexCanditate) result).addCanditate(singleResult);
           } else {
             var req = new RequiredIndexCanditate();
-            req.addCanditate(result.get());
-            req.addCanditate(singleResult.get());
-            result = Optional.of(req);
+            req.addCanditate(result);
+            req.addCanditate(singleResult);
+            result = req;
           }
         }
       } else {
-        return Optional.empty();
+        return null;
       }
+
       first = false;
     }
     return result;

@@ -3,11 +3,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MetadataPath {
+public class IndexMetadataPath {
 
   private final List<String> path = new ArrayList<>();
 
-  public MetadataPath(String value) {
+  public IndexMetadataPath(String value) {
     this.path.add(value);
   }
 

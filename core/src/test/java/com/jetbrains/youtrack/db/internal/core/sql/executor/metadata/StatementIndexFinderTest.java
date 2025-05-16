@@ -1,7 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
@@ -53,8 +54,8 @@ public class StatementIndexFinderTest {
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertEquals("cl.name", result.get().getName());
-    assertEquals(Operation.Eq, result.get().getOperation());
+    assertEquals("cl.name", result.getName());
+    assertEquals(Operation.Eq, result.getOperation());
   }
 
   @Test
@@ -69,13 +70,13 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertEquals("cl.name", result.get().getName());
-    assertEquals(Operation.Gt, result.get().getOperation());
+    assertEquals("cl.name", result.getName());
+    assertEquals(Operation.Gt, result.getOperation());
 
     var stat1 = parseQuery("select from cl where name < 'a'");
     var result1 = stat1.getWhereClause().findIndex(finder, ctx);
-    assertEquals("cl.name", result1.get().getName());
-    assertEquals(Operation.Lt, result1.get().getOperation());
+    assertEquals("cl.name", result1.getName());
+    assertEquals(Operation.Lt, result1.getOperation());
   }
 
   @Test
@@ -88,8 +89,8 @@ public class StatementIndexFinderTest {
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertTrue((result.get() instanceof MultipleIndexCanditate));
-    var multiple = (MultipleIndexCanditate) result.get();
+    assertTrue((result instanceof MultipleIndexCanditate));
+    var multiple = (MultipleIndexCanditate) result;
     assertEquals("cl.name", multiple.getCanditates().get(0).getName());
     assertEquals(Operation.Eq, multiple.getCanditates().get(0).getOperation());
     assertEquals("cl.name", multiple.getCanditates().get(1).getName());
@@ -106,8 +107,8 @@ public class StatementIndexFinderTest {
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertTrue((result.get() instanceof RequiredIndexCanditate));
-    var required = (RequiredIndexCanditate) result.get();
+    assertTrue((result instanceof RequiredIndexCanditate));
+    var required = (RequiredIndexCanditate) result;
     assertEquals("cl.name", required.getCanditates().get(0).getName());
     assertEquals(Operation.Eq, required.getCanditates().get(0).getOperation());
     assertEquals("cl.name", required.getCanditates().get(1).getName());
@@ -125,8 +126,8 @@ public class StatementIndexFinderTest {
 
     var stat = parseQuery("select from cl where name < 'a' and name > 'b'");
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertTrue((result.get() instanceof MultipleIndexCanditate));
-    var multiple = (MultipleIndexCanditate) result.get();
+    assertTrue((result instanceof MultipleIndexCanditate));
+    var multiple = (MultipleIndexCanditate) result;
     assertEquals("cl.name", multiple.getCanditates().get(0).getName());
     assertEquals(Operation.Lt, multiple.getCanditates().get(0).getOperation());
     assertEquals("cl.name", multiple.getCanditates().get(1).getName());
@@ -144,8 +145,8 @@ public class StatementIndexFinderTest {
 
     var stat = parseQuery("select from cl where name < 'a' or name > 'b'");
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertTrue((result.get() instanceof RequiredIndexCanditate));
-    var required = (RequiredIndexCanditate) result.get();
+    assertTrue((result instanceof RequiredIndexCanditate));
+    var required = (RequiredIndexCanditate) result;
     assertEquals("cl.name", required.getCanditates().get(0).getName());
     assertEquals(Operation.Lt, required.getCanditates().get(0).getOperation());
     assertEquals("cl.name", required.getCanditates().get(1).getName());
@@ -163,8 +164,8 @@ public class StatementIndexFinderTest {
 
     var stat = parseQuery("select from cl where not name < 'a' ");
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertEquals("cl.name", result.get().getName());
-    assertEquals(Operation.Ge, result.get().getOperation());
+    assertEquals("cl.name", result.getName());
+    assertEquals(Operation.Ge, result.getOperation());
   }
 
   @Test
@@ -180,8 +181,8 @@ public class StatementIndexFinderTest {
 
     var stat = parseQuery("select from cl where friend.friend.name = 'a' ");
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
-    assertEquals(Operation.Eq, result.get().getOperation());
+    assertEquals("cl.friend->cl.friend->cl.name->", result.getName());
+    assertEquals(Operation.Eq, result.getOperation());
   }
 
   @Test
@@ -201,10 +202,10 @@ public class StatementIndexFinderTest {
                 + " name='b') ");
     var result = stat.getWhereClause().findIndex(finder, ctx);
 
-    assertTrue((result.get() instanceof RequiredIndexCanditate));
-    var required = (RequiredIndexCanditate) result.get();
-    assertTrue((required.getCanditates().get(0) instanceof MultipleIndexCanditate));
-    var first = (MultipleIndexCanditate) required.getCanditates().get(0);
+    assertTrue((result instanceof RequiredIndexCanditate));
+    var required = (RequiredIndexCanditate) result;
+    assertTrue((required.getCanditates().getFirst() instanceof MultipleIndexCanditate));
+    var first = (MultipleIndexCanditate) required.getCanditates().getFirst();
     assertEquals("cl.friend->cl.name->", first.getCanditates().get(0).getName());
     assertEquals(Operation.Eq, first.getCanditates().get(0).getOperation());
     assertEquals("cl.name", first.getCanditates().get(1).getName());
@@ -232,9 +233,9 @@ public class StatementIndexFinderTest {
                 + " name='b') ");
     var result = stat.getWhereClause().findIndex(finder, ctx);
 
-    assertTrue((result.get() instanceof RequiredIndexCanditate));
-    var required = (RequiredIndexCanditate) result.get();
-    var first = required.getCanditates().get(0);
+    assertTrue((result instanceof RequiredIndexCanditate));
+    var required = (RequiredIndexCanditate) result;
+    var first = required.getCanditates().getFirst();
     assertEquals("cl.name", first.getName());
     assertEquals(Operation.Eq, first.getOperation());
 
@@ -260,7 +261,7 @@ public class StatementIndexFinderTest {
                 + " other='b') ");
     var result = stat.getWhereClause().findIndex(finder, ctx);
 
-    assertFalse(result.isPresent());
+    assertNull(result);
   }
 
   @Test
@@ -276,9 +277,9 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertEquals("cl.name_surname", result.get().getName());
-    assertEquals(Operation.Eq, result.get().getOperation());
+    result = result.normalize(ctx);
+    assertEquals("cl.name_surname", result.getName());
+    assertEquals(Operation.Eq, result.getOperation());
   }
 
   @Test
@@ -294,9 +295,9 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertEquals("cl.name_surname", result.get().getName());
-    assertEquals(Operation.Eq, result.get().getOperation());
+    result = result.normalize(ctx);
+    assertEquals("cl.name_surname", result.getName());
+    assertEquals(Operation.Eq, result.getOperation());
   }
 
   @Test
@@ -314,8 +315,8 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertFalse(result.isPresent());
+    result = result.normalize(ctx);
+    assertNull(result);
   }
 
   @Test
@@ -331,8 +332,8 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertFalse(result.isPresent());
+    result = result.normalize(ctx);
+    assertNull(result);
   }
 
   @Test
@@ -350,15 +351,15 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertTrue(result.isPresent());
-    assertTrue((result.get() instanceof RequiredIndexCanditate));
-    var required = (RequiredIndexCanditate) result.get();
+    result = result.normalize(ctx);
+    assertNotNull(result);
+    assertTrue((result instanceof RequiredIndexCanditate));
+    var required = (RequiredIndexCanditate) result;
     assertEquals("cl.name_surname", required.getCanditates().get(0).getName());
     assertEquals(Operation.Eq, required.getCanditates().get(0).getOperation());
     assertEquals("cl.name_surname", required.getCanditates().get(1).getName());
     assertEquals(Operation.Eq, required.getCanditates().get(1).getOperation());
-    assertEquals(required.getCanditates().size(), 2);
+    assertEquals(2, required.getCanditates().size());
   }
 
   @Test
@@ -376,8 +377,8 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertFalse(result.isPresent());
+    result = result.normalize(ctx);
+    assertNull(result);
   }
 
   @Test
@@ -391,13 +392,13 @@ public class StatementIndexFinderTest {
     var ctx = new BasicCommandContext(session);
 
     var result = stat.getWhereClause().findIndex(finder, ctx);
-    result = result.get().normalize(ctx);
-    assertTrue((result.get() instanceof RangeIndexCanditate));
-    assertEquals("cl.name", result.get().getName());
-    assertEquals(Operation.Range, result.get().getOperation());
+    result = result.normalize(ctx);
+    assertTrue((result instanceof RangeIndexCanditate));
+    assertEquals("cl.name", result.getName());
+    assertEquals(Operation.Range, result.getOperation());
   }
 
-  private SQLSelectStatement parseQuery(String query) {
+  private static SQLSelectStatement parseQuery(String query) {
     InputStream is = new ByteArrayInputStream(query.getBytes());
     var osql = new YouTrackDBSql(is);
     try {

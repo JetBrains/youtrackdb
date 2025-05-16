@@ -81,6 +81,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return "true";
         }
 
+        @Override
         public void toString(Map<Object, Object> params, StringBuilder builder) {
           builder.append("true");
         }
@@ -167,6 +168,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return "false";
         }
 
+        @Override
         public void toString(Map<Object, Object> params, StringBuilder builder) {
           builder.append("false");
         }
@@ -242,6 +244,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
 
   public abstract boolean needsAliases(Set<String> aliases);
 
+  @Override
   public abstract SQLBooleanExpression copy();
 
   public boolean isEmpty() {
@@ -307,8 +310,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
    * returns true only if the expression does not need any further evaluation (eg. "true") and
    * always evaluates to true. It is supposed to be used as and optimization, and is allowed to
    * return false negatives
-   *
-   * @return
    */
   public boolean isAlwaysTrue() {
     return false;
@@ -318,8 +319,9 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     return false;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    return Optional.empty();
+  @Nullable
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    return null;
   }
 
   public boolean createRangeWith(SQLBooleanExpression match) {

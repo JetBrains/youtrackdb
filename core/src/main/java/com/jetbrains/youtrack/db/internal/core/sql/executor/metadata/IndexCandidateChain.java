@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class IndexCandidateChain implements IndexCandidate {
 
@@ -19,15 +18,16 @@ public class IndexCandidateChain implements IndexCandidate {
 
   @Override
   public String getName() {
-    var name = "";
+    var name = new StringBuilder();
     for (var index : indexes) {
-      name += index + "->";
+      name.append(index).append("->");
     }
-    return name;
+
+    return name.toString();
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
+  public IndexCandidate invert() {
     if (this.operation == Operation.Ge) {
       this.operation = Operation.Lt;
     } else if (this.operation == Operation.Gt) {
@@ -37,7 +37,7 @@ public class IndexCandidateChain implements IndexCandidate {
     } else if (this.operation == Operation.Lt) {
       this.operation = Operation.Ge;
     }
-    return Optional.of(this);
+    return this;
   }
 
   public void add(String name) {
@@ -48,13 +48,14 @@ public class IndexCandidateChain implements IndexCandidate {
     this.operation = operation;
   }
 
+  @Override
   public Operation getOperation() {
     return operation;
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    return Optional.empty();
+  public IndexCandidate normalize(CommandContext ctx) {
+    return null;
   }
 
   @Override

@@ -8,12 +8,14 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -4870,6 +4872,36 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Assert.assertFalse(rs.hasNext());
     }
     session.commit();
+  }
+
+  @Test
+  public void testIndexWithEdgesFunctions() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestIndexWithEdgesFunctionsVertex");
+    var edgeClass = schema.createEdgeClass("TestIndexWithEdgesFunctionsEdge");
+
+    edgeClass.createIndex("EdgeIndex", INDEX_TYPE.NOTUNIQUE, Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+
+    var rids = session.computeInTx(transaction -> {
+      var v1 = transaction.newVertex(vertexClass);
+      var v2 = transaction.newVertex(vertexClass);
+
+      var edge = v1.addStateFulEdge(v2, edgeClass);
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query(
+          "select from TestIndexWithEdgesFunctionsEdge where inV() = :inV and outV() = :outV",
+          Map.of("outV", rids[0], "inV", rids[1]))) {
+
+        var resList = rs.toStatefulEdgeList();
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
+      }
+    });
   }
 
   @Test
