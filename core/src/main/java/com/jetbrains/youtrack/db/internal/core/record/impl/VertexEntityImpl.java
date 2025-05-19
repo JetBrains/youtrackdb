@@ -298,7 +298,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     Collection<String> fieldNames = null;
     if (labels != null && labels.length > 0) {
       // EDGE LABELS: CREATE FIELD NAME TABLE (FASTER THAN EXTRACT FIELD NAMES FROM THE DOCUMENT)
-      var toLoadFieldNames = getEdgeFieldNames(session, schema, direction, labels);
+      var toLoadFieldNames = getAllPossibleEdgePropertyNames(schema, direction, EdgeType.BOTH,
+          labels);
 
       if (toLoadFieldNames != null) {
         // EARLY FETCH ALL THE FIELDS THAT MATTERS
@@ -359,27 +360,49 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
+  /// Returns names of properties that may be used for navigation to edges.
+  ///
+  /// Each label should be represented by a class in the database schema, and this class should
+  /// extend the [Edge#CLASS_NAME] class. If this condition is not satisfied, the label is filtered
+  /// out.
+  ///
+  /// As each label is represented by a class and the class may have subclasses, those subclasses
+  /// are also considered and added to the list of possible edge labels.
   @Nullable
-  private static ArrayList<String> getEdgeFieldNames(
-      DatabaseSessionInternal db, Schema schema, final Direction iDirection, String... classNames) {
-    if (classNames == null)
-    // FALL BACK TO LOAD ALL FIELD NAMES
-    {
+  public static List<String> getAllPossibleEdgePropertyNames(
+      Schema schema, final Direction direction, EdgeType edgeType, String... labels) {
+    if (labels == null) {
       return null;
     }
 
-    if (classNames.length == 1 && classNames[0].equalsIgnoreCase(EdgeInternal.CLASS_NAME))
-    // DEFAULT CLASS, TREAT IT AS NO CLASS/LABEL
-    {
-      return null;
+    if (labels.length == 1 && labels[0].equalsIgnoreCase(EdgeInternal.CLASS_NAME)
+        && edgeType != EdgeType.LIGHTWEIGHT) {
+      return switch (direction) {
+        case OUT -> List.of(DIRECTION_OUT_PREFIX);
+        case IN -> List.of(DIRECTION_IN_PREFIX);
+        case BOTH -> List.of(DIRECTION_OUT_PREFIX, DIRECTION_IN_PREFIX);
+      };
     }
 
-    Set<String> allClassNames = new HashSet<>();
-    for (var className : classNames) {
+    Set<String> allClassNames = new HashSet<>(labels.length);
+
+    for (var className : labels) {
       allClassNames.add(className);
       var clazz = schema.getClass(className);
+
       if (clazz != null) {
-        allClassNames.add(clazz.getName()); // needed for aliases
+        if (!clazz.isEdgeType()) {
+          continue;
+        }
+
+        if (edgeType == EdgeType.LIGHTWEIGHT && !clazz.isAbstract()) {
+          continue;
+        } else if (edgeType == EdgeType.STATEFUL && clazz.isAbstract()) {
+          continue;
+        }
+
+        allClassNames.add(clazz.getName());
+
         var subClasses = clazz.getAllSubclasses();
         for (var subClass : subClasses) {
           allClassNames.add(subClass.getName());
@@ -389,7 +412,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var result = new ArrayList<String>(2 * allClassNames.size());
     for (var className : allClassNames) {
-      switch (iDirection) {
+      switch (direction) {
         case OUT:
           result.add(DIRECTION_OUT_PREFIX + className);
           break;
@@ -478,62 +501,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     // NOT FOUND
     return null;
-  }
-
-  private static void replaceLinks(
-      final EntityImpl vertex,
-      final String fieldName,
-      final Identifiable iVertexToRemove,
-      final Identifiable newVertex) {
-    if (vertex == null) {
-      return;
-    }
-
-    final var fieldValue =
-        iVertexToRemove != null
-            ? vertex.getPropertyInternal(fieldName)
-            : vertex.removePropertyInternal(fieldName);
-    switch (fieldValue) {
-      case null -> {
-      }
-      case Identifiable identifiable -> {
-        // SINGLE RECORD
-
-        if (iVertexToRemove != null) {
-          if (!fieldValue.equals(iVertexToRemove)) {
-            return;
-          }
-          vertex.setPropertyInternal(fieldName, newVertex);
-        }
-      }
-      case LinkBag bag -> {
-        // COLLECTION OF RECORDS: REMOVE THE ENTRY
-        var found = false;
-        final var it = bag.iterator();
-        while (it.hasNext()) {
-          if (it.next().equals(iVertexToRemove.getIdentity())) {
-            // REMOVE THE OLD ENTRY
-            found = true;
-            it.remove();
-          }
-        }
-        if (found)
-        // ADD THE NEW ONE
-        {
-          bag.add(newVertex.getIdentity());
-        }
-      }
-      case Collection<?> collection -> {
-        @SuppressWarnings("unchecked") final var col = (Collection<Identifiable>) fieldValue;
-
-        if (col.remove(iVertexToRemove)) {
-          col.add(newVertex);
-        }
-      }
-      default -> {
-      }
-    }
-
   }
 
   public static void deleteLinks(Vertex vertex) {
@@ -823,5 +790,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   static void removeOutgoingEdge(DatabaseSessionInternal db, Vertex vertex, Edge edge) {
     removeLinkFromEdge(db, (EntityImpl) vertex, edge, Direction.OUT);
+  }
+
+  public enum EdgeType {
+    LIGHTWEIGHT,
+    STATEFUL,
+    BOTH
   }
 }

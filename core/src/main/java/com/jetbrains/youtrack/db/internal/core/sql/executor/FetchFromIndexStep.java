@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCollection;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsAnyCondition;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsKeyOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsTextCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsValueCondition;
@@ -336,7 +337,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           && !(indexDef instanceof IndexDefinitionMultiValue)) {
         secondValue = ((List<?>) secondValue).get(0);
       }
-      secondValue = unboxOResult(secondValue);
+      secondValue = unboxResult(secondValue);
       // TODO unwind collections!
       var thirdValue = thirdValueCombinations.get(i).execute((Result) null, ctx);
       if (thirdValue instanceof List
@@ -345,7 +346,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           && !(indexDef instanceof IndexDefinitionMultiValue)) {
         thirdValue = ((List<?>) thirdValue).get(0);
       }
-      thirdValue = unboxOResult(thirdValue);
+      thirdValue = unboxResult(thirdValue);
 
       try {
         secondValue = convertToIndexDefinitionTypes(session, condition, secondValue,
@@ -474,10 +475,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    *   <li>if it's a document, the RID is returned
    * </ul>
    */
-  private static Object unboxOResult(Object value) {
+  private static Object unboxResult(Object value) {
     if (value instanceof List) {
       try (var stream = ((List<?>) value).stream()) {
-        return stream.map(FetchFromIndexStep::unboxOResult).collect(Collectors.toList());
+        return stream.map(FetchFromIndexStep::unboxResult).collect(Collectors.toList());
       }
     }
     if (value instanceof Result) {
@@ -542,14 +543,16 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     if (val == null) {
       return null;
     }
+
     if (MultiValue.isMultiValue(val)) {
       List<Object> result = new ArrayList<>();
+
       var i = 0;
       for (var o : MultiValue.getMultiValueIterable(val)) {
         result.add(types[i++].convert(o, null, null, session));
       }
-      if (condition instanceof SQLAndBlock) {
 
+      if (condition instanceof SQLAndBlock) {
         for (var j = 0; j < ((SQLAndBlock) condition).getSubBlocks().size(); j++) {
           var subExp = ((SQLAndBlock) condition).getSubBlocks().get(j);
           if (subExp instanceof SQLBinaryCondition) {
@@ -608,9 +611,9 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var third = ((SQLBetweenCondition) condition).getThird();
 
     var secondValue = second.execute((Result) null, ctx);
-    secondValue = unboxOResult(secondValue);
+    secondValue = unboxResult(secondValue);
     var thirdValue = third.execute((Result) null, ctx);
-    thirdValue = unboxOResult(thirdValue);
+    thirdValue = unboxResult(thirdValue);
     var session = ctx.getDatabaseSession();
     var transaction = session.getActiveTransaction();
     var stream =
@@ -753,7 +756,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         return additionalOperator == null
             || (isIncludeOperator(additionalOperator) && isGreaterOperator(additionalOperator));
       }
-    } else if (exp instanceof SQLInCondition || exp instanceof SQLContainsAnyCondition) {
+    } else if (exp instanceof SQLInCondition || exp instanceof SQLContainsAnyCondition
+        || exp instanceof SQLContainsCondition) {
       return additional == null
           || (isIncludeOperator(additionalOperator) && isGreaterOperator(additionalOperator));
     } else if (exp instanceof SQLContainsTextCondition) {
@@ -806,7 +810,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         return additionalOperator == null
             || (isIncludeOperator(additionalOperator) && isLessOperator(additionalOperator));
       }
-    } else if (exp instanceof SQLInCondition || exp instanceof SQLContainsAnyCondition) {
+    } else if (exp instanceof SQLInCondition || exp instanceof SQLContainsAnyCondition
+        || exp instanceof SQLContainsCondition) {
       return additionalOperator == null
           || (isIncludeOperator(additionalOperator) && isLessOperator(additionalOperator));
     } else if (exp instanceof SQLContainsTextCondition) {

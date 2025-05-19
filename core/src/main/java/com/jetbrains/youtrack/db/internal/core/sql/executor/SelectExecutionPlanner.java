@@ -2111,7 +2111,7 @@ public class SelectExecutionPlanner {
               isMap(clazz, indexField),
               isIndexByKey(index, indexField),
               isIndexByValue(index, indexField),
-              ctx);
+              clazz, ctx);
       blockIterator = blockCopy.getSubBlocks().iterator();
       var indexFieldFound = false;
       while (blockIterator.hasNext()) {
@@ -2120,8 +2120,7 @@ public class SelectExecutionPlanner {
           indexFieldFound = true;
           indexKeyValue.getSubBlocks().add(singleExp.copy());
           blockIterator.remove();
-          if (singleExp instanceof SQLBinaryCondition
-              && info.allowsRange()
+          if (singleExp instanceof SQLBinaryCondition && info.allowsRangeQueries()
               && ((SQLBinaryCondition) singleExp).getOperator().isRangeOperator()) {
             // look for the opposite condition, on the same field, for range queries (the other
             // side of the range)

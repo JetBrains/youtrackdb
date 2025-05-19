@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -30,7 +31,7 @@ public class SQLFunctionCall extends SimpleNode {
 
   protected SQLIdentifier name;
 
-  protected List<SQLExpression> params = new ArrayList<SQLExpression>();
+  protected List<SQLExpression> params = new ArrayList<>();
 
   public SQLFunctionCall(int id) {
     super(id);
@@ -203,7 +204,8 @@ public class SQLFunctionCall extends SimpleNode {
   }
 
   @Nullable
-  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
     var session = ctx.getDatabaseSession();
     var function = SQLEngine.getFunction(session, name.getStringValue());
 
@@ -226,7 +228,7 @@ public class SQLFunctionCall extends SimpleNode {
         }
       }
 
-      return graphRelationsFunction.propertyNamesForIndexCandidates(labels);
+      return graphRelationsFunction.propertyNamesForIndexCandidates(labels, schemaClass, session);
     }
 
     return null;

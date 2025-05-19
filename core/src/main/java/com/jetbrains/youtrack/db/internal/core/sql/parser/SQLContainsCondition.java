@@ -7,7 +7,10 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -274,6 +277,58 @@ public class SQLContainsCondition extends SQLBooleanExpression {
       }
       return true;
     }
+  }
+
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+
+    if (path != null) {
+      if (right.isEarlyCalculated(ctx)) {
+        var value = right.execute((Result) null, ctx);
+        return info.findByKeyIndex(path, value, ctx);
+      }
+    }
+
+    return null;
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    if (left.isBaseIdentifier() || left.isGraphRelationFunction(ctx.getDatabaseSession())) {
+      var indexMatch = false;
+
+      if (left.isBaseIdentifier()) {
+        indexMatch = info.fieldName().equals(left.getDefaultAlias().getStringValue());
+      } else {
+        var properties = left.getGraphRelationProperties(ctx, info.schemaClass());
+
+        if (properties != null) {
+          indexMatch = properties.contains(info.fieldName());
+        }
+      }
+
+      if (indexMatch) {
+        if (right.isEarlyCalculated(info.ctx())) {
+          return !info.isMap();
+        }
+      }
+    }
+
+    return false;
+  }
+
+
+  @Nullable
+  @Override
+  public SQLExpression resolveKeyFrom(SQLBinaryCondition additional) {
+    return right;
+  }
+
+  @Nullable
+  @Override
+  public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
+    return right;
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {

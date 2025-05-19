@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
@@ -23,7 +22,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     super(owner);
   }
 
-  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalProperty global) {
+  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
     super(oClassImpl, global);
   }
 

@@ -310,11 +310,11 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
   @Override
   public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
         return expression != null
-            && expression.isEarlyCalculated(info.getCtx())
+            && expression.isEarlyCalculated(info.ctx())
             && info.isMap()
-            && info.isIndexByValue();
+            && info.indexedByValue();
       }
     }
     return false;

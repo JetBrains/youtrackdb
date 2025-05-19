@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -1114,10 +1115,11 @@ public class SQLMathExpression extends SimpleNode {
 
 
   @Nullable
-  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.getFirst().getGraphRelationFunctionProperties(ctx);
+        return childExpressions.getFirst().getGraphRelationFunctionProperties(ctx, schemaClass);
       }
     }
 

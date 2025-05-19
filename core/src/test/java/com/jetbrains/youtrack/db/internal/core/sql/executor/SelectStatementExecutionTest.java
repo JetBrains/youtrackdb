@@ -8,9 +8,11 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -4877,8 +4879,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /// Checks that composite index is used if we use both inV and outV functions to select edge
+  /// needed.
   @Test
-  public void testIndexWithEdgesFunctions() {
+  public void testCompositeIndexWithInVOutVFunctions() {
     var schema = session.getSchema();
 
     var vertexClass = schema.createVertexClass("TestIndexWithEdgesFunctionsVertex");
@@ -4930,6 +4934,57 @@ public class SelectStatementExecutionTest extends DbTestBase {
         Assert.assertEquals("outV()", secondBinaryCondition.getLeft().toString());
         Assert.assertEquals(":outV", secondBinaryCondition.getRight().toString());
         Assert.assertTrue(secondBinaryCondition.getOperator() instanceof SQLEqualsCompareOperator);
+      }
+    });
+  }
+
+  @Test
+  public void testOutEStateFullIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestOutEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesPropery = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    vertexClass.createIndex("testOutEStateFullIndexUsageInGraphIndex", INDEX_TYPE.NOTUNIQUE,
+        oudEdgesPropery.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "outE('" + edgeClassName + "') contains :outE", Map.of("outE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[0], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var fetchFromIndex = steps.getFirst();
+        Assert.assertTrue(fetchFromIndex instanceof FetchFromIndexStep);
       }
     });
   }

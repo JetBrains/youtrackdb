@@ -541,32 +541,32 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier() || left.isGraphRelationFunction(ctx.getDatabaseSession())) {
-      String propertyName = null;
-
+      var indexMatch = false;
       if (left.isBaseIdentifier()) {
-        propertyName = left.getDefaultAlias().getStringValue();
+        indexMatch = info.fieldName().equals(left.getDefaultAlias().getStringValue());
       } else {
-        var properties = left.getGraphRelationFunctionProperties(ctx);
+        var properties = left.getGraphRelationProperties(ctx, info.schemaClass());
 
-        if (properties != null && properties.size() == 1) {
-          propertyName = properties.iterator().next();
+        if (properties != null) {
+          indexMatch = properties.contains(info.fieldName());
         }
       }
 
-      if (info.getField().equals(propertyName)) {
-        if (right.isEarlyCalculated(info.getCtx())) {
+      if (indexMatch) {
+        if (right.isEarlyCalculated(info.ctx())) {
           if (operator instanceof SQLEqualsCompareOperator) {
             return true;
           } else if (operator instanceof SQLContainsKeyOperator
               && info.isMap()
-              && info.isIndexByKey()) {
+              && info.indexedByKey()) {
             return true;
           } else {
-            return info.allowsRange() && operator.isRangeOperator();
+            return info.allowsRangeQueries() && operator.isRangeOperator();
           }
         }
       }
     }
+
     return false;
   }
 

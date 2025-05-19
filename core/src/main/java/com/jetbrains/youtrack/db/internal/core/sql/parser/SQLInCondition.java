@@ -444,9 +444,9 @@ public class SQLInCondition extends SQLBooleanExpression {
   @Override
   public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
         if (rightMathExpression != null) {
-          return rightMathExpression.isEarlyCalculated(info.getCtx());
+          return rightMathExpression.isEarlyCalculated(info.ctx());
         } else {
           return rightParam != null;
         }

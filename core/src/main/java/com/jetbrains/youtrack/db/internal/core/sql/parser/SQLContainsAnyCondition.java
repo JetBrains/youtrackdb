@@ -370,8 +370,8 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   @Override
   public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
-        return right.isEarlyCalculated(info.getCtx());
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
+        return right.isEarlyCalculated(info.ctx());
       }
     }
     return false;
