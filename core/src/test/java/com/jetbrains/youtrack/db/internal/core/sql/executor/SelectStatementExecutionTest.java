@@ -4946,14 +4946,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var edgeClass = schema.createEdgeClass("TestOutEStateFullIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
-    var oudEdgesPropery = vertexClass.createProperty(
+    var oudEdgesProperty = vertexClass.createProperty(
         Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
         PropertyType.LINKBAG);
 
     var vertexClassName = vertexClass.getName();
 
-    vertexClass.createIndex("testOutEStateFullIndexUsageInGraphIndex", INDEX_TYPE.NOTUNIQUE,
-        oudEdgesPropery.getName());
+    var indexName = "TestOutEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
       Vertex v1 = null;
@@ -4983,8 +4983,63 @@ public class SelectStatementExecutionTest extends DbTestBase {
         var steps = executionPlan.getSteps();
         Assert.assertFalse(steps.isEmpty());
 
-        var fetchFromIndex = steps.getFirst();
-        Assert.assertTrue(fetchFromIndex instanceof FetchFromIndexStep);
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
+      }
+    });
+  }
+
+  @Test
+  public void testInEStateFullIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestInEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestInEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestInEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "inE('" + edgeClassName + "') contains :inE", Map.of("inE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[1], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
       }
     });
   }
